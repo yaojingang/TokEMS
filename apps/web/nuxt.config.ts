@@ -9,6 +9,14 @@ export default defineNuxtConfig({
     optimizeDeps: {
       include: ['qrcode.vue'],
     },
+    ssr: {
+      external: ['zod'],
+    },
+  },
+  nitro: {
+    externals: {
+      external: ['zod'],
+    },
   },
   runtimeConfig: {
     apiInternalBase: process.env.NUXT_API_INTERNAL_BASE ?? 'http://localhost:4100/api/v1',
