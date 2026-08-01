@@ -22,7 +22,7 @@
     "@conference/security": "workspace:*",
     "@fastify/cookie": "11.1.2",
     "@fastify/helmet": "13.1.0",
-    "@fastify/static": "10.1.1",
+    "@fastify/static": "10.1.2",
     "@nestjs/common": "11.1.28",
     "@nestjs/config": "4.0.4",
     "@nestjs/core": "11.1.28",
