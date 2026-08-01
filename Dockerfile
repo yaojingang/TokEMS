@@ -95,7 +95,7 @@ EXPOSE 3000
 
 CMD ["node", "server/index.mjs"]
 
-FROM nginx:1.29-alpine AS admin
+FROM nginx:1.31-alpine AS admin
 
 COPY docker/admin.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /workspace/apps/admin/dist/ /usr/share/nginx/html/
@@ -105,7 +105,7 @@ EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
 
-FROM nginx:1.29-alpine AS gateway
+FROM nginx:1.31-alpine AS gateway
 
 COPY docker/gateway.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /workspace/.build-info/gateway/version.json /usr/share/nginx/html/version.json
