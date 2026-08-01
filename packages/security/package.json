@@ -19,7 +19,7 @@
     "test": "vitest run src"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
+    "@types/node": "26.1.2",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
   }
