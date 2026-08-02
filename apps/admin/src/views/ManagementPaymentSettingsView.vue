@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { WeChatPayConfiguration } from '@conference/contracts';
+import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -179,8 +180,7 @@ onMounted(load);
 </script>
 
 <template>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入支付设置…</div>
   <div v-else-if="!loaded" class="admin-loading">
     <button class="btn btn-secondary" type="button" @click="load">重新载入</button>
@@ -251,7 +251,9 @@ onMounted(load);
             <input
               v-model="form.channels.jsapi"
               type="checkbox"
-              :disabled="!canManage || (!form.oauthEnabled && !configuration?.secretsPresent.appSecret)"
+              :disabled="
+                !canManage || (!form.oauthEnabled && !configuration?.secretsPresent.appSecret)
+              "
             />
             <span>JSAPI（微信内）</span>
           </label>
@@ -410,9 +412,8 @@ onMounted(load);
       </section>
       <div class="settings-security-note">
         <strong>安全策略</strong>
-        <span>密钥使用 AES-256-GCM
-          加密保存。OAuth AppSecret 永不返回前端，也不写入代理或追踪日志。稳定 notify
-          固定在大会主站 API，支付页入口可单独回滚。</span>
+        <span>密钥使用 AES-256-GCM 加密保存。OAuth AppSecret 永不返回前端，也不写入代理或追踪日志。稳定
+          notify 固定在大会主站 API，支付页入口可单独回滚。</span>
       </div>
       <div v-if="configuration?.lastError" class="settings-inline-error">
         最近一次验证：{{ configuration.lastError }}

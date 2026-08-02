@@ -38,6 +38,9 @@ export function useConferenceApi() {
   const config = useRuntimeConfig();
   const baseURL = import.meta.server ? config.apiInternalBase : config.public.apiBase;
   const organizationSlug = config.public.organizationSlug;
+  const eventState = useState<PublicEvent>('conference.public-event', () =>
+    structuredClone(DEMO_EVENT),
+  );
 
   function isNetworkFailure(error: unknown) {
     const failure = error as { response?: { status?: number }; statusCode?: number };
@@ -491,12 +494,13 @@ export function useConferenceApi() {
   }
 
   function readEvent(): PublicEvent | undefined {
-    if (!import.meta.client) return undefined;
+    if (!import.meta.client) return eventState.value;
     const value = sessionStorage.getItem('conference.event');
-    return value ? (JSON.parse(value) as PublicEvent) : undefined;
+    return value ? (JSON.parse(value) as PublicEvent) : eventState.value;
   }
 
   function saveEvent(event: PublicEvent) {
+    eventState.value = event;
     if (import.meta.client) sessionStorage.setItem('conference.event', JSON.stringify(event));
   }
 
@@ -535,6 +539,7 @@ export function useConferenceApi() {
   }
 
   return {
+    eventState,
     getEvent,
     getSiteConfiguration,
     createRegistration,

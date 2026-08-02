@@ -30,6 +30,7 @@ import {
   type WeChatPaymentPrepareResult,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   auditLogs,
   events,
   orderAccessTokens,
@@ -55,21 +56,15 @@ const WECHAT_PAY_API = 'https://api.mch.weixin.qq.com';
 const WECHAT_OAUTH_AUTHORIZE = 'https://open.weixin.qq.com/connect/oauth2/authorize';
 const WECHAT_OAUTH_TOKEN = 'https://api.weixin.qq.com/sns/oauth2/access_token';
 const REDIS_PREFIX = 'tokems:wechat:';
-const ACTIVE_ATTEMPT_STATUSES = [
-  'preparing',
-  'pending',
-  'processing',
-  'query_pending',
-  'close_pending',
-  'unknown',
-] as const;
 const PREPARE_CLAIM_TTL_MS = 15_000;
 const QUERY_THROTTLE_MS = 15_000;
-const FORCE_QUERY_COALESCE_MS = 1_000;
+const FORCE_QUERY_COALESCE_MS = 3_000;
 const PAYMENT_INBOX_MAX_ATTEMPTS = 10;
 const PAYMENT_INBOX_PROCESSING_LEASE_MS = 60_000;
+const PAYMENT_INBOX_RETRY_BASE_MS = 15_000;
+const PAYMENT_INBOX_RETRY_MAX_MS = 5 * 60_000;
 const PAYMENT_MAINTENANCE_INTERVAL_MS = 15_000;
-const PAYMENT_CLOSE_LEASE_MS = 30_000;
+const PAYMENT_CLOSE_LEASE_MS = 45_000;
 const OAUTH_STATE_TTL_SECONDS = 600;
 const OAUTH_SESSION_TTL_SECONDS = 1800;
 const OAUTH_HANDOFF_TTL_SECONDS = 120;
@@ -342,6 +337,33 @@ function h5RedirectUrl(orderId: string) {
 }
 
 /**
+ * Selects notification inbox rows whose retry lease is currently available.
+ * Failed rows use exponential backoff so multiple API replicas cannot exhaust
+ * the durable retry budget during a short downstream outage.
+ */
+function retryablePaymentInbox(staleCutoff: Date) {
+  return or(
+    eq(paymentNotificationInbox.status, 'received'),
+    and(
+      eq(paymentNotificationInbox.status, 'failed'),
+      sql`${paymentNotificationInbox.updatedAt} <= now() - (
+        interval '1 millisecond' * least(
+          ${PAYMENT_INBOX_RETRY_MAX_MS},
+          ${PAYMENT_INBOX_RETRY_BASE_MS} * power(
+            2,
+            greatest(${paymentNotificationInbox.attemptCount} - 1, 0)
+          )
+        )
+      )`,
+    ),
+    and(
+      eq(paymentNotificationInbox.status, 'processing'),
+      lt(paymentNotificationInbox.updatedAt, staleCutoff),
+    ),
+  );
+}
+
+/**
  * WeChat Pay API v3 multi-channel service (Native / JSAPI / H5).
  *
  * Security constraints:
@@ -353,6 +375,7 @@ function h5RedirectUrl(orderId: string) {
 export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(WeChatPayService.name);
   private maintenanceTimer?: ReturnType<typeof setInterval>;
+  private maintenanceRunning = false;
 
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
@@ -378,6 +401,8 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * Runs durable notification recovery and expired-attempt reconciliation.
    */
   private async runPaymentMaintenance() {
+    if (this.maintenanceRunning) return;
+    this.maintenanceRunning = true;
     try {
       await this.reconcilePaymentNotificationInbox();
       await this.reconcileExpiredPaymentAttempts();
@@ -385,6 +410,8 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       this.logger.error(
         `Payment maintenance failed: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
+    } finally {
+      this.maintenanceRunning = false;
     }
   }
 
@@ -902,7 +929,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         and(
           eq(payments.orderId, orderId),
           eq(payments.provider, PROVIDER),
-          inArray(payments.status, [...ACTIVE_ATTEMPT_STATUSES]),
+          inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
         ),
       )
       .limit(1);
@@ -917,7 +944,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * @returns Connection test result.
    */
   async testConnection(organizationId: string, actorId: string): Promise<WeChatPayConnectionTest> {
-    const { config, credentials } = await this.requiredIntegration(organizationId);
+    const { row, config, credentials } = await this.requiredIntegration(organizationId);
     const verifiedAt = new Date();
     try {
       const echoMessage = `tokems-${organizationId}-${verifiedAt.getTime()}`;
@@ -935,7 +962,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           HttpStatus.BAD_GATEWAY,
         );
       }
-      await this.db()
+      const [verified] = await this.db()
         .update(organizationIntegrations)
         .set({
           status: 'verified',
@@ -946,10 +973,25 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         })
         .where(
           and(
+            eq(organizationIntegrations.id, row.id),
             eq(organizationIntegrations.organizationId, organizationId),
             eq(organizationIntegrations.provider, PROVIDER),
+            eq(organizationIntegrations.status, row.status),
+            eq(organizationIntegrations.config, row.config),
+            row.encryptedCredentials
+              ? eq(organizationIntegrations.encryptedCredentials, row.encryptedCredentials)
+              : isNull(organizationIntegrations.encryptedCredentials),
+            eq(organizationIntegrations.keyVersion, row.keyVersion),
           ),
+        )
+        .returning({ id: organizationIntegrations.id });
+      if (!verified) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '验证期间支付配置已经变化，请重新测试最新配置',
+          HttpStatus.CONFLICT,
         );
+      }
       return {
         ok: true,
         status: 'verified',
@@ -969,8 +1011,15 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         })
         .where(
           and(
+            eq(organizationIntegrations.id, row.id),
             eq(organizationIntegrations.organizationId, organizationId),
             eq(organizationIntegrations.provider, PROVIDER),
+            eq(organizationIntegrations.status, row.status),
+            eq(organizationIntegrations.config, row.config),
+            row.encryptedCredentials
+              ? eq(organizationIntegrations.encryptedCredentials, row.encryptedCredentials)
+              : isNull(organizationIntegrations.encryptedCredentials),
+            eq(organizationIntegrations.keyVersion, row.keyVersion),
           ),
         );
       return {
@@ -1008,7 +1057,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           and(
             eq(payments.orderId, orderId),
             eq(payments.provider, PROVIDER),
-            inArray(payments.status, [...ACTIVE_ATTEMPT_STATUSES]),
+            inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
           ),
         )
         .limit(1);
@@ -1548,24 +1597,28 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
 
     const queryGapMs = options.force ? FORCE_QUERY_COALESCE_MS : QUERY_THROTTLE_MS;
     const queryCutoff = new Date(Date.now() - queryGapMs);
+    const queryClaimedAt = new Date();
     const [claimedAttempt] = await this.db()
       .update(payments)
       .set({
-        lastQueriedAt: new Date(),
+        lastQueriedAt: queryClaimedAt,
         queryCount: sql`${payments.queryCount} + 1`,
         status: attempt.status === 'pending' ? 'query_pending' : attempt.status,
-        updatedAt: new Date(),
+        updatedAt: queryClaimedAt,
       })
       .where(
         and(
           eq(payments.id, attempt.id),
+          eq(payments.status, attempt.status),
           or(isNull(payments.lastQueriedAt), lt(payments.lastQueriedAt, queryCutoff)),
         ),
       )
       .returning();
     if (!claimedAttempt) return undefined;
 
-    const { config, credentials } = await this.requiredIntegration(row.order.organizationId);
+    const { config, credentials } = await this.requiredIntegration(row.order.organizationId, {
+      requireVerified: true,
+    });
     const result = (await this.request(
       'GET',
       `/v3/pay/transactions/out-trade-no/${encodeURIComponent(attempt.outTradeNo)}?mchid=${encodeURIComponent(config.mchId)}`,
@@ -1591,7 +1644,13 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         closedAt: result.trade_state === 'CLOSED' ? new Date() : claimedAttempt.closedAt,
         updatedAt: new Date(),
       })
-      .where(eq(payments.id, attempt.id));
+      .where(
+        and(
+          eq(payments.id, claimedAttempt.id),
+          eq(payments.status, claimedAttempt.status),
+          eq(payments.lastQueriedAt, claimedAttempt.lastQueriedAt!),
+        ),
+      );
 
     if (result.trade_state !== 'SUCCESS') {
       return undefined;
@@ -1667,7 +1726,9 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * @returns Parsed WeChat transaction.
    */
   private async queryWeChatTransaction(outTradeNo: string, organizationId: string) {
-    const { config, credentials } = await this.requiredIntegration(organizationId);
+    const { config, credentials } = await this.requiredIntegration(organizationId, {
+      requireVerified: true,
+    });
     return (await this.request(
       'GET',
       `/v3/pay/transactions/out-trade-no/${encodeURIComponent(outTradeNo)}?mchid=${encodeURIComponent(config.mchId)}`,
@@ -1707,7 +1768,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           and(
             eq(payments.orderId, orderId),
             eq(payments.provider, PROVIDER),
-            inArray(payments.status, [...ACTIVE_ATTEMPT_STATUSES]),
+            inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
           ),
         )
         .limit(1);
@@ -1718,23 +1779,24 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       ) {
         return { busy: true as const };
       }
+      const claimedAt = new Date();
       const [updated] = await tx
         .update(payments)
-        .set({ status: 'close_pending', updatedAt: new Date() })
-        .where(eq(payments.id, attempt.id))
+        .set({ status: 'close_pending', updatedAt: claimedAt })
+        .where(and(eq(payments.id, attempt.id), eq(payments.status, attempt.status)))
         .returning();
-      return updated!;
+      return updated ?? { busy: true as const };
     });
   }
 
   /**
    * Finalizes attempt status after WeChat close/query coordination.
    *
-   * @param attemptId - Payment attempt UUID.
+   * @param attempt - Claimed payment attempt snapshot.
    * @param patch - Status fields to persist.
    */
   private async finalizeAttemptStatus(
-    attemptId: string,
+    attempt: PaymentAttempt,
     patch: {
       status: PaymentAttempt['status'];
       wechatTradeState?: string;
@@ -1742,7 +1804,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       payload?: Record<string, unknown>;
     },
   ) {
-    await this.db()
+    const [updated] = await this.db()
       .update(payments)
       .set({
         status: patch.status,
@@ -1751,7 +1813,21 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         ...(patch.payload ? { payload: patch.payload } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(payments.id, attemptId));
+      .where(
+        and(
+          eq(payments.id, attempt.id),
+          eq(payments.status, 'close_pending'),
+          eq(payments.updatedAt, attempt.updatedAt),
+        ),
+      )
+      .returning({ id: payments.id });
+    if (!updated) {
+      throw new DomainError(
+        API_ERROR_CODES.INVALID_STATE_TRANSITION,
+        '微信支付状态协调租约已经变化，请稍后重试',
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   /**
@@ -1799,7 +1875,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         authorized.order.organizationId,
       );
     } catch (error) {
-      await this.finalizeAttemptStatus(attempt.id, {
+      await this.finalizeAttemptStatus(attempt, {
         status: 'unknown',
         wechatTradeState: 'UNKNOWN',
         payload: {
@@ -1819,7 +1895,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     }
 
     if (transaction.trade_state === 'USERPAYING') {
-      await this.finalizeAttemptStatus(attempt.id, {
+      await this.finalizeAttemptStatus(attempt, {
         status: 'query_pending',
         wechatTradeState: 'USERPAYING',
       });
@@ -1833,6 +1909,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     if (transaction.trade_state !== 'CLOSED' && transaction.trade_state !== 'REVOKED') {
       const { config, credentials } = await this.requiredIntegration(
         authorized.order.organizationId,
+        { requireVerified: true },
       );
       try {
         await this.closeWeChatOrder(attempt.outTradeNo, config, credentials);
@@ -1847,7 +1924,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
             return { closed: false, paid: toPaid(paidTx) };
           }
         }
-        await this.finalizeAttemptStatus(attempt.id, {
+        await this.finalizeAttemptStatus(attempt, {
           status: 'unknown',
           wechatTradeState: transaction.trade_state,
           payload: {
@@ -1870,7 +1947,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         return { closed: false, paid: toPaid(confirmed) };
       }
       if (confirmed.trade_state !== 'CLOSED' && confirmed.trade_state !== 'REVOKED') {
-        await this.finalizeAttemptStatus(attempt.id, {
+        await this.finalizeAttemptStatus(attempt, {
           status: 'unknown',
           wechatTradeState: confirmed.trade_state,
         });
@@ -1883,7 +1960,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     }
 
     const now = new Date();
-    await this.finalizeAttemptStatus(attempt.id, {
+    await this.finalizeAttemptStatus(attempt, {
       status: 'closed',
       wechatTradeState: 'CLOSED',
       closedAt: now,
@@ -1957,18 +2034,18 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    *
    * @param orderId - Order UUID.
    * @param accessToken - Bearer order access token.
-   * @param returnPath - Optional relative path under the payment surface.
+   * @param _returnPath - Legacy client hint; redirects are pinned to the authorized order page.
    * @returns Authorize URL and state expiry.
    */
   async startOAuth(
     orderId: string,
     accessToken: string,
-    returnPath = `/order/${orderId}`,
+    _returnPath = `/order/${orderId}`,
   ): Promise<WeChatOAuthStart> {
     const authorized = await this.authorizeOrder(orderId, accessToken);
     const { config, credentials } = await this.requiredIntegration(
       authorized.order.organizationId,
-      { requireAppSecret: true },
+      { requireVerified: true, requireAppSecret: true },
     );
     if (!config.oauthEnabled || !config.channels.jsapi) {
       throw new DomainError(
@@ -1984,10 +2061,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
-    const normalizedReturn =
-      returnPath.startsWith('/') && !returnPath.startsWith('//') && !returnPath.includes('://')
-        ? returnPath.slice(0, 200)
-        : `/order/${orderId}`;
+    const normalizedReturn = `/order/${orderId}`;
     const state = randomBytes(24).toString('base64url');
     const ttl = Math.min(
       OAUTH_STATE_TTL_SECONDS,
@@ -2055,6 +2129,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       );
     }
     const { config, credentials } = await this.requiredIntegration(stateRecord.organizationId, {
+      requireVerified: true,
       requireAppSecret: true,
     });
     const tokenUrl =
@@ -2110,9 +2185,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       'EX',
       OAUTH_HANDOFF_TTL_SECONDS,
     );
-    const returnPath = stateRecord.returnPath.startsWith('/')
-      ? stateRecord.returnPath
-      : `/order/${stateRecord.orderId}`;
+    const returnPath = `/order/${stateRecord.orderId}`;
     const base = resolvePaymentPublicUrl(returnPath);
     const separator = base.includes('#') ? '&' : '#';
     return {
@@ -2210,7 +2283,9 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       serial: string | undefined;
     },
   ): Promise<ParsedPaymentNotification> {
-    const { config, credentials } = await this.requiredIntegration(organizationId);
+    const { config, credentials } = await this.requiredIntegration(organizationId, {
+      requireVerified: true,
+    });
     const timestamp = Number(headers.timestamp);
     if (
       !headers.timestamp ||
@@ -2450,13 +2525,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         and(
           eq(paymentNotificationInbox.id, inboxId),
           lt(paymentNotificationInbox.attemptCount, PAYMENT_INBOX_MAX_ATTEMPTS),
-          or(
-            inArray(paymentNotificationInbox.status, ['received', 'failed']),
-            and(
-              eq(paymentNotificationInbox.status, 'processing'),
-              lt(paymentNotificationInbox.updatedAt, staleCutoff),
-            ),
-          ),
+          retryablePaymentInbox(staleCutoff),
         ),
       )
       .returning();
@@ -2537,13 +2606,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       .where(
         and(
           lt(paymentNotificationInbox.attemptCount, PAYMENT_INBOX_MAX_ATTEMPTS),
-          or(
-            inArray(paymentNotificationInbox.status, ['received', 'failed']),
-            and(
-              eq(paymentNotificationInbox.status, 'processing'),
-              lt(paymentNotificationInbox.updatedAt, staleCutoff),
-            ),
-          ),
+          retryablePaymentInbox(staleCutoff),
         ),
       )
       .orderBy(asc(paymentNotificationInbox.updatedAt))
@@ -2578,7 +2641,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       .where(
         and(
           eq(payments.provider, PROVIDER),
-          inArray(payments.status, [...ACTIVE_ATTEMPT_STATUSES]),
+          inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
           sql`coalesce(${payments.prepayExpiresAt}, ${orders.expiresAt}) < ${now}`,
           lt(orders.expiresAt, now),
           inArray(orders.status, ['pending_payment', 'processing']),

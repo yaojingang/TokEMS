@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue';
-import { DEMO_EVENT, type PublicEvent, type Ticket } from '@conference/contracts';
+import { type Ticket } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import {
   activeFlowStep,
@@ -17,7 +17,7 @@ const customer = useCustomerSession();
 
 const orderId = String(route.params.id);
 const checkout = ref<ReturnType<typeof api.readCheckout>>();
-const event = ref<PublicEvent>(api.readEvent() ?? structuredClone(DEMO_EVENT));
+const event = api.eventState;
 const pending = ref(false);
 const pageError = ref('');
 const remainingSeconds = ref(15 * 60);
@@ -464,7 +464,11 @@ function switchChannelLabel(channel: string) {
               @click="launchPayment()"
             >
               {{
-                paymentLaunching ? '正在跳转…' : paymentH5Url ? '打开微信支付' : '准备并打开微信支付'
+                paymentLaunching
+                  ? '正在跳转…'
+                  : paymentH5Url
+                    ? '打开微信支付'
+                    : '准备并打开微信支付'
               }}
             </button>
 
@@ -513,7 +517,11 @@ function switchChannelLabel(channel: string) {
               {{ pending ? '正在确认…' : '开发环境模拟支付' }}
             </button>
 
-            <a class="flow-action is-secondary is-full" :href="registerHref" style="margin-top: 8px">
+            <a
+              class="flow-action is-secondary is-full"
+              :href="registerHref"
+              style="margin-top: 8px"
+            >
               返回修改信息
             </a>
           </template>

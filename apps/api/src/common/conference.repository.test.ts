@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEMO_EVENT, type PublicEvent } from '@conference/contracts';
-import { ConferenceRepository } from './conference.repository.js';
+import {
+  ConferenceRepository,
+  effectiveReleasedCapacity,
+  releaseFaqsFromSnapshot,
+} from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
 
 describe('ConferenceRepository in-memory operational loop', () => {
@@ -70,6 +74,39 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(second.order.id).toBe(first.order.id);
     expect(second.registration.id).toBe(first.registration.id);
     expect(after.tickets[0]!.remaining).toBe(before.tickets[0]!.remaining - 1);
+  });
+
+  it('rejects duplicate active registration contacts across idempotency keys', async () => {
+    const before = await repository.getPublicEvent();
+    await repository.createCheckout(
+      registrationInput(),
+      'registration-contact-first-key',
+      customerActor(),
+    );
+
+    await expect(
+      repository.createCheckout(
+        registrationInput(),
+        'registration-contact-second-key',
+        customerActor(),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const after = await repository.getPublicEvent();
+    expect(after.tickets[0]!.remaining).toBe(before.tickets[0]!.remaining - 1);
+  });
+
+  it('does not consume in-memory inventory when attendee mobile validation fails', async () => {
+    const before = await repository.getPublicEvent();
+    const invalid = registrationInput();
+    invalid.attendee.mobile = 'not-a-mobile';
+
+    await expect(
+      repository.createCheckout(invalid, 'registration-invalid-mobile-key', customerActor()),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const after = await repository.getPublicEvent();
+    expect(after.tickets[0]!.remaining).toBe(before.tickets[0]!.remaining);
   });
 
   it('issues one ticket when payment confirmation is retried', async () => {
@@ -208,6 +245,16 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(orders.every((order) => order.status === 'paid')).toBe(true);
   });
 
+  it('keeps an offline demo event readable to administrators', async () => {
+    const updated = await repository.updateEvent(DEMO_EVENT.id, { status: 'configuring' });
+
+    expect(updated.status).toBe('configuring');
+    await expect(repository.getAdminEvent(DEMO_EVENT.id)).resolves.toMatchObject({
+      status: 'configuring',
+    });
+    await expect(repository.getPublicEvent()).rejects.toMatchObject({ status: 404 });
+  });
+
   it('paginates admin registrations with an accurate total', async () => {
     const result = await repository.listRegistrations(DEMO_EVENT.id, {
       page: 2,
@@ -218,5 +265,30 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(result.page).toBe(2);
     expect(result.pageSize).toBe(3);
     expect(result.items).toHaveLength(3);
+  });
+});
+
+describe('releaseFaqsFromSnapshot', () => {
+  it('prefers the resolved experience FAQ over a legacy top-level snapshot', () => {
+    expect(
+      releaseFaqsFromSnapshot({
+        faqs: [{ question: '旧问题', answer: '旧答案' }],
+        experience: {
+          faq: {
+            items: [
+              { question: '新问题', answer: '新答案', enabled: true },
+              { question: '隐藏问题', answer: '隐藏答案', enabled: false },
+            ],
+          },
+        },
+      }),
+    ).toEqual([{ question: '新问题', answer: '新答案' }]);
+  });
+});
+
+describe('effectiveReleasedCapacity', () => {
+  it('keeps the capacity recorded by a rolled-back release', () => {
+    expect(effectiveReleasedCapacity({ capacity: 1 }, 2)).toBe(1);
+    expect(effectiveReleasedCapacity(undefined, 2)).toBe(2);
   });
 });

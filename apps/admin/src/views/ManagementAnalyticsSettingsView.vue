@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { AnalyticsSettings } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -10,6 +12,7 @@ const loaded = ref(false);
 const pending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
+const showUmamiConfirm = ref(false);
 const form = reactive<AnalyticsSettings>({
   enabled: false,
   provider: 'baidu',
@@ -51,18 +54,20 @@ async function load() {
   }
 }
 
-async function save() {
+function requestSave() {
   if (!loaded.value) {
     errorMessage.value = '请先重新载入统计设置';
     return;
   }
-  if (
-    form.enabled &&
-    form.provider === 'umami' &&
-    !window.confirm('Umami 脚本会在公开页面运行。请确认该 HTTPS 地址由可信团队维护，确定继续吗？')
-  ) {
+  if (form.enabled && form.provider === 'umami') {
+    showUmamiConfirm.value = true;
     return;
   }
+  void save();
+}
+
+async function save() {
+  showUmamiConfirm.value = false;
   pending.value = true;
   message.value = '';
   errorMessage.value = '';
@@ -85,8 +90,7 @@ onMounted(load);
 </script>
 
 <template>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入统计设置…</div>
   <div v-else-if="!loaded" class="admin-loading">
     <button class="btn btn-secondary" type="button" @click="load">重新载入</button>
@@ -108,7 +112,7 @@ onMounted(load);
       data-settings-form
       :inert="pending"
       :aria-busy="pending"
-      @submit.prevent="save"
+      @submit.prevent="requestSave"
     >
       <div class="settings-summary">
         <div>
@@ -175,9 +179,23 @@ onMounted(load);
       </section>
       <div class="settings-security-note">
         <strong>加载范围</strong>
-        <span>配置发布后，首页、报名、订单、票证和发票页面都会使用同一套统计设置。</span>
+        <span>保存成功后，首页、报名、订单、票证和发票页面都会使用同一套统计设置。</span>
       </div>
       <SettingsFormActions v-if="canManage" :pending="pending" primary-label="保存统计设置" />
     </form>
   </section>
+
+  <AdminConfirmDialog
+    :open="showUmamiConfirm"
+    title="确认启用 Umami 统计"
+    description="该脚本会在全部公开页面运行，并可接触页面访问数据。请确认地址由可信团队维护。"
+    confirm-label="确认保存并启用"
+    :details="[
+      { label: '脚本地址', value: form.scriptUrl || '未填写' },
+      { label: 'Website ID', value: form.siteId || '未填写' },
+    ]"
+    :error="errorMessage"
+    @confirm="save"
+    @cancel="showUmamiConfirm = false"
+  />
 </template>

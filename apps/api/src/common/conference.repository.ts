@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   API_ERROR_CODES,
   DEMO_EVENT,
@@ -25,6 +25,7 @@ import {
   resolveBuildInfo,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   auditLogs,
   checkinLists,
   checkinRecords,
@@ -72,6 +73,11 @@ import { nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { createDemoOperationalState } from './demo-state.js';
 import { DomainError } from './domain-error.js';
+import {
+  EventReleaseActivationService,
+  type EventReleaseChangeContext,
+  type EventReleaseEventField,
+} from './event-release-activation.service.js';
 
 export interface AdminOrderRow extends Order {
   attendeeName: string;
@@ -176,6 +182,21 @@ interface EventReleaseSnapshot {
   experience?: PublicEvent['experience'];
 }
 
+export function releaseFaqsFromSnapshot(value: unknown): PublicEvent['faqs'] | undefined {
+  const snapshot = value as EventReleaseSnapshot | undefined;
+  const experienceFaqs = snapshot?.experience?.faq.items
+    .filter((item) => item.enabled)
+    .map((item) => ({ question: item.question, answer: item.answer }));
+  return experienceFaqs ?? snapshot?.faqs ?? snapshot?.event?.settings?.faqs;
+}
+
+export function effectiveReleasedCapacity(
+  releasedTicket: Pick<ReleaseTicketSnapshot, 'capacity'> | undefined,
+  liveCapacity: number,
+) {
+  return releasedTicket?.capacity ?? liveCapacity;
+}
+
 const DEFAULT_REGISTRATION_SETTINGS: PublicEvent['registration'] = {
   paymentMode: 'ticketed',
   currency: 'CNY',
@@ -211,11 +232,17 @@ const EVENT_TRANSITIONS: Record<PublicEvent['status'], PublicEvent['status'][]> 
   draft: ['configuring', 'archived'],
   configuring: ['draft', 'prepublished', 'archived'],
   prepublished: ['configuring', 'registration_open', 'archived'],
-  registration_open: ['configuring', 'in_progress', 'ended', 'archived'],
+  registration_open: ['configuring', 'prepublished', 'in_progress', 'ended', 'archived'],
   in_progress: ['ended', 'archived'],
   ended: ['archived'],
   archived: [],
 };
+const PUBLIC_EVENT_STATUSES = new Set<PublicEvent['status']>([
+  'prepublished',
+  'registration_open',
+  'in_progress',
+  'ended',
+]);
 
 @Injectable()
 export class ConferenceRepository {
@@ -224,7 +251,16 @@ export class ConferenceRepository {
   private readonly memoryOrderTokens = new Map<string, string>();
   private demoEvent = structuredClone(DEMO_EVENT);
 
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Optional()
+    @Inject(EventReleaseActivationService)
+    private readonly releaseActivation?: EventReleaseActivationService,
+  ) {}
+
+  private releases() {
+    return this.releaseActivation ?? new EventReleaseActivationService(this.database);
+  }
 
   private hash(value: unknown) {
     return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -384,6 +420,13 @@ export class ConferenceRepository {
   ): Promise<PublicEvent> {
     const db = this.database.db;
     if (!db) {
+      if (useActiveRelease && !PUBLIC_EVENT_STATUSES.has(this.demoEvent.status)) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或尚未发布',
+          HttpStatus.NOT_FOUND,
+        );
+      }
       return {
         ...this.demoEvent,
         tickets: this.demoEvent.tickets.map((ticket) => ({
@@ -407,6 +450,13 @@ export class ConferenceRepository {
       .where(and(eq(events.slug, slug), eq(events.organizationId, organization.id)))
       .limit(1);
     if (!event) {
+      throw new DomainError(
+        API_ERROR_CODES.NOT_FOUND,
+        '大会不存在或尚未发布',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (useActiveRelease && !PUBLIC_EVENT_STATUSES.has(event.status)) {
       throw new DomainError(
         API_ERROR_CODES.NOT_FOUND,
         '大会不存在或尚未发布',
@@ -533,7 +583,7 @@ export class ConferenceRepository {
           .filter((row): row is ReleaseTicketSnapshot & { id: string } => Boolean(row.id))
           .map((row) => {
             const live = liveTickets.get(row.id);
-            const capacity = live?.capacity ?? row.capacity ?? row.remaining ?? 0;
+            const capacity = effectiveReleasedCapacity(row, live?.capacity ?? row.remaining ?? 0);
             const sold = live?.sold ?? row.sold ?? 0;
             return {
               id: row.id,
@@ -659,10 +709,15 @@ export class ConferenceRepository {
           }
         : undefined;
     const snapshotStats = snapshotEvent?.settings?.stats;
-    const snapshotFaqs = releaseSnapshot?.faqs ?? snapshotEvent?.settings?.faqs;
-    const registrationSettings = this.registrationSettings(
+    const snapshotFaqs = releaseFaqsFromSnapshot(releaseSnapshot);
+    const storedRegistrationSettings = this.registrationSettings(
       snapshotEvent?.settings?.registration ?? settings.registration,
     );
+    const registrationSettings = {
+      ...storedRegistrationSettings,
+      registrationOpen:
+        event.status === 'registration_open' && storedRegistrationSettings.registrationOpen,
+    };
     const publicExperience = releaseSnapshot?.experience
       ? structuredClone(releaseSnapshot.experience)
       : undefined;
@@ -710,7 +765,7 @@ export class ConferenceRepository {
           HttpStatus.NOT_FOUND,
         );
       }
-      return this.getPublicEvent(this.demoEvent.slug);
+      return structuredClone(this.demoEvent);
     }
     const [scope] = await db
       .select({ eventSlug: events.slug, organizationSlug: organizations.slug })
@@ -735,6 +790,13 @@ export class ConferenceRepository {
   ): Promise<WaitlistEntry> {
     const db = this.database.db;
     if (!db) {
+      if (this.demoEvent.status !== 'registration_open') {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '当前大会未开放候补申请',
+          HttpStatus.CONFLICT,
+        );
+      }
       if (this.demoEvent.registration.accountMode === 'mobile_otp_required' && !customer) {
         throw new DomainError(
           API_ERROR_CODES.UNAUTHORIZED,
@@ -840,6 +902,13 @@ export class ConferenceRepository {
       const releasedRegistration = this.registrationSettings(
         releaseSnapshot?.event?.settings?.registration ?? eventSettings?.registration,
       );
+      if (!releasedRegistration.registrationOpen) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '当前大会未开放候补申请',
+          HttpStatus.CONFLICT,
+        );
+      }
       if (releasedRegistration.accountMode === 'mobile_otp_required' && !customer) {
         throw new DomainError(
           API_ERROR_CODES.UNAUTHORIZED,
@@ -939,7 +1008,7 @@ export class ConferenceRepository {
           ),
         );
       const available =
-        ticket.capacity -
+        effectiveReleasedCapacity(releasedTicket, ticket.capacity) -
         ticket.sold -
         Number(reservationCount?.quantity ?? 0) -
         Number(offerCount?.quantity ?? 0);
@@ -1086,7 +1155,6 @@ export class ConferenceRepository {
           HttpStatus.CONFLICT,
         );
       }
-      this.memory.ticketRemaining.set(ticket.id, remaining - 1);
       const now = new Date();
       let attendeeMobile: string;
       try {
@@ -1112,11 +1180,36 @@ export class ConferenceRepository {
             city: input.attendee.city || customer.profile.city || '',
           }
         : { ...input.attendee, mobile: attendeeMobile };
+      const attendeeEmail = attendee.email.trim().toLowerCase();
+      const duplicateRegistration = [...this.memory.registrations.values()].some((registration) => {
+        if (registration.eventId !== input.eventId || registration.status === 'cancelled') {
+          return false;
+        }
+        let existingMobile = registration.attendee.mobile;
+        try {
+          existingMobile = normalizeMainlandMobile(existingMobile);
+        } catch {
+          // Preserve compatibility with legacy in-memory fixtures while still comparing raw values.
+        }
+        const existingEmail = registration.attendee.email.trim().toLowerCase();
+        return (
+          existingMobile === attendeeMobile ||
+          Boolean(attendeeEmail && existingEmail === attendeeEmail)
+        );
+      });
+      if (duplicateRegistration) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '该邮箱或手机号已经提交过本场大会报名',
+          HttpStatus.CONFLICT,
+        );
+      }
       const checkoutInput = { ...input, attendee };
       const formAnswers = this.normalizeRegistrationAnswers(
         this.demoEvent.registrationForm?.fields ?? [],
         checkoutInput,
       );
+      this.memory.ticketRemaining.set(ticket.id, remaining - 1);
       const registration: Registration = {
         id: crypto.randomUUID(),
         eventId: input.eventId,
@@ -1341,6 +1434,28 @@ export class ConferenceRepository {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${input.eventId}:${attendeeMobile}`}, 0))`,
       );
+      const duplicateContacts: SQL[] = [eq(registrations.attendeeMobileE164, attendeeMobile)];
+      if (attendeeEmail) {
+        duplicateContacts.push(eq(registrations.attendeeEmailNormalized, attendeeEmail));
+      }
+      const [duplicateRegistration] = await tx
+        .select({ id: registrations.id })
+        .from(registrations)
+        .where(
+          and(
+            eq(registrations.eventId, input.eventId),
+            sql`${registrations.status} <> 'cancelled'`,
+            or(...duplicateContacts),
+          ),
+        )
+        .limit(1);
+      if (duplicateRegistration) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '该邮箱或手机号已经提交过本场大会报名',
+          HttpStatus.CONFLICT,
+        );
+      }
       let waitlistOffer: typeof waitlistEntries.$inferSelect | undefined;
       if (checkoutInput.waitlistOfferToken) {
         [waitlistOffer] = await tx
@@ -1415,7 +1530,7 @@ export class ConferenceRepository {
           ),
         );
       const available =
-        ticketRow.capacity -
+        effectiveReleasedCapacity(releasedTicket, ticketRow.capacity) -
         ticketRow.sold -
         (reservationCount?.quantity ?? 0) -
         Number(waitlistHoldCount?.quantity ?? 0) +
@@ -2008,14 +2123,7 @@ export class ConferenceRepository {
                 and(
                   eq(payments.orderId, orderRow.id),
                   eq(payments.provider, confirmation.provider),
-                  inArray(payments.status, [
-                    'preparing',
-                    'pending',
-                    'processing',
-                    'query_pending',
-                    'close_pending',
-                    'unknown',
-                  ]),
+                  inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
                 ),
               )
               .limit(1);
@@ -3274,7 +3382,25 @@ export class ConferenceRepository {
       if (eventId !== this.demoEvent.id) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会不存在', HttpStatus.NOT_FOUND);
       }
-      this.assertEventTransition(this.demoEvent.status, patch.status);
+      let nextStatus = patch.status ?? this.demoEvent.status;
+      let nextRegistration = this.registrationSettings({
+        ...this.demoEvent.registration,
+        ...Object.fromEntries(
+          Object.entries(patch.settings?.registration ?? {}).filter(
+            ([, value]) => value !== undefined,
+          ),
+        ),
+      });
+      if (patch.status === 'registration_open') {
+        nextRegistration = { ...nextRegistration, registrationOpen: true };
+      } else if (patch.status === 'prepublished') {
+        nextRegistration = { ...nextRegistration, registrationOpen: false };
+      } else if (patch.settings?.registration?.registrationOpen === true) {
+        if (this.demoEvent.status === 'prepublished') nextStatus = 'registration_open';
+      } else if (patch.settings?.registration?.registrationOpen === false) {
+        if (this.demoEvent.status === 'registration_open') nextStatus = 'prepublished';
+      }
+      this.assertEventTransition(this.demoEvent.status, nextStatus);
       const startsAt = patch.startsAt ?? this.demoEvent.startsAt;
       const endsAt = patch.endsAt ?? this.demoEvent.endsAt;
       if (new Date(endsAt) <= new Date(startsAt)) {
@@ -3284,9 +3410,8 @@ export class ConferenceRepository {
           HttpStatus.BAD_REQUEST,
         );
       }
-      const { settings, ...fields } = patch;
       const eventFields = Object.fromEntries(
-        Object.entries(fields).filter(([, value]) => value !== undefined),
+        Object.entries(patch).filter(([key, value]) => key !== 'settings' && value !== undefined),
       ) as Partial<
         Pick<
           PublicEvent,
@@ -3306,82 +3431,140 @@ export class ConferenceRepository {
       this.demoEvent = {
         ...this.demoEvent,
         ...eventFields,
-        ...(settings?.registration
-          ? {
-              registration: this.registrationSettings({
-                ...this.demoEvent.registration,
-                ...Object.fromEntries(
-                  Object.entries(settings.registration).filter(([, value]) => value !== undefined),
-                ),
-              }),
-            }
-          : {}),
+        status: nextStatus,
+        registration: nextRegistration,
       };
-      return this.getPublicEvent(this.demoEvent.slug);
+      return structuredClone(this.demoEvent);
     }
 
-    const updated = await db.transaction(async (tx) => {
-      const [current] = await tx
-        .select()
-        .from(events)
-        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
-        .for('update')
-        .limit(1);
-      if (!current)
-        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会不存在', HttpStatus.NOT_FOUND);
-      this.assertEventTransition(current.status, patch.status);
-      const startsAt = patch.startsAt ? new Date(patch.startsAt) : current.startsAt;
-      const endsAt = patch.endsAt ? new Date(patch.endsAt) : current.endsAt;
-      if (endsAt <= startsAt) {
-        throw new DomainError(
-          API_ERROR_CODES.VALIDATION_ERROR,
-          '大会结束时间必须晚于开始时间',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      const settings = patch.settings;
-      const currentRegistration = this.registrationSettings(current.settings.registration);
-      const nextSettings = settings?.registration
-        ? {
-            ...current.settings,
-            registration: this.registrationSettings({
+    const activationContext: EventReleaseChangeContext = {
+      organizationId,
+      eventId,
+      actorId,
+      changeScope: 'event',
+      changeSummary: '更新大会基本信息',
+    };
+    const updated = (
+      await this.releases().mutate(activationContext, async (tx, current) => {
+        const startsAt = patch.startsAt ? new Date(patch.startsAt) : current.startsAt;
+        const endsAt = patch.endsAt ? new Date(patch.endsAt) : current.endsAt;
+        if (endsAt <= startsAt) {
+          throw new DomainError(
+            API_ERROR_CODES.VALIDATION_ERROR,
+            '大会结束时间必须晚于开始时间',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        const currentRegistration = this.registrationSettings(current.settings.registration);
+        let nextRegistration = patch.settings?.registration
+          ? this.registrationSettings({
               ...currentRegistration,
               ...Object.fromEntries(
-                Object.entries(settings.registration).filter(([, value]) => value !== undefined),
+                Object.entries(patch.settings.registration).filter(
+                  ([, value]) => value !== undefined,
+                ),
               ),
-            }),
-          }
-        : current.settings;
-      const updateFields = Object.fromEntries(
-        Object.entries(patch).filter(
-          ([key, value]) =>
-            key !== 'settings' && key !== 'startsAt' && key !== 'endsAt' && value !== undefined,
-        ),
-      ) as Partial<typeof events.$inferInsert>;
-      const [row] = await tx
-        .update(events)
-        .set({
-          ...updateFields,
-          ...(patch.startsAt ? { startsAt } : {}),
-          ...(patch.endsAt ? { endsAt } : {}),
-          ...(settings ? { settings: nextSettings } : {}),
-          updatedAt: new Date(),
-        })
-        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
-        .returning();
-      await tx.insert(auditLogs).values({
-        organizationId: current.organizationId,
-        eventId,
-        actorId,
-        action: 'event.update',
-        resourceType: 'event',
-        resourceId: String(eventId),
-        before: current as unknown as Record<string, unknown>,
-        after: row as unknown as Record<string, unknown>,
-        traceId: crypto.randomUUID(),
-      });
-      return row!;
-    });
+            })
+          : currentRegistration;
+        let nextStatus = patch.status ?? current.status;
+        if (patch.status === 'registration_open') {
+          nextRegistration = { ...nextRegistration, registrationOpen: true };
+        } else if (patch.status === 'prepublished') {
+          nextRegistration = { ...nextRegistration, registrationOpen: false };
+        } else if (patch.settings?.registration?.registrationOpen === true) {
+          if (current.status === 'prepublished') nextStatus = 'registration_open';
+        } else if (patch.settings?.registration?.registrationOpen === false) {
+          if (current.status === 'registration_open') nextStatus = 'prepublished';
+        }
+        this.assertEventTransition(current.status, nextStatus);
+        const changedEventFields: EventReleaseEventField[] = [];
+        const addChangedField = (
+          field: EventReleaseEventField,
+          next: unknown,
+          currentValue: unknown,
+        ) => {
+          if (next !== undefined && next !== currentValue) changedEventFields.push(field);
+        };
+        addChangedField('name', patch.name, current.name);
+        addChangedField('shortName', patch.shortName, current.shortName);
+        addChangedField('tagline', patch.tagline, current.tagline);
+        addChangedField('description', patch.description, current.description);
+        addChangedField('timezone', patch.timezone, current.timezone);
+        addChangedField('venue', patch.venue, current.venue);
+        addChangedField('city', patch.city, current.city);
+        addChangedField('address', patch.address, current.address);
+        addChangedField(
+          'startsAt',
+          patch.startsAt ? startsAt.getTime() : undefined,
+          current.startsAt.getTime(),
+        );
+        addChangedField(
+          'endsAt',
+          patch.endsAt ? endsAt.getTime() : undefined,
+          current.endsAt.getTime(),
+        );
+        addChangedField(
+          'status',
+          patch.status !== undefined || nextStatus !== current.status ? nextStatus : undefined,
+          current.status,
+        );
+        const statusChanged = changedEventFields.includes('status');
+        const eventFieldsChanged = changedEventFields.some((field) => field !== 'status');
+        const registrationChanged =
+          JSON.stringify(nextRegistration) !== JSON.stringify(currentRegistration);
+        const registrationRequested = patch.settings?.registration !== undefined;
+        activationContext.eventFields = changedEventFields;
+        activationContext.registrationChanged = registrationChanged;
+        if (statusChanged && !eventFieldsChanged && !registrationRequested) {
+          activationContext.changeScope = 'lifecycle';
+          activationContext.changeSummary = `更新大会状态为“${nextStatus}”`;
+        } else if (registrationChanged && !statusChanged && !eventFieldsChanged) {
+          activationContext.changeScope = 'registration';
+          activationContext.changeSummary = '更新报名方式';
+        } else if (statusChanged || registrationChanged) {
+          activationContext.changeScope = 'event';
+          activationContext.changeSummary = statusChanged
+            ? '更新大会状态与基本信息'
+            : '更新大会基本信息与报名方式';
+        }
+        const nextSettings = registrationChanged
+          ? {
+              ...current.settings,
+              registration: nextRegistration,
+            }
+          : current.settings;
+        const updateFields = Object.fromEntries(
+          Object.entries(patch).filter(
+            ([key, value]) =>
+              key !== 'settings' && key !== 'startsAt' && key !== 'endsAt' && value !== undefined,
+          ),
+        ) as Partial<typeof events.$inferInsert>;
+        if (nextStatus !== current.status) updateFields.status = nextStatus;
+        const [row] = await tx
+          .update(events)
+          .set({
+            ...updateFields,
+            ...(patch.startsAt ? { startsAt } : {}),
+            ...(patch.endsAt ? { endsAt } : {}),
+            ...(registrationChanged ? { settings: nextSettings } : {}),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+          .returning();
+        await tx.insert(auditLogs).values({
+          organizationId: current.organizationId,
+          eventId,
+          actorId,
+          action: 'event.update',
+          resourceType: 'event',
+          resourceId: String(eventId),
+          before: current as unknown as Record<string, unknown>,
+          after: row as unknown as Record<string, unknown>,
+          traceId: crypto.randomUUID(),
+        });
+        return row!;
+      })
+    ).value;
     const [organization] = await db
       .select({ slug: organizations.slug })
       .from(organizations)

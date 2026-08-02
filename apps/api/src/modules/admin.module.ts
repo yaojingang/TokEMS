@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpStatus,
@@ -151,7 +152,13 @@ class AdminController {
   }
 
   @Get('events/:eventId')
-  @RequireGrant('event.read', 'event.manage', 'event.inventory.read', 'event.inventory.manage')
+  @RequireGrant(
+    'event.read',
+    'event.manage',
+    'event.registration.manage',
+    'event.inventory.read',
+    'event.inventory.manage',
+  )
   event(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },
@@ -169,7 +176,7 @@ class AdminController {
   }
 
   @Patch('events/:eventId')
-  @RequireGrant('event.manage')
+  @RequireGrant('event.manage', 'event.registration.manage')
   updateEvent(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Body() patch: Record<string, unknown>,
@@ -183,6 +190,12 @@ class AdminController {
         HttpStatus.BAD_REQUEST,
         { issues: parsed.error.issues },
       );
+    }
+    if (
+      !grantAllows(request.user!.grants, 'event.manage') &&
+      Object.keys(parsed.data).some((key) => key !== 'settings')
+    ) {
+      throw new ForbiddenException('报名运营只能修改大会报名方式');
     }
     return this.repository.updateEvent(
       eventId,

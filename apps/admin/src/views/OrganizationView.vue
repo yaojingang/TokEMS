@@ -55,12 +55,11 @@ const rolePresets: RolePreset[] = [
   {
     value: 'content_manager',
     label: '内容管理员',
-    description: '维护嘉宾、议程、前台发布与 AI 文案',
+    description: '维护嘉宾、议程、前台体验与 AI 文案，上线大会保存后立即生效',
     grants: [
       'event.read',
       'event.content.manage',
       'event.site.read',
-      'event.site.publish',
       'event.ai.read',
       'event.ai.generate',
       'event.ai.approve',
@@ -75,7 +74,7 @@ const rolePresets: RolePreset[] = [
   {
     value: 'operator',
     label: '现场运营',
-    description: '查看报名、发送通知与执行签到',
+    description: '维护票种、报名和现场运营，上线大会票种保存后立即生效',
     grants: [
       'event.read',
       'event.dashboard.read',

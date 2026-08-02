@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { useAsyncData } from '#app';
+import { useAsyncData, useRuntimeConfig } from '#app';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 
 const api = useConferenceApi();
 const customer = useCustomerSession();
 const route = useRoute();
-const { data: siteConfiguration } = await useAsyncData(
+const runtimeConfig = useRuntimeConfig();
+const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await useAsyncData(
   'public-site-configuration',
   () => api.getSiteConfiguration(),
   { deep: false },
@@ -13,6 +14,7 @@ const { data: siteConfiguration } = await useAsyncData(
 
 const analyticsAllowed = computed(
   () =>
+    runtimeConfig.public.paymentSurface !== true &&
     !['/account', '/register', '/order', '/invoice', '/ticket', '/payment'].some(
       (prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`),
     ),
@@ -77,8 +79,20 @@ const showSiteFooter = computed(() => {
   );
 });
 
+function refreshPublicConfiguration() {
+  if (document.visibilityState !== 'visible') return;
+  void Promise.all([refreshSiteConfiguration(), api.getEvent(api.eventState.value.slug)]).catch(
+    () => undefined,
+  );
+}
+
 onMounted(() => {
   void customer.refresh().catch(() => undefined);
+  document.addEventListener('visibilitychange', refreshPublicConfiguration);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', refreshPublicConfiguration);
 });
 </script>
 

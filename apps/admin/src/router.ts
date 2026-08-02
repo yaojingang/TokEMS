@@ -240,14 +240,23 @@ export const router = createRouter({
           meta: {
             title: '大会配置',
             code: 'REGISTRATION',
-            requiredGrants: ['event.manage', 'event.inventory.read', 'event.inventory.manage'],
+            requiredGrants: [
+              'event.manage',
+              'event.registration.manage',
+              'event.inventory.read',
+              'event.inventory.manage',
+            ],
           },
         },
         {
           path: 'settings/form',
           name: 'event-settings-form',
           component: () => import('./views/FormsView.vue'),
-          meta: { title: '大会配置', code: 'FORM', requiredGrants: ['event.manage'] },
+          meta: {
+            title: '大会配置',
+            code: 'FORM',
+            requiredGrants: ['event.registration.manage'],
+          },
         },
         {
           path: 'content',

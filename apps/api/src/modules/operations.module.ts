@@ -640,13 +640,13 @@ class ContentFormsController {
   }
 
   @Get('registration-forms')
-  @RequireGrant('event.manage')
+  @RequireGrant('event.registration.manage')
   forms(@Param('eventId', EventIdPipe) eventId: EventId, @Req() request: AuthenticatedRequest) {
     return this.operations.listForms(request.user.organizationId, eventId);
   }
 
   @Post('registration-forms/publish')
-  @RequireGrant('event.manage')
+  @RequireGrant('event.registration.manage')
   publishForm(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Body() body: unknown,

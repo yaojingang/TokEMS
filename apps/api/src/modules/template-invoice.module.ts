@@ -789,7 +789,7 @@ class TemplateController {
   }
 
   @Put('events/:eventId/experience/:surface')
-  @RequireGrant('event.manage')
+  @RequireGrant('event.content.manage')
   saveExperience(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('surface') surfaceValue: string,
@@ -807,7 +807,7 @@ class TemplateController {
   }
 
   @Post('events/:eventId/experience/validate')
-  @RequireGrant('event.manage')
+  @RequireGrant('event.content.manage')
   async validateExperience(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: AuthenticatedRequest,

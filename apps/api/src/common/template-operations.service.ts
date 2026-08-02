@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   API_ERROR_CODES,
   ConferenceTemplateDefinitionSchema,
@@ -42,11 +42,14 @@ import { and, asc, count, desc, eq, isNull, max, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
+import { EventReleaseActivationService } from './event-release-activation.service.js';
 import { matchesDeclaredMediaType, readUploadWithinLimit } from './object-storage-verification.js';
+import { mergeTemplateDefinition } from './template-definition.js';
+
+export { mergeTemplateDefinition } from './template-definition.js';
 
 type Database = NonNullable<DatabaseService['db']>;
 type SurfaceOverrideDocument = Record<string, unknown>;
-type ExperienceOverrides = Partial<Record<TemplateSurface, SurfaceOverrideDocument>>;
 const DEFAULT_ORG_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_ORG_ASSET_COUNT = 10_000;
 const TEMPLATE_ASSET_UPLOAD_URL_TTL_MS = 10 * 60_000;
@@ -60,108 +63,14 @@ function deterministicUuid(value: string) {
   return `${joined.slice(0, 8)}-${joined.slice(8, 12)}-${joined.slice(12, 16)}-${joined.slice(16, 20)}-${joined.slice(20)}`;
 }
 
-function overridePatch(
-  document: SurfaceOverrideDocument,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = document[key];
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function mergeNode<T extends { nodeKey: string }>(
-  node: T,
-  patch: Record<string, unknown> | undefined,
-) {
-  if (!patch) return node;
-  const baseRecord = node as unknown as Record<string, unknown>;
-  const baseContent =
-    baseRecord.content && typeof baseRecord.content === 'object'
-      ? (baseRecord.content as Record<string, unknown>)
-      : undefined;
-  const patchContent =
-    patch.content && typeof patch.content === 'object'
-      ? (patch.content as Record<string, unknown>)
-      : undefined;
-  return {
-    ...node,
-    ...patch,
-    ...(baseContent || patchContent
-      ? { content: { ...(baseContent ?? {}), ...(patchContent ?? {}) } }
-      : {}),
-    nodeKey: node.nodeKey,
-  } as T;
-}
-
-export function mergeTemplateDefinition(
-  definition: ConferenceTemplateDefinition,
-  overrides: ExperienceOverrides,
-): ConferenceTemplateDefinition {
-  const normalized = normalizeConferenceTemplateDefinition(definition);
-  const homeOverrides = overrides.home ?? {};
-  const faqOverrides = overrides.faq ?? {};
-  const flowOverrides = overrides.registration_flow ?? {};
-  const homePage = overridePatch(homeOverrides, '$page') ?? {};
-  const faqPage = overridePatch(faqOverrides, '$page') ?? {};
-  const flowPage = overridePatch(flowOverrides, '$page') ?? {};
-  const faqAdditions = Array.isArray(faqOverrides.$additions)
-    ? (faqOverrides.$additions as ConferenceTemplateDefinition['faq']['items'])
-    : [];
-  const presentation =
-    normalized.presentation.kind === 'structured'
-      ? {
-          ...normalized.presentation,
-          home: {
-            ...normalized.presentation.home,
-            ...homePage,
-            seo: {
-              ...normalized.presentation.home.seo,
-              ...(homePage.seo && typeof homePage.seo === 'object'
-                ? (homePage.seo as Record<string, unknown>)
-                : {}),
-            },
-            blocks: normalized.presentation.home.blocks.map((node) =>
-              mergeNode(node, overridePatch(homeOverrides, node.nodeKey)),
-            ),
-          },
-        }
-      : normalized.presentation;
-  const merged = {
-    ...normalized,
-    presentation,
-    faq: {
-      ...normalized.faq,
-      ...faqPage,
-      items: [
-        ...normalized.faq.items.map((node) =>
-          mergeNode(node, overridePatch(faqOverrides, node.nodeKey)),
-        ),
-        ...faqAdditions.filter(
-          (addition) => !normalized.faq.items.some((item) => item.nodeKey === addition.nodeKey),
-        ),
-      ],
-    },
-    registrationFlow: {
-      ...normalized.registrationFlow,
-      ...flowPage,
-      branches: {
-        ...normalized.registrationFlow.branches,
-        ...(flowPage.branches && typeof flowPage.branches === 'object'
-          ? (flowPage.branches as Record<string, unknown>)
-          : {}),
-      },
-      steps: normalized.registrationFlow.steps.map((node) =>
-        mergeNode(node, overridePatch(flowOverrides, node.nodeKey)),
-      ),
-    },
-  };
-  return ConferenceTemplateDefinitionSchema.parse(merged);
-}
-
 @Injectable()
 export class TemplateOperationsService {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Optional()
+    @Inject(EventReleaseActivationService)
+    private readonly releaseActivation?: EventReleaseActivationService,
+  ) {}
 
   private db(): Database {
     if (!this.database.db) {
@@ -172,6 +81,10 @@ export class TemplateOperationsService {
       );
     }
     return this.database.db;
+  }
+
+  private releases() {
+    return this.releaseActivation ?? new EventReleaseActivationService(this.database);
   }
 
   private digest(value: unknown) {
@@ -1206,112 +1119,122 @@ export class TemplateOperationsService {
         targetDefinition.registrationFlow.steps.map((item) => item.nodeKey),
       ),
     };
-    await this.db().transaction(async (tx) => {
-      const [event] = await tx
-        .select({ id: events.id })
-        .from(events)
-        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
-        .for('update')
-        .limit(1);
-      const [current] = await tx
-        .select()
-        .from(eventTemplateBindings)
-        .where(eq(eventTemplateBindings.eventId, eventId))
-        .for('update')
-        .limit(1);
-      if (!event || !current) {
-        throw new DomainError(
-          API_ERROR_CODES.NOT_FOUND,
-          '大会模板绑定不存在或无权访问',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-      if (current.revision !== input.revision) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '大会模板绑定发生版本冲突',
-          HttpStatus.CONFLICT,
-          { currentRevision: current.revision },
-        );
-      }
-      const overrideRows = await tx
-        .select()
-        .from(eventTemplateOverrides)
-        .where(eq(eventTemplateOverrides.eventId, eventId))
-        .for('update');
-      const conflicts = overrideRows.flatMap((row) =>
-        Object.keys(row.document)
-          .filter((nodeKey) => !nodeKey.startsWith('$') && !targetKeys[row.surface].has(nodeKey))
-          .map((nodeKey) => ({
-            surface: row.surface,
-            nodeKey,
-            key: `${row.surface}.${nodeKey}`,
-            reason: '目标模板版本中不存在该大会覆盖节点',
-          })),
-      );
-      const unresolved = conflicts.filter((conflict) => {
-        const resolution =
-          input.conflictResolutions[conflict.key] ?? input.conflictResolutions[conflict.surface];
-        return resolution !== 'discard';
-      });
-      if (unresolved.length) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '模板升级或替换存在需要确认的大会覆盖冲突',
-          HttpStatus.CONFLICT,
-          { conflicts: unresolved },
-        );
-      }
-      for (const row of overrideRows) {
-        const nextDocument = { ...row.document };
-        let changed = false;
-        for (const conflict of conflicts.filter((item) => item.surface === row.surface)) {
-          const resolution =
-            input.conflictResolutions[conflict.key] ?? input.conflictResolutions[conflict.surface];
-          if (resolution === 'discard') {
-            delete nextDocument[conflict.nodeKey];
-            changed = true;
-          }
-        }
-        if (changed) {
-          await tx
-            .update(eventTemplateOverrides)
-            .set({
-              document: nextDocument,
-              revision: row.revision + 1,
-              contentDigest: this.digest(nextDocument),
-              updatedBy: actorId,
-              updatedAt: new Date(),
-            })
-            .where(eq(eventTemplateOverrides.id, row.id));
-        }
-      }
-      await tx
-        .update(eventTemplateBindings)
-        .set({
-          templateVersionId: input.templateVersionId,
-          revision: input.revision + 1,
-          updatedBy: actorId,
-          updatedAt: new Date(),
-        })
-        .where(eq(eventTemplateBindings.eventId, eventId));
-      await tx.insert(auditLogs).values({
+    await this.releases().mutate(
+      {
         organizationId,
         eventId,
         actorId,
-        action: 'event.template_binding.update',
-        resourceType: 'event_template_binding',
-        resourceId: String(eventId),
-        before: { templateVersionId: current.templateVersionId, revision: current.revision },
-        after: {
-          templateVersionId: input.templateVersionId,
-          revision: input.revision + 1,
-          conflicts,
-          conflictResolutions: input.conflictResolutions,
-        },
-        traceId: crypto.randomUUID(),
-      });
-    });
+        changeScope: 'experience',
+        changeSummary: `替换大会模板为“${target.root.name}”V${target.version.version}`,
+      },
+      async (tx) => {
+        const [event] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+          .for('update')
+          .limit(1);
+        const [current] = await tx
+          .select()
+          .from(eventTemplateBindings)
+          .where(eq(eventTemplateBindings.eventId, eventId))
+          .for('update')
+          .limit(1);
+        if (!event || !current) {
+          throw new DomainError(
+            API_ERROR_CODES.NOT_FOUND,
+            '大会模板绑定不存在或无权访问',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        if (current.revision !== input.revision) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '大会模板绑定发生版本冲突',
+            HttpStatus.CONFLICT,
+            { currentRevision: current.revision },
+          );
+        }
+        const overrideRows = await tx
+          .select()
+          .from(eventTemplateOverrides)
+          .where(eq(eventTemplateOverrides.eventId, eventId))
+          .for('update');
+        const conflicts = overrideRows.flatMap((row) =>
+          Object.keys(row.document)
+            .filter((nodeKey) => !nodeKey.startsWith('$') && !targetKeys[row.surface].has(nodeKey))
+            .map((nodeKey) => ({
+              surface: row.surface,
+              nodeKey,
+              key: `${row.surface}.${nodeKey}`,
+              reason: '目标模板版本中不存在该大会覆盖节点',
+            })),
+        );
+        const unresolved = conflicts.filter((conflict) => {
+          const resolution =
+            input.conflictResolutions[conflict.key] ?? input.conflictResolutions[conflict.surface];
+          return resolution !== 'discard';
+        });
+        if (unresolved.length) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '模板升级或替换存在需要确认的大会覆盖冲突',
+            HttpStatus.CONFLICT,
+            { conflicts: unresolved },
+          );
+        }
+        for (const row of overrideRows) {
+          const nextDocument = { ...row.document };
+          let changed = false;
+          for (const conflict of conflicts.filter((item) => item.surface === row.surface)) {
+            const resolution =
+              input.conflictResolutions[conflict.key] ??
+              input.conflictResolutions[conflict.surface];
+            if (resolution === 'discard') {
+              delete nextDocument[conflict.nodeKey];
+              changed = true;
+            }
+          }
+          if (changed) {
+            await tx
+              .update(eventTemplateOverrides)
+              .set({
+                document: nextDocument,
+                revision: row.revision + 1,
+                contentDigest: this.digest(nextDocument),
+                updatedBy: actorId,
+                updatedAt: new Date(),
+              })
+              .where(eq(eventTemplateOverrides.id, row.id));
+          }
+        }
+        await tx
+          .update(eventTemplateBindings)
+          .set({
+            templateVersionId: input.templateVersionId,
+            revision: input.revision + 1,
+            updatedBy: actorId,
+            updatedAt: new Date(),
+          })
+          .where(eq(eventTemplateBindings.eventId, eventId));
+        await tx.insert(auditLogs).values({
+          organizationId,
+          eventId,
+          actorId,
+          action: 'event.template_binding.update',
+          resourceType: 'event_template_binding',
+          resourceId: String(eventId),
+          before: { templateVersionId: current.templateVersionId, revision: current.revision },
+          after: {
+            templateVersionId: input.templateVersionId,
+            revision: input.revision + 1,
+            conflicts,
+            conflictResolutions: input.conflictResolutions,
+          },
+          traceId: crypto.randomUUID(),
+        });
+      },
+    );
     return this.binding(organizationId, eventId);
   }
 
@@ -1433,69 +1356,66 @@ export class TemplateOperationsService {
     input: SaveEventExperienceOverride,
   ) {
     await this.binding(organizationId, eventId);
-    await this.db().transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`template-assets:${organizationId}`}, 0))`,
-      );
-      const [event] = await tx
-        .select({ id: events.id })
-        .from(events)
-        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
-        .for('update')
-        .limit(1);
-      if (!event) {
-        throw new DomainError(
-          API_ERROR_CODES.NOT_FOUND,
-          '大会不存在或无权访问',
-          HttpStatus.NOT_FOUND,
+    await this.releases().mutate(
+      {
+        organizationId,
+        eventId,
+        actorId,
+        changeScope: 'experience',
+        experienceSurface: surface,
+        changeSummary:
+          surface === 'home'
+            ? '更新首页设置'
+            : surface === 'faq'
+              ? '更新 FAQ 设置'
+              : '更新报名流程设置',
+      },
+      async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`template-assets:${organizationId}`}, 0))`,
         );
-      }
-      const [existing] = await tx
-        .select()
-        .from(eventTemplateOverrides)
-        .where(
-          and(
-            eq(eventTemplateOverrides.eventId, eventId),
-            eq(eventTemplateOverrides.surface, surface),
-          ),
-        )
-        .limit(1);
-      let saved: typeof eventTemplateOverrides.$inferSelect | undefined;
-      if (existing) {
-        [saved] = await tx
-          .update(eventTemplateOverrides)
-          .set({
-            document: input.document,
-            revision: input.revision + 1,
-            contentDigest: this.digest(input.document),
-            updatedBy: actorId,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(eventTemplateOverrides.id, existing.id),
-              eq(eventTemplateOverrides.revision, input.revision),
-            ),
+        const [event] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+          .for('update')
+          .limit(1);
+        if (!event) {
+          throw new DomainError(
+            API_ERROR_CODES.NOT_FOUND,
+            '大会不存在或无权访问',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        const [activeTemplate] = await tx
+          .select({ definition: conferenceTemplateVersions.definition })
+          .from(eventTemplateBindings)
+          .innerJoin(
+            conferenceTemplateVersions,
+            eq(conferenceTemplateVersions.id, eventTemplateBindings.templateVersionId),
           )
-          .returning();
-      } else if (input.revision === 0) {
-        [saved] = await tx
-          .insert(eventTemplateOverrides)
-          .values({
-            eventId,
-            surface,
-            schemaVersion: 1,
-            document: input.document,
-            revision: 1,
-            contentDigest: this.digest(input.document),
-            updatedBy: actorId,
-          })
-          .onConflictDoNothing()
-          .returning();
-      }
-      if (!saved) {
-        const [current] = await tx
-          .select({ revision: eventTemplateOverrides.revision })
+          .where(eq(eventTemplateBindings.eventId, eventId))
+          .limit(1);
+        if (!activeTemplate) {
+          throw new DomainError(
+            API_ERROR_CODES.NOT_FOUND,
+            '大会尚未绑定可用模板',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        if (
+          surface === 'home' &&
+          normalizeConferenceTemplateDefinition(activeTemplate.definition).presentation.kind ===
+            'html'
+        ) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            'HTML 模板首页由模板变量绑定维护，当前页面不支持大会级首页覆盖',
+            HttpStatus.CONFLICT,
+          );
+        }
+        const [existing] = await tx
+          .select()
           .from(eventTemplateOverrides)
           .where(
             and(
@@ -1504,14 +1424,59 @@ export class TemplateOperationsService {
             ),
           )
           .limit(1);
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '大会体验覆盖发生版本冲突',
-          HttpStatus.CONFLICT,
-          { currentRevision: current?.revision ?? 0 },
-        );
-      }
-    });
+        let saved: typeof eventTemplateOverrides.$inferSelect | undefined;
+        if (existing) {
+          [saved] = await tx
+            .update(eventTemplateOverrides)
+            .set({
+              document: input.document,
+              revision: input.revision + 1,
+              contentDigest: this.digest(input.document),
+              updatedBy: actorId,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(eventTemplateOverrides.id, existing.id),
+                eq(eventTemplateOverrides.revision, input.revision),
+              ),
+            )
+            .returning();
+        } else if (input.revision === 0) {
+          [saved] = await tx
+            .insert(eventTemplateOverrides)
+            .values({
+              eventId,
+              surface,
+              schemaVersion: 1,
+              document: input.document,
+              revision: 1,
+              contentDigest: this.digest(input.document),
+              updatedBy: actorId,
+            })
+            .onConflictDoNothing()
+            .returning();
+        }
+        if (!saved) {
+          const [current] = await tx
+            .select({ revision: eventTemplateOverrides.revision })
+            .from(eventTemplateOverrides)
+            .where(
+              and(
+                eq(eventTemplateOverrides.eventId, eventId),
+                eq(eventTemplateOverrides.surface, surface),
+              ),
+            )
+            .limit(1);
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '大会体验覆盖发生版本冲突',
+            HttpStatus.CONFLICT,
+            { currentRevision: current?.revision ?? 0 },
+          );
+        }
+      },
+    );
     return this.experience(organizationId, eventId);
   }
 

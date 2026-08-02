@@ -1,10 +1,5 @@
 <script setup lang="ts">
-import {
-  DEMO_EVENT,
-  isCustomerInvoiceEditableStatus,
-  type PublicEvent,
-  type SubmitInvoiceDetails,
-} from '@conference/contracts';
+import { isCustomerInvoiceEditableStatus, type SubmitInvoiceDetails } from '@conference/contracts';
 import { watch } from 'vue';
 import {
   activeFlowStep,
@@ -14,7 +9,7 @@ import {
 
 const route = useRoute();
 const api = useConferenceApi();
-const event = ref<PublicEvent>(api.readEvent() ?? structuredClone(DEMO_EVENT));
+const event = api.eventState;
 const access = ref(api.readInvoiceAccess(String(route.params.id)));
 const checkout = ref(api.readCheckout());
 const orderId = ref(checkout.value?.order.id ?? '');

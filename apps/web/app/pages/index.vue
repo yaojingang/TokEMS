@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick } from 'vue';
-import { DEMO_EVENT, type PublicEvent, type Session } from '@conference/contracts';
+import { DEMO_EVENT, type Session } from '@conference/contracts';
 import { resolveEventExperience } from '~/composables/useEventExperience';
 
 let countdown: ReturnType<typeof setInterval> | undefined;
@@ -8,7 +8,7 @@ let observer: IntersectionObserver | undefined;
 let scrollHandler: (() => void) | undefined;
 let accentClickHandler: ((event: MouseEvent) => void) | undefined;
 const api = useConferenceApi();
-const event = ref<PublicEvent>(structuredClone(DEMO_EVENT));
+const event = api.eventState;
 const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
 const experience = computed(() => resolveEventExperience(event.value));

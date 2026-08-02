@@ -61,9 +61,12 @@ const selectedTicket = computed(() => {
 const money = (amount: number) => `¥${(amount / 100).toLocaleString('zh-CN')}`;
 const priceLabel = (amount: number) => (amount === 0 ? '免费' : money(amount));
 const isFreeTicket = computed(() => selectedTicket.value.price === 0);
-const registrationAvailable = computed(
-  () =>
-    Boolean(event.value?.registration.registrationOpen && event.value.tickets.length),
+const registrationAvailable = computed(() =>
+  Boolean(
+    event.value?.status === 'registration_open' &&
+    event.value.registration.registrationOpen &&
+    event.value.tickets.length,
+  ),
 );
 const joiningWaitlist = computed(
   () =>
@@ -128,6 +131,11 @@ function applyLoadedEvent(loaded: PublicEvent, ticketFromQuery = '') {
 
 watch(isFreeTicket, (free) => {
   if (free) preferences.invoiceRequired = false;
+});
+
+watch(api.eventState, (loaded) => {
+  if (!event.value || event.value.slug !== loaded.slug) return;
+  applyLoadedEvent(loaded, selectedTicketId.value);
 });
 
 watch(
@@ -456,7 +464,10 @@ async function submit() {
             </div>
           </form>
 
-          <aside v-if="experience.registrationFlow.summaryCardEnabled" class="flow-card summary-card">
+          <aside
+            v-if="experience.registrationFlow.summaryCardEnabled"
+            class="flow-card summary-card"
+          >
             <div class="summary-event">
               <div class="summary-event__label">TOKEMS CONFERENCE 2026</div>
               <h3>{{ event.name }}</h3>
