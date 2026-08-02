@@ -8,11 +8,13 @@ const props = withDefaults(
     disabled?: boolean;
     primaryLabel: string;
     pendingLabel?: string;
+    impactText?: string;
   }>(),
   {
     pending: false,
     disabled: false,
     pendingLabel: '保存中…',
+    impactText: '保存成功后配置立即生效。',
   },
 );
 
@@ -25,7 +27,7 @@ const visible = computed(() => dirty.value || props.pending);
     <div v-if="visible" class="event-form-actions settings-form-actions">
       <p class="settings-save-state" aria-live="polite">
         <strong>{{ pending ? '正在保存设置' : '有未保存的更改' }}</strong>
-        <span>{{ pending ? '请保持页面开启，完成后即可继续操作。' : '保存后配置才会生效。' }}</span>
+        <span>{{ pending ? '请保持页面开启，完成后即可继续操作。' : impactText }}</span>
       </p>
       <div class="settings-save-buttons">
         <button class="button secondary" type="button" :disabled="pending" @click="discard">

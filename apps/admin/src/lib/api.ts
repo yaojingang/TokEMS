@@ -279,7 +279,9 @@ export const session = {
     if (this.can('event.dashboard.read')) return 'event-overview';
     if (this.can('event.manage')) return 'event-settings-general';
     if (this.can('event.site.read')) return 'event-settings-site';
-    if (this.canAny(['event.inventory.read', 'event.inventory.manage'])) {
+    if (
+      this.canAny(['event.registration.manage', 'event.inventory.read', 'event.inventory.manage'])
+    ) {
       return 'event-settings-registration';
     }
     if (this.can('event.content.manage')) return 'event-content';

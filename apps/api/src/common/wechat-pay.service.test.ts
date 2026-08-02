@@ -152,6 +152,64 @@ describe('WeChatPayService signed requests', () => {
     expect(requestHeaders?.get('Authorization')).toContain('WECHATPAY2-SHA256-RSA2048');
   });
 
+  it('requires a verified integration before accepting payment notifications', async () => {
+    const service = new WeChatPayService(new DatabaseService(), new RedisService());
+    const requiredIntegration = vi.fn(async () => ({
+      row: { status: 'configured' },
+      config: {
+        enabled: true,
+        appId: 'wx-test-app',
+        mchId: '1234567890',
+        merchantCertificateSerial: 'MERCHANT_SERIAL',
+        platformPublicKeyId: 'PLATFORM_SERIAL',
+        oauthEnabled: false,
+        channels: { native: true, jsapi: false, h5: false },
+      },
+      credentials: {
+        merchantPrivateKey: 'unused',
+        apiV3Key: '12345678901234567890123456789012',
+        platformPublicKey: 'unused',
+      },
+    }));
+    Reflect.set(service, 'requiredIntegration', requiredIntegration);
+
+    await expect(
+      service.parseNotification('organization-test', Buffer.from('{}'), {
+        timestamp: Math.floor(Date.now() / 1000).toString(),
+        nonce: 'nonce',
+        signature: 'signature',
+        serial: 'PLATFORM_SERIAL',
+      }),
+    ).rejects.toBeDefined();
+    expect(requiredIntegration).toHaveBeenCalledWith('organization-test', {
+      requireVerified: true,
+    });
+  });
+
+  it('runs payment maintenance as a single flight per API process', async () => {
+    const service = new WeChatPayService(new DatabaseService(), new RedisService());
+    let releaseInbox!: () => void;
+    const inboxPending = new Promise<void>((resolve) => {
+      releaseInbox = resolve;
+    });
+    const reconcileInbox = vi.fn(() => inboxPending);
+    const reconcileExpired = vi.fn(async () => ({ closed: 0, paid: 0 }));
+    Reflect.set(service, 'reconcilePaymentNotificationInbox', reconcileInbox);
+    Reflect.set(service, 'reconcileExpiredPaymentAttempts', reconcileExpired);
+    const runMaintenance = Reflect.get(service, 'runPaymentMaintenance').bind(
+      service,
+    ) as () => Promise<void>;
+
+    const first = runMaintenance();
+    await runMaintenance();
+
+    expect(reconcileInbox).toHaveBeenCalledTimes(1);
+    expect(reconcileExpired).not.toHaveBeenCalled();
+    releaseInbox();
+    await first;
+    expect(reconcileExpired).toHaveBeenCalledTimes(1);
+  });
+
   it('builds JSAPI RSA paySign message in WeChat canonical order', () => {
     const message = buildJsapiSignMessage(
       'wx-app',

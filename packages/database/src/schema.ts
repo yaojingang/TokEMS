@@ -15,7 +15,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import type {
   ConferenceTemplateDefinition,
   EventSettings,
@@ -72,6 +72,16 @@ export const paymentStatus = pgEnum('payment_status', [
   'closed',
   'unknown',
 ]);
+
+/** Payment attempt states that continue to hold provider and inventory coordination. */
+export const ACTIVE_WECHAT_PAYMENT_STATUSES = [
+  'preparing',
+  'pending',
+  'processing',
+  'query_pending',
+  'close_pending',
+  'unknown',
+] as const;
 
 export const paymentChannel = pgEnum('payment_channel', ['native', 'jsapi', 'h5', 'free', 'mock']);
 
@@ -827,6 +837,9 @@ export const eventReleases = pgTable(
     status: varchar('status', { length: 32 }).notNull().default('published'),
     snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
     artifactKey: varchar('artifact_key', { length: 320 }).notNull(),
+    changeSummary: text('change_summary').notNull().default('历史发布版本'),
+    changeScope: varchar('change_scope', { length: 32 }).notNull().default('site'),
+    activationKind: varchar('activation_kind', { length: 16 }).notNull().default('manual'),
     createdBy: uuid('created_by').references(() => users.id),
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
     rolledBackAt: timestamp('rolled_back_at', { withTimezone: true }),
@@ -978,9 +991,9 @@ export const registrations = pgTable(
       table.attendeeMobileE164,
       table.createdAt,
     ),
-    index('registrations_event_mobile_idx')
+    uniqueIndex('registrations_event_mobile_active_unique')
       .on(table.eventId, table.attendeeMobileE164)
-      .where(sql`${table.attendeeMobileE164} <> ''`),
+      .where(sql`${table.attendeeMobileE164} <> '' and ${table.status} <> 'cancelled'`),
     index('registrations_event_customer_idx')
       .on(table.eventId, table.customerUserId)
       .where(sql`${table.customerUserId} is not null`),
@@ -1097,9 +1110,7 @@ export const payments = pgTable(
     index('payments_order_status_channel_idx').on(table.orderId, table.status, table.channel),
     uniqueIndex('payments_active_attempt_unique')
       .on(table.orderId)
-      .where(
-        sql`${table.status} in ('preparing', 'pending', 'processing', 'query_pending', 'close_pending', 'unknown')`,
-      ),
+      .where(inArray(table.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])),
   ],
 );
 

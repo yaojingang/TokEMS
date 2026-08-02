@@ -130,7 +130,7 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | Method            | Path                                                  | 说明                                       |
 | ----------------- | ----------------------------------------------------- | ------------------------------------------ |
 | GET/POST          | `/admin/events`                                       | 大会列表与新建，新建必须提交已发布模板版本 |
-| GET/PATCH         | `/admin/events/:eventId`                              | 大会草稿详情与状态更新                     |
+| GET/PATCH         | `/admin/events/:eventId`                              | 大会详情与保存生效、状态更新               |
 | GET               | `/admin/event-blueprints`                             | 大会蓝图                                   |
 | GET               | `/admin/template-packages`                            | 前台模板包                                 |
 | GET               | `/admin/events/:eventId/template-binding`             | 模板绑定、当前版本和升级状态               |
@@ -138,20 +138,20 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | POST              | `/admin/events/:eventId/save-as-template`             | 从大会解析配置创建并发布模板 V1            |
 | GET               | `/admin/events/:eventId/experience`                   | 读取模板与大会覆盖的解析结果               |
 | PUT               | `/admin/events/:eventId/experience/:surface`          | 保存首页、FAQ 或流程覆盖                   |
-| POST              | `/admin/events/:eventId/experience/validate`          | 发布前体验校验                             |
+| POST              | `/admin/events/:eventId/experience/validate`          | 体验配置校验                               |
 | POST              | `/admin/events/:eventId/experience/preview`           | 生成大会体验预览                           |
-| GET/POST          | `/admin/events/:eventId/releases`                     | 发布历史与新版本                           |
+| GET/POST          | `/admin/events/:eventId/releases`                     | 变更记录与兼容手动激活接口                 |
 | POST              | `/admin/events/:eventId/releases/:releaseId/rollback` | 回滚公开快照指针                           |
-| GET               | `/admin/events/:eventId/content`                      | 嘉宾、议程和内容草稿                       |
+| GET               | `/admin/events/:eventId/content`                      | 嘉宾、议程和内容配置                       |
 | POST/PATCH/DELETE | `/admin/events/:eventId/ticket-types[/:ticketTypeId]` | 票种维护与可恢复下架                       |
 | GET               | `/admin/events/:eventId/ticket-types/archived`        | 已下架票种                                 |
-| POST              | `/admin/events/:eventId/ticket-types/:id/restore`     | 恢复票种到大会草稿                         |
+| POST              | `/admin/events/:eventId/ticket-types/:id/restore`     | 恢复票种并按大会状态生效                   |
 | POST/PATCH/DELETE | `/admin/events/:eventId/speakers[/:speakerId]`        | 嘉宾维护                                   |
 | POST/PATCH/DELETE | `/admin/events/:eventId/sessions[/:sessionId]`        | 议程维护                                   |
 | GET               | `/admin/events/:eventId/registration-forms`           | 报名表版本                                 |
-| POST              | `/admin/events/:eventId/registration-forms/publish`   | 发布报名表和条款版本                       |
+| POST              | `/admin/events/:eventId/registration-forms/publish`   | 保存报名表和条款版本并生效                 |
 
-大会更新的 `settings.registration` 包含 `paymentMode`、`currency` 和 `registrationOpen`。`free` 发布要求全部票种价格为 0，零元报名会在同一事务完成订单、库存和电子票。
+大会更新的 `settings.registration` 包含 `paymentMode`、`currency` 和 `registrationOpen`。大会进入预发布或报名开放状态后，基本信息、体验、报名、票种、内容、表单的有效保存会在同一事务生成不可变快照并切换公开指针。`free` 模式要求全部票种价格为 0，零元报名会在同一事务完成订单、库存和电子票。
 
 ## 大会模板
 
@@ -173,7 +173,7 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | POST      | `/admin/template-assets`                 | 校验已上传对象并登记资产                |
 | DELETE    | `/admin/template-assets/:assetId`        | 删除无引用资产并排队清理对象            |
 
-模板版本发布后保持不可变。大会绑定明确的 `templateVersionId`，升级、替换和大会再次发布均需要独立确认。模板资产登记会核对组织路径、媒体类型、文件大小和 SHA-256。
+模板版本发布后保持不可变。大会绑定明确的 `templateVersionId`，升级或替换需要独立确认，保存成功后按大会状态立即生效。模板资产登记会核对组织路径、媒体类型、文件大小和 SHA-256。
 
 ## 发票管理
 

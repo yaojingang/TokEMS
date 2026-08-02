@@ -27,12 +27,20 @@ describePersistent('PostgreSQL tenant isolation', () => {
   const issuedTicketB = randomUUID();
   const slug = `tenant-same-slug-${randomUUID().slice(0, 8)}`;
   const organizationBSlug = `tenant-b-${randomUUID().slice(0, 8)}`;
+  let organizationASlug: string;
   const database = new DatabaseService();
   const repository = new ConferenceRepository(database);
   const operations = new EventOperationsService(database);
 
   beforeAll(async () => {
     const db = database.db!;
+    const [organizationA] = await db
+      .select({ slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, DEMO_IDS.organization))
+      .limit(1);
+    expect(organizationA?.slug).toBeTruthy();
+    organizationASlug = organizationA!.slug;
     await db.insert(organizations).values({
       id: organizationB,
       slug: organizationBSlug,
@@ -164,7 +172,7 @@ describePersistent('PostgreSQL tenant isolation', () => {
 
   it('resolves the same public slug inside its organization scope', async () => {
     const [publicA, publicB] = await Promise.all([
-      repository.getPublicEvent(slug, 'tokems-demo', false),
+      repository.getPublicEvent(slug, organizationASlug, false),
       repository.getPublicEvent(slug, organizationBSlug, false),
     ]);
     expect(publicA.id).toBe(eventA);

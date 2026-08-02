@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
-import type { RegistrationField, RegistrationForm } from '@conference/contracts';
+import { computed, onMounted, reactive, ref } from 'vue';
+import type { EventStatus, RegistrationField, RegistrationForm } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi } from '../lib/api';
 import { dateTime, statusLabel } from '../lib/format';
 
@@ -9,11 +11,53 @@ const loading = ref(true);
 const pending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
+const showImportantChangeConfirm = ref(false);
+const eventStatus = ref<EventStatus>('configuring');
 const editor = reactive({
   name: '标准参会报名表',
   termsVersion: new Date().toISOString().slice(0, 10),
   termsContent: '提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。',
   fields: [] as RegistrationField[],
+});
+const importantChanges = computed(() => {
+  const current = versions.value[0];
+  if (!current) return [];
+  const details: Array<{ label: string; value: string }> = [];
+  if (
+    current.termsVersion !== editor.termsVersion ||
+    current.termsContent !== editor.termsContent
+  ) {
+    details.push({
+      label: '报名条款',
+      value: `${current.termsVersion} → ${editor.termsVersion}`,
+    });
+  }
+  const nextFields = new Map(editor.fields.map((field) => [field.key, field]));
+  const removed = current.fields.filter((field) => !nextFields.has(field.key));
+  const changedTypes = current.fields.filter((field) => {
+    const next = nextFields.get(field.key);
+    return next && next.type !== field.type;
+  });
+  const newRequired = editor.fields.filter((field) => {
+    const prior = current.fields.find((item) => item.key === field.key);
+    return field.required && prior?.required !== true;
+  });
+  if (removed.length) {
+    details.push({ label: '移除字段', value: removed.map((field) => field.label).join('、') });
+  }
+  if (changedTypes.length) {
+    details.push({
+      label: '改变类型',
+      value: changedTypes.map((field) => field.label).join('、'),
+    });
+  }
+  if (newRequired.length) {
+    details.push({
+      label: '新增必填',
+      value: newRequired.map((field) => field.label).join('、'),
+    });
+  }
+  return details;
 });
 
 function standardFields(): RegistrationField[] {
@@ -31,7 +75,12 @@ async function load() {
   loading.value = true;
   errorMessage.value = '';
   try {
-    versions.value = await conferenceApi.getForms();
+    const [loadedVersions, event] = await Promise.all([
+      conferenceApi.getForms(),
+      conferenceApi.getEvent(),
+    ]);
+    versions.value = loadedVersions;
+    eventStatus.value = event.status;
     const current = versions.value[0];
     if (current) {
       editor.name = current.name;
@@ -72,7 +121,16 @@ function updateOptions(field: RegistrationField, value: string) {
     .filter(Boolean);
 }
 
-async function publish() {
+function requestSave() {
+  if (importantChanges.value.length) {
+    showImportantChangeConfirm.value = true;
+    return;
+  }
+  void save();
+}
+
+async function save() {
+  showImportantChangeConfirm.value = false;
   pending.value = true;
   errorMessage.value = '';
   try {
@@ -82,10 +140,14 @@ async function publish() {
       termsVersion: editor.termsVersion,
       termsContent: editor.termsContent,
     });
-    message.value = `报名表 V${result.version} 已发布，新报名将固化当前表单与条款快照。`;
+    message.value = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
+      eventStatus.value,
+    )
+      ? `已保存，新的报名使用表单 V${result.version}`
+      : `已保存表单 V${result.version}，大会上线时生效`;
     await load();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '表单发布失败';
+    errorMessage.value = error instanceof Error ? error.message : '表单保存失败';
   } finally {
     pending.value = false;
   }
@@ -98,13 +160,12 @@ onMounted(() => void load());
   <header class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">VERSIONED CONSENT</p>
-      <h1>报名表与条款版本</h1>
-      <p>发布新版本后，历史报名继续保留当时确认的字段、条款正文和同意时间。</p>
+      <h1>报名表与条款</h1>
+      <p>保存后立即用于新的报名，历史报名继续保留当时确认的字段、条款和同意时间。</p>
     </div>
     <button class="button secondary" type="button" @click="addField">＋ 添加字段</button>
   </header>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading" role="status">正在读取报名表版本…</div>
 
   <div v-else class="content-grid">
@@ -112,10 +173,10 @@ onMounted(() => void load());
       <header class="admin-panel-header">
         <div>
           <h2>表单编辑器</h2>
-          <p>字段键用于数据契约，发布后请保持语义稳定</p>
+          <p>字段键用于数据契约，保存生效后请保持语义稳定</p>
         </div>
       </header>
-      <form class="event-form" @submit.prevent="publish">
+      <form class="event-form" @submit.prevent="requestSave">
         <div class="form-grid">
           <div class="form-field">
             <label for="registration-form-name">表单名称</label><input id="registration-form-name" v-model="editor.name" required />
@@ -206,7 +267,7 @@ onMounted(() => void load());
         </div>
         <div class="event-form-actions">
           <button class="button" type="submit" :disabled="pending || !editor.fields.length">
-            {{ pending ? '正在发布…' : '发布新版本' }}
+            {{ pending ? '保存中…' : '保存并生效' }}
           </button>
         </div>
       </form>
@@ -216,7 +277,7 @@ onMounted(() => void load());
       <header class="admin-panel-header">
         <div>
           <h2>版本记录</h2>
-          <p>已发布版本保持不可变</p>
+          <p>历史版本保持不可变，新报名只使用当前版本</p>
         </div>
         <span class="status-badge">{{ versions.length }} VERSIONS</span>
       </header>
@@ -232,8 +293,19 @@ onMounted(() => void load());
         </li>
       </ul>
       <div v-if="!versions.length" class="admin-empty">
-        尚无已发布版本，当前编辑器已载入标准报名字段。
+        尚无表单版本，当前编辑器已载入标准报名字段。
       </div>
     </section>
   </div>
+
+  <AdminConfirmDialog
+    :open="showImportantChangeConfirm"
+    title="确认更新报名表与条款？"
+    description="保存成功后新的报名会立即使用以下配置，历史报名继续保留原表单和条款快照。"
+    :details="importantChanges"
+    :busy="pending"
+    :error="errorMessage"
+    @cancel="showImportantChangeConfirm = false"
+    @confirm="save"
+  />
 </template>

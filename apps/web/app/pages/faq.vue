@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { DEMO_EVENT, type PublicEvent } from '@conference/contracts';
+import { DEMO_EVENT } from '@conference/contracts';
 import { resolveEventExperience } from '~/composables/useEventExperience';
 
 const api = useConferenceApi();
-const event = ref<PublicEvent>(structuredClone(DEMO_EVENT));
+const event = api.eventState;
 const query = ref('');
 const activeCategory = ref('全部');
 const openKeys = ref<string[]>([]);

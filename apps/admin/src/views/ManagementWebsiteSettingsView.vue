@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { OrganizationSettingsResult } from '@conference/contracts';
+import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -66,7 +67,7 @@ async function save() {
       settings: { website: { ...form } },
     });
     applySettings(result.settings.website);
-    message.value = '网站设置已发布，公开端下一次访问时会自动生效。';
+    message.value = '已保存，公开网站实时生效';
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '网站设置保存失败';
   } finally {
@@ -78,8 +79,7 @@ onMounted(load);
 </script>
 
 <template>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入网站设置…</div>
   <div v-else-if="!loaded" class="admin-loading">
     <button class="btn btn-secondary" type="button" @click="load">重新载入</button>
@@ -197,12 +197,7 @@ onMounted(load);
           </div>
         </div>
       </section>
-      <SettingsFormActions
-        v-if="canManage"
-        :pending="pending"
-        primary-label="保存并发布"
-        pending-label="发布中…"
-      />
+      <SettingsFormActions v-if="canManage" :pending="pending" primary-label="保存网站设置" />
     </form>
   </section>
 </template>

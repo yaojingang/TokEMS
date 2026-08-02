@@ -307,7 +307,6 @@ try {
         'event.read',
         'event.content.manage',
         'event.site.read',
-        'event.site.publish',
         'event.ai.read',
         'event.ai.generate',
         'event.ai.approve',
@@ -333,6 +332,17 @@ try {
   });
   const contentManagerHeaders = authHeaders(contentManagerLogin.accessToken);
   await request(`/admin/events/${eventId}/content`, { headers: contentManagerHeaders });
+  const { body: contentManagerExperience } = await request(`/admin/events/${eventId}/experience`, {
+    headers: contentManagerHeaders,
+  });
+  await request(`/admin/events/${eventId}/experience/faq`, {
+    method: 'PUT',
+    headers: contentManagerHeaders,
+    body: JSON.stringify({
+      revision: contentManagerExperience.overrides.faq.revision,
+      document: {},
+    }),
+  });
   await expectStatus(`/admin/events/${eventId}/ticket-types`, 403, {
     method: 'POST',
     headers: contentManagerHeaders,
@@ -462,22 +472,55 @@ try {
   );
   assert(publishedForm.status === 'published', 'Registration form was not published');
 
-  const { body: release1 } = await request(`/admin/events/${eventId}/releases`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ templateKey: 'editorial-blue' }),
-  });
+  const { body: draftReleases } = await request(`/admin/events/${eventId}/releases`, { headers });
+  assert(draftReleases.length === 0, 'Draft saves created a public release before launch');
   await request(`/admin/events/${eventId}`, {
     method: 'PATCH',
     headers,
-    body: JSON.stringify({ tagline: `验收发布版本 ${runId}` }),
+    body: JSON.stringify({ status: 'prepublished' }),
   });
-  const { body: release2 } = await request(`/admin/events/${eventId}/releases`, {
-    method: 'POST',
+  const { body: releasesAfterLaunch } = await request(`/admin/events/${eventId}/releases`, {
     headers,
-    body: JSON.stringify({ templateKey: 'executive-classic' }),
   });
+  const release1 = releasesAfterLaunch[0];
+  assert(release1?.version === 1, 'First launch did not activate release V1');
+  assert(
+    release1.activationKind === 'initial',
+    'First launch was not recorded as initial activation',
+  );
+
+  await request(`/admin/events/${eventId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ tagline: releaseOneTagline }),
+  });
+  const { body: releasesAfterIdenticalSave } = await request(`/admin/events/${eventId}/releases`, {
+    headers,
+  });
+  assert(
+    releasesAfterIdenticalSave.length === releasesAfterLaunch.length,
+    'Identical save created a redundant release',
+  );
+
+  const liveTagline = `验收保存即生效 ${runId}`;
+  await request(`/admin/events/${eventId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ tagline: liveTagline }),
+  });
+  const { body: releasesAfterSave } = await request(`/admin/events/${eventId}/releases`, {
+    headers,
+  });
+  const release2 = releasesAfterSave[0];
   assert(release2.version === release1.version + 1, 'Release version did not increase');
+  assert(release2.activationKind === 'save', 'Live save was not recorded as save activation');
+  const { body: publicAfterLiveSave } = await request(`/events/${slug}`, {
+    headers: { 'X-Organization-Slug': identity.organization.slug },
+  });
+  assert(
+    publicAfterLiveSave.tagline === liveTagline,
+    'Saved event copy was not immediately public',
+  );
   const { body: rolledBack } = await request(
     `/admin/events/${eventId}/releases/${release1.id}/rollback`,
     { method: 'POST', headers },
@@ -485,7 +528,7 @@ try {
   assert(rolledBack.active, 'Release rollback did not change the active version');
 
   const { body: publicEvent } = await request(`/events/${slug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+    headers: { 'X-Organization-Slug': identity.organization.slug },
   });
   assert(
     publicEvent.tagline === releaseOneTagline,
@@ -502,23 +545,30 @@ try {
     method: 'PATCH',
     headers,
     body: JSON.stringify({
-      name: `未发布票种名称 ${runId}`,
+      name: `实时生效票种 ${runId}`,
       price: releasedTicket.price + 1700,
     }),
   });
-  const { body: publicAfterDraftTicketEdit } = await request(`/events/${slug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+  const { body: publicAfterTicketEdit } = await request(`/events/${slug}`, {
+    headers: { 'X-Organization-Slug': identity.organization.slug },
   });
+  const activeTicket = publicAfterTicketEdit.tickets.find((item) => item.id === releasedTicket.id);
   assert(
-    publicAfterDraftTicketEdit.tickets[0].name === releasedTicket.name &&
-      publicAfterDraftTicketEdit.tickets[0].price === releasedTicket.price,
-    'Unpublished ticket edits leaked into the public release',
+    activeTicket?.name === `实时生效票种 ${runId}` &&
+      activeTicket.price === releasedTicket.price + 1700,
+    'Saved ticket changes were not immediately public',
   );
+
+  await request(`/admin/events/${eventId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ status: 'registration_open' }),
+  });
 
   const registrationKey = `registration-${runId}`;
   const registrationPayload = {
     eventId,
-    ticketTypeId: publicEvent.tickets[0].id,
+    ticketTypeId: activeTicket.id,
     attendee: {
       name: '验收参会人',
       mobile: '13800138000',
@@ -530,8 +580,8 @@ try {
     invoiceRequired: false,
     marketingConsent: true,
     termsAccepted: true,
-    formVersion: publicEvent.registrationForm.version,
-    termsVersion: publicEvent.registrationForm.termsVersion,
+    formVersion: publicAfterTicketEdit.registrationForm.version,
+    termsVersion: publicAfterTicketEdit.registrationForm.termsVersion,
     formAnswers: { dietary_preference: '素食' },
   };
   await expectStatus('/registrations', 400, {
@@ -548,7 +598,7 @@ try {
     body: JSON.stringify(registrationPayload),
   });
   assert(
-    checkout.order.amount === releasedTicket.price,
+    checkout.order.amount === activeTicket.price,
     'Checkout ignored the released ticket price',
   );
   assert(
@@ -813,13 +863,18 @@ try {
       termsContent: freeSourceForm.termsContent,
     }),
   });
-  await request(`/admin/events/${freeEvent.id}/releases`, {
-    method: 'POST',
+  await request(`/admin/events/${freeEvent.id}`, {
+    method: 'PATCH',
     headers,
-    body: JSON.stringify({ templateKey: 'editorial-blue' }),
+    body: JSON.stringify({ status: 'prepublished' }),
+  });
+  await request(`/admin/events/${freeEvent.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ status: 'registration_open' }),
   });
   const { body: freePublicEvent } = await request(`/events/${freeSlug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+    headers: { 'X-Organization-Slug': identity.organization.slug },
   });
   assert(
     freePublicEvent.registration.paymentMode === 'free',
@@ -864,13 +919,16 @@ try {
     method: 'DELETE',
     headers,
   });
-  const { body: releaseAfterTicketArchive } = await request(`/admin/events/${eventId}/releases`, {
-    method: 'POST',
+  const { body: releasesAfterTicketArchive } = await request(`/admin/events/${eventId}/releases`, {
     headers,
-    body: JSON.stringify({ templateKey: 'editorial-blue' }),
   });
+  const releaseAfterTicketArchive = releasesAfterTicketArchive[0];
+  assert(
+    releaseAfterTicketArchive.changeScope === 'ticket',
+    'Ticket archive did not create a ticket-scoped change record',
+  );
   const { body: publicAfterTicketArchive } = await request(`/events/${slug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+    headers: { 'X-Organization-Slug': identity.organization.slug },
   });
   assert(
     !publicAfterTicketArchive.tickets.some((item) => item.id === releasedTicket.id),
@@ -882,7 +940,7 @@ try {
     headers,
   });
   const { body: publicAfterArchivedTicketRollback } = await request(`/events/${slug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+    headers: { 'X-Organization-Slug': identity.organization.slug },
   });
   assert(
     publicAfterArchivedTicketRollback.tickets.some((item) => item.id === releasedTicket.id),

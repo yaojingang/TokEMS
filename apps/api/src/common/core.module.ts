@@ -5,6 +5,7 @@ import { DatabaseService } from './database.service.js';
 import { CommerceOperationsService } from './commerce-operations.service.js';
 import { EngagementOperationsService } from './engagement-operations.service.js';
 import { EventOperationsService } from './event-operations.service.js';
+import { EventReleaseActivationService } from './event-release-activation.service.js';
 import { OrganizationAdminService } from './organization-admin.service.js';
 import { InvoiceOperationsService } from './invoice-operations.service.js';
 import { TemplateOperationsService } from './template-operations.service.js';
@@ -22,6 +23,7 @@ import { RedisService } from './redis.service.js';
   providers: [
     DatabaseService,
     ConferenceRepository,
+    EventReleaseActivationService,
     EventOperationsService,
     CommerceOperationsService,
     EngagementOperationsService,
@@ -41,6 +43,7 @@ import { RedisService } from './redis.service.js';
   exports: [
     DatabaseService,
     ConferenceRepository,
+    EventReleaseActivationService,
     EventOperationsService,
     CommerceOperationsService,
     EngagementOperationsService,

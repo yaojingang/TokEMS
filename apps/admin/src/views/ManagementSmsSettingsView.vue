@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { AliyunSmsConfiguration, AliyunSmsTemplateKey } from '@conference/contracts';
+import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -229,8 +230,7 @@ watch([testPhone, testTemplateKey], () => {
 </script>
 
 <template>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入短信服务设置…</div>
   <div v-else-if="!loaded" class="admin-loading">
     <button class="btn btn-secondary" type="button" @click="load">重新载入</button>

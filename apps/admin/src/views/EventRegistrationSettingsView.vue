@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue';
 import type { CustomerAccountMode, EventPaymentMode, PublicEvent } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
 import { money } from '../lib/format';
 
@@ -24,6 +26,14 @@ const message = ref('');
 const errorMessage = ref('');
 const showTicketEditor = ref(false);
 const editingTicketId = ref('');
+const confirmation = shallowRef<{
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  tone: 'primary' | 'danger';
+  details: Array<{ label: string; value: string }>;
+  action: () => Promise<void>;
+}>();
 const settingsForm = reactive({
   paymentMode: 'ticketed' as EventPaymentMode,
   registrationOpen: true,
@@ -40,7 +50,9 @@ const ticketForm = reactive({
 });
 
 const isFree = computed(() => settingsForm.paymentMode === 'free');
-const canManageRegistration = computed(() => session.can('event.manage'));
+const canManageRegistration = computed(() =>
+  session.canAny(['event.manage', 'event.registration.manage']),
+);
 const canReadInventory = computed(() =>
   session.canAny(['event.inventory.read', 'event.inventory.manage']),
 );
@@ -69,6 +81,48 @@ async function load(preserveSettings = false) {
 
 onMounted(load);
 
+function savedMessage(subject = '已保存') {
+  return event.value &&
+    ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(event.value.status)
+    ? `${subject}，前台已生效`
+    : `${subject}，大会上线时生效`;
+}
+
+function requestSaveSettings() {
+  const current = event.value?.registration;
+  const changesBusinessFlow =
+    current &&
+    (current.paymentMode !== settingsForm.paymentMode ||
+      current.registrationOpen !== settingsForm.registrationOpen);
+  if (!changesBusinessFlow) {
+    void saveSettings();
+    return;
+  }
+  confirmation.value = {
+    title: settingsForm.registrationOpen ? '确认更新报名方式？' : '确认暂停前台报名？',
+    description: settingsForm.registrationOpen
+      ? '保存成功后新的报名会立即采用当前流程，已有订单和电子票继续保留原记录。'
+      : '保存成功后前台页面继续保留，并立即停止接收新的报名提交。',
+    confirmLabel: settingsForm.registrationOpen ? '确认并生效' : '确认暂停报名',
+    tone: settingsForm.registrationOpen ? 'primary' : 'danger',
+    details: [
+      {
+        label: '报名模式',
+        value: settingsForm.paymentMode === 'free' ? '免费报名' : '按票种收费',
+      },
+      { label: '前台报名', value: settingsForm.registrationOpen ? '开放' : '暂停' },
+    ],
+    action: saveSettings,
+  };
+}
+
+async function confirmImportantChange() {
+  const current = confirmation.value;
+  if (!current) return;
+  await current.action();
+  if (!errorMessage.value) confirmation.value = undefined;
+}
+
 async function saveSettings() {
   if (isFree.value && event.value?.tickets.some((ticket) => ticket.price > 0)) {
     errorMessage.value = '免费报名模式下，所有票种价格需要设为 0 元。';
@@ -88,7 +142,7 @@ async function saveSettings() {
         },
       },
     });
-    message.value = '报名方式已保存，发布新版本后同步到大会前台。';
+    message.value = savedMessage();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '报名方式保存失败';
   } finally {
@@ -129,6 +183,37 @@ function editTicket(ticket: PublicEvent['tickets'][number]) {
   showTicketEditor.value = true;
 }
 
+function requestSaveTicket() {
+  const currentTicket = event.value?.tickets.find((ticket) => ticket.id === editingTicketId.value);
+  const currentInventory = inventory.value.find((item) => item.id === editingTicketId.value);
+  const nextPrice = Math.round(Number(ticketForm.priceYuan) * 100);
+  const nextCapacity = Number(ticketForm.capacity);
+  if (
+    currentTicket &&
+    (currentTicket.price !== nextPrice ||
+      (currentInventory !== undefined && nextCapacity < currentInventory.capacity))
+  ) {
+    confirmation.value = {
+      title: `确认更新“${currentTicket.name}”的售卖条件？`,
+      description: '保存成功后新订单会立即采用新的价格和容量，已有订单与电子票继续保留原记录。',
+      tone: nextCapacity < (currentInventory?.capacity ?? nextCapacity) ? 'danger' : 'primary',
+      details: [
+        {
+          label: '票价',
+          value: `${money(currentTicket.price)} → ${money(nextPrice)}`,
+        },
+        {
+          label: '容量',
+          value: `${currentInventory?.capacity ?? currentTicket.remaining} → ${nextCapacity}`,
+        },
+      ],
+      action: saveTicket,
+    };
+    return;
+  }
+  void saveTicket();
+}
+
 async function saveTicket() {
   ticketPending.value = true;
   errorMessage.value = '';
@@ -161,7 +246,7 @@ async function saveTicket() {
     await load(true);
     showTicketEditor.value = false;
     resetTicketForm();
-    message.value = '票种配置已保存，发布新版本后同步到大会前台。';
+    message.value = savedMessage();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '票种保存失败';
   } finally {
@@ -169,13 +254,26 @@ async function saveTicket() {
   }
 }
 
+function requestRemoveTicket(ticket: PublicEvent['tickets'][number]) {
+  confirmation.value = {
+    title: `确认下架“${ticket.name}”？`,
+    description: '前台将立即停止展示和售卖该票种，已有订单和电子票不受影响。',
+    confirmLabel: '确认下架',
+    tone: 'danger',
+    details: [
+      { label: '当前票价', value: money(ticket.price) },
+      { label: '剩余名额', value: String(ticket.remaining) },
+    ],
+    action: () => removeTicket(ticket),
+  };
+}
+
 async function removeTicket(ticket: PublicEvent['tickets'][number]) {
-  if (!window.confirm(`确认下架票种“${ticket.name}”？发布新版本后将从前台移除。`)) return;
   errorMessage.value = '';
   try {
     await conferenceApi.deleteTicketType(ticket.id);
     await load(true);
-    message.value = '票种已从草稿下架，发布新版本后同步到大会前台。';
+    message.value = savedMessage('票种已下架');
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '票种删除失败';
   }
@@ -186,7 +284,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
   try {
     await conferenceApi.restoreTicketType(ticket.id);
     await load(true);
-    message.value = '票种已恢复到大会草稿，发布新版本后同步到大会前台。';
+    message.value = savedMessage('票种已恢复');
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '票种恢复失败';
   }
@@ -205,8 +303,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
     </span>
   </header>
 
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
 
   <section v-if="canManageRegistration" class="admin-panel">
     <header class="admin-panel-header">
@@ -215,7 +312,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
         <p>免费报名完成后直接出票，按票种收费会进入订单与支付</p>
       </div>
     </header>
-    <form class="event-form settings-form-spaced" @submit.prevent="saveSettings">
+    <form class="event-form settings-form-spaced" @submit.prevent="requestSaveSettings">
       <div class="choice-card-grid">
         <label class="choice-card" :class="{ selected: settingsForm.paymentMode === 'free' }">
           <input v-model="settingsForm.paymentMode" type="radio" value="free" />
@@ -321,7 +418,11 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
                 <button class="button secondary compact" type="button" @click="editTicket(ticket)">
                   编辑
                 </button>
-                <button class="button danger compact" type="button" @click="removeTicket(ticket)">
+                <button
+                  class="button danger compact"
+                  type="button"
+                  @click="requestRemoveTicket(ticket)"
+                >
                   下架
                 </button>
               </div>
@@ -342,7 +443,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
             <small>{{ ticket.code }} · {{ money(ticket.price) }} · 容量 {{ ticket.capacity }}</small>
           </div>
           <button class="button secondary compact" type="button" @click="restoreTicket(ticket)">
-            恢复到草稿
+            恢复票种
           </button>
         </li>
       </ul>
@@ -353,13 +454,13 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
     <header class="admin-panel-header">
       <div>
         <h2>{{ editingTicketId ? '编辑票种' : '新建票种' }}</h2>
-        <p>容量与库存即时生效，名称、权益和价格随下一次发布同步。</p>
+        <p>票种配置保存后立即生效，历史订单继续保留原价格和票种快照。</p>
       </div>
       <button class="button secondary compact" type="button" @click="showTicketEditor = false">
         关闭
       </button>
     </header>
-    <form class="event-form settings-form-spaced" @submit.prevent="saveTicket">
+    <form class="event-form settings-form-spaced" @submit.prevent="requestSaveTicket">
       <div class="form-grid">
         <div v-if="!editingTicketId" class="form-field">
           <label for="ticket-code">票种编码</label>
@@ -429,4 +530,17 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
       </div>
     </form>
   </section>
+
+  <AdminConfirmDialog
+    :open="Boolean(confirmation)"
+    :title="confirmation?.title ?? ''"
+    :description="confirmation?.description ?? ''"
+    :confirm-label="confirmation?.confirmLabel ?? '确认并生效'"
+    :tone="confirmation?.tone ?? 'primary'"
+    :details="confirmation?.details ?? []"
+    :busy="settingsPending || ticketPending"
+    :error="errorMessage"
+    @cancel="confirmation = undefined"
+    @confirm="confirmImportantChange"
+  />
 </template>

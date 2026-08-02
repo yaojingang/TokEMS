@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 10,
   "adminViews": 34,
-  "migrations": 38,
-  "latestMigration": "0037_allow_duplicate_registrations.sql",
+  "migrations": 40,
+  "latestMigration": "0039_event_release_change_context.sql",
   "databaseTables": 60,
   "apiControllers": 23,
   "apiOperations": 175,
-  "testFiles": 42
+  "testFiles": 45
 }

@@ -33,10 +33,7 @@ import { DomainError } from '../common/domain-error.js';
 import { AuthGuard, RequireGrant, type AuthenticatedUser } from '../common/auth.guard.js';
 import { OrganizationAdminService } from '../common/organization-admin.service.js';
 import { TemplateOperationsService } from '../common/template-operations.service.js';
-import {
-  resolveTrustedClientIp,
-  WeChatPayService,
-} from '../common/wechat-pay.service.js';
+import { resolveTrustedClientIp, WeChatPayService } from '../common/wechat-pay.service.js';
 import { CustomerAuthService } from '../common/customer-auth.service.js';
 import { HtmlTemplateOperationsService } from '../common/html-template-operations.service.js';
 
@@ -197,7 +194,7 @@ class EventsController {
       if (!document) {
         return reply
           .code(HttpStatus.NO_CONTENT)
-          .header('Cache-Control', 'public, max-age=30')
+          .header('Cache-Control', 'no-cache, must-revalidate')
           .header('Vary', 'X-Organization-Slug, Accept-Encoding')
           .send();
       }
@@ -211,7 +208,7 @@ class EventsController {
       return reply
         .type('text/html; charset=utf-8')
         .header('Content-Security-Policy', document.csp)
-        .header('Cache-Control', 'public, max-age=30, stale-while-revalidate=120')
+        .header('Cache-Control', 'no-cache, must-revalidate')
         .header('ETag', document.etag)
         .header('Vary', 'X-Organization-Slug, Accept-Encoding')
         .header('Referrer-Policy', 'strict-origin-when-cross-origin')
@@ -238,7 +235,7 @@ class EventsController {
         return reply
           .type('text/html; charset=utf-8')
           .header('Content-Security-Policy', artifact.csp)
-          .header('Cache-Control', 'public, max-age=15, stale-while-revalidate=120')
+          .header('Cache-Control', 'no-cache, must-revalidate')
           .header('ETag', artifact.etag)
           .header('Vary', 'X-Organization-Slug, Accept-Encoding')
           .header('Referrer-Policy', 'strict-origin-when-cross-origin')
@@ -266,7 +263,9 @@ class EventsController {
   async getEvent(
     @Param('slug') slug: string,
     @Headers('x-organization-slug') organizationSlug?: string,
+    @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
+    reply?.header('Cache-Control', 'no-cache, must-revalidate');
     const event = await this.repository.getPublicEvent(
       slug,
       organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
@@ -291,7 +290,11 @@ class SiteConfigurationController {
   ) {}
 
   @Get()
-  getConfiguration(@Headers('x-organization-slug') organizationSlug?: string) {
+  getConfiguration(
+    @Headers('x-organization-slug') organizationSlug: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.organizationAdmin.getPublicSiteConfiguration(
       organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
     );
@@ -322,7 +325,7 @@ class RegistrationsController {
   ) {}
 
   @Post()
-  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   async create(
     @Body() body: unknown,
     @Req() request: FastifyRequest,

@@ -11,6 +11,7 @@ import {
   resolveBuildInfo,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   aiRuns,
   conferenceTemplateDrafts,
   conferenceTemplates,
@@ -101,15 +102,6 @@ const TEMPLATE_ASSET_LATE_UPLOAD_QUARANTINE_MS = 24 * 60 * 60_000;
 const inventoryReleaseInterval = Number(process.env.INVENTORY_RELEASE_INTERVAL_MS ?? 30_000);
 const smsReceiptInterval = Number(process.env.SMS_RECEIPT_INTERVAL_MS ?? 30_000);
 let reconcilingSmsReceipts = false;
-
-const ACTIVE_WECHAT_PAYMENT_STATUSES = [
-  'preparing',
-  'pending',
-  'processing',
-  'query_pending',
-  'close_pending',
-  'unknown',
-] as const;
 
 type SmsDeliveryContext = {
   templateKey: AliyunSmsTemplateKey;
@@ -765,7 +757,18 @@ async function createEventHtmlReleaseArtifact(
     .limit(1);
   if (!scope || !scope.release.artifactKey.endsWith('.html')) return;
   const definition = normalizeConferenceTemplateDefinition(scope.version.definition);
-  if (definition.presentation.kind !== 'html') return;
+  if (definition.presentation.kind !== 'html') {
+    throw new Error(`HTML release ${releaseId} points to a structured template version`);
+  }
+  const snapshot = scope.release.snapshot as Record<string, unknown>;
+  const experience = (snapshot.experience ?? {}) as Record<string, unknown>;
+  const snapshotTemplate = (experience.template ?? {}) as Record<string, unknown>;
+  if (
+    typeof snapshotTemplate.versionId === 'string' &&
+    snapshotTemplate.versionId !== scope.version.id
+  ) {
+    throw new Error(`Release ${releaseId} template metadata does not match its snapshot`);
+  }
   const [document] = await db
     .select()
     .from(templateHtmlDocuments)
@@ -777,16 +780,16 @@ async function createEventHtmlReleaseArtifact(
     )
     .limit(1);
   if (!document) throw new Error(`HTML document for release ${releaseId} does not exist`);
-  const snapshot = scope.release.snapshot as Record<string, unknown>;
   const event = (snapshot.event ?? {}) as Record<string, unknown>;
   const eventSettings = (event.settings ?? {}) as Record<string, unknown>;
-  const experience = (snapshot.experience ?? {}) as Record<string, unknown>;
   const faqDefinition = (experience.faq ?? {}) as { items?: Array<Record<string, unknown>> };
-  const faqs = Array.isArray(eventSettings.faqs)
-    ? eventSettings.faqs
-    : (faqDefinition.items ?? [])
+  const faqs = Array.isArray(faqDefinition.items)
+    ? faqDefinition.items
         .filter((item) => item.enabled !== false)
-        .map((item) => ({ question: item.question, answer: item.answer }));
+        .map((item) => ({ question: item.question, answer: item.answer }))
+    : Array.isArray(eventSettings.faqs)
+      ? eventSettings.faqs
+      : [];
   const compiled = compileHtmlTemplate(document.sanitizedHtml, definition.presentation.bindings);
   const rendered = await renderHtmlTemplate(compiled, {
     event: {

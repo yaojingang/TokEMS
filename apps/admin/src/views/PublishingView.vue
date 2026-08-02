@@ -3,11 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type {
   ConferenceTemplateOption,
   EventExperience,
+  EventStatus,
   EventRelease,
   EventTemplateBinding,
   TemplateSurface,
 } from '@conference/contracts';
 import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, publicEventUrl, session } from '../lib/api';
 import { dateTime } from '../lib/format';
 
@@ -25,13 +28,21 @@ const tabs = [
   { key: 'home', label: '首页设置' },
   { key: 'faq', label: 'FAQ 设置' },
   { key: 'flow', label: '报名流程' },
-  { key: 'releases', label: '发布历史' },
+  { key: 'releases', label: '变更记录' },
 ] as const;
+const visibleTabs = computed(() =>
+  experience.value?.definition.presentation.kind === 'html'
+    ? tabs.filter((tab) => tab.key !== 'home')
+    : tabs,
+);
 const replacementVersionId = ref('');
 const showReplacementConfirm = ref(false);
 const showSaveAsTemplate = ref(false);
+const rollbackTarget = ref<EventRelease>();
+const eventStatus = ref<EventStatus>('configuring');
 const canPublish = session.can('event.site.publish');
-const canManage = session.can('event.manage');
+const canManageBinding = session.can('event.manage');
+const canManageExperience = session.can('event.content.manage');
 const canUseTemplate = session.can('org.template.use');
 const canSaveAsTemplate = session.canAll([
   'event.manage',
@@ -68,10 +79,11 @@ const flowForm = reactive({
 function hydrateExperience(value: EventExperience) {
   const definition = normalizeConferenceTemplateDefinition(value.definition);
   experience.value = { ...value, definition };
+  if (definition.presentation.kind === 'html' && activeTab.value === 'home') {
+    activeTab.value = 'binding';
+  }
   const home =
-    definition.presentation.kind === 'structured'
-      ? definition.presentation.home
-      : undefined;
+    definition.presentation.kind === 'structured' ? definition.presentation.home : undefined;
   const hero = home?.blocks.find((item) => item.nodeKey === 'home.hero');
   homeForm.primaryAction = String(hero?.content.primaryAction ?? '立即报名');
   homeForm.secondaryAction = String(hero?.content.secondaryAction ?? '查看议程');
@@ -97,16 +109,19 @@ async function load() {
   loading.value = true;
   errorMessage.value = '';
   try {
-    const [loadedBinding, loadedExperience, loadedReleases, loadedOptions] = await Promise.all([
-      conferenceApi.getTemplateBinding(),
-      conferenceApi.getEventExperience(),
-      conferenceApi.getReleases(),
-      canUseTemplate ? conferenceApi.getTemplateOptions() : Promise.resolve([]),
-    ]);
+    const [loadedBinding, loadedExperience, loadedReleases, loadedOptions, event] =
+      await Promise.all([
+        conferenceApi.getTemplateBinding(),
+        conferenceApi.getEventExperience(),
+        conferenceApi.getReleases(),
+        canUseTemplate ? conferenceApi.getTemplateOptions() : Promise.resolve([]),
+        conferenceApi.getEvent(),
+      ]);
     binding.value = loadedBinding;
     hydrateExperience(loadedExperience);
     releases.value = loadedReleases;
     options.value = loadedOptions;
+    eventStatus.value = event.status;
     replacementVersionId.value =
       loadedBinding.currentPublishedVersionId ?? loadedBinding.templateVersionId;
   } catch (error) {
@@ -116,9 +131,22 @@ async function load() {
   }
 }
 
+function savedMessage(subject = '已保存') {
+  return ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(eventStatus.value)
+    ? `${subject}，前台已生效`
+    : `${subject}，大会上线时生效`;
+}
+
+function requestTemplateReplacement(templateVersionId?: string) {
+  if (templateVersionId) replacementVersionId.value = templateVersionId;
+  errorMessage.value = '';
+  showReplacementConfirm.value = true;
+}
+
 async function updateBinding(templateVersionId: string) {
   if (!binding.value) return;
   pending.value = true;
+  message.value = '';
   errorMessage.value = '';
   try {
     binding.value = await conferenceApi.updateTemplateBinding({
@@ -131,8 +159,11 @@ async function updateBinding(templateVersionId: string) {
       },
     });
     hydrateExperience(await conferenceApi.getEventExperience());
+    releases.value = await conferenceApi.getReleases();
     showReplacementConfirm.value = false;
-    message.value = `大会草稿已绑定 ${binding.value.templateName} V${binding.value.templateVersion}。线上版本保持不变，发布后生效。`;
+    message.value = savedMessage(
+      `模板已替换为 ${binding.value.templateName} V${binding.value.templateVersion}`,
+    );
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '大会模板绑定更新失败';
   } finally {
@@ -143,6 +174,7 @@ async function updateBinding(templateVersionId: string) {
 async function saveSurface(surface: TemplateSurface) {
   if (!experience.value) return;
   pending.value = true;
+  message.value = '';
   errorMessage.value = '';
   try {
     const override = experience.value.overrides[surface];
@@ -195,7 +227,8 @@ async function saveSurface(surface: TemplateSurface) {
             };
     const updated = await conferenceApi.saveEventExperience(surface, override.revision, document);
     hydrateExperience(updated);
-    message.value = '大会专属覆盖已保存，不会回写公共模板。';
+    releases.value = await conferenceApi.getReleases();
+    message.value = savedMessage();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '大会专属设置保存失败';
   } finally {
@@ -223,37 +256,31 @@ function removeFaqItem(index: number) {
   }
 }
 
-async function publish() {
+async function rollback(release: EventRelease) {
+  if (release.active) return;
   pending.value = true;
+  message.value = '';
   errorMessage.value = '';
   try {
-    const validation = await conferenceApi.validateEventExperience();
-    if (!validation.valid) {
-      throw new Error(validation.errors.map((item) => item.message).join('；'));
-    }
-    const release = await conferenceApi.publishEvent();
-    message.value = `站点 V${release.version} 已发布，模板、首页、FAQ、流程、票种和报名表已固化。`;
+    await conferenceApi.rollbackRelease(release.id);
+    message.value = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
+      eventStatus.value,
+    )
+      ? `前台已回滚到 V${release.version}。后台配置继续保留，后续保存只更新当前模块。`
+      : `已将 V${release.version} 设为上线基线。大会当前保持未公开，重新上线时会采用届时的完整后台配置。`;
     await load();
+    rollbackTarget.value = undefined;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '大会发布失败';
+    errorMessage.value = error instanceof Error ? error.message : '回滚失败';
   } finally {
     pending.value = false;
   }
 }
 
-async function rollback(release: EventRelease) {
-  if (release.active) return;
-  if (!window.confirm(`确认将线上站点回滚到 V${release.version}？`)) return;
-  pending.value = true;
-  errorMessage.value = '';
-  try {
-    await conferenceApi.rollbackRelease(release.id);
-    message.value = `站点已回滚到 V${release.version}，对应模板体验、表单和票价已经一起恢复。`;
-    await load();
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '回滚失败';
-  } finally {
-    pending.value = false;
+function requestRollback(release: EventRelease) {
+  if (!release.active) {
+    errorMessage.value = '';
+    rollbackTarget.value = release;
   }
 }
 
@@ -288,20 +315,19 @@ onMounted(() => void load());
     <div>
       <p class="eyebrow">EVENT EXPERIENCE</p>
       <h1>大会模板与前台体验</h1>
-      <p>维护当前大会的模板绑定、专属内容覆盖和不可变发布记录。</p>
+      <p>保存大会专属配置后立即生效，同时保留完整的不可变版本记录。</p>
     </div>
     <a class="button secondary" :href="publicEventUrl()" target="_blank" rel="noopener noreferrer">
       查看前台 ↗
     </a>
   </header>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在读取大会体验设置…</div>
 
   <template v-else-if="binding && experience">
     <nav class="panel-tabs experience-tabs" aria-label="大会体验设置">
       <button
-        v-for="tab in tabs"
+        v-for="tab in visibleTabs"
         :key="tab.key"
         class="panel-tab"
         :class="{ active: activeTab === tab.key }"
@@ -316,7 +342,7 @@ onMounted(() => void load());
       <header class="admin-panel-header">
         <div>
           <h2>{{ binding.templateName }} · V{{ binding.templateVersion }}</h2>
-          <p>大会草稿当前绑定版本，更新策略为人工确认</p>
+          <p>当前大会使用此模板版本，替换后会立即更新前台</p>
         </div>
         <span v-if="binding.upgradeAvailable" class="status-badge pending">存在可用升级</span>
         <span v-else class="status-badge success">当前发布版本</span>
@@ -340,13 +366,13 @@ onMounted(() => void load());
             <dd>{{ dateTime(binding.updatedAt) }}</dd>
           </div>
         </dl>
-        <div v-if="canManage && canUseTemplate" class="binding-actions">
+        <div v-if="canManageBinding && canUseTemplate" class="binding-actions">
           <button
             v-if="binding.upgradeAvailable && binding.currentPublishedVersionId"
             class="button"
             type="button"
             :disabled="pending"
-            @click="updateBinding(binding.currentPublishedVersionId)"
+            @click="requestTemplateReplacement(binding.currentPublishedVersionId)"
           >
             升级到 V{{ binding.currentPublishedVersion }}
           </button>
@@ -366,7 +392,7 @@ onMounted(() => void load());
             class="button secondary"
             type="button"
             :disabled="replacementVersionId === binding.templateVersionId"
-            @click="showReplacementConfirm = true"
+            @click="requestTemplateReplacement()"
           >
             检查并替换模板
           </button>
@@ -399,7 +425,7 @@ onMounted(() => void load());
             <input
               id="event-primary-action"
               v-model="homeForm.primaryAction"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
             />
           </div>
           <div class="form-field">
@@ -407,12 +433,12 @@ onMounted(() => void load());
             <input
               id="event-secondary-action"
               v-model="homeForm.secondaryAction"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
             />
           </div>
         </div>
-        <div v-if="canManage" class="event-form-actions">
-          <button class="button" type="submit" :disabled="pending">保存首页覆盖</button>
+        <div v-if="canManageExperience" class="event-form-actions">
+          <button class="button" type="submit" :disabled="pending">保存并生效</button>
         </div>
       </form>
     </section>
@@ -428,14 +454,14 @@ onMounted(() => void load());
         <div class="form-grid">
           <div class="form-field">
             <label for="event-faq-mode">呈现方式</label>
-            <select id="event-faq-mode" v-model="faqForm.mode" :disabled="!canManage">
+            <select id="event-faq-mode" v-model="faqForm.mode" :disabled="!canManageExperience">
               <option value="home">首页区块</option>
               <option value="page">独立 FAQ 页面</option>
             </select>
           </div>
           <div class="form-field">
             <label for="event-faq-title">页面标题</label>
-            <input id="event-faq-title" v-model="faqForm.title" :disabled="!canManage" />
+            <input id="event-faq-title" v-model="faqForm.title" :disabled="!canManageExperience" />
           </div>
           <div class="form-field full">
             <label for="event-faq-introduction">页面导语</label>
@@ -443,11 +469,15 @@ onMounted(() => void load());
               id="event-faq-introduction"
               v-model="faqForm.introduction"
               rows="4"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
             />
           </div>
           <label class="setting-toggle">
-            <input v-model="faqForm.searchEnabled" type="checkbox" :disabled="!canManage" />
+            <input
+              v-model="faqForm.searchEnabled"
+              type="checkbox"
+              :disabled="!canManageExperience"
+            />
             <span><strong>显示关键词搜索</strong><small>独立 FAQ 页面支持全文检索</small></span>
           </label>
           <div class="form-field">
@@ -455,7 +485,7 @@ onMounted(() => void load());
             <input
               id="event-faq-contact-label"
               v-model="faqForm.contactLabel"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
             />
           </div>
           <div class="form-field">
@@ -463,7 +493,7 @@ onMounted(() => void load());
             <input
               id="event-faq-contact-url"
               v-model="faqForm.contactUrl"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
               placeholder="https://、mailto: 或 tel:"
             />
           </div>
@@ -475,7 +505,7 @@ onMounted(() => void load());
               <p>修改只作用于当前大会。</p>
             </div>
             <button
-              v-if="canManage"
+              v-if="canManageExperience"
               class="button secondary compact"
               type="button"
               @click="addFaqItem"
@@ -491,23 +521,27 @@ onMounted(() => void load());
             <div class="form-grid">
               <div class="form-field">
                 <label>分类</label>
-                <input v-model="item.category" :disabled="!canManage || !item.enabled" />
+                <input v-model="item.category" :disabled="!canManageExperience || !item.enabled" />
               </div>
               <label class="setting-toggle">
-                <input v-model="item.enabled" type="checkbox" :disabled="!canManage" />
+                <input v-model="item.enabled" type="checkbox" :disabled="!canManageExperience" />
                 <span><strong>显示</strong><small>{{ item.nodeKey }}</small></span>
               </label>
               <div class="form-field full">
                 <label>问题</label>
-                <input v-model="item.question" :disabled="!canManage || !item.enabled" />
+                <input v-model="item.question" :disabled="!canManageExperience || !item.enabled" />
               </div>
               <div class="form-field full">
                 <label>答案</label>
-                <textarea v-model="item.answer" rows="4" :disabled="!canManage || !item.enabled" />
+                <textarea
+                  v-model="item.answer"
+                  rows="4"
+                  :disabled="!canManageExperience || !item.enabled"
+                />
               </div>
             </div>
             <button
-              v-if="canManage"
+              v-if="canManageExperience"
               class="button danger compact"
               type="button"
               @click="removeFaqItem(index)"
@@ -516,8 +550,8 @@ onMounted(() => void load());
             </button>
           </article>
         </div>
-        <div v-if="canManage" class="event-form-actions">
-          <button class="button" type="submit" :disabled="pending">保存 FAQ 覆盖</button>
+        <div v-if="canManageExperience" class="event-form-actions">
+          <button class="button" type="submit" :disabled="pending">保存并生效</button>
         </div>
       </form>
     </section>
@@ -536,7 +570,11 @@ onMounted(() => void load());
         <div class="form-grid">
           <div class="form-field">
             <label for="event-flow-preset">流程预设</label>
-            <select id="event-flow-preset" v-model="flowForm.preset" :disabled="!canManage">
+            <select
+              id="event-flow-preset"
+              v-model="flowForm.preset"
+              :disabled="!canManageExperience"
+            >
               <option value="standard">标准四步</option>
               <option value="quick">快速三步</option>
               <option value="free">免费两步</option>
@@ -547,7 +585,7 @@ onMounted(() => void load());
             <select
               id="event-progress-variant"
               v-model="flowForm.progressVariant"
-              :disabled="!canManage"
+              :disabled="!canManageExperience"
             >
               <option value="steps">完整步骤</option>
               <option value="compact">紧凑进度</option>
@@ -557,20 +595,28 @@ onMounted(() => void load());
         </div>
         <div class="setting-toggle-grid">
           <label class="setting-toggle">
-            <input v-model="flowForm.waitlist" type="checkbox" :disabled="!canManage" />
+            <input v-model="flowForm.waitlist" type="checkbox" :disabled="!canManageExperience" />
             <span><strong>售罄候补</strong><small>票种售罄后展示候补入口</small></span>
           </label>
           <label class="setting-toggle">
-            <input v-model="flowForm.invoiceAfterPayment" type="checkbox" :disabled="!canManage" />
+            <input
+              v-model="flowForm.invoiceAfterPayment"
+              type="checkbox"
+              :disabled="!canManageExperience"
+            />
             <span><strong>支付后补发票资料</strong><small>付费且勾选发票意向时出现</small></span>
           </label>
           <label class="setting-toggle">
-            <input v-model="flowForm.manualReview" type="checkbox" :disabled="!canManage" />
+            <input
+              v-model="flowForm.manualReview"
+              type="checkbox"
+              :disabled="!canManageExperience"
+            />
             <span><strong>人工审核分支</strong><small>审核通过后进入支付</small></span>
           </label>
         </div>
-        <div v-if="canManage" class="event-form-actions">
-          <button class="button" type="submit" :disabled="pending">保存流程覆盖</button>
+        <div v-if="canManageExperience" class="event-form-actions">
+          <button class="button" type="submit" :disabled="pending">保存并生效</button>
         </div>
       </form>
     </section>
@@ -578,20 +624,25 @@ onMounted(() => void load());
     <section v-else class="admin-panel">
       <header class="admin-panel-header">
         <div>
-          <h2>不可变发布历史</h2>
-          <p>每个版本固化模板体验、票种、报名表与大会内容</p>
+          <h2>不可变变更记录</h2>
+          <p>每次有效保存都会固化模板体验、票种、报名表与大会内容</p>
         </div>
-        <button v-if="canPublish" class="button" type="button" :disabled="pending" @click="publish">
-          {{ pending ? '正在处理…' : '发布新版本' }}
-        </button>
       </header>
       <ul class="operations-list">
         <li v-for="release in releases" :key="release.id">
           <div>
-            <strong>V{{ release.version }} · {{ release.templateKey }}</strong>
+            <strong>V{{ release.version }} · {{ release.changeSummary }}</strong>
             <small>
-              {{ release.templateVersionId ? '模板版本已固化' : '历史兼容版本' }} ·
-              {{ dateTime(release.publishedAt) }}<br />{{ release.artifactKey }}
+              {{ release.createdByName ?? '系统' }} · {{ dateTime(release.publishedAt) }} ·
+              {{
+                release.activationKind === 'initial'
+                  ? '首次上线'
+                  : release.activationKind === 'save'
+                    ? '保存生效'
+                    : '历史发布'
+              }}<br />
+              模板 {{ release.templateKey
+              }}{{ release.templateVersionId ? ' · 版本已固化' : ' · 历史兼容版本' }}
             </small>
           </div>
           <button
@@ -599,57 +650,57 @@ onMounted(() => void load());
             class="button danger compact"
             type="button"
             :disabled="pending"
-            @click="rollback(release)"
+            @click="requestRollback(release)"
           >
             回滚到此版本
           </button>
-          <span v-else class="status-badge success">当前版本</span>
+          <span v-else-if="release.active" class="status-badge success">当前版本</span>
+          <span v-else class="status-badge draft">历史版本</span>
         </li>
         <li v-if="!releases.length">
-          <div><strong>尚无发布记录</strong><small>完成票种和报名表后发布首个版本。</small></div>
+          <div>
+            <strong>尚无变更记录</strong><small>完成票种和报名表后，将大会状态切换为预发布或开放报名。</small>
+          </div>
         </li>
       </ul>
     </section>
   </template>
 
-  <section
-    v-if="showReplacementConfirm && selectedReplacement"
-    class="admin-panel template-replacement-confirm"
-  >
-    <header class="admin-panel-header">
-      <div>
-        <p class="eyebrow">REPLACE TEMPLATE</p>
-        <h2>替换为 {{ selectedReplacement.name }} · V{{ selectedReplacement.currentVersion }}</h2>
-      </div>
-    </header>
-    <div class="replacement-impact-groups">
-      <div>
-        <b>可保留</b>
-        <p>能按稳定节点键匹配的首页文案、FAQ 设置和流程分支。</p>
-      </div>
-      <div>
-        <b>需要处理</b>
-        <p>目标模板缺少节点时，对应的孤立覆盖会在确认后移除，其他可匹配覆盖继续保留。</p>
-      </div>
-      <div>
-        <b>保持独立</b>
-        <p>票价、容量、报名、订单、发票、签到和已发布记录。</p>
-      </div>
-    </div>
-    <div class="event-form-actions">
-      <button class="button secondary" type="button" @click="showReplacementConfirm = false">
-        取消
-      </button>
-      <button
-        class="button"
-        type="button"
-        :disabled="pending"
-        @click="updateBinding(selectedReplacement.currentPublishedVersionId ?? '')"
-      >
-        确认替换大会草稿模板
-      </button>
-    </div>
-  </section>
+  <AdminConfirmDialog
+    :open="showReplacementConfirm && Boolean(selectedReplacement)"
+    :title="`确认替换为“${selectedReplacement?.name ?? ''}”V${selectedReplacement?.currentVersion ?? ''}？`"
+    description="保存成功后大会前台会立即使用新模板。能匹配的首页、FAQ 和流程覆盖继续保留，孤立覆盖会被移除。"
+    :details="[
+      { label: '保持独立', value: '票价、容量、报名、订单、发票和签到数据' },
+      { label: '立即更新', value: '页面布局、首页、FAQ 与报名流程' },
+    ]"
+    :busy="pending"
+    :error="errorMessage"
+    @cancel="
+      showReplacementConfirm = false;
+      errorMessage = '';
+    "
+    @confirm="updateBinding(selectedReplacement?.currentPublishedVersionId ?? '')"
+  />
+
+  <AdminConfirmDialog
+    :open="Boolean(rollbackTarget)"
+    :title="`确认回滚到 V${rollbackTarget?.version ?? ''}？`"
+    description="当前大会已公开时，前台会立即恢复该版本中的模板体验、报名表、票种和内容；未公开状态会继续保持。后台配置与现有业务记录保持不变。"
+    confirm-label="确认回滚"
+    tone="danger"
+    :details="[
+      { label: '版本摘要', value: rollbackTarget?.changeSummary ?? '' },
+      { label: '版本时间', value: rollbackTarget ? dateTime(rollbackTarget.publishedAt) : '' },
+    ]"
+    :busy="pending"
+    :error="errorMessage"
+    @cancel="
+      rollbackTarget = undefined;
+      errorMessage = '';
+    "
+    @confirm="rollbackTarget && rollback(rollbackTarget)"
+  />
 
   <section v-if="showSaveAsTemplate" class="admin-panel template-replacement-confirm">
     <header class="admin-panel-header">

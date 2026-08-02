@@ -267,6 +267,20 @@
       "when": 1785600000000,
       "tag": "0037_allow_duplicate_registrations",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785681600000,
+      "tag": "0038_restore_registration_mobile_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785681600001,
+      "tag": "0039_event_release_change_context",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { CustomerAccountMode, OrganizationSettingsResult } from '@conference/contracts';
+import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -82,8 +83,7 @@ onMounted(load);
 </script>
 
 <template>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入用户账号设置…</div>
   <div v-else-if="!loaded" class="admin-loading">
     <button class="btn btn-secondary" type="button" @click="load">重新载入</button>
@@ -194,7 +194,12 @@ onMounted(load);
           </div>
         </div>
       </section>
-      <SettingsFormActions v-if="canManage" :pending="pending" primary-label="保存用户账号设置" />
+      <SettingsFormActions
+        v-if="canManage"
+        :pending="pending"
+        primary-label="保存用户账号设置"
+        impact-text="条款链接会立即更新；默认登录方式用于后续新建大会。"
+      />
     </form>
   </section>
 </template>

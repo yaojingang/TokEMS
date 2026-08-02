@@ -1460,6 +1460,7 @@ export class HtmlTemplateOperationsService {
       .select({
         eventId: events.id,
         eventName: events.name,
+        eventStatus: events.status,
         eventSettings: events.settings,
         organizationSettings: organizations.settings,
       })
@@ -1467,7 +1468,12 @@ export class HtmlTemplateOperationsService {
       .innerJoin(organizations, eq(organizations.id, events.organizationId))
       .where(and(eq(events.slug, slug), eq(organizations.slug, organizationSlug)))
       .limit(1);
-    if (!scope) return null;
+    if (
+      !scope ||
+      !['prepublished', 'registration_open', 'in_progress', 'ended'].includes(scope.eventStatus)
+    ) {
+      return null;
+    }
     const currentReleaseId = (scope.eventSettings as { currentReleaseId?: string })
       .currentReleaseId;
     if (!currentReleaseId) return null;

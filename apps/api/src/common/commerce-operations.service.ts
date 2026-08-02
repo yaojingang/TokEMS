@@ -7,6 +7,7 @@ import {
   type RefundRequest,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   auditLogs,
   events,
   inventoryReservations,
@@ -298,7 +299,7 @@ export class CommerceOperationsService {
         and(
           eq(payments.orderId, orders.id),
           eq(payments.provider, 'wechatpay'),
-          sql`${payments.status} in ('preparing', 'pending', 'processing', 'query_pending', 'close_pending', 'unknown')`,
+          inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
         ),
       )
       .where(
@@ -323,7 +324,7 @@ export class CommerceOperationsService {
             and(
               eq(payments.orderId, candidate.order.id),
               eq(payments.provider, 'wechatpay'),
-              sql`${payments.status} in ('preparing', 'pending', 'processing', 'query_pending', 'close_pending', 'unknown')`,
+              inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
             ),
           )
           .limit(1);

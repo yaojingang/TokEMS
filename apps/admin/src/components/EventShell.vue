@@ -46,7 +46,13 @@ const navigation = computed(() => [
     match: '/settings',
     icon: '◇',
     label: '大会配置',
-    grants: ['event.manage', 'event.site.read', 'event.inventory.read', 'event.inventory.manage'],
+    grants: [
+      'event.manage',
+      'event.site.read',
+      'event.registration.manage',
+      'event.inventory.read',
+      'event.inventory.manage',
+    ],
   },
   {
     name: session.can('event.content.manage') ? 'event-content' : 'event-ai',
@@ -266,12 +272,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut));
           前台与模板
         </RouterLink>
         <RouterLink
-          v-if="session.canAny(['event.manage', 'event.inventory.read', 'event.inventory.manage'])"
+          v-if="
+            session.canAny([
+              'event.manage',
+              'event.registration.manage',
+              'event.inventory.read',
+              'event.inventory.manage',
+            ])
+          "
           :to="eventRoute('event-settings-registration')"
         >
           报名与票务
         </RouterLink>
-        <RouterLink v-if="session.can('event.manage')" :to="eventRoute('event-settings-form')">
+        <RouterLink
+          v-if="session.can('event.registration.manage')"
+          :to="eventRoute('event-settings-form')"
+        >
           表单与条款
         </RouterLink>
       </nav>

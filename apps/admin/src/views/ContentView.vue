@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import type { Speaker } from '@conference/contracts';
+import type { EventStatus, Speaker } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, publicEventUrl } from '../lib/api';
 
 interface SessionRow {
@@ -17,6 +19,13 @@ const speakers = ref<Speaker[]>([]);
 const sessionRows = ref<SessionRow[]>([]);
 const day = ref(1);
 const errorMessage = ref('');
+const message = ref('');
+const eventStatus = ref<EventStatus>('configuring');
+const deletionTarget = ref<{
+  kind: 'speaker' | 'session';
+  id: string;
+  name: string;
+}>();
 const showEditor = ref(false);
 const editorMode = ref<'speaker' | 'session'>('speaker');
 const editingId = ref('');
@@ -33,9 +42,19 @@ const sessionForm = reactive({
 });
 
 async function load() {
-  const content = await conferenceApi.getContent();
+  const [content, event] = await Promise.all([
+    conferenceApi.getContent(),
+    conferenceApi.getEvent(),
+  ]);
   speakers.value = content.speakers;
   sessionRows.value = content.sessions as unknown as SessionRow[];
+  eventStatus.value = event.status;
+}
+
+function savedMessage(action = '已保存') {
+  return ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(eventStatus.value)
+    ? `${action}，前台已生效`
+    : `${action}，大会上线时生效`;
 }
 
 function resetSpeakerForm() {
@@ -107,6 +126,7 @@ onMounted(async () => {
 async function saveContent() {
   pending.value = true;
   errorMessage.value = '';
+  message.value = '';
   try {
     if (editorMode.value === 'speaker') {
       const payload = {
@@ -137,6 +157,7 @@ async function saveContent() {
     resetSpeakerForm();
     resetSessionForm();
     await load();
+    message.value = savedMessage();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '内容保存失败';
   } finally {
@@ -144,23 +165,33 @@ async function saveContent() {
   }
 }
 
-async function removeSpeaker(id: string) {
-  if (!window.confirm('确认删除这位嘉宾？')) return;
-  try {
-    await conferenceApi.deleteSpeaker(id);
-    await load();
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '嘉宾删除失败';
-  }
+function requestRemoveSpeaker(speaker: Speaker) {
+  deletionTarget.value = { kind: 'speaker', id: speaker.id, name: speaker.name };
 }
 
-async function removeSession(id: string) {
-  if (!window.confirm('确认删除这条议程？')) return;
+function requestRemoveSession(sessionItem: SessionRow) {
+  deletionTarget.value = { kind: 'session', id: sessionItem.id, name: sessionItem.title };
+}
+
+async function confirmDeletion() {
+  const target = deletionTarget.value;
+  if (!target) return;
+  pending.value = true;
+  message.value = '';
+  errorMessage.value = '';
   try {
-    await conferenceApi.deleteSession(id);
+    if (target.kind === 'speaker') await conferenceApi.deleteSpeaker(target.id);
+    else await conferenceApi.deleteSession(target.id);
     await load();
+    message.value = savedMessage(`${target.kind === 'speaker' ? '嘉宾' : '议程'}已删除`);
+    deletionTarget.value = undefined;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '议程删除失败';
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : `${target.kind === 'speaker' ? '嘉宾' : '议程'}删除失败`;
+  } finally {
+    pending.value = false;
   }
 }
 
@@ -190,13 +221,13 @@ function clock(value: string) {
       >预览议程 ↗</a><button class="button" type="button" @click="openCreate">＋ 新增内容</button>
     </div>
   </header>
-  <p v-if="errorMessage" class="admin-error">{{ errorMessage }}</p>
+  <SaveStatus :message="message" :error="errorMessage" />
 
   <section v-if="showEditor" class="admin-panel editor-panel">
     <header class="admin-panel-header">
       <div>
         <h2>{{ editingId ? '编辑大会内容' : '新增大会内容' }}</h2>
-        <p>保存后进入当前大会的内容库，发布新版本后同步到前台</p>
+        <p>保存成功后自动生成大会版本，并立即同步到前台</p>
       </div>
       <div class="panel-tabs">
         <button
@@ -298,7 +329,11 @@ function clock(value: string) {
             <button class="button secondary compact" type="button" @click="editSpeaker(speaker)">
               编辑
             </button>
-            <button class="button danger compact" type="button" @click="removeSpeaker(speaker.id)">
+            <button
+              class="button danger compact"
+              type="button"
+              @click="requestRemoveSpeaker(speaker)"
+            >
               删除
             </button>
           </div>
@@ -326,13 +361,17 @@ function clock(value: string) {
           <span class="session-time">{{ clock(sessionItem.startsAt) }}<br />{{ clock(sessionItem.endsAt) }}</span>
           <span class="session-copy"><strong>{{ sessionItem.title }}</strong><small>{{ sessionItem.speaker ?? '大会组委会' }} · {{ sessionItem.kind }}</small></span>
           <div class="row-actions">
-            <button class="button danger compact" type="button" @click="editSession(sessionItem)">
-              编辑
-            </button>
             <button
               class="button secondary compact"
               type="button"
-              @click="removeSession(sessionItem.id)"
+              @click="editSession(sessionItem)"
+            >
+              编辑
+            </button>
+            <button
+              class="button danger compact"
+              type="button"
+              @click="requestRemoveSession(sessionItem)"
             >
               删除
             </button>
@@ -342,4 +381,16 @@ function clock(value: string) {
       <div v-if="!sessions.length" class="admin-empty">第 {{ day }} 天暂无议程安排。</div>
     </section>
   </div>
+
+  <AdminConfirmDialog
+    :open="Boolean(deletionTarget)"
+    :title="`确认删除${deletionTarget?.kind === 'speaker' ? '嘉宾' : '议程'}“${deletionTarget?.name ?? ''}”？`"
+    description="删除成功后前台会立即移除该内容。如需恢复，可从变更记录回滚到之前的大会版本。"
+    confirm-label="确认删除"
+    tone="danger"
+    :busy="pending"
+    :error="errorMessage"
+    @cancel="deletionTarget = undefined"
+    @confirm="confirmDeletion"
+  />
 </template>

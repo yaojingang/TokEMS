@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import QrcodeVue from 'qrcode.vue';
-import { DEMO_EVENT, type PublicEvent, type Ticket } from '@conference/contracts';
+import { type Ticket } from '@conference/contracts';
 import {
   activeFlowStep,
   enabledFlowSteps,
@@ -11,7 +11,7 @@ const route = useRoute();
 const api = useConferenceApi();
 const ticket = ref<Ticket>();
 const checkout = ref(api.readCheckout());
-const event = ref<PublicEvent>(api.readEvent() ?? structuredClone(DEMO_EVENT));
+const event = api.eventState;
 const loading = ref(true);
 const errorMessage = ref('');
 const invoiceAccess = ref(api.readInvoiceAccess());
