@@ -43,7 +43,7 @@ flowchart TB
 
 | 上下文         | 责任                                       | 关键实体                                                                                          |
 | -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| Organization   | 组织、用户、成员、角色与授权               | organizations, users, memberships                                                                 |
+| Organization   | 组织、用户、成员、角色、授权与首页默认大会 | organizations, users, memberships, organization_homepage_events                                   |
 | Event Planning | 大会、蓝图、内容草稿与生命周期             | events, event_blueprints, speakers, sessions                                                      |
 | Experience     | 共享模板、草稿、版本、资产、大会绑定与覆盖 | conference_templates, conference_template_versions, template_assets, event_template_bindings      |
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
@@ -58,6 +58,8 @@ flowchart TB
 ## 发布快照
 
 运营后台在大会上线前保存草稿。大会进入预发布或报名开放状态时，系统生成首个公开版本；此后每次有效保存都以当前生效快照为基线，只合并本次修改所在模块，把体验配置、大会字段、票种价格与文案、嘉宾、议程、报名表和服务条款固化为不可变 JSON 快照，并原子更新 `currentReleaseId`。相同内容重复保存不会新增版本。官网读取该指针对应的快照并重新校验；库存保留、已售和候补占位继续实时计算。回滚会立即切换公开指针，后续每次保存继续以回滚后的生效快照为基线，其他模块保持回滚版内容。
+
+公开首页使用两级解析：`/{eventSlug}` 先匹配大会当前地址，再匹配 `event_slug_aliases` 历史地址；历史地址使用 308 跳转到当前规范地址。`/` 通过 `organization_homepage_events` 找到组织默认大会，再复用同一渲染链路，数据库关系是首页大会的唯一配置源。HTML 模板、结构化 Nuxt 页面和故障回退页统一输出大会独立地址作为 canonical URL。根首页和大会独立页采用重新验证缓存，默认大会切换后无需重建前端资源。
 
 该模型让内容变更、价格变更和条款变更在保存成功后立即生效，同时保留完整的变更记录与回滚能力。报名创建时再次锁定票种并核对当前生效版本，避免旧页面提交到新版本。
 

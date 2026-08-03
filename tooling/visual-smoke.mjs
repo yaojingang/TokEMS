@@ -8,6 +8,10 @@ const root = resolve(import.meta.dirname, '..');
 const output = resolve(root, 'test-results/visual');
 const webBase = process.env.WEB_BASE_URL ?? 'http://localhost:8088';
 const adminBase = process.env.ADMIN_BASE_URL ?? 'http://admin.localhost:8088/admin';
+const visualScope = process.env.VISUAL_SCOPE ?? 'all';
+const includeWeb = visualScope !== 'admin';
+const adminApiBase =
+  process.env.ADMIN_API_BASE_URL ?? new URL('/api/v1', adminBase).toString().replace(/\/$/u, '');
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 if (!adminUsername || !adminPassword) {
@@ -251,7 +255,9 @@ async function runVisualSmoke() {
     await page.getByLabel('用户名').fill(adminUsername);
     await page.getByLabel('密码').fill(adminPassword);
     await page.getByRole('button', { name: '进入运营台' }).click();
-    await page.waitForURL(/\/manage\/events/);
+    await page.waitForURL(
+      (url) => /\/events\/\d+\//.test(url.pathname) || url.pathname.endsWith('/manage/events'),
+    );
   }
 
   async function assertSettingsWorkflow(page, label) {
@@ -359,6 +365,84 @@ async function runVisualSmoke() {
     checked.push(label);
   }
 
+  async function assertEventSlugDialog(page, file, label) {
+    await page.goto(`${adminBase}/manage/events`, { waitUntil: 'networkidle' });
+    const editButton = page.getByRole('button', { name: '修改短地址' }).first();
+    if (!(await editButton.count())) {
+      issues.push(`${label}: 没有可用于短地址弹窗验收的大会`);
+      return;
+    }
+    await editButton.click();
+    const dialog = page.locator('.admin-confirm-dialog[open]');
+    await dialog.waitFor();
+    await assertCenteredDialog(page, '.admin-confirm-dialog[open]', label);
+    await dialog.getByRole('heading', { name: '修改大会短地址' }).waitFor();
+    await screenshot(page, file, label);
+    await dialog.getByRole('button', { name: '返回检查' }).click();
+    await dialog.waitFor({ state: 'hidden' });
+  }
+
+  async function assertEventSwitcher(page, eventPath, file, label, mobile = false) {
+    await page.goto(`${adminBase}${eventPath}/overview`, { waitUntil: 'networkidle' });
+    if (mobile) await page.getByRole('button', { name: '打开导航' }).click();
+    const trigger = page.locator('.event-context-switcher__trigger');
+    const status = page.locator('.event-context-switcher__status');
+    const panel = page.locator('.event-switcher-panel[role="dialog"]');
+    await status.click();
+    if (!(await panel.isVisible())) {
+      issues.push(`${label}: 当前大会卡片的状态区域不能打开切换器`);
+      await trigger.click();
+    }
+    await panel.waitFor();
+    const listbox = page.locator('.event-switcher-options[role="listbox"]');
+    if (await listbox.count()) {
+      const beforeArrow = await page.evaluate(() => document.activeElement?.textContent?.trim());
+      await page.keyboard.press('ArrowDown');
+      const afterArrow = await page.evaluate(() => document.activeElement?.textContent?.trim());
+      if (beforeArrow === afterArrow) {
+        issues.push(`${label}: listbox 语义缺少方向键焦点行为`);
+      }
+    }
+    await screenshot(page, file, label);
+    await page.keyboard.press('Escape');
+    await page.locator('.event-switcher-panel').waitFor({ state: 'hidden' });
+    if (!(await trigger.evaluate((element) => element === document.activeElement))) {
+      issues.push(`${label}: Escape 关闭后没有恢复大会切换按钮焦点`);
+    }
+    if (mobile) await page.keyboard.press('Escape');
+  }
+
+  async function assertInvalidRecentEventNotice(page, label) {
+    await page.evaluate(async (apiBase) => {
+      const token = localStorage.getItem('conference.admin.token');
+      if (!token) throw new Error('管理员登录令牌不存在');
+      const identity = await fetch(`${apiBase}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((response) => response.json());
+      const key = `conference.admin.lastEventId.${identity.organization.id}.${identity.user.id}`;
+      localStorage.setItem(key, '2147483647');
+    }, adminApiBase);
+    await page.goto(`${adminBase}/login`, { waitUntil: 'networkidle' });
+    await page.waitForURL(
+      (url) => /\/events\/\d+\//.test(url.pathname) || url.pathname.endsWith('/manage/events'),
+    );
+    const notice = page.locator('.admin-context-notice');
+    await notice.waitFor();
+    const closeButton = notice.getByRole('button', { name: '关闭提示' });
+    const size = await closeButton.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    if (size.width < 40 || size.height < 40) {
+      issues.push(
+        `${label}: 关闭提示按钮触控区域不足 40px（${Math.round(size.width)}×${Math.round(size.height)}）`,
+      );
+    }
+    await closeButton.click();
+    if (await notice.isVisible()) issues.push(`${label}: 关闭提示后提示仍然可见`);
+    checked.push(label);
+  }
+
   const desktop = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     deviceScaleFactor: 1,
@@ -367,36 +451,38 @@ async function runVisualSmoke() {
   const page = await desktop.newPage();
   watch(page, 'desktop');
 
-  await page.goto(webBase, { waitUntil: 'networkidle' });
-  await page.locator('h1.hero-h').waitFor();
-  await screenshot(page, 'web-home-desktop.png', '前台首页桌面端');
+  if (includeWeb) {
+    await page.goto(webBase, { waitUntil: 'networkidle' });
+    await page.locator('h1.hero-h').waitFor();
+    await screenshot(page, 'web-home-desktop.png', '前台首页桌面端');
 
-  await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
-  await screenshot(page, 'web-register-desktop.png', '报名页桌面端');
-  await page.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });
-  await page.locator('.faq-page').waitFor();
-  await screenshot(page, 'web-faq-desktop.png', 'FAQ 独立页桌面端');
-  await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
-  const freeRegistrationButton = page.getByRole('button', { name: '免费报名并领取电子票' });
-  if (
-    (await page.locator('#registration-name').count()) &&
-    (await freeRegistrationButton.count())
-  ) {
-    await page.locator('#registration-name').fill('视觉测试员');
-    const visualRunId = Date.now().toString();
-    await page.locator('#registration-mobile').fill(`139${visualRunId.slice(-8)}`);
-    await page.locator('#registration-email').fill(`visual-${visualRunId}@example.com`);
-    await page.locator('#registration-city').fill('深圳');
-    await page.locator('#registration-company').fill('大会视觉实验室');
-    await page.locator('#registration-title').fill('质量负责人');
-    await page.getByText('我已阅读并同意').click();
-    await freeRegistrationButton.click();
-    await page.waitForURL(/\/(order|ticket)\//);
-    if (new URL(page.url()).pathname.startsWith('/order/')) {
-      await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
-    } else {
-      await page.getByText('现场扫码签到').waitFor();
-      await screenshot(page, 'web-ticket-desktop.png', '电子票桌面端');
+    await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+    await screenshot(page, 'web-register-desktop.png', '报名页桌面端');
+    await page.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });
+    await page.locator('.faq-page').waitFor();
+    await screenshot(page, 'web-faq-desktop.png', 'FAQ 独立页桌面端');
+    await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+    const freeRegistrationButton = page.getByRole('button', { name: '免费报名并领取电子票' });
+    if (
+      (await page.locator('#registration-name').count()) &&
+      (await freeRegistrationButton.count())
+    ) {
+      await page.locator('#registration-name').fill('视觉测试员');
+      const visualRunId = Date.now().toString();
+      await page.locator('#registration-mobile').fill(`139${visualRunId.slice(-8)}`);
+      await page.locator('#registration-email').fill(`visual-${visualRunId}@example.com`);
+      await page.locator('#registration-city').fill('深圳');
+      await page.locator('#registration-company').fill('大会视觉实验室');
+      await page.locator('#registration-title').fill('质量负责人');
+      await page.getByText('我已阅读并同意').click();
+      await freeRegistrationButton.click();
+      await page.waitForURL(/\/(order|ticket)\//);
+      if (new URL(page.url()).pathname.startsWith('/order/')) {
+        await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
+      } else {
+        await page.getByText('现场扫码签到').waitFor();
+        await screenshot(page, 'web-ticket-desktop.png', '电子票桌面端');
+      }
     }
   }
 
@@ -405,8 +491,14 @@ async function runVisualSmoke() {
   await admin.goto(`${adminBase}/login`, { waitUntil: 'networkidle' });
   await screenshot(admin, 'admin-login-desktop.png', '后台登录桌面端');
   await loginAdmin(admin);
+  if (/\/events\/\d+\//.test(new URL(admin.url()).pathname)) {
+    await admin.locator('.event-context-switcher').waitFor();
+    await screenshot(admin, 'admin-default-event-desktop.png', '登录默认大会桌面端');
+  }
+  await admin.goto(`${adminBase}/manage/events`, { waitUntil: 'networkidle' });
   await admin.getByRole('heading', { name: '大会管理' }).waitFor();
   await screenshot(admin, 'admin-events-desktop.png', '管理中心大会列表桌面端');
+  await assertEventSlugDialog(admin, 'admin-event-slug-dialog-desktop.png', '大会短地址弹窗桌面端');
 
   const standaloneAdminSurfaces = [
     ['/accept-invitation', '接受组织邀请', 'admin-invitation-desktop.png', '邀请接受桌面端'],
@@ -520,7 +612,7 @@ async function runVisualSmoke() {
   const adminSurfaces = [
     [
       `${eventBase}/overview`,
-      '今天的大会运营状态',
+      'TokEMS Demo Conference 2026',
       'admin-dashboard-desktop.png',
       '大会概览桌面端',
     ],
@@ -567,6 +659,13 @@ async function runVisualSmoke() {
     await screenshot(admin, file, label);
   }
 
+  await assertEventSwitcher(
+    admin,
+    eventBase,
+    'admin-event-switcher-desktop.png',
+    '大会切换器桌面端',
+  );
+
   await assertLiveSettingsConfirmDialog(admin, eventBase, '保存生效确认弹窗桌面端');
 
   const eventUnavailablePath = '/events/2147483647/overview';
@@ -611,20 +710,35 @@ async function runVisualSmoke() {
   });
   const mobile = await mobileContext.newPage();
   watch(mobile, 'mobile');
-  await mobile.goto(webBase, { waitUntil: 'networkidle' });
-  await screenshot(mobile, 'web-home-mobile.png', '前台首页手机端');
-  await mobile.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
-  await screenshot(mobile, 'web-register-mobile.png', '报名页手机端');
-  await mobile.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });
-  await mobile.locator('.faq-page').waitFor();
-  await screenshot(mobile, 'web-faq-mobile.png', 'FAQ 独立页手机端');
+  if (includeWeb) {
+    await mobile.goto(webBase, { waitUntil: 'networkidle' });
+    await screenshot(mobile, 'web-home-mobile.png', '前台首页手机端');
+    await mobile.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+    await screenshot(mobile, 'web-register-mobile.png', '报名页手机端');
+    await mobile.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });
+    await mobile.locator('.faq-page').waitFor();
+    await screenshot(mobile, 'web-faq-mobile.png', 'FAQ 独立页手机端');
+  }
 
   const mobileAdmin = await mobileContext.newPage();
   watch(mobileAdmin, 'admin-mobile');
   await mobileAdmin.goto(`${adminBase}/login`, { waitUntil: 'networkidle' });
   await screenshot(mobileAdmin, 'admin-login-mobile.png', '后台登录手机端');
   await loginAdmin(mobileAdmin);
+  if (/\/events\/\d+\//.test(new URL(mobileAdmin.url()).pathname)) {
+    await mobileAdmin.getByRole('button', { name: '打开导航' }).click();
+    await mobileAdmin.locator('.event-context-switcher').waitFor();
+    await screenshot(mobileAdmin, 'admin-default-event-mobile.png', '登录默认大会手机端');
+    await mobileAdmin.keyboard.press('Escape');
+  }
+  await assertInvalidRecentEventNotice(mobileAdmin, '失效大会偏好提示手机端');
+  await mobileAdmin.goto(`${adminBase}/manage/events`, { waitUntil: 'networkidle' });
   await screenshot(mobileAdmin, 'admin-events-mobile.png', '管理中心大会列表手机端');
+  await assertEventSlugDialog(
+    mobileAdmin,
+    'admin-event-slug-dialog-mobile.png',
+    '大会短地址弹窗手机端',
+  );
 
   for (const [path, heading, file, label] of managementSurfaces) {
     await mobileAdmin.goto(`${adminBase}${path}`, { waitUntil: 'networkidle' });
@@ -677,6 +791,14 @@ async function runVisualSmoke() {
       label.replace('桌面端', '手机端'),
     );
   }
+
+  await assertEventSwitcher(
+    mobileAdmin,
+    eventBase,
+    'admin-event-switcher-mobile.png',
+    '大会切换器手机端',
+    true,
+  );
 
   await assertLiveSettingsConfirmDialog(mobileAdmin, eventBase, '保存生效确认弹窗手机端');
 

@@ -25,6 +25,7 @@ import {
   memberProfiles,
   memberships,
   notificationTemplates,
+  organizationHomepageEvents,
   organizations,
   publicUserIds,
   registrationForms,
@@ -350,6 +351,23 @@ try {
         target: eventIdAllocators.scope,
         set: {
           lastId: sql`greatest(${eventIdAllocators.lastId}, ${DEMO_IDS.event})`,
+        },
+      });
+
+    await tx
+      .insert(organizationHomepageEvents)
+      .values({
+        organizationId: DEMO_IDS.organization,
+        eventId: DEMO_IDS.event,
+        updatedBy: DEMO_IDS.adminUser,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: organizationHomepageEvents.organizationId,
+        set: {
+          eventId: DEMO_IDS.event,
+          updatedBy: DEMO_IDS.adminUser,
+          updatedAt: new Date(),
         },
       });
 

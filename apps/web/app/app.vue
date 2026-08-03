@@ -6,6 +6,7 @@ const api = useConferenceApi();
 const customer = useCustomerSession();
 const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
+const publicEventHome = computed(() => route.meta.publicEventHome === true);
 const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await useAsyncData(
   'public-site-configuration',
   () => api.getSiteConfiguration(),
@@ -73,7 +74,7 @@ useHead(() => {
 const showSiteFooter = computed(() => {
   const website = siteConfiguration.value?.website;
   return Boolean(
-    route.path !== '/' &&
+    !publicEventHome.value &&
     website &&
     (website.footerText || website.icpNumber || website.supportEmail),
   );

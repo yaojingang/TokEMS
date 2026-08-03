@@ -533,6 +533,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
 
   <AdminConfirmDialog
     :open="Boolean(confirmation)"
+    :event-name="session.activeEvent.value?.name"
     :title="confirmation?.title ?? ''"
     :description="confirmation?.description ?? ''"
     :confirm-label="confirmation?.confirmLabel ?? '确认并生效'"

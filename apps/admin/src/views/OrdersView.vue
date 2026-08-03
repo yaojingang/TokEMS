@@ -193,6 +193,9 @@ onMounted(load);
       <div>
         <h2 id="refund-editor-title">发起退款 · {{ refundTarget.orderNo }}</h2>
         <p>{{ refundTarget.attendeeName }} · 可退余额 {{ money(refundTargetRemaining) }}</p>
+        <p class="operation-event-context">
+          当前大会 · {{ session.activeEvent.value?.name ?? '大会信息读取中' }}
+        </p>
       </div>
       <button class="button secondary compact" type="button" @click="cancelRefund">关闭</button>
     </header>
@@ -225,6 +228,9 @@ onMounted(load);
         </div>
       </div>
       <div class="event-form-actions">
+        <span class="operation-event-context">
+          退款将记入 {{ session.activeEvent.value?.shortName ?? '当前大会' }}
+        </span>
         <button class="button secondary" type="button" @click="cancelRefund">取消</button>
         <button class="button danger" type="submit" :disabled="refundPending">
           {{ refundPending ? '正在退款…' : '确认退款' }}

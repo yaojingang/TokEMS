@@ -668,6 +668,7 @@ onMounted(() => void load());
 
   <AdminConfirmDialog
     :open="showReplacementConfirm && Boolean(selectedReplacement)"
+    :event-name="session.activeEvent.value?.name"
     :title="`确认替换为“${selectedReplacement?.name ?? ''}”V${selectedReplacement?.currentVersion ?? ''}？`"
     description="保存成功后大会前台会立即使用新模板。能匹配的首页、FAQ 和流程覆盖继续保留，孤立覆盖会被移除。"
     :details="[
@@ -685,6 +686,7 @@ onMounted(() => void load());
 
   <AdminConfirmDialog
     :open="Boolean(rollbackTarget)"
+    :event-name="session.activeEvent.value?.name"
     :title="`确认回滚到 V${rollbackTarget?.version ?? ''}？`"
     description="当前大会已公开时，前台会立即恢复该版本中的模板体验、报名表、票种和内容；未公开状态会继续保持。后台配置与现有业务记录保持不变。"
     confirm-label="确认回滚"

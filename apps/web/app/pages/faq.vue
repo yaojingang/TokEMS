@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DEMO_EVENT } from '@conference/contracts';
+import { publicEventHomePath, publicEventScopedPath } from '@conference/contracts';
 import { resolveEventExperience } from '~/composables/useEventExperience';
 
 const api = useConferenceApi();
@@ -26,8 +26,8 @@ const filteredItems = computed(() => {
     return categoryMatches && keywordMatches;
   });
 });
-const homeHref = computed(() => `/?event=${encodeURIComponent(event.value.slug)}`);
-const registrationHref = computed(() => `/register?event=${encodeURIComponent(event.value.slug)}`);
+const homeHref = computed(() => publicEventHomePath(event.value.slug));
+const registrationHref = computed(() => publicEventScopedPath('/register', event.value.slug));
 const contactHref = computed(() => {
   const value = faq.value.contactUrl.trim();
   return /^(https?:|mailto:|tel:)/i.test(value) ? value : '';
@@ -44,8 +44,8 @@ useHead(() => ({
 }));
 
 onMounted(async () => {
-  const eventSlug = new URL(window.location.href).searchParams.get('event') ?? DEMO_EVENT.slug;
-  event.value = await api.getEvent(eventSlug);
+  const eventSlug = new URL(window.location.href).searchParams.get('event');
+  event.value = eventSlug ? await api.getEvent(eventSlug) : await api.getHomepageEvent();
   openKeys.value = enabledItems.value.slice(0, 1).map((item) => item.nodeKey);
 });
 

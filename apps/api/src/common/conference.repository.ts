@@ -4,6 +4,7 @@ import {
   API_ERROR_CODES,
   DEMO_EVENT,
   DEMO_IDS,
+  isPublicEventStatus,
   type AdminDashboard,
   type AdminRegistrationDetail,
   type AdminRegistrationList,
@@ -32,12 +33,14 @@ import {
   customerProfiles,
   customerUsers,
   eventReleases,
+  eventSlugAliases,
   events,
   idempotencyKeys,
   inventoryReservations,
   invoiceRequests,
   invoiceStateLogs,
   organizations,
+  organizationHomepageEvents,
   orders,
   orderAccessTokens,
   orderStateLogs,
@@ -237,13 +240,6 @@ const EVENT_TRANSITIONS: Record<PublicEvent['status'], PublicEvent['status'][]> 
   ended: ['archived'],
   archived: [],
 };
-const PUBLIC_EVENT_STATUSES = new Set<PublicEvent['status']>([
-  'prepublished',
-  'registration_open',
-  'in_progress',
-  'ended',
-]);
-
 @Injectable()
 export class ConferenceRepository {
   private readonly logger = new Logger(ConferenceRepository.name);
@@ -413,6 +409,62 @@ export class ConferenceRepository {
     };
   }
 
+  async resolvePublicEventRoute(
+    slug: string,
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+  ): Promise<{ eventId: EventId; slug: string; isAlias: boolean }> {
+    const db = this.database.db;
+    if (!db) {
+      if (slug !== this.demoEvent.slug) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或尚未发布',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return { eventId: this.demoEvent.id, slug: this.demoEvent.slug, isAlias: false };
+    }
+    const [organization] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.slug, organizationSlug))
+      .limit(1);
+    if (!organization) {
+      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会组织不存在', HttpStatus.NOT_FOUND);
+    }
+    const [current] = await db
+      .select({ eventId: events.id, slug: events.slug })
+      .from(events)
+      .where(and(eq(events.slug, slug), eq(events.organizationId, organization.id)))
+      .limit(1);
+    if (current) return { ...current, isAlias: false };
+    const [alias] = await db
+      .select({ eventId: events.id, slug: events.slug })
+      .from(eventSlugAliases)
+      .innerJoin(
+        events,
+        and(
+          eq(events.id, eventSlugAliases.eventId),
+          eq(events.organizationId, eventSlugAliases.organizationId),
+        ),
+      )
+      .where(
+        and(
+          eq(eventSlugAliases.organizationId, organization.id),
+          eq(eventSlugAliases.slug, slug),
+        ),
+      )
+      .limit(1);
+    if (!alias) {
+      throw new DomainError(
+        API_ERROR_CODES.NOT_FOUND,
+        '大会不存在或尚未发布',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return { ...alias, isAlias: true };
+  }
+
   async getPublicEvent(
     slug = DEMO_EVENT.slug,
     organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
@@ -420,7 +472,7 @@ export class ConferenceRepository {
   ): Promise<PublicEvent> {
     const db = this.database.db;
     if (!db) {
-      if (useActiveRelease && !PUBLIC_EVENT_STATUSES.has(this.demoEvent.status)) {
+      if (useActiveRelease && !isPublicEventStatus(this.demoEvent.status)) {
         throw new DomainError(
           API_ERROR_CODES.NOT_FOUND,
           '大会不存在或尚未发布',
@@ -436,18 +488,11 @@ export class ConferenceRepository {
       };
     }
 
-    const [organization] = await db
-      .select({ id: organizations.id })
-      .from(organizations)
-      .where(eq(organizations.slug, organizationSlug))
-      .limit(1);
-    if (!organization) {
-      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会组织不存在', HttpStatus.NOT_FOUND);
-    }
+    const route = await this.resolvePublicEventRoute(slug, organizationSlug);
     const [event] = await db
       .select()
       .from(events)
-      .where(and(eq(events.slug, slug), eq(events.organizationId, organization.id)))
+      .where(eq(events.id, route.eventId))
       .limit(1);
     if (!event) {
       throw new DomainError(
@@ -456,7 +501,7 @@ export class ConferenceRepository {
         HttpStatus.NOT_FOUND,
       );
     }
-    if (useActiveRelease && !PUBLIC_EVENT_STATUSES.has(event.status)) {
+    if (useActiveRelease && !isPublicEventStatus(event.status)) {
       throw new DomainError(
         API_ERROR_CODES.NOT_FOUND,
         '大会不存在或尚未发布',
@@ -750,6 +795,28 @@ export class ConferenceRepository {
       ...(publicForm ? { registrationForm: publicForm } : {}),
       ...(publicExperience ? { experience: publicExperience } : {}),
     };
+  }
+
+  async getPublicHomepageEvent(
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+  ): Promise<PublicEvent> {
+    if (!this.database.db) return this.getPublicEvent(DEMO_EVENT.slug, organizationSlug);
+    const [scope] = await this.database.db
+      .select({ slug: events.slug })
+      .from(organizationHomepageEvents)
+      .innerJoin(events, eq(events.id, organizationHomepageEvents.eventId))
+      .innerJoin(organizations, eq(organizations.id, organizationHomepageEvents.organizationId))
+      .where(eq(organizations.slug, organizationSlug))
+      .limit(1);
+    if (!scope) {
+      throw new DomainError(
+        API_ERROR_CODES.NOT_FOUND,
+        '组织尚未设置首页默认大会',
+        HttpStatus.NOT_FOUND,
+        { reason: 'homepage_unconfigured' },
+      );
+    }
+    return this.getPublicEvent(scope.slug, organizationSlug);
   }
 
   async getAdminEvent(
@@ -3477,6 +3544,25 @@ export class ConferenceRepository {
           if (current.status === 'registration_open') nextStatus = 'prepublished';
         }
         this.assertEventTransition(current.status, nextStatus);
+        if (nextStatus !== current.status && !isPublicEventStatus(nextStatus)) {
+          const [homepage] = await tx
+            .select({ eventId: organizationHomepageEvents.eventId })
+            .from(organizationHomepageEvents)
+            .where(
+              and(
+                eq(organizationHomepageEvents.organizationId, organizationId),
+                eq(organizationHomepageEvents.eventId, eventId),
+              ),
+            )
+            .limit(1);
+          if (homepage) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '当前大会是首页默认大会，请先将另一场已发布大会设为首页',
+              HttpStatus.CONFLICT,
+            );
+          }
+        }
         const changedEventFields: EventReleaseEventField[] = [];
         const addChangedField = (
           field: EventReleaseEventField,

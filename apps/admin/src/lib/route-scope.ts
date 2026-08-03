@@ -1,8 +1,9 @@
 import { EventIdParamSchema, type EventId } from '@conference/contracts';
 
 export function parseEventId(value: unknown): EventId | undefined {
-  if (typeof value !== 'string') return undefined;
-  const parsed = EventIdParamSchema.safeParse(value);
+  const candidate = typeof value === 'number' ? String(value) : value;
+  if (typeof candidate !== 'string') return undefined;
+  const parsed = EventIdParamSchema.safeParse(candidate);
   return parsed.success ? parsed.data : undefined;
 }
 

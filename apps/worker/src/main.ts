@@ -8,6 +8,7 @@ import {
   HtmlTemplateAiProposalOutputSchema,
   OrganizationSettingsSchema,
   normalizeConferenceTemplateDefinition,
+  publicEventScopedPath,
   resolveBuildInfo,
 } from '@conference/contracts';
 import {
@@ -131,7 +132,7 @@ function conferenceSiteUrl() {
  * @returns Absolute checkout URL
  */
 function paymentOrderAccessUrl(orderId: string, eventSlug: string, accessToken: string) {
-  const path = `/order/${encodeURIComponent(orderId)}?event=${encodeURIComponent(eventSlug)}`;
+  const path = publicEventScopedPath(`/order/${encodeURIComponent(orderId)}`, eventSlug);
   const fragment = `#access=${encodeURIComponent(accessToken)}`;
   try {
     if (process.env.PAYMENT_PUBLIC_ORIGIN || process.env.PAYMENT_PUBLIC_URL) {
@@ -1489,7 +1490,10 @@ async function deliverWaitlistOfferNotification(
     throw new Error(`Waitlist offer token no longer matches entry ${waitlistEntryId}`);
   }
   const siteUrl = conferenceSiteUrl();
-  const registrationUrl = `${siteUrl}/register?ticket=${encodeURIComponent(scope.ticket.id)}&offer=${encodeURIComponent(token)}`;
+  const registrationUrl = `${siteUrl}${publicEventScopedPath('/register', scope.event.slug, {
+    ticket: scope.ticket.id,
+    offer: token,
+  })}`;
   const expiresAt = scope.entry.expiresAt.toLocaleString('zh-CN', {
     timeZone: scope.event.timezone,
   });
@@ -1688,7 +1692,11 @@ async function deliverInvoiceAccessNotification(
   const recipient = String((payload.recipient ?? scope.attendee.email) || scope.attendeeMobileE164);
   const channel = recipient.includes('@') ? 'email' : 'sms';
   const siteUrl = conferenceSiteUrl();
-  const accessUrl = `${siteUrl}/invoice/${encodeURIComponent(invoiceId)}?order=${encodeURIComponent(scope.invoice.orderId)}&event=${encodeURIComponent(scope.event.slug)}#token=${encodeURIComponent(accessToken)}`;
+  const accessUrl = `${siteUrl}${publicEventScopedPath(
+    `/invoice/${encodeURIComponent(invoiceId)}`,
+    scope.event.slug,
+    { order: scope.invoice.orderId },
+  )}#token=${encodeURIComponent(accessToken)}`;
   const issued = eventType === 'InvoiceIssued' || eventType === 'InvoiceDeliveryRequested';
   const body = issued
     ? `你的电子发票已经开具。请在 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })} 前通过安全链接查看和下载：${accessUrl}`
@@ -1769,7 +1777,7 @@ async function deliverRegistrationReviewNotification(
   const approved = eventType === 'RegistrationReviewApproved';
   const paymentRequired = payload.paymentRequired === true;
   const siteUrl = conferenceSiteUrl();
-  let resultUrl = `${siteUrl}/faq?event=${encodeURIComponent(scope.event.slug)}`;
+  let resultUrl = `${siteUrl}${publicEventScopedPath('/faq', scope.event.slug)}`;
   if (approved) {
     const accessToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60_000);

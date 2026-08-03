@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, Speaker } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi, publicEventUrl } from '../lib/api';
+import { conferenceApi, publicEventUrl, session } from '../lib/api';
 
 interface SessionRow {
   id: string;
@@ -384,6 +384,7 @@ function clock(value: string) {
 
   <AdminConfirmDialog
     :open="Boolean(deletionTarget)"
+    :event-name="session.activeEvent.value?.name"
     :title="`确认删除${deletionTarget?.kind === 'speaker' ? '嘉宾' : '议程'}“${deletionTarget?.name ?? ''}”？`"
     description="删除成功后前台会立即移除该内容。如需恢复，可从变更记录回滚到之前的大会版本。"
     confirm-label="确认删除"

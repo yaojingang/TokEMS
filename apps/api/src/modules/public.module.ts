@@ -23,7 +23,10 @@ import {
   API_ERROR_CODES,
   CheckInRequestSchema,
   CreateRegistrationSchema,
+  isPublicEventStatus,
   PaymentCallbackSchema,
+  publicEventHomePath,
+  publicEventScopedPath,
   WaitlistJoinSchema,
   WeChatPaymentChannelSchema,
 } from '@conference/contracts';
@@ -171,6 +174,100 @@ function verifyPaymentSignature(
   }
 }
 
+async function servePublishedHomeDocument(
+  htmlTemplates: HtmlTemplateOperationsService,
+  repository: ConferenceRepository,
+  slug: string,
+  organizationSlug: string,
+  ifNoneMatch: string | undefined,
+  reply: FastifyReply,
+) {
+  try {
+    const document = await htmlTemplates.renderPublishedHome(slug, organizationSlug);
+    if (!document) {
+      return reply
+        .code(HttpStatus.NO_CONTENT)
+        .header('Cache-Control', 'no-cache, must-revalidate')
+        .header('Vary', 'X-Organization-Slug, Accept-Encoding')
+        .send();
+    }
+    if (ifNoneMatch && ifNoneMatch === document.etag) {
+      return reply
+        .code(HttpStatus.NOT_MODIFIED)
+        .header('Cache-Control', 'no-cache, must-revalidate')
+        .header('ETag', document.etag)
+        .header('Vary', 'X-Organization-Slug, Accept-Encoding')
+        .send();
+    }
+    return reply
+      .type('text/html; charset=utf-8')
+      .header('Content-Security-Policy', document.csp)
+      .header('Cache-Control', 'no-cache, must-revalidate')
+      .header('ETag', document.etag)
+      .header('Vary', 'X-Organization-Slug, Accept-Encoding')
+      .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header(
+        'Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), usb=(), bluetooth=()',
+      )
+      .send(document.html);
+  } catch (error) {
+    if (error instanceof DomainError && error.getStatus() === HttpStatus.NOT_FOUND) throw error;
+    const artifact = await htmlTemplates.renderPublishedArtifactFallback(slug, organizationSlug);
+    if (artifact) {
+      if (ifNoneMatch && ifNoneMatch === artifact.etag) {
+        return reply
+          .code(HttpStatus.NOT_MODIFIED)
+          .header('Cache-Control', 'no-cache, must-revalidate')
+          .header('ETag', artifact.etag)
+          .header('Vary', 'X-Organization-Slug, Accept-Encoding')
+          .send();
+      }
+      return reply
+        .type('text/html; charset=utf-8')
+        .header('Content-Security-Policy', artifact.csp)
+        .header('Cache-Control', 'no-cache, must-revalidate')
+        .header('ETag', artifact.etag)
+        .header('Vary', 'X-Organization-Slug, Accept-Encoding')
+        .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Warning', '110 - "Response served from release artifact"')
+        .send(artifact.html);
+    }
+    const event = await repository.getPublicEvent(slug, organizationSlug);
+    const escape = (value: string) =>
+      value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    const registrationPath = publicEventScopedPath('/register', event.slug);
+    const canonicalPath = publicEventHomePath(event.slug);
+    const publicOrigin = (process.env.PUBLIC_ORIGIN ?? process.env.PUBLIC_SITE_URL ?? '').replace(
+      /\/+$/u,
+      '',
+    );
+    const canonicalUrl = publicOrigin ? `${publicOrigin}${canonicalPath}` : canonicalPath;
+    const fallback = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(event.name)}</title><link rel="canonical" href="${escape(canonicalUrl)}"><meta property="og:url" content="${escape(canonicalUrl)}"></head><body><main><h1>${escape(event.name)}</h1><p>${escape(event.startsAt)} · ${escape(event.venue)}</p><p>页面正在恢复，请稍后刷新。</p><a href="${registrationPath}">进入报名</a></main></body></html>`;
+    return reply
+      .code(HttpStatus.SERVICE_UNAVAILABLE)
+      .type('text/html; charset=utf-8')
+      .header('Cache-Control', 'no-store')
+      .header(
+        'Content-Security-Policy',
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'",
+      )
+      .header('Referrer-Policy', 'strict-origin-when-cross-origin')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header(
+        'Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), usb=(), bluetooth=()',
+      )
+      .send(fallback);
+  }
+}
+
 @ApiTags('public-events')
 @Controller('events')
 class EventsController {
@@ -189,74 +286,16 @@ class EventsController {
   ) {
     const organizationSlug =
       organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
-    try {
-      const document = await this.htmlTemplates.renderPublishedHome(slug, organizationSlug);
-      if (!document) {
-        return reply
-          .code(HttpStatus.NO_CONTENT)
-          .header('Cache-Control', 'no-cache, must-revalidate')
-          .header('Vary', 'X-Organization-Slug, Accept-Encoding')
-          .send();
-      }
-      if (ifNoneMatch && ifNoneMatch === document.etag) {
-        return reply
-          .code(HttpStatus.NOT_MODIFIED)
-          .header('ETag', document.etag)
-          .header('Vary', 'X-Organization-Slug, Accept-Encoding')
-          .send();
-      }
-      return reply
-        .type('text/html; charset=utf-8')
-        .header('Content-Security-Policy', document.csp)
-        .header('Cache-Control', 'no-cache, must-revalidate')
-        .header('ETag', document.etag)
-        .header('Vary', 'X-Organization-Slug, Accept-Encoding')
-        .header('Referrer-Policy', 'strict-origin-when-cross-origin')
-        .header('X-Content-Type-Options', 'nosniff')
-        .header(
-          'Permissions-Policy',
-          'camera=(), microphone=(), geolocation=(), usb=(), bluetooth=()',
-        )
-        .send(document.html);
-    } catch (error) {
-      if (error instanceof DomainError && error.getStatus() === HttpStatus.NOT_FOUND) throw error;
-      const artifact = await this.htmlTemplates.renderPublishedArtifactFallback(
-        slug,
-        organizationSlug,
-      );
-      if (artifact) {
-        if (ifNoneMatch && ifNoneMatch === artifact.etag) {
-          return reply
-            .code(HttpStatus.NOT_MODIFIED)
-            .header('ETag', artifact.etag)
-            .header('Vary', 'X-Organization-Slug, Accept-Encoding')
-            .send();
-        }
-        return reply
-          .type('text/html; charset=utf-8')
-          .header('Content-Security-Policy', artifact.csp)
-          .header('Cache-Control', 'no-cache, must-revalidate')
-          .header('ETag', artifact.etag)
-          .header('Vary', 'X-Organization-Slug, Accept-Encoding')
-          .header('Referrer-Policy', 'strict-origin-when-cross-origin')
-          .header('X-Content-Type-Options', 'nosniff')
-          .header('Warning', '110 - "Response served from release artifact"')
-          .send(artifact.html);
-      }
-      const event = await this.repository.getPublicEvent(slug, organizationSlug);
-      const escape = (value: string) =>
-        value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-      const fallback = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(event.name)}</title></head><body><main><h1>${escape(event.name)}</h1><p>${escape(event.startsAt)} · ${escape(event.venue)}</p><p>页面正在恢复，请稍后刷新。</p><a href="/register">进入报名</a></main></body></html>`;
-      return reply
-        .code(HttpStatus.SERVICE_UNAVAILABLE)
-        .type('text/html; charset=utf-8')
-        .header('Cache-Control', 'no-store')
-        .header(
-          'Content-Security-Policy',
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'",
-        )
-        .send(fallback);
-    }
+    const route = await this.repository.resolvePublicEventRoute(slug, organizationSlug);
+    if (route.isAlias) reply.header('X-Canonical-Event-Slug', route.slug);
+    return servePublishedHomeDocument(
+      this.htmlTemplates,
+      this.repository,
+      route.slug,
+      organizationSlug,
+      ifNoneMatch,
+      reply,
+    );
   }
 
   @Get(':slug')
@@ -266,11 +305,18 @@ class EventsController {
     @Res({ passthrough: true }) reply?: FastifyReply,
   ) {
     reply?.header('Cache-Control', 'no-cache, must-revalidate');
-    const event = await this.repository.getPublicEvent(
+    const resolved = await this.repository.resolvePublicEventRoute(
       slug,
       organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
     );
-    if (['draft', 'configuring', 'archived'].includes(event.status)) {
+    if (resolved.isAlias) {
+      reply?.header('Content-Location', publicEventHomePath(resolved.slug));
+    }
+    const event = await this.repository.getPublicEvent(
+      resolved.slug,
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    );
+    if (!isPublicEventStatus(event.status)) {
       throw new DomainError(
         API_ERROR_CODES.NOT_FOUND,
         '大会不存在或尚未发布',
@@ -278,6 +324,46 @@ class EventsController {
       );
     }
     return event;
+  }
+}
+
+@ApiTags('public-homepage')
+@Controller('homepage')
+class HomepageController {
+  constructor(
+    @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
+    @Inject(HtmlTemplateOperationsService)
+    private readonly htmlTemplates: HtmlTemplateOperationsService,
+  ) {}
+
+  @Get('home-document')
+  async getHomeDocument(
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() reply: FastifyReply,
+  ) {
+    const organizationSlug =
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+    const event = await this.repository.getPublicHomepageEvent(organizationSlug);
+    return servePublishedHomeDocument(
+      this.htmlTemplates,
+      this.repository,
+      event.slug,
+      organizationSlug,
+      ifNoneMatch,
+      reply,
+    );
+  }
+
+  @Get()
+  getHomepage(
+    @Headers('x-organization-slug') organizationSlug: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.repository.getPublicHomepageEvent(
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    );
   }
 }
 
@@ -823,6 +909,7 @@ class CheckInController {
 @Module({
   controllers: [
     EventsController,
+    HomepageController,
     SiteConfigurationController,
     TemplateAssetsController,
     RegistrationsController,

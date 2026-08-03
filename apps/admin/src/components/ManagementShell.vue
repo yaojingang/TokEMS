@@ -58,7 +58,7 @@ onMounted(async () => {
     :title="title"
     :code="code"
     :scope-label="scopeLabel"
-    :brand-to="{ name: session.landingRouteName() }"
+    :brand-to="{ name: session.managementLandingRouteName() }"
   >
     <template #navigation="{ closeNavigation }">
       <div class="admin-nav-section">

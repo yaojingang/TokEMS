@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, PublicEvent, UpdateEvent } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi, publicEventUrl } from '../lib/api';
+import { conferenceApi, publicEventUrl, session } from '../lib/api';
 
 const event = ref<PublicEvent>();
 const pending = ref(false);
@@ -266,6 +266,7 @@ async function save() {
 
   <AdminConfirmDialog
     :open="showImportantChangeConfirm"
+    :event-name="session.activeEvent.value?.name"
     title="确认保存这项重要修改？"
     description="保存成功后大会前台会立即采用以下配置，现有订单、报名和电子票继续保留原记录。"
     :details="importantChangeDetails"

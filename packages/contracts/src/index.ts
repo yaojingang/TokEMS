@@ -47,6 +47,75 @@ export const EventStatusSchema = z.enum([
   'archived',
 ]);
 
+export const PUBLIC_EVENT_STATUSES = [
+  'prepublished',
+  'registration_open',
+  'in_progress',
+  'ended',
+] as const satisfies ReadonlyArray<z.infer<typeof EventStatusSchema>>;
+
+const publicEventStatusSet = new Set<z.infer<typeof EventStatusSchema>>(PUBLIC_EVENT_STATUSES);
+
+export function isPublicEventStatus(status: z.infer<typeof EventStatusSchema>) {
+  return publicEventStatusSet.has(status);
+}
+
+export const RESERVED_PUBLIC_EVENT_SLUGS = [
+  'account',
+  'admin',
+  'api',
+  'assets',
+  'faq',
+  'healthz',
+  'invoice',
+  'order',
+  'pay',
+  'register',
+  'ticket',
+] as const;
+
+const reservedPublicEventSlugSet = new Set<string>(RESERVED_PUBLIC_EVENT_SLUGS);
+
+const EventSlugBaseSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, '大会路径只能包含小写字母、数字和连字符');
+
+export const EventSlugSchema = EventSlugBaseSchema.max(100)
+  .refine((slug) => !reservedPublicEventSlugSet.has(slug), '该路径由系统保留，请更换大会路径');
+
+export const EventShortSlugSchema = EventSlugBaseSchema.max(24, '大会短地址不能超过 24 个字符')
+  .refine((slug) => !reservedPublicEventSlugSet.has(slug), '该路径由系统保留，请更换大会路径');
+
+export function publicEventHomePath(slug: string) {
+  return `/${encodeURIComponent(EventSlugSchema.parse(slug))}`;
+}
+
+export function publicEventSlugFromPathSegment(segment: string) {
+  try {
+    const parsed = EventSlugSchema.safeParse(decodeURIComponent(segment));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function publicEventScopedPath(
+  pathname: string,
+  slug: string,
+  parameters: Record<string, string | number | boolean | null | undefined> = {},
+) {
+  if (!pathname.startsWith('/') || pathname.includes('?') || pathname.includes('#')) {
+    throw new Error('公开大会业务路径必须是以 / 开头且不含查询参数或片段的站内路径');
+  }
+  const query = new URLSearchParams({ event: EventSlugSchema.parse(slug) });
+  Object.entries(parameters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query.set(key, String(value));
+  });
+  return `${pathname}?${query.toString()}`;
+}
+
 export const RegistrationStatusSchema = z.enum([
   'draft',
   'pending_review',
@@ -1200,6 +1269,12 @@ export const LoginResultSchema = z.object({
   }),
 });
 
+export const AdminPreferencesSchema = z.object({
+  lastEventId: EventIdSchema.nullable(),
+});
+
+export const UpdateAdminPreferencesSchema = AdminPreferencesSchema.strict();
+
 export const AuthMeSchema = z.object({
   user: z.object({
     id: z.number().int().min(101),
@@ -1218,6 +1293,7 @@ export const AuthMeSchema = z.object({
     grants: z.array(z.string()),
     status: MembershipStatusSchema,
   }),
+  adminPreferences: AdminPreferencesSchema.default({ lastEventId: null }),
 });
 
 export const MainlandMobileSchema = z
@@ -2118,9 +2194,9 @@ export const PublicSiteConfigurationSchema = z.object({
   }),
 });
 
-export const EventSummarySchema = z.object({
+export const EventContextOptionSchema = z.object({
   id: EventIdSchema,
-  slug: z.string(),
+  slug: EventSlugSchema,
   name: z.string(),
   shortName: z.string(),
   status: EventStatusSchema,
@@ -2128,23 +2204,51 @@ export const EventSummarySchema = z.object({
   endsAt: z.string(),
   city: z.string(),
   registrationCount: z.number().int().nonnegative(),
+});
+
+export const EventSummarySchema = EventContextOptionSchema.extend({
   currentReleaseId: z.string().nullable(),
   templateKey: z.string().nullable(),
   templateName: z.string().nullable().default(null),
   templateVersion: z.number().int().positive().nullable().default(null),
   templateUpgradeAvailable: z.boolean().default(false),
+  isHomepageDefault: z.boolean().default(false),
+});
+
+export const SetOrganizationHomepageEventSchema = z.object({
+  eventId: EventIdSchema,
+});
+
+export const OrganizationHomepageEventSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: EventIdSchema,
+  slug: EventSlugSchema,
+  name: z.string(),
+  updatedAt: z.string(),
+});
+
+export const EventSlugAvailabilitySchema = z.object({
+  slug: EventShortSlugSchema,
+  available: z.boolean(),
+  current: z.boolean().default(false),
+});
+
+export const UpdateEventSlugSchema = z.object({
+  slug: EventShortSlugSchema,
+});
+
+export const EventSlugUpdateResultSchema = z.object({
+  eventId: EventIdSchema,
+  slug: EventShortSlugSchema,
+  previousSlug: EventSlugSchema,
+  updatedAt: z.string(),
 });
 
 export const CreateEventSchema = z
   .object({
     name: z.string().trim().min(2).max(180),
     shortName: z.string().trim().min(2).max(80),
-    slug: z
-      .string()
-      .trim()
-      .min(3)
-      .max(100)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    slug: EventShortSlugSchema.optional(),
     startsAt: z.iso.datetime(),
     endsAt: z.iso.datetime(),
     timezone: z.string().min(1).optional(),
@@ -2691,6 +2795,8 @@ export type CheckInRequest = z.infer<typeof CheckInRequestSchema>;
 export type AdminDashboard = z.infer<typeof AdminDashboardSchema>;
 export type Login = z.infer<typeof LoginSchema>;
 export type LoginResult = z.infer<typeof LoginResultSchema>;
+export type AdminPreferences = z.infer<typeof AdminPreferencesSchema>;
+export type UpdateAdminPreferences = z.infer<typeof UpdateAdminPreferencesSchema>;
 export type AuthMe = z.infer<typeof AuthMeSchema>;
 export type CustomerProfile = z.infer<typeof CustomerProfileSchema>;
 export type CustomerIdentity = z.infer<typeof CustomerIdentitySchema>;
@@ -2763,9 +2869,15 @@ export type UpdateAliyunSmsConfiguration = z.infer<typeof UpdateAliyunSmsConfigu
 export type TestAliyunSmsConfiguration = z.infer<typeof TestAliyunSmsConfigurationSchema>;
 export type AliyunSmsConnectionTest = z.infer<typeof AliyunSmsConnectionTestSchema>;
 export type PublicSiteConfiguration = z.infer<typeof PublicSiteConfigurationSchema>;
+export type EventContextOption = z.infer<typeof EventContextOptionSchema>;
 export type EventSummary = z.infer<typeof EventSummarySchema>;
 export type CreateEvent = z.infer<typeof CreateEventSchema>;
 export type UpdateEvent = z.infer<typeof UpdateEventSchema>;
+export type EventSlugAvailability = z.infer<typeof EventSlugAvailabilitySchema>;
+export type UpdateEventSlug = z.infer<typeof UpdateEventSlugSchema>;
+export type EventSlugUpdateResult = z.infer<typeof EventSlugUpdateResultSchema>;
+export type SetOrganizationHomepageEvent = z.infer<typeof SetOrganizationHomepageEventSchema>;
+export type OrganizationHomepageEvent = z.infer<typeof OrganizationHomepageEventSchema>;
 export type EventBlueprint = z.infer<typeof EventBlueprintSchema>;
 export type TemplatePackage = z.infer<typeof TemplatePackageSchema>;
 export type ConferenceTemplateSummary = z.infer<typeof ConferenceTemplateSummarySchema>;
@@ -2859,7 +2971,7 @@ export const DEMO_EVENT_EXPERIENCE: NonNullable<PublicEvent['experience']> = {
 export const DEMO_EVENT: PublicEvent = {
   id: DEMO_IDS.event,
   organizationId: DEMO_IDS.organization,
-  slug: 'tokems-demo-2026',
+  slug: 'tokems26',
   name: 'TokEMS Demo Conference 2026',
   shortName: 'TokEMS Demo 2026',
   status: 'registration_open',

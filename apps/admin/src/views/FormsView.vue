@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, RegistrationField, RegistrationForm } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi } from '../lib/api';
+import { conferenceApi, session } from '../lib/api';
 import { dateTime, statusLabel } from '../lib/format';
 
 const versions = ref<RegistrationForm[]>([]);
@@ -300,6 +300,7 @@ onMounted(() => void load());
 
   <AdminConfirmDialog
     :open="showImportantChangeConfirm"
+    :event-name="session.activeEvent.value?.name"
     title="确认更新报名表与条款？"
     description="保存成功后新的报名会立即使用以下配置，历史报名继续保留原表单和条款快照。"
     :details="importantChanges"

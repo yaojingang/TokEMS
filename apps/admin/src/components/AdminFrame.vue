@@ -2,14 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { useRoute, useRouter } from 'vue-router';
-import { publicEventUrl, session } from '../lib/api';
+import { session } from '../lib/api';
 import { organizationRoleLabel } from '../lib/roles';
 
-defineProps<{
+const props = defineProps<{
   title: string;
   code: string;
   scopeLabel: string;
   brandTo: RouteLocationRaw;
+  publicEntryUrl?: string | undefined;
 }>();
 
 const route = useRoute();
@@ -23,7 +24,6 @@ const accountTrigger = ref<HTMLButtonElement>();
 const accountMenu = ref<HTMLElement>();
 const accountRole = computed(() => organizationRoleLabel(session.identity.value?.membership.role));
 const accountInitial = computed(() => session.user.value?.name.trim().charAt(0) || '管');
-const publicSiteUrl = computed(() => publicEventUrl());
 const accountRoute = computed<RouteLocationRaw>(() => ({
   name: 'account-profile',
   ...(route.name === 'account-profile' ? {} : { query: { from: route.fullPath } }),
@@ -206,8 +206,9 @@ onBeforeUnmount(() => {
         <div class="topbar-tools">
           <slot name="topbar-actions" />
           <a
+            v-if="props.publicEntryUrl"
             class="admin-public-entry"
-            :href="publicSiteUrl"
+            :href="props.publicEntryUrl"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="访问大会前台，在新标签页打开"

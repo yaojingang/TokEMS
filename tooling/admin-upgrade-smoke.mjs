@@ -40,11 +40,38 @@ async function waitForAutosave(page) {
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await context.newPage();
 try {
+  let eventOptionsRequests = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/admin/event-options')) eventOptionsRequests += 1;
+  });
   await page.goto(`${adminBase}/login`, { waitUntil: 'networkidle' });
   await page.getByLabel('用户名').fill(adminUsername);
   await page.getByLabel('密码').fill(adminPassword);
   await page.getByRole('button', { name: '进入运营台' }).click();
+  await page.waitForURL(
+    (url) => /\/events\/\d+\//.test(url.pathname) || url.pathname.endsWith('/manage/events'),
+  );
+  assert(eventOptionsRequests === 1, `登录入口请求了 ${eventOptionsRequests} 次大会上下文`);
+  const openedChooser = new URL(page.url()).pathname.endsWith('/manage/events');
+  if (openedChooser) {
+    assert(
+      await page.getByRole('heading', { name: '大会管理' }).isVisible(),
+      '多候选入口没有显示大会列表',
+    );
+    await page.getByRole('button', { name: /进入工作台|继续管理/ }).first().click();
+    await page.waitForURL(/\/events\/\d+\//);
+  }
+  assert(await page.locator('.event-context-switcher').isVisible(), '大会工作台缺少当前大会切换器');
+  assert(await page.getByRole('link', { name: /管理中心/ }).isVisible(), '大会工作台缺少管理中心入口');
+  assert(await page.getByRole('link', { name: /访问大会前台/ }).isVisible(), '大会工作台缺少大会前台入口');
+
+  await page.getByRole('link', { name: /管理中心/ }).click();
   await page.waitForURL(/\/manage\/events/);
+  await page.getByRole('heading', { name: '大会管理' }).waitFor();
+  assert(
+    !(await page.getByRole('link', { name: /访问大会前台/ }).count()),
+    '管理中心不应显示大会前台入口',
+  );
 
   await page.getByRole('button', { name: '创建大会' }).click();
   await page.locator('#event-timezone').waitFor();
@@ -84,6 +111,7 @@ try {
     JSON.stringify(
       {
         ok: true,
+        loginEntry: openedChooser ? 'ambiguous chooser, then explicit event' : 'recent event',
         eventCreationTimezone: 'Asia/Shanghai',
         templateAutosave: 'persisted and restored',
       },

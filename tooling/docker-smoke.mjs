@@ -121,10 +121,10 @@ assertBuildSourceState({
 
 if (!isProduction) {
   await waitFor('本地演示大会发布数据可读取', async () => {
-    const { body } = await request(`${endpoints.api}/events/tokems-demo-2026`, {
+    const { body } = await request(`${endpoints.api}/events/tokems26`, {
       headers: { 'X-Organization-Slug': 'tokems-demo' },
     });
-    assert(body.slug === 'tokems-demo-2026', 'Unexpected event slug');
+    assert(body.slug === 'tokems26', 'Unexpected event slug');
     assert(body.status === 'registration_open', 'Event is not open for registration');
     assert(Array.isArray(body.tickets) && body.tickets.length === 1, 'Ticket data is incomplete');
     assert(body.tickets[0]?.name === '两日通票', 'Unexpected default ticket');

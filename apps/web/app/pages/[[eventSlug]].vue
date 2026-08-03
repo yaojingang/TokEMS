@@ -1,14 +1,48 @@
 <script setup lang="ts">
-import { nextTick } from 'vue';
-import { DEMO_EVENT, type Session } from '@conference/contracts';
+import { nextTick, watch } from 'vue';
+import { createError, definePageMeta, useAsyncData, useRuntimeConfig } from '#imports';
+import {
+  publicEventHomePath,
+  publicEventScopedPath,
+  type PublicEvent,
+  type Session,
+} from '@conference/contracts';
 import { resolveEventExperience } from '~/composables/useEventExperience';
+
+definePageMeta({ publicEventHome: true });
 
 let countdown: ReturnType<typeof setInterval> | undefined;
 let observer: IntersectionObserver | undefined;
 let scrollHandler: (() => void) | undefined;
 let accentClickHandler: ((event: MouseEvent) => void) | undefined;
 const api = useConferenceApi();
+const route = useRoute();
+const runtimeConfig = useRuntimeConfig();
 const event = api.eventState;
+const requestedEventSlug = computed(() => {
+  const value = Array.isArray(route.params.eventSlug)
+    ? route.params.eventSlug[0]
+    : route.params.eventSlug;
+  return typeof value === 'string' && value ? value : '';
+});
+const eventRouteKey = computed(() => requestedEventSlug.value || 'homepage');
+const { data: loadedEvent, error: eventLoadError } = await useAsyncData<PublicEvent>(
+  `conference-public-event-${eventRouteKey.value}`,
+  () =>
+    requestedEventSlug.value
+      ? api.getEvent(requestedEventSlug.value)
+      : api.getHomepageEvent(),
+  { deep: false, watch: [eventRouteKey] },
+);
+if (eventLoadError.value) {
+  const failure = eventLoadError.value as { statusCode?: number; status?: number };
+  throw createError({
+    statusCode: failure.statusCode ?? failure.status ?? 503,
+    statusMessage:
+      (failure.statusCode ?? failure.status) === 404 ? '大会不存在或尚未发布' : '大会页面暂时不可用',
+  });
+}
+if (loadedEvent.value) event.value = loadedEvent.value;
 const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
 const experience = computed(() => resolveEventExperience(event.value));
@@ -63,10 +97,10 @@ const eventDate = computed(() => {
   };
 });
 const registrationHref = (ticketId: string) =>
-  `/register?event=${encodeURIComponent(event.value.slug)}&ticket=${encodeURIComponent(ticketId)}`;
+  publicEventScopedPath('/register', event.value.slug, { ticket: ticketId });
 const faqHref = computed(() =>
   experience.value.faq.mode === 'page'
-    ? `/faq?event=${encodeURIComponent(event.value.slug)}`
+    ? publicEventScopedPath('/faq', event.value.slug)
     : '#faq',
 );
 const homeBlock = (nodeKey: string) => homeBlocks.value.find((block) => block.nodeKey === nodeKey);
@@ -196,6 +230,10 @@ useHead(() => ({
       name: 'robots',
       content: experience.value.home.seo.indexable ? 'index,follow' : 'noindex,nofollow',
     },
+    {
+      property: 'og:url',
+      content: `${String(runtimeConfig.public.conferenceOrigin).replace(/\/+$/u, '')}${publicEventHomePath(event.value.slug)}`,
+    },
     ...(experience.value.home.seo.shareAssetUrl
       ? [
           {
@@ -205,16 +243,24 @@ useHead(() => ({
         ]
       : []),
   ],
+  link: [
+    {
+      rel: 'canonical',
+      href: `${String(runtimeConfig.public.conferenceOrigin).replace(/\/+$/u, '')}${publicEventHomePath(event.value.slug)}`,
+    },
+  ],
 }));
 
+watch(loadedEvent, async (loaded) => {
+  if (!loaded) return;
+  event.value = loaded;
+  activeDay.value = days.value[0] ?? 1;
+  await nextTick();
+  document.querySelectorAll('.reveal:not(.in)').forEach((element) => observer?.observe(element));
+});
+
 onMounted(() => {
-  const requestedSlug = new URL(window.location.href).searchParams.get('event') ?? DEMO_EVENT.slug;
-  void api.getEvent(requestedSlug).then(async (loaded) => {
-    event.value = loaded;
-    activeDay.value = days.value[0] ?? 1;
-    await nextTick();
-    document.querySelectorAll('.reveal:not(.in)').forEach((element) => observer?.observe(element));
-  });
+  activeDay.value = days.value[0] ?? 1;
   const nav = document.getElementById('nav');
   const sticky = document.getElementById('stickyBar');
   const hero = document.getElementById('hero');

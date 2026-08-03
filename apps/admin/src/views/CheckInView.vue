@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import { conferenceApi, session, type CheckInResult } from '../lib/api';
+import { checkInStorageKey, clearLegacyCheckInStorage } from '../lib/checkin-storage';
 import { dateTime } from '../lib/format';
 
 const input = ref<HTMLInputElement>();
@@ -12,6 +14,7 @@ const devices = ref<Array<Record<string, unknown>>>([]);
 const errorMessage = ref('');
 const showDeviceEditor = ref(false);
 const showOfflineAuth = ref(false);
+const showOfflineSyncConfirm = ref(false);
 const offlineTokenInput = ref<HTMLInputElement>();
 const deviceTokenNotice = ref('');
 const deviceForm = reactive({
@@ -21,17 +24,36 @@ const deviceForm = reactive({
 const canExecute = session.can('event.checkin.execute');
 const canManageDevices = session.can('event.checkin.manage');
 const offlineMode = ref(!navigator.onLine);
-const offlineQueue = ref<Array<{ localId: string; ticketCode: string; checkedInAt: string }>>(
-  JSON.parse(localStorage.getItem('conference.checkin.offlineQueue') ?? '[]'),
-);
+const currentEventId = session.activeEventId.value;
+if (!currentEventId) throw new Error('现场签到缺少已验证的大会上下文');
+clearLegacyCheckInStorage(localStorage);
+const storageKeys = {
+  offlineQueue: checkInStorageKey(currentEventId, 'offlineQueue'),
+  batchKey: checkInStorageKey(currentEventId, 'batchKey'),
+  deviceCode: checkInStorageKey(currentEventId, 'deviceCode'),
+  deviceToken: checkInStorageKey(currentEventId, 'deviceToken'),
+  device: checkInStorageKey(currentEventId, 'device'),
+};
+function loadOfflineQueue() {
+  try {
+    const value = JSON.parse(localStorage.getItem(storageKeys.offlineQueue) ?? '[]') as unknown;
+    return Array.isArray(value)
+      ? (value as Array<{ localId: string; ticketCode: string; checkedInAt: string }>)
+      : [];
+  } catch {
+    return [];
+  }
+}
+const offlineQueue =
+  ref<Array<{ localId: string; ticketCode: string; checkedInAt: string }>>(loadOfflineQueue());
 const offlineBatchKey = ref(
-  localStorage.getItem('conference.checkin.batchKey') ?? `offline-${crypto.randomUUID()}`,
+  localStorage.getItem(storageKeys.batchKey) ?? `offline-${crypto.randomUUID()}`,
 );
-const offlineDeviceCode = ref(localStorage.getItem('conference.checkin.deviceCode') ?? 'GATE-A-01');
-const offlineDeviceToken = ref(localStorage.getItem('conference.checkin.deviceToken') ?? '');
+const offlineDeviceCode = ref(localStorage.getItem(storageKeys.deviceCode) ?? 'GATE-A-01');
+const offlineDeviceToken = ref(localStorage.getItem(storageKeys.deviceToken) ?? '');
 const deviceId =
-  localStorage.getItem('conference.checkin.device') ?? `desk-${crypto.randomUUID().slice(0, 8)}`;
-localStorage.setItem('conference.checkin.device', deviceId);
+  localStorage.getItem(storageKeys.device) ?? `desk-${crypto.randomUUID().slice(0, 8)}`;
+localStorage.setItem(storageKeys.device, deviceId);
 
 const resultTitle = computed(() => {
   if (result.value?.result === 'accepted') return '核销成功';
@@ -50,8 +72,8 @@ onMounted(async () => {
 });
 
 function persistOfflineQueue() {
-  localStorage.setItem('conference.checkin.offlineQueue', JSON.stringify(offlineQueue.value));
-  localStorage.setItem('conference.checkin.batchKey', offlineBatchKey.value);
+  localStorage.setItem(storageKeys.offlineQueue, JSON.stringify(offlineQueue.value));
+  localStorage.setItem(storageKeys.batchKey, offlineBatchKey.value);
 }
 
 async function checkIn() {
@@ -99,15 +121,15 @@ async function prepareOfflineSync() {
     offlineTokenInput.value?.focus();
     return;
   }
-  await syncOffline();
+  showOfflineSyncConfirm.value = true;
 }
 
 async function authorizeAndSync() {
   offlineDeviceToken.value = offlineDeviceToken.value.trim();
   if (!offlineDeviceToken.value) return;
-  localStorage.setItem('conference.checkin.deviceToken', offlineDeviceToken.value);
+  localStorage.setItem(storageKeys.deviceToken, offlineDeviceToken.value);
   showOfflineAuth.value = false;
-  await syncOffline();
+  showOfflineSyncConfirm.value = true;
 }
 
 async function syncOffline() {
@@ -159,8 +181,8 @@ async function registerDevice() {
     const registered = await conferenceApi.registerDevice({ deviceCode, name });
     offlineDeviceCode.value = String(registered.device.deviceCode ?? deviceCode);
     offlineDeviceToken.value = registered.token;
-    localStorage.setItem('conference.checkin.deviceCode', offlineDeviceCode.value);
-    localStorage.setItem('conference.checkin.deviceToken', offlineDeviceToken.value);
+    localStorage.setItem(storageKeys.deviceCode, offlineDeviceCode.value);
+    localStorage.setItem(storageKeys.deviceToken, offlineDeviceToken.value);
     deviceTokenNotice.value = registered.token;
     showDeviceEditor.value = false;
     devices.value = await conferenceApi.getDevices();
@@ -297,7 +319,7 @@ async function copyDeviceToken() {
         <button class="button secondary" type="button" @click="showOfflineAuth = false">
           取消
         </button>
-        <button class="button" type="submit" :disabled="pending">授权并同步</button>
+        <button class="button" type="submit" :disabled="pending">授权并检查批次</button>
       </div>
     </form>
   </section>
@@ -412,4 +434,22 @@ async function copyDeviceToken() {
       </section>
     </div>
   </div>
+
+  <AdminConfirmDialog
+    :open="showOfflineSyncConfirm"
+    :event-name="session.activeEvent.value?.name"
+    title="确认同步离线签到批次？"
+    description="本机保存的离线扫码记录将提交到当前大会，服务端会按批次幂等处理。"
+    confirm-label="确认同步"
+    :details="[
+      { label: '待同步记录', value: `${offlineQueue.length} 条` },
+      { label: '核销设备', value: offlineDeviceCode },
+    ]"
+    :busy="pending"
+    @cancel="showOfflineSyncConfirm = false"
+    @confirm="
+      showOfflineSyncConfirm = false;
+      syncOffline();
+    "
+  />
 </template>

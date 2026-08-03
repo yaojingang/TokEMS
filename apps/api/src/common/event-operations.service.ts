@@ -3,13 +3,17 @@ import type {
   ConferenceTemplateDefinition,
   CreateEvent,
   EventBlueprint,
+  EventContextOption,
   EventId,
   EventRelease,
+  EventSlugAvailability,
+  EventSlugUpdateResult,
   EventSummary,
   OrganizationMember,
   RegistrationField,
   RegistrationForm,
   TemplatePackage,
+  UpdateEventSlug,
   UpdateOrganizationMember,
 } from '@conference/contracts';
 import { API_ERROR_CODES, normalizeConferenceTemplateDefinition } from '@conference/contracts';
@@ -20,12 +24,14 @@ import {
   conferenceTemplateVersions,
   eventBlueprints,
   eventReleases,
+  eventSlugAliases,
   eventTemplateBindings,
   eventTemplateOverrides,
   events,
   inventoryReservations,
   memberProfiles,
   memberships,
+  organizationHomepageEvents,
   organizations,
   outboxEvents,
   publicUserIds,
@@ -39,7 +45,7 @@ import {
   waitlistEntries,
 } from '@conference/database';
 import { and, asc, count, desc, eq, gt, isNull, max, sum } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
+import { customAlphabet, nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { EventReleaseActivationService } from './event-release-activation.service.js';
@@ -47,6 +53,8 @@ import { requirePublicUserId } from './public-user-id.js';
 import { mergeTemplateDefinition } from './template-definition.js';
 
 type Database = NonNullable<DatabaseService['db']>;
+
+const generateEventShortSlug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 6);
 
 interface BlueprintSnapshot {
   event?: { tagline?: string; description?: string; timezone?: string; locale?: string };
@@ -324,13 +332,20 @@ export class EventOperationsService {
   }
 
   async listEvents(organizationId: string): Promise<EventSummary[]> {
-    const rows = await this.db()
-      .select({ event: events, registrationCount: count(registrations.id) })
-      .from(events)
-      .leftJoin(registrations, eq(registrations.eventId, events.id))
-      .where(eq(events.organizationId, organizationId))
-      .groupBy(events.id)
-      .orderBy(desc(events.createdAt));
+    const [rows, homepage] = await Promise.all([
+      this.db()
+        .select({ event: events, registrationCount: count(registrations.id) })
+        .from(events)
+        .leftJoin(registrations, eq(registrations.eventId, events.id))
+        .where(eq(events.organizationId, organizationId))
+        .groupBy(events.id)
+        .orderBy(desc(events.createdAt)),
+      this.db()
+        .select({ eventId: organizationHomepageEvents.eventId })
+        .from(organizationHomepageEvents)
+        .where(eq(organizationHomepageEvents.organizationId, organizationId))
+        .limit(1),
+    ]);
 
     return Promise.all(
       rows.map(async ({ event, registrationCount }) => {
@@ -370,9 +385,168 @@ export class EventOperationsService {
           templateUpgradeAvailable:
             Boolean(binding?.currentPublishedVersionId) &&
             binding?.versionId !== binding?.currentPublishedVersionId,
+          isHomepageDefault: homepage[0]?.eventId === event.id,
         };
       }),
     );
+  }
+
+  async listEventOptions(organizationId: string): Promise<EventContextOption[]> {
+    const rows = await this.db()
+      .select({ event: events, registrationCount: count(registrations.id) })
+      .from(events)
+      .leftJoin(registrations, eq(registrations.eventId, events.id))
+      .where(eq(events.organizationId, organizationId))
+      .groupBy(events.id)
+      .orderBy(desc(events.createdAt));
+
+    return rows.map(({ event, registrationCount }) => ({
+      id: event.id,
+      slug: event.slug,
+      name: event.name,
+      shortName: event.shortName,
+      status: event.status,
+      startsAt: event.startsAt.toISOString(),
+      endsAt: event.endsAt.toISOString(),
+      city: event.city,
+      registrationCount: Number(registrationCount),
+    }));
+  }
+
+  async eventSlugAvailability(
+    organizationId: string,
+    slug: string,
+    eventId?: EventId,
+  ): Promise<EventSlugAvailability> {
+    const [currentRows, aliasRows] = await Promise.all([
+      this.db()
+        .select({ eventId: events.id })
+        .from(events)
+        .where(and(eq(events.organizationId, organizationId), eq(events.slug, slug)))
+        .limit(1),
+      this.db()
+        .select({ eventId: eventSlugAliases.eventId })
+        .from(eventSlugAliases)
+        .where(
+          and(
+            eq(eventSlugAliases.organizationId, organizationId),
+            eq(eventSlugAliases.slug, slug),
+          ),
+        )
+        .limit(1),
+    ]);
+    const currentOwner = currentRows[0]?.eventId;
+    const aliasOwner = aliasRows[0]?.eventId;
+    return {
+      slug,
+      available:
+        (!currentOwner || currentOwner === eventId) && (!aliasOwner || aliasOwner === eventId),
+      current: currentOwner === eventId,
+    };
+  }
+
+  async updateEventSlug(
+    organizationId: string,
+    eventId: EventId,
+    actorId: string,
+    input: UpdateEventSlug,
+  ): Promise<EventSlugUpdateResult> {
+    return this.db().transaction(async (tx) => {
+      const [organization] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .for('update')
+        .limit(1);
+      if (!organization) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '组织不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const [event] = await tx
+        .select({ id: events.id, slug: events.slug })
+        .from(events)
+        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+        .for('update')
+        .limit(1);
+      if (!event) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (event.slug === input.slug) {
+        return {
+          eventId,
+          slug: input.slug,
+          previousSlug: event.slug,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      const [currentOwner] = await tx
+        .select({ eventId: events.id })
+        .from(events)
+        .where(and(eq(events.organizationId, organizationId), eq(events.slug, input.slug)))
+        .limit(1);
+      const [aliasOwner] = await tx
+        .select({ eventId: eventSlugAliases.eventId })
+        .from(eventSlugAliases)
+        .where(
+          and(
+            eq(eventSlugAliases.organizationId, organizationId),
+            eq(eventSlugAliases.slug, input.slug),
+          ),
+        )
+        .limit(1);
+      if (currentOwner || (aliasOwner && aliasOwner.eventId !== eventId)) {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '当前组织已存在相同短地址，请更换后重试',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      if (aliasOwner?.eventId === eventId) {
+        await tx
+          .delete(eventSlugAliases)
+          .where(
+            and(
+              eq(eventSlugAliases.organizationId, organizationId),
+              eq(eventSlugAliases.slug, input.slug),
+            ),
+          );
+      }
+      await tx
+        .insert(eventSlugAliases)
+        .values({ organizationId, eventId, slug: event.slug })
+        .onConflictDoNothing();
+      const now = new Date();
+      await tx
+        .update(events)
+        .set({ slug: input.slug, updatedAt: now })
+        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)));
+      await tx.insert(auditLogs).values({
+        organizationId,
+        eventId,
+        actorId,
+        action: 'event.public_url.update',
+        resourceType: 'event',
+        resourceId: String(eventId),
+        before: { slug: event.slug },
+        after: { slug: input.slug },
+        traceId: crypto.randomUUID(),
+      });
+      return {
+        eventId,
+        slug: input.slug,
+        previousSlug: event.slug,
+        updatedAt: now.toISOString(),
+      };
+    });
   }
 
   async listBlueprints(organizationId: string): Promise<EventBlueprint[]> {
@@ -421,6 +595,7 @@ export class EventOperationsService {
           .select({ settings: organizations.settings })
           .from(organizations)
           .where(eq(organizations.id, organizationId))
+          .for('update')
           .limit(1);
         if (!organization) {
           throw new DomainError(
@@ -471,15 +646,42 @@ export class EventOperationsService {
             HttpStatus.NOT_FOUND,
           );
         }
-        const [duplicate] = await tx
-          .select({ id: events.id })
-          .from(events)
-          .where(and(eq(events.organizationId, organizationId), eq(events.slug, input.slug)))
-          .limit(1);
-        if (duplicate) {
+        const slugAvailable = async (candidate: string) => {
+          const [currentRows, aliasRows] = await Promise.all([
+            tx
+              .select({ eventId: events.id })
+              .from(events)
+              .where(and(eq(events.organizationId, organizationId), eq(events.slug, candidate)))
+              .limit(1),
+            tx
+              .select({ eventId: eventSlugAliases.eventId })
+              .from(eventSlugAliases)
+              .where(
+                and(
+                  eq(eventSlugAliases.organizationId, organizationId),
+                  eq(eventSlugAliases.slug, candidate),
+                ),
+              )
+              .limit(1),
+          ]);
+          return !currentRows[0] && !aliasRows[0];
+        };
+        let effectiveSlug = input.slug;
+        for (let attempt = 0; !effectiveSlug && attempt < 10; attempt += 1) {
+          const candidate = `e${generateEventShortSlug()}`;
+          if (await slugAvailable(candidate)) effectiveSlug = candidate;
+        }
+        if (!effectiveSlug) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '暂时无法生成大会短地址，请重试',
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
+        }
+        if (!(await slugAvailable(effectiveSlug))) {
           throw new DomainError(
             API_ERROR_CODES.VALIDATION_ERROR,
-            '当前组织已存在相同路径的大会',
+            '当前组织已存在相同短地址',
             HttpStatus.CONFLICT,
           );
         }
@@ -523,7 +725,7 @@ export class EventOperationsService {
           .insert(events)
           .values({
             organizationId,
-            slug: input.slug,
+            slug: effectiveSlug,
             name: input.name,
             shortName: input.shortName,
             tagline: snapshot.event?.tagline ?? `${input.name}，连接行业洞察与增长实践`,
@@ -647,6 +849,13 @@ export class EventOperationsService {
         return event!;
       });
     } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '当前组织已存在相同短地址',
+          HttpStatus.CONFLICT,
+        );
+      }
       if (error && typeof error === 'object' && 'code' in error && error.code === '22003') {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,

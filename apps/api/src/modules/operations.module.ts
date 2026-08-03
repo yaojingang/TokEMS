@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -23,14 +24,17 @@ import {
   API_ERROR_CODES,
   CreateOrganizationInvitationSchema,
   CreateEventSchema,
+  EventShortSlugSchema,
   OfflineCheckInSyncSchema,
   PublishEventSchema,
   QueueNotificationSchema,
   RefundRequestSchema,
   RegistrationFieldSchema,
+  SetOrganizationHomepageEventSchema,
   TestAliyunSmsConfigurationSchema,
   UpdateAliyunSmsConfigurationSchema,
   UpdateMembershipStatusSchema,
+  UpdateEventSlugSchema,
   UpdateOrganizationMemberSchema,
   UpdateOrganizationSettingsSchema,
   UpdateWeChatPayConfigurationSchema,
@@ -308,6 +312,17 @@ class OrganizationEventsController {
     );
   }
 
+  @Put('organization/homepage-event')
+  @RequireGrant('org.settings.manage')
+  setOrganizationHomepageEvent(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    const input = parse(SetOrganizationHomepageEventSchema, body);
+    return this.organizationAdmin.setHomepageEvent(
+      request.user.organizationId,
+      request.user.sub,
+      input.eventId,
+    );
+  }
+
   @Get('integrations/status')
   @RequireGrant('org.settings.read', 'org.member.manage')
   integrationStatus(@Req() request: AuthenticatedRequest) {
@@ -381,6 +396,38 @@ class OrganizationEventsController {
   @RequireGrant('event.read')
   events(@Req() request: AuthenticatedRequest) {
     return this.operations.listEvents(request.user.organizationId);
+  }
+
+  @Get('event-options')
+  @RequireGrant('event.read')
+  eventOptions(@Req() request: AuthenticatedRequest) {
+    return this.operations.listEventOptions(request.user.organizationId);
+  }
+
+  @Get('event-slugs/availability')
+  @RequireGrant('event.manage')
+  eventSlugAvailability(
+    @Query('slug') slugValue: string,
+    @Query('eventId', OptionalEventIdPipe) eventId: EventId | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const slug = parse(EventShortSlugSchema, slugValue);
+    return this.operations.eventSlugAvailability(request.user.organizationId, slug, eventId);
+  }
+
+  @Patch('events/:eventId/public-url')
+  @RequireGrant('event.manage')
+  updateEventSlug(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.operations.updateEventSlug(
+      request.user.organizationId,
+      eventId,
+      request.user.sub,
+      parse(UpdateEventSlugSchema, body),
+    );
   }
 
   @Post('events')

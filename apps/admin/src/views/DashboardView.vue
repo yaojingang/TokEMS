@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import type { AdminDashboard } from '@conference/contracts';
 import { useRoute } from 'vue-router';
 import { conferenceApi, session, type AdminRegistrationRow } from '../lib/api';
+import { dateTime, statusClass, statusLabel } from '../lib/format';
 
 const route = useRoute();
 const dashboard = ref<AdminDashboard>();
@@ -80,8 +81,21 @@ onMounted(async () => {
   <header class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">{{ todayLabel }}</p>
-      <h1>今天的大会运营状态</h1>
-      <p>关注报名转化、待审核名单和各票种剩余库存。</p>
+      <h1>{{ session.activeEvent.value?.name ?? '大会运营概览' }}</h1>
+      <p class="event-page-context">
+        <span
+          v-if="session.activeEvent.value"
+          class="status-badge"
+          :class="statusClass(session.activeEvent.value.status)"
+        >
+          {{ statusLabel(session.activeEvent.value.status) }}
+        </span>
+        <span v-if="session.activeEvent.value">
+          {{ dateTime(session.activeEvent.value.startsAt) }} 至
+          {{ dateTime(session.activeEvent.value.endsAt) }} · {{ session.activeEvent.value.city }}
+        </span>
+        <span>关注报名转化、待审核名单和各票种剩余库存。</span>
+      </p>
     </div>
     <div class="admin-head-actions">
       <RouterLink

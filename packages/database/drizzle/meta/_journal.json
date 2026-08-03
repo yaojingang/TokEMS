@@ -281,6 +281,20 @@
       "when": 1785681600001,
       "tag": "0039_event_release_change_context",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785767904713,
+      "tag": "0040_exotic_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785772920280,
+      "tag": "0041_needy_the_liberteens",
+      "breakpoints": true
     }
   ]
 }

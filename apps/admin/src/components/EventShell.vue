@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import type { EventSummary } from '@conference/contracts';
+import { isPublicEventStatus, type EventContextOption } from '@conference/contracts';
 import { useRoute, useRouter } from 'vue-router';
-import { conferenceApi, session } from '../lib/api';
+import { publicEventHomeUrl, session } from '../lib/api';
 import { parseEventId } from '../lib/route-scope';
 import AdminFrame from './AdminFrame.vue';
+import EventSwitcher from './EventSwitcher.vue';
 import EventContextEmptyView from '../views/EventContextEmptyView.vue';
 
 const route = useRoute();
 const router = useRouter();
-const events = ref<EventSummary[]>([]);
+const events = ref<EventContextOption[]>([]);
 const loading = ref(true);
 const loadFailed = ref(false);
 const registrationSearch = ref('');
@@ -22,7 +23,15 @@ const routeEventId = computed(() => {
     : route.params.eventId;
   return parseEventId(value);
 });
-const activeEvent = computed(() => events.value.find((item) => item.id === routeEventId.value));
+const activeEvent = computed(() =>
+  session.activeEvent.value?.id === routeEventId.value
+    ? session.activeEvent.value
+    : events.value.find((item) => item.id === routeEventId.value),
+);
+const publicEntryUrl = computed(() => {
+  const event = activeEvent.value;
+  return event && isPublicEventStatus(event.status) ? publicEventHomeUrl(event.slug) : undefined;
+});
 const contextUnavailable = computed(
   () => !loading.value && (loadFailed.value || !activeEvent.value),
 );
@@ -106,9 +115,26 @@ async function loadEvents() {
   loading.value = true;
   loadFailed.value = false;
   try {
-    events.value = await conferenceApi.getEvents();
+    events.value = await session.loadEventOptions();
     const selected = events.value.find((item) => item.id === routeEventId.value);
-    if (selected) session.setActiveEvent(selected.id, selected.slug);
+    const routeWasRemembered =
+      Boolean(routeEventId.value) && session.recentEventId() === routeEventId.value;
+    if ((!selected || selected.status === 'archived') && routeWasRemembered) {
+      session.forgetRecentEvent();
+      if (session.identity.value?.adminPreferences.lastEventId === routeEventId.value) {
+        session.clearServerRecentEvent();
+      }
+      session.entryNotice.value = selected
+        ? '当前大会已归档，已从最近大会中移除。'
+        : '当前大会已不可用，已从最近大会中移除。';
+    }
+    if (selected) {
+      session.setRuntimeEvent(selected);
+      if (session.consumeExplicitEventRoute(selected.id)) session.rememberEvent(selected);
+    } else {
+      if (routeEventId.value) session.consumeExplicitEventRoute(routeEventId.value);
+      session.setRuntimeEvent(undefined);
+    }
   } catch {
     events.value = [];
     loadFailed.value = true;
@@ -117,12 +143,12 @@ async function loadEvents() {
   }
 }
 
-async function switchEvent(event: Event) {
-  const eventId = parseEventId((event.target as HTMLSelectElement).value);
-  if (!eventId) return;
-  const selected = events.value.find((item) => item.id === eventId);
-  if (selected) session.setActiveEvent(selected.id, selected.slug);
-  await router.push({ name: session.eventLandingRouteName(), params: { eventId } });
+async function switchEvent(event: EventContextOption) {
+  session.rememberEvent(event);
+  await router.push({
+    name: session.eventLandingRouteName(),
+    params: { eventId: event.id },
+  });
 }
 
 function submitRegistrationSearch() {
@@ -144,14 +170,18 @@ function handleShortcut(event: KeyboardEvent) {
 watch(
   routeEventId,
   (eventId) => {
-    if (eventId) session.setActiveEvent(eventId);
     if (events.value.length) {
       const selected = events.value.find((item) => item.id === eventId);
-      if (selected) session.setActiveEvent(selected.id, selected.slug);
+      session.setRuntimeEvent(selected);
     }
   },
   { immediate: true },
 );
+
+watch(session.activeEvent, (updated) => {
+  if (!updated) return;
+  events.value = events.value.map((event) => (event.id === updated.id ? updated : event));
+});
 
 watch(
   () => route.query.q,
@@ -174,28 +204,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut));
   <AdminFrame
     :title="title"
     :code="code"
-    scope-label="大会工作台"
-    :brand-to="{ name: 'manage-events' }"
+    :scope-label="activeEvent?.name ?? '大会工作台'"
+    :brand-to="{ name: session.eventLandingRouteName(), params: { eventId: routeEventId } }"
+    :public-entry-url="publicEntryUrl"
   >
     <template #context>
       <div class="event-context">
-        <RouterLink class="event-context__back" :to="{ name: 'manage-events' }">
-          ← 返回大会管理
-        </RouterLink>
-        <label class="event-switcher">
-          <span>当前大会</span>
-          <select
-            :value="routeEventId"
-            aria-label="切换当前大会"
-            :disabled="loading || !events.length"
-            @change="switchEvent"
-          >
-            <option v-for="item in events" :key="item.id" :value="item.id">
-              {{ item.shortName }}
-            </option>
-            <option v-if="!events.length" :value="routeEventId">暂无可用大会</option>
-          </select>
-        </label>
+        <EventSwitcher
+          :events="events"
+          :active-event="activeEvent"
+          :loading="loading"
+          @select="switchEvent"
+        />
       </div>
     </template>
 
@@ -217,6 +237,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut));
             >
               {{ activeEvent.registrationCount }}
             </span>
+          </RouterLink>
+        </nav>
+      </div>
+      <div class="admin-nav-section event-management-entry">
+        <span class="admin-nav-label">ORGANIZATION</span>
+        <nav class="admin-nav" aria-label="组织管理入口">
+          <RouterLink :to="{ name: 'manage-events' }" @click="closeNavigation()">
+            <span class="admin-nav-icon">⌘</span>
+            <span>管理中心</span>
+            <span aria-hidden="true">→</span>
           </RouterLink>
         </nav>
       </div>
@@ -257,6 +287,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleShortcut));
       </RouterLink>
     </template>
 
+    <div v-if="session.entryNotice.value" class="admin-context-notice" role="status">
+      <span>{{ session.entryNotice.value }}</span>
+      <button type="button" aria-label="关闭提示" @click="session.entryNotice.value = ''">×</button>
+    </div>
     <div v-if="loading" class="admin-loading">正在载入大会工作台…</div>
     <EventContextEmptyView
       v-else-if="contextUnavailable"

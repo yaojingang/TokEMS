@@ -20,7 +20,10 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 
 | Method | Path                                                      | 说明                                        |
 | ------ | --------------------------------------------------------- | ------------------------------------------- |
+| GET    | `/homepage`                                               | 获取组织首页默认大会的当前公开快照          |
+| GET    | `/homepage/home-document`                                 | 获取首页默认大会的已发布 HTML 首页           |
 | GET    | `/events/:slug`                                           | 获取当前发布快照及实时库存                  |
+| GET    | `/events/:slug/home-document`                             | 获取指定大会的已发布 HTML 首页               |
 | POST   | `/registrations`                                          | 创建报名、订单和库存保留，可领取候补资格    |
 | POST   | `/waitlist`                                               | 售罄票种加入候补队列                        |
 | GET    | `/orders/:identifier`                                     | 使用订单访问凭证按订单 ID 或订单号查询      |
@@ -71,7 +74,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | Method | Path                                               | 授权或说明                       |
 | ------ | -------------------------------------------------- | -------------------------------- |
 | POST   | `/auth/login`                                      | 公开，10 次/分钟/IP，可指定组织  |
-| GET    | `/auth/me`                                         | 当前用户、组织、角色和权限       |
+| GET    | `/auth/me`                                         | 当前用户、组织、角色、权限和管理员导航偏好 |
+| PATCH  | `/auth/preferences/admin`                          | 更新当前成员最近大会，清理时可提交 `null`  |
 | POST   | `/auth/invitations/accept`                         | 公开，接受一次性组织邀请         |
 | GET    | `/admin/organization/members`                      | `org.member.read`                |
 | PATCH  | `/admin/organization/members/:membershipId`        | `org.member.manage`              |
@@ -130,7 +134,11 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | Method            | Path                                                  | 说明                                       |
 | ----------------- | ----------------------------------------------------- | ------------------------------------------ |
 | GET/POST          | `/admin/events`                                       | 大会列表与新建，新建必须提交已发布模板版本 |
+| GET               | `/admin/event-options`                                | 后台入口与大会切换使用的轻量大会列表       |
+| GET               | `/admin/event-slugs/availability`                     | 检查一级短地址是否可用，需 `event.manage`  |
+| PUT               | `/admin/organization/homepage-event`                  | 设置组织首页默认大会，需 `org.settings.manage` |
 | GET/PATCH         | `/admin/events/:eventId`                              | 大会详情与保存生效、状态更新               |
+| PATCH             | `/admin/events/:eventId/public-url`                   | 修改大会一级短地址，需 `event.manage`      |
 | GET               | `/admin/event-blueprints`                             | 大会蓝图                                   |
 | GET               | `/admin/template-packages`                            | 前台模板包                                 |
 | GET               | `/admin/events/:eventId/template-binding`             | 模板绑定、当前版本和升级状态               |
@@ -152,6 +160,12 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | POST              | `/admin/events/:eventId/registration-forms/publish`   | 保存报名表和条款版本并生效                 |
 
 大会更新的 `settings.registration` 包含 `paymentMode`、`currency` 和 `registrationOpen`。大会进入预发布或报名开放状态后，基本信息、体验、报名、票种、内容、表单的有效保存会在同一事务生成不可变快照并切换公开指针。`free` 模式要求全部票种价格为 0，零元报名会在同一事务完成订单、库存和电子票。
+
+每场大会的规范前台地址为 `/{eventSlug}`。新地址使用 3–24 位小写字母、数字或连字符，推荐 4–12 位；创建大会时可以自定义，留空会生成 `e` 加 6 位随机字符的短地址。修改地址后，旧地址记录在 `event_slug_aliases` 并使用 308 永久跳转到新地址，历史链接持续可用。系统保留路径和当前组织内其他大会的现用、历史地址均不可占用。
+
+前台根地址 `/` 从数据库读取组织首页默认大会并保持根地址展示；兼容地址 `/?event={eventSlug}` 使用 308 跳转到规范地址。报名、FAQ、订单、电子票、发票和账号等共享流程继续通过 `event` 查询参数携带大会范围。
+
+首页默认大会按组织保存，一次只能选择一场。目标大会必须处于预发布、报名开放、进行中或已结束状态，并且存在当前发布版本。默认大会切换会写入审计记录；当前默认大会在切换到另一场可用大会前不能转为非公开状态。
 
 ## 大会模板
 

@@ -1,14 +1,22 @@
 import { createRouter, createWebHistory, type RouteLocationRaw } from 'vue-router';
 import { conferenceApi, session } from './lib/api';
+import {
+  adminEntryPreferenceNotice,
+  hasEventWorkspaceLanding,
+  resolveAdminEntry,
+  safeRedirectPath,
+} from './lib/admin-entry';
 import { parseEventId } from './lib/route-scope';
 
 function recentEventRoute(
   name: string,
   query: Record<string, string | string[]> = {},
 ): RouteLocationRaw {
+  const eventId = session.activeEventId.value;
+  if (!eventId) return { name: 'login' };
   return {
     name,
-    params: { eventId: session.activeEventId.value },
+    params: { eventId },
     query,
   };
 }
@@ -387,7 +395,72 @@ export const router = createRouter({
   ],
 });
 
-router.beforeEach(async (to) => {
+function knownAdminRoute(path: string) {
+  const resolved = router.resolve(path);
+  return resolved.matched.length > 0 && resolved.name !== 'not-found';
+}
+
+function markEventRedirect(path: string) {
+  const resolved = router.resolve(path);
+  const value = Array.isArray(resolved.params.eventId)
+    ? resolved.params.eventId[0]
+    : resolved.params.eventId;
+  const eventId = parseEventId(value);
+  if (eventId) session.markExplicitEventRoute(eventId);
+}
+
+function eventIdFromDestination(destination: RouteLocationRaw) {
+  const resolved = router.resolve(destination);
+  const value = Array.isArray(resolved.params.eventId)
+    ? resolved.params.eventId[0]
+    : resolved.params.eventId;
+  return parseEventId(value);
+}
+
+let entryResolvedEventId: ReturnType<typeof parseEventId>;
+
+function initialNavigationCanBeRemembered() {
+  if (typeof performance === 'undefined' || !performance.getEntriesByType) return true;
+  const navigation = performance.getEntriesByType('navigation')[0] as
+    PerformanceNavigationTiming | undefined;
+  return navigation?.type !== 'reload';
+}
+
+export async function resolveAuthenticatedEntry(redirect?: unknown): Promise<RouteLocationRaw> {
+  const currentIdentity = session.identity.value;
+  const grants = currentIdentity?.membership.grants ?? [];
+  const safeRedirect = safeRedirectPath(redirect, knownAdminRoute);
+  if (safeRedirect) {
+    markEventRedirect(safeRedirect);
+    return safeRedirect;
+  }
+
+  if (!hasEventWorkspaceLanding(grants) || !session.can('event.read')) {
+    return resolveAdminEntry({ grants, events: [] }).route;
+  }
+
+  try {
+    const events = await session.loadEventOptions();
+    const localEventId = session.recentEventId();
+    const serverEventId = currentIdentity?.adminPreferences.lastEventId ?? undefined;
+    const result = resolveAdminEntry({
+      grants,
+      events,
+      ...(localEventId === undefined ? {} : { localEventId }),
+      ...(serverEventId === undefined ? {} : { serverEventId }),
+    });
+    if (result.clearLocalPreference) session.forgetRecentEvent();
+    if (result.clearServerPreference) session.clearServerRecentEvent();
+    if (result.seedLocalEventId) session.setRecentEventId(result.seedLocalEventId);
+    session.entryNotice.value = adminEntryPreferenceNotice(result);
+    return result.route;
+  } catch {
+    session.entryNotice.value = '大会列表暂时无法读取，请重试。';
+    return { name: session.managementLandingRouteName() };
+  }
+}
+
+router.beforeEach(async (to, from) => {
   if (!to.meta.public && !session.token.value) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
@@ -401,9 +474,9 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.name === 'login' && session.token.value) {
-    const redirect = String(to.query.redirect ?? '');
-    if (redirect.startsWith('/') && !redirect.startsWith('//')) return redirect;
-    return { name: session.landingRouteName() };
+    const destination = await resolveAuthenticatedEntry(to.query.redirect);
+    entryResolvedEventId = eventIdFromDestination(destination);
+    return destination;
   }
 
   const requiredGrants = to.meta.requiredGrants as string[] | undefined;
@@ -421,7 +494,11 @@ router.beforeEach(async (to) => {
   if (typeof eventId === 'string' && eventId) {
     const parsedEventId = parseEventId(eventId);
     if (!parsedEventId) return { name: 'manage-events' };
-    session.setActiveEvent(parsedEventId);
+    const resolvedFromEntry = entryResolvedEventId === parsedEventId;
+    entryResolvedEventId = undefined;
+    if (!resolvedFromEntry && !from.matched.length && initialNavigationCanBeRemembered()) {
+      session.markExplicitEventRoute(parsedEventId);
+    }
   }
   return true;
 });

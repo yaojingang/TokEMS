@@ -173,19 +173,19 @@ async function registrationError(error: unknown, fallback: string) {
 
 onMounted(async () => {
   const query = new URL(window.location.href).searchParams;
-  const slug = query.get('event') ?? DEMO_EVENT.slug;
+  const slug = query.get('event');
   const ticketFromQuery = query.get('ticket') ?? '';
   offerToken.value = query.get('offer') ?? '';
 
   // Prefer a cache hit for the same slug; never paint DEMO_EVENT ticket prices.
   const cached = api.readEvent();
-  if (cached?.slug === slug) {
+  if (slug && cached?.slug === slug) {
     applyLoadedEvent(cached, ticketFromQuery);
     pageLoading.value = false;
   }
 
   try {
-    const loaded = await api.getEvent(slug);
+    const loaded = slug ? await api.getEvent(slug) : await api.getHomepageEvent();
     applyLoadedEvent(loaded, ticketFromQuery);
     await customer.refresh().catch(() => null);
     if (accountRequired.value && !customer.session.value) {

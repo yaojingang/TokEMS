@@ -128,6 +128,7 @@ onMounted(() => void load());
           </div>
         </div>
         <div class="event-form-actions">
+          <span class="operation-event-context">发送范围 · {{ form.eventName }}</span>
           <button class="button" type="submit" :disabled="pending || !form.templateId">
             {{ pending ? '正在入队…' : '加入发送队列' }}
           </button>

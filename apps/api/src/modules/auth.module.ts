@@ -10,6 +10,7 @@ import {
   DEMO_IDS,
   LoginSchema,
   UpdateAccountProfileSchema,
+  UpdateAdminPreferencesSchema,
   type LoginResult,
   type OrganizationRole,
 } from '@conference/contracts';
@@ -207,6 +208,29 @@ class AuthController {
       request.user.organizationId,
       request.user.sub,
       parsed.data,
+    );
+  }
+
+  @Patch('preferences/admin')
+  @UseGuards(AuthGuard)
+  updateAdminPreferences(
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+  ) {
+    const parsed = UpdateAdminPreferencesSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '管理员偏好校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.organizationAdmin.updateAdminPreferences(
+      request.user.organizationId,
+      request.user.sub,
+      parsed.data,
+      request.user.grants,
     );
   }
 
