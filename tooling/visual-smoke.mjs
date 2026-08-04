@@ -11,7 +11,10 @@ const adminBase = process.env.ADMIN_BASE_URL ?? 'http://admin.localhost:8088/adm
 const visualScope = process.env.VISUAL_SCOPE ?? 'all';
 const includeWeb = visualScope !== 'admin';
 const adminApiBase =
-  process.env.ADMIN_API_BASE_URL ?? new URL('/api/v1', adminBase).toString().replace(/\/$/u, '');
+  process.env.ADMIN_API_BASE_URL ??
+  process.env.API_BASE_URL ??
+  process.env.API_BASE ??
+  new URL('/api/v1', adminBase).toString().replace(/\/$/u, '');
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 if (!adminUsername || !adminPassword) {
@@ -426,9 +429,14 @@ async function runVisualSmoke() {
     await page.evaluate(async (apiBase) => {
       const token = localStorage.getItem('conference.admin.token');
       if (!token) throw new Error('管理员登录令牌不存在');
-      const identity = await fetch(`${apiBase}/auth/me`, {
+      const response = await fetch(`${apiBase}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
-      }).then((response) => response.json());
+      });
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!response.ok || !contentType.includes('application/json')) {
+        throw new Error(`管理员身份读取失败（HTTP ${response.status}）`);
+      }
+      const identity = await response.json();
       const key = `conference.admin.lastEventId.${identity.organization.id}.${identity.user.id}`;
       localStorage.setItem(key, '2147483647');
     }, adminApiBase);
