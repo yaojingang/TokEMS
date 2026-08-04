@@ -658,10 +658,10 @@ async function runVisualSmoke() {
       '报名管理桌面端',
     ],
     [`${eventBase}/invoices`, '发票管理', 'admin-invoices-desktop.png', '发票管理桌面端'],
-    [`${eventBase}/orders`, '订单与支付流水', 'admin-orders-desktop.png', '订单支付桌面端'],
+    [`${eventBase}/orders`, '订单管理', 'admin-orders-desktop.png', '订单支付桌面端'],
     [
       `${eventBase}/notifications`,
-      '模板通知与投递记录',
+      '通知中心',
       'admin-notifications-desktop.png',
       '通知中心桌面端',
     ],
