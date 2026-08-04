@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue';
-import { type Ticket } from '@conference/contracts';
+import { publicEventHomePath, publicEventScopedPath, type Ticket } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import {
   activeFlowStep,
@@ -163,20 +163,20 @@ const paymentMethodLabel = computed(
 const ticketHref = computed(() => {
   const ticket = issuedTicket.value ?? checkout.value?.ticket;
   if (!ticket) return '/';
-  return `/ticket/${encodeURIComponent(ticket.code)}?event=${encodeURIComponent(event.value.slug)}`;
+  return publicEventScopedPath(`/ticket/${encodeURIComponent(ticket.code)}`, event.value.slug);
 });
 
 const registerHref = computed(() => {
-  const path = `/register?event=${encodeURIComponent(event.value.slug)}`;
+  const path = publicEventScopedPath('/register', event.value.slug);
   return api.resolveConferenceUrl(path);
 });
 
 const conferenceHomeHref = computed(() =>
-  api.resolveConferenceUrl(`/?event=${encodeURIComponent(event.value.slug)}`),
+  api.resolveConferenceUrl(publicEventHomePath(event.value.slug)),
 );
 
 const accountClaimHref = computed(() => {
-  const path = `/account?event=${encodeURIComponent(event.value.slug)}`;
+  const path = publicEventScopedPath('/account', event.value.slug);
   return api.resolveConferenceUrl(path);
 });
 

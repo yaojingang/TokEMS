@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CreateCustomerAdminSchema,
   CustomerAdminListQuerySchema,
   CustomerAdminListSchema,
   CustomerAdminSummarySchema,
@@ -63,6 +64,28 @@ describe('resolveCustomerAdminDisplay', () => {
         page: 1,
         pageSize: 50,
         totalPages: 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates administrator-created customer profiles', () => {
+    expect(
+      CreateCustomerAdminSchema.parse({
+        mobile: ' 13800138000 ',
+        realName: ' 林晓 ',
+        email: 'linxiao@example.com',
+      }),
+    ).toEqual({
+      mobile: '13800138000',
+      realName: '林晓',
+      email: 'linxiao@example.com',
+    });
+    expect(CreateCustomerAdminSchema.safeParse({ mobile: '' }).success).toBe(false);
+    expect(CreateCustomerAdminSchema.safeParse({ mobile: '12345' }).success).toBe(false);
+    expect(
+      CreateCustomerAdminSchema.safeParse({
+        mobile: '13800138000',
+        email: 'invalid-email',
       }).success,
     ).toBe(false);
   });

@@ -508,7 +508,49 @@ export const events = pgTable(
   (table) => [
     check('events_id_range', sql`${table.id} between 101 and 2147483647`),
     uniqueIndex('events_org_slug_unique').on(table.organizationId, table.slug),
+    uniqueIndex('events_org_id_unique').on(table.organizationId, table.id),
     index('events_org_status_idx').on(table.organizationId, table.status),
+  ],
+);
+
+export const eventSlugAliases = pgTable(
+  'event_slug_aliases',
+  {
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    slug: varchar('slug', { length: 100 }).notNull(),
+    eventId: integer('event_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.slug] }),
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_slug_aliases_event_scope_fk',
+    }).onDelete('cascade'),
+    index('event_slug_aliases_event_idx').on(table.eventId),
+  ],
+);
+
+export const organizationHomepageEvents = pgTable(
+  'organization_homepage_events',
+  {
+    organizationId: uuid('organization_id')
+      .primaryKey()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id').notNull(),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'organization_homepage_events_event_scope_fk',
+    }).onDelete('cascade'),
+    index('organization_homepage_events_event_idx').on(table.eventId),
   ],
 );
 

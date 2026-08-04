@@ -25,7 +25,6 @@ export default defineNuxtConfig({
         process.env.NUXT_PUBLIC_API_BASE ??
         (process.env.NODE_ENV === 'production' ? '/api/v1' : 'http://localhost:4100/api/v1'),
       organizationSlug: process.env.NUXT_PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
-      eventSlug: process.env.NUXT_PUBLIC_EVENT_SLUG ?? 'tokems-demo-2026',
       paymentOrigin: process.env.NUXT_PUBLIC_PAYMENT_ORIGIN ?? '',
       paymentBasePath: process.env.NUXT_PUBLIC_PAYMENT_BASE_PATH ?? '/pay/hui',
       conferenceOrigin: process.env.NUXT_PUBLIC_CONFERENCE_ORIGIN ?? '',
@@ -36,13 +35,12 @@ export default defineNuxtConfig({
     baseURL: process.env.NUXT_APP_BASE_URL || '/',
     head: {
       htmlAttrs: { lang: 'zh-CN' },
-      title: 'TokEMS Demo Conference 2026 · 深圳',
+      title: 'TokEMS 大会报名中心',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         {
           name: 'description',
-          content:
-            'TokEMS 示例大会，2026 年 11 月 21 至 22 日，深圳。展示大会官网、报名、票务、通知、发票和现场核销的完整流程。',
+          content: 'TokEMS 大会报名中心，集中提供大会信息、报名、票务与参会服务。',
         },
       ],
       link: [
@@ -57,7 +55,10 @@ export default defineNuxtConfig({
   },
   routeRules: {
     '/register': { ssr: true },
-    '/order/**': { ssr: false, headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } },
+    '/order/**': {
+      ssr: false,
+      headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },
+    },
     '/invoice/**': { ssr: false },
     '/ticket/**': { ssr: false },
     '/account/**': { ssr: false },

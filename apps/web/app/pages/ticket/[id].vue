@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import QrcodeVue from 'qrcode.vue';
-import { type Ticket } from '@conference/contracts';
+import { publicEventHomePath, publicEventScopedPath, type Ticket } from '@conference/contracts';
 import {
   activeFlowStep,
   enabledFlowSteps,
@@ -28,7 +28,7 @@ const dateRange = computed(() => {
   return `${format.format(new Date(event.value.startsAt))} 至 ${format.format(new Date(event.value.endsAt))}`;
 });
 const homeHref = computed(() =>
-  api.resolveConferenceUrl(`/?event=${encodeURIComponent(event.value.slug)}`),
+  api.resolveConferenceUrl(publicEventHomePath(event.value.slug)),
 );
 const paymentSurface = computed(() => api.isPaymentSurface());
 const paymentRequired = computed(
@@ -44,7 +44,7 @@ const flowSteps = computed(() =>
 const activeStep = computed(() => activeFlowStep(flowSteps.value, 'success-ticket'));
 const invoiceHref = computed(() =>
   invoiceAccess.value
-    ? `/invoice/${invoiceAccess.value.id}?event=${encodeURIComponent(event.value.slug)}`
+    ? publicEventScopedPath(`/invoice/${invoiceAccess.value.id}`, event.value.slug)
     : '',
 );
 useHead(() => ({ title: `电子票 · ${ticket.value?.eventName ?? event.value.name}` }));

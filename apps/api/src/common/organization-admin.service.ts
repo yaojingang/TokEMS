@@ -4,33 +4,43 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type {
   AccountProfile,
   AcceptOrganizationInvitation,
+  AdminPreferences,
   AuthMe,
   CreateOrganizationInvitation,
   CreateOrganizationInvitationResult,
+  EventId,
   IntegrationStatus,
+  OrganizationHomepageEvent,
   OrganizationInvitation,
   OrganizationMember,
   OrganizationSettings,
   OrganizationSettingsResult,
   PublicSiteConfiguration,
   UpdateAccountProfile,
+  UpdateAdminPreferences,
   UpdateMembershipStatus,
   UpdateOrganizationMember,
   UpdateOrganizationSettings,
 } from '@conference/contracts';
 import {
   AnalyticsSettingsSchema,
+  AdminPreferencesSchema,
   API_ERROR_CODES,
+  DEMO_IDS,
+  isPublicEventStatus,
   OrganizationSettingsSchema,
   WebsiteSettingsSchema,
 } from '@conference/contracts';
 import {
   auditLogs,
   eventBlueprints,
+  eventReleases,
+  events,
   memberProfiles,
   memberships,
   organizationInvitations,
   organizationIntegrations,
+  organizationHomepageEvents,
   organizations,
   outboxEvents,
   publicUserIds,
@@ -41,6 +51,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { requirePublicUserId } from './public-user-id.js';
+import { grantAllows } from './auth.guard.js';
 
 type Database = NonNullable<DatabaseService['db']>;
 
@@ -79,6 +90,13 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+export function normalizeAdminPreferences(value: unknown): AdminPreferences {
+  const preferences = recordValue(value);
+  const admin = recordValue(preferences.admin);
+  const parsed = AdminPreferencesSchema.safeParse({ lastEventId: admin.lastEventId ?? null });
+  return parsed.success ? parsed.data : { lastEventId: null };
 }
 
 function normalizeOrganizationSettings(
@@ -329,6 +347,7 @@ export class OrganizationAdminService {
           grants: fallback.grants,
           status: 'active',
         },
+        adminPreferences: { lastEventId: null },
       };
     }
     const [row] = await this.db()
@@ -336,6 +355,7 @@ export class OrganizationAdminService {
         membership: memberships,
         user: users,
         organization: organizations,
+        profile: memberProfiles,
         publicUserId: publicUserIds.publicId,
       })
       .from(memberships)
@@ -347,6 +367,13 @@ export class OrganizationAdminService {
           eq(publicUserIds.subjectType, 'staff'),
           eq(publicUserIds.subjectUuid, users.id),
           isNull(publicUserIds.retiredAt),
+        ),
+      )
+      .leftJoin(
+        memberProfiles,
+        and(
+          eq(memberProfiles.userId, memberships.userId),
+          eq(memberProfiles.organizationId, memberships.organizationId),
         ),
       )
       .where(
@@ -382,7 +409,115 @@ export class OrganizationAdminService {
         grants: row.membership.grants,
         status: row.membership.status,
       },
+      adminPreferences: normalizeAdminPreferences(row.profile?.preferences),
     };
+  }
+
+  async updateAdminPreferences(
+    organizationId: string,
+    userId: string,
+    input: UpdateAdminPreferences,
+    fallbackGrants: string[] = [],
+  ): Promise<AdminPreferences> {
+    if (!this.database.db) {
+      if (input.lastEventId && !grantAllows(fallbackGrants, 'event.read')) {
+        throw new DomainError(
+          API_ERROR_CODES.FORBIDDEN,
+          '当前角色没有大会读取权限',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+      if (input.lastEventId && input.lastEventId !== DEMO_IDS.event) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return input;
+    }
+
+    return this.db().transaction(async (tx) => {
+      const [membership] = await tx
+        .select({ grants: memberships.grants })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, organizationId),
+            eq(memberships.userId, userId),
+            eq(memberships.status, 'active'),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!membership) {
+        throw new DomainError(
+          API_ERROR_CODES.UNAUTHORIZED,
+          '组织成员身份已失效',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      if (input.lastEventId) {
+        if (!grantAllows(membership.grants, 'event.read')) {
+          throw new DomainError(
+            API_ERROR_CODES.FORBIDDEN,
+            '当前角色没有大会读取权限',
+            HttpStatus.FORBIDDEN,
+          );
+        }
+        const [event] = await tx
+          .select({ status: events.status })
+          .from(events)
+          .where(
+            and(eq(events.organizationId, organizationId), eq(events.id, input.lastEventId)),
+          )
+          .limit(1);
+        if (!event) {
+          throw new DomainError(
+            API_ERROR_CODES.NOT_FOUND,
+            '大会不存在或无权访问',
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        if (event.status === 'archived') {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '已归档大会不能设为最近大会',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+
+      const initialPreferences = input.lastEventId
+        ? { admin: { lastEventId: input.lastEventId } }
+        : {};
+      const existingAdminPreferences = sql`case
+        when jsonb_typeof(${memberProfiles.preferences}->'admin') = 'object'
+        then ${memberProfiles.preferences}->'admin'
+        else '{}'::jsonb
+      end`;
+      const existingPreferences = sql`case
+        when jsonb_typeof(${memberProfiles.preferences}) = 'object'
+        then ${memberProfiles.preferences}
+        else '{}'::jsonb
+      end`;
+      const adminPreferenceValue = input.lastEventId
+        ? sql`${existingAdminPreferences} || jsonb_build_object('lastEventId', cast(${input.lastEventId} as integer))`
+        : sql`${existingAdminPreferences} - 'lastEventId'`;
+      await tx
+        .insert(memberProfiles)
+        .values({ organizationId, userId, preferences: initialPreferences })
+        .onConflictDoUpdate({
+          target: [memberProfiles.organizationId, memberProfiles.userId],
+          set: {
+            preferences: sql`${existingPreferences} || jsonb_build_object('admin', ${adminPreferenceValue})`,
+            updatedAt: new Date(),
+          },
+        });
+
+      return input;
+    });
   }
 
   async getAccountProfile(
@@ -1272,6 +1407,111 @@ export class OrganizationAdminService {
       name: row.name,
       settings: normalizeOrganizationSettings(row.name, row.settings),
     };
+  }
+
+  async setHomepageEvent(
+    organizationId: string,
+    actorId: string,
+    eventId: EventId,
+  ): Promise<OrganizationHomepageEvent> {
+    return this.db().transaction(async (tx) => {
+      const [organization] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .for('update')
+        .limit(1);
+      if (!organization) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '组织不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const [event] = await tx
+        .select({
+          id: events.id,
+          slug: events.slug,
+          name: events.name,
+          status: events.status,
+          settings: events.settings,
+        })
+        .from(events)
+        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+        .for('update')
+        .limit(1);
+      if (!event) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const currentReleaseId = (event.settings as { currentReleaseId?: string }).currentReleaseId;
+      if (!isPublicEventStatus(event.status) || !currentReleaseId) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '只有已发布且前台可访问的大会可以设为首页',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const [release] = await tx
+        .select({ id: eventReleases.id })
+        .from(eventReleases)
+        .where(and(eq(eventReleases.id, currentReleaseId), eq(eventReleases.eventId, event.id)))
+        .limit(1);
+      if (!release) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '大会当前发布版本不可用，请重新发布后再设为首页',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const [current] = await tx
+        .select()
+        .from(organizationHomepageEvents)
+        .where(eq(organizationHomepageEvents.organizationId, organizationId))
+        .limit(1);
+      if (current?.eventId === event.id) {
+        return {
+          organizationId,
+          eventId: event.id,
+          slug: event.slug,
+          name: event.name,
+          updatedAt: current.updatedAt.toISOString(),
+        };
+      }
+
+      const now = new Date();
+      const [updated] = await tx
+        .insert(organizationHomepageEvents)
+        .values({ organizationId, eventId: event.id, updatedBy: actorId, updatedAt: now })
+        .onConflictDoUpdate({
+          target: organizationHomepageEvents.organizationId,
+          set: { eventId: event.id, updatedBy: actorId, updatedAt: now },
+        })
+        .returning();
+      await tx.insert(auditLogs).values({
+        organizationId,
+        eventId: event.id,
+        actorId,
+        action: 'organization.homepage_event.update',
+        resourceType: 'organization',
+        resourceId: organizationId,
+        before: { eventId: current?.eventId ?? null },
+        after: { eventId: event.id, slug: event.slug },
+        traceId: crypto.randomUUID(),
+      });
+      return {
+        organizationId,
+        eventId: event.id,
+        slug: event.slug,
+        name: event.name,
+        updatedAt: updated!.updatedAt.toISOString(),
+      };
+    });
   }
 
   async getIntegrationStatus(organizationId: string): Promise<IntegrationStatus> {

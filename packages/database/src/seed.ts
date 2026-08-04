@@ -25,6 +25,7 @@ import {
   memberProfiles,
   memberships,
   notificationTemplates,
+  organizationHomepageEvents,
   organizations,
   publicUserIds,
   registrationForms,
@@ -47,6 +48,7 @@ const CONFERENCE_TEMPLATE_VERSION_ID = DEMO_IDS.template.version;
 const EDITORIAL_RENDERER_ID = '12121212-1212-4121-8121-121212121212';
 const HTML_RENDERER_ID = '17171717-1717-4171-8171-171717171717';
 const isLocalDemoSeed = process.env.DEPLOYMENT_MODE === 'local';
+const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
 
 const DEMO_CUSTOMERS = [
   {
@@ -226,7 +228,7 @@ try {
       .insert(organizations)
       .values({
         id: DEMO_IDS.organization,
-        slug: 'tokems-demo',
+        slug: publicOrganizationSlug,
         name: 'TokEMS Demo Team',
         settings: {
           brandName: 'TokEMS 运营台',
@@ -236,7 +238,13 @@ try {
           defaultTemplateId: CONFERENCE_TEMPLATE_ID,
         },
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: organizations.id,
+        set: {
+          slug: publicOrganizationSlug,
+          updatedAt: new Date(),
+        },
+      });
 
     await tx
       .insert(users)
@@ -353,6 +361,23 @@ try {
         },
       });
 
+    await tx
+      .insert(organizationHomepageEvents)
+      .values({
+        organizationId: DEMO_IDS.organization,
+        eventId: DEMO_IDS.event,
+        updatedBy: DEMO_IDS.adminUser,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: organizationHomepageEvents.organizationId,
+        set: {
+          eventId: DEMO_IDS.event,
+          updatedBy: DEMO_IDS.adminUser,
+          updatedAt: new Date(),
+        },
+      });
+
     await tx.execute(sql`
       update ${events}
       set settings = settings || ${JSON.stringify({
@@ -443,9 +468,10 @@ try {
         id: CONFERENCE_TEMPLATE_ID,
         organizationId: DEMO_IDS.organization,
         code: 'tokems-editorial-standard',
-        name: 'TokEMS Demo Conference 2026',
-        description: '附件版本的白底编辑式大会官网，包含 AI 答案首屏、完整议程与单一通票报名。',
-        tags: ['大会运营', '活动科技', '收费报名'],
+        name: '中国第二届 GEO & AI 营销大会',
+        description:
+          'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
+        tags: ['GEO', 'AI 营销', '收费报名'],
         status: 'active',
         createdBy: DEMO_IDS.adminUser,
         updatedBy: DEMO_IDS.adminUser,
@@ -453,9 +479,10 @@ try {
       .onConflictDoUpdate({
         target: conferenceTemplates.id,
         set: {
-          name: 'TokEMS Demo Conference 2026',
-          description: '附件版本的白底编辑式大会官网，包含 AI 答案首屏、完整议程与单一通票报名。',
-          tags: ['大会运营', '活动科技', '收费报名'],
+          name: '中国第二届 GEO & AI 营销大会',
+          description:
+            'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
+          tags: ['GEO', 'AI 营销', '收费报名'],
           status: 'active',
           updatedBy: DEMO_IDS.adminUser,
           updatedAt: new Date(),
@@ -471,9 +498,10 @@ try {
         rendererPackageId: EDITORIAL_RENDERER_ID,
         schemaVersion: 2,
         definition: templateDefinition,
-        contentDigest: 'seed-tokems-2026-reference-template-v1',
+        contentDigest: 'seed-geo-2026-reference-template-v2',
         previewAssetKey: 'template-previews/tokems-editorial-standard-v1.webp',
-        changeSummary: '同步附件版大会首页、完整 FAQ、单一通票与标准四步报名流程。',
+        changeSummary:
+          '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
         createdBy: DEMO_IDS.adminUser,
         publishedAt: new Date('2026-07-16T08:30:00+08:00'),
       })
@@ -482,8 +510,9 @@ try {
         set: {
           schemaVersion: 2,
           definition: templateDefinition,
-          contentDigest: 'seed-tokems-2026-reference-template-v1',
-          changeSummary: '同步附件版大会首页、完整 FAQ、单一通票与标准四步报名流程。',
+          contentDigest: 'seed-geo-2026-reference-template-v2',
+          changeSummary:
+            '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
         },
       });
 
@@ -504,7 +533,7 @@ try {
         schemaVersion: 2,
         definition: templateDefinition,
         revision: 1,
-        contentDigest: 'seed-tokems-2026-reference-template-v1',
+        contentDigest: 'seed-geo-2026-reference-template-v2',
         updatedBy: DEMO_IDS.adminUser,
       })
       .onConflictDoUpdate({
@@ -513,7 +542,7 @@ try {
           schemaVersion: 2,
           definition: templateDefinition,
           rendererPackageId: EDITORIAL_RENDERER_ID,
-          contentDigest: 'seed-tokems-2026-reference-template-v1',
+          contentDigest: 'seed-geo-2026-reference-template-v2',
           updatedBy: DEMO_IDS.adminUser,
           updatedAt: new Date(),
         },

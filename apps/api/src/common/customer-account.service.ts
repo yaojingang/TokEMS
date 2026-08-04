@@ -1,5 +1,7 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type {
+  CreateCustomerAdmin,
+  CreateCustomerAdminResult,
   CustomerAdminDetail,
   CustomerAdminExportQuery,
   CustomerAdminList,
@@ -43,7 +45,7 @@ import {
   ticketTypes,
   waitlistEntries,
 } from '@conference/database';
-import { maskMobile, sha256 } from '@conference/security';
+import { maskMobile, normalizeMainlandMobile, sha256 } from '@conference/security';
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
@@ -708,6 +710,98 @@ export class CustomerAccountService {
       ...result,
       pageSize: ADMIN_CUSTOMER_PAGE_SIZE,
     }));
+  }
+
+  async adminCreate(
+    organizationId: string,
+    actorId: string,
+    input: CreateCustomerAdmin,
+  ): Promise<CreateCustomerAdminResult> {
+    let mobile: string;
+    try {
+      mobile = normalizeMainlandMobile(input.mobile);
+    } catch {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '请输入有效的中国大陆手机号',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const db = this.db();
+    const publicUserId = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`customer-user:${organizationId}:${mobile}`}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: customerUsers.id })
+        .from(customerUsers)
+        .where(
+          and(
+            eq(customerUsers.organizationId, organizationId),
+            eq(customerUsers.mobileE164, mobile),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '该手机号已经是普通用户',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const now = new Date();
+      const [user] = await tx
+        .insert(customerUsers)
+        .values({
+          organizationId,
+          mobileE164: mobile,
+          verifiedAt: now,
+        })
+        .returning({ id: customerUsers.id });
+      await tx.insert(customerProfiles).values({
+        customerUserId: user!.id,
+        nickname: input.nickname || null,
+        realName: input.realName || null,
+        email: input.email || null,
+        company: input.company || null,
+        title: input.title || null,
+        city: input.city || null,
+      });
+      const [publicIdRow] = await tx
+        .select({ publicId: publicUserIds.publicId })
+        .from(publicUserIds)
+        .where(
+          and(
+            eq(publicUserIds.subjectType, 'customer'),
+            eq(publicUserIds.subjectUuid, user!.id),
+            isNull(publicUserIds.retiredAt),
+          ),
+        )
+        .limit(1);
+      if (!publicIdRow) throw new Error('新建用户缺少数字用户 ID');
+
+      await tx.insert(auditLogs).values({
+        organizationId,
+        actorId,
+        actorType: 'staff',
+        action: 'customer.admin.create',
+        resourceType: 'customer_user',
+        resourceId: String(publicIdRow.publicId),
+        after: {
+          status: 'active',
+          hasEmail: Boolean(input.email),
+          profileFields: ['nickname', 'realName', 'email', 'company', 'title', 'city'].filter(
+            (field) => Boolean(input[field as keyof CreateCustomerAdmin]),
+          ),
+        },
+        traceId: crypto.randomUUID(),
+      });
+      return publicIdRow.publicId;
+    });
+
+    return { customerId: publicUserId };
   }
 
   private async adminListPage(

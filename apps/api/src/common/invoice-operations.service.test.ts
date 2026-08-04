@@ -3,6 +3,7 @@ import {
   allowedInvoiceTransitions,
   buildInvoiceExportCsv,
   canTransitionInvoice,
+  invoiceExportJobMatchesEvent,
   invoiceExportRequiresWorker,
 } from './invoice-operations.service.js';
 
@@ -19,6 +20,13 @@ describe('invoice lifecycle', () => {
   it('routes exports at fifty thousand rows to the worker', () => {
     expect(invoiceExportRequiresWorker(49_999)).toBe(false);
     expect(invoiceExportRequiresWorker(50_000)).toBe(true);
+  });
+
+  it('binds export jobs to their conference', () => {
+    expect(invoiceExportJobMatchesEvent({ eventId: 101 }, 101)).toBe(true);
+    expect(invoiceExportJobMatchesEvent({ eventId: '101' }, 101)).toBe(true);
+    expect(invoiceExportJobMatchesEvent({ eventId: 102 }, 101)).toBe(false);
+    expect(invoiceExportJobMatchesEvent({}, 101)).toBe(false);
   });
 
   it('guards spreadsheet formulas in exported invoice fields', () => {

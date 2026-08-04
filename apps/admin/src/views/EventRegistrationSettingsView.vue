@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue';
-import type { CustomerAccountMode, EventPaymentMode, PublicEvent } from '@conference/contracts';
+import type {
+  CustomerAccountMode,
+  EventExperience,
+  EventPaymentMode,
+  PublicEvent,
+} from '@conference/contracts';
+import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
@@ -16,12 +22,14 @@ interface InventoryRow {
 }
 
 const event = ref<PublicEvent>();
+const experience = ref<EventExperience>();
 const inventory = ref<InventoryRow[]>([]);
 const archivedTickets = ref<
   Array<{ id: string; code: string; name: string; price: number; capacity: number }>
 >([]);
 const settingsPending = ref(false);
 const ticketPending = ref(false);
+const flowPending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
 const showTicketEditor = ref(false);
@@ -48,6 +56,13 @@ const ticketForm = reactive({
   recommended: false,
   benefits: '',
 });
+const flowForm = reactive({
+  preset: 'standard' as 'standard' | 'quick' | 'free',
+  progressVariant: 'steps' as 'steps' | 'compact' | 'minimal',
+  waitlist: true,
+  invoiceAfterPayment: true,
+  manualReview: false,
+});
 
 const isFree = computed(() => settingsForm.paymentMode === 'free');
 const canManageRegistration = computed(() =>
@@ -57,14 +72,31 @@ const canReadInventory = computed(() =>
   session.canAny(['event.inventory.read', 'event.inventory.manage']),
 );
 const canManageTickets = computed(() => session.can('event.inventory.manage'));
+const canReadFlow = computed(() => session.can('event.site.read'));
+const canManageFlow = computed(() => session.can('event.content.manage'));
 
-async function load(preserveSettings = false) {
+function hydrateFlow(value: EventExperience) {
+  const definition = normalizeConferenceTemplateDefinition(value.definition);
+  experience.value = { ...value, definition };
+  Object.assign(flowForm, {
+    preset: definition.registrationFlow.preset,
+    progressVariant: definition.registrationFlow.progressVariant,
+    waitlist: definition.registrationFlow.branches.waitlist,
+    invoiceAfterPayment: definition.registrationFlow.branches.invoiceAfterPayment,
+    manualReview: definition.registrationFlow.branches.manualReview,
+  });
+}
+
+async function load(preserveSettings = false, preserveFlow = false) {
   errorMessage.value = '';
   try {
-    const [loaded, loadedInventory, loadedArchivedTickets] = await Promise.all([
+    const [loaded, loadedInventory, loadedArchivedTickets, loadedExperience] = await Promise.all([
       conferenceApi.getEvent(),
       canReadInventory.value ? conferenceApi.getInventory() : Promise.resolve([]),
       canManageTickets.value ? conferenceApi.getArchivedTicketTypes() : Promise.resolve([]),
+      canReadFlow.value && (!preserveFlow || !experience.value)
+        ? conferenceApi.getEventExperience()
+        : Promise.resolve(experience.value),
     ]);
     event.value = loaded;
     inventory.value = loadedInventory;
@@ -74,8 +106,9 @@ async function load(preserveSettings = false) {
       settingsForm.registrationOpen = loaded.registration.registrationOpen;
       settingsForm.accountMode = loaded.registration.accountMode;
     }
+    if (loadedExperience && (!preserveFlow || !experience.value)) hydrateFlow(loadedExperience);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '报名与票务设置读取失败';
+    errorMessage.value = error instanceof Error ? error.message : '报名设置读取失败';
   }
 }
 
@@ -243,7 +276,7 @@ async function saveTicket() {
         code: ticketForm.code.trim().toUpperCase(),
       });
     }
-    await load(true);
+    await load(true, true);
     showTicketEditor.value = false;
     resetTicketForm();
     message.value = savedMessage();
@@ -272,7 +305,7 @@ async function removeTicket(ticket: PublicEvent['tickets'][number]) {
   errorMessage.value = '';
   try {
     await conferenceApi.deleteTicketType(ticket.id);
-    await load(true);
+    await load(true, true);
     message.value = savedMessage('票种已下架');
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '票种删除失败';
@@ -283,10 +316,43 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
   errorMessage.value = '';
   try {
     await conferenceApi.restoreTicketType(ticket.id);
-    await load(true);
+    await load(true, true);
     message.value = savedMessage('票种已恢复');
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '票种恢复失败';
+  }
+}
+
+async function saveFlow() {
+  if (!experience.value) return;
+  flowPending.value = true;
+  errorMessage.value = '';
+  message.value = '';
+  try {
+    const override = experience.value.overrides.registration_flow;
+    const document = {
+      $page: {
+        preset: flowForm.preset,
+        progressVariant: flowForm.progressVariant,
+        branches: {
+          ...experience.value.definition.registrationFlow.branches,
+          waitlist: flowForm.waitlist,
+          invoiceAfterPayment: flowForm.invoiceAfterPayment,
+          manualReview: flowForm.manualReview,
+        },
+      },
+    };
+    const updated = await conferenceApi.saveEventExperience(
+      'registration_flow',
+      override.revision,
+      document,
+    );
+    hydrateFlow(updated);
+    message.value = savedMessage('报名流程已保存');
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '报名流程保存失败';
+  } finally {
+    flowPending.value = false;
   }
 }
 </script>
@@ -295,8 +361,8 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
   <header class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">EVENT SETTINGS / REGISTRATION</p>
-      <h1>报名与票务</h1>
-      <p>选择免费报名或按票种收费，并维护可报名状态、价格与容量。</p>
+      <h1>报名设置</h1>
+      <p>统一维护报名方式、票种容量和前台报名流程，保存后直接应用。</p>
     </div>
     <span class="status-badge" :class="isFree ? 'paid' : 'draft'">
       {{ isFree ? 'FREE' : 'TICKETED' }}
@@ -360,7 +426,7 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
       </div>
       <div class="event-form-actions">
         <button class="button" type="submit" :disabled="settingsPending">
-          {{ settingsPending ? '保存中…' : '保存报名方式' }}
+          {{ settingsPending ? '保存中…' : '保存报名设置' }}
         </button>
       </div>
     </form>
@@ -531,14 +597,71 @@ async function restoreTicket(ticket: (typeof archivedTickets.value)[number]) {
     </form>
   </section>
 
+  <section v-if="experience" class="admin-panel admin-panel-spaced event-experience-panel">
+    <header class="admin-panel-header">
+      <div>
+        <h2>前台报名流程</h2>
+        <p>调整页面步骤和可选分支，库存、支付、出票和发票规则继续由服务端执行</p>
+      </div>
+    </header>
+    <form class="event-form settings-form-spaced" @submit.prevent="saveFlow">
+      <div class="form-grid">
+        <div class="form-field">
+          <label for="event-flow-preset">流程预设</label>
+          <select id="event-flow-preset" v-model="flowForm.preset" :disabled="!canManageFlow">
+            <option value="standard">标准四步</option>
+            <option value="quick">快速三步</option>
+            <option value="free">免费两步</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="event-progress-variant">进度展示</label>
+          <select
+            id="event-progress-variant"
+            v-model="flowForm.progressVariant"
+            :disabled="!canManageFlow"
+          >
+            <option value="steps">完整步骤</option>
+            <option value="compact">紧凑进度</option>
+            <option value="minimal">极简进度</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-toggle-grid">
+        <label class="setting-toggle">
+          <input v-model="flowForm.waitlist" type="checkbox" :disabled="!canManageFlow" />
+          <span><strong>售罄候补</strong><small>票种售罄后展示候补入口</small></span>
+        </label>
+        <label class="setting-toggle">
+          <input
+            v-model="flowForm.invoiceAfterPayment"
+            type="checkbox"
+            :disabled="!canManageFlow"
+          />
+          <span><strong>支付后补发票资料</strong><small>付费且勾选发票意向时出现</small></span>
+        </label>
+        <label class="setting-toggle">
+          <input v-model="flowForm.manualReview" type="checkbox" :disabled="!canManageFlow" />
+          <span><strong>人工审核分支</strong><small>审核通过后进入支付</small></span>
+        </label>
+      </div>
+      <div v-if="canManageFlow" class="event-form-actions">
+        <button class="button" type="submit" :disabled="flowPending">
+          {{ flowPending ? '保存中…' : '保存报名流程' }}
+        </button>
+      </div>
+    </form>
+  </section>
+
   <AdminConfirmDialog
     :open="Boolean(confirmation)"
+    :event-name="session.activeEvent.value?.name"
     :title="confirmation?.title ?? ''"
     :description="confirmation?.description ?? ''"
     :confirm-label="confirmation?.confirmLabel ?? '确认并生效'"
     :tone="confirmation?.tone ?? 'primary'"
     :details="confirmation?.details ?? []"
-    :busy="settingsPending || ticketPending"
+    :busy="settingsPending || ticketPending || flowPending"
     :error="errorMessage"
     @cancel="confirmation = undefined"
     @confirm="confirmImportantChange"

@@ -66,6 +66,21 @@ export function useConferenceApi() {
     }
   }
 
+  async function getHomepageEvent() {
+    try {
+      const event = await $fetch<PublicEvent>('/homepage', {
+        baseURL,
+        timeout: 4_000,
+        headers: { 'X-Organization-Slug': organizationSlug },
+      });
+      saveEvent(event);
+      return event;
+    } catch (error) {
+      if (import.meta.dev && isNetworkFailure(error)) return getEvent(DEMO_EVENT.slug);
+      throw error;
+    }
+  }
+
   async function getSiteConfiguration(): Promise<PublicSiteConfiguration> {
     try {
       return await $fetch<PublicSiteConfiguration>('/site-config', {
@@ -541,6 +556,7 @@ export function useConferenceApi() {
   return {
     eventState,
     getEvent,
+    getHomepageEvent,
     getSiteConfiguration,
     createRegistration,
     joinWaitlist,

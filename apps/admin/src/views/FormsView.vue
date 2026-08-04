@@ -3,8 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, RegistrationField, RegistrationForm } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi } from '../lib/api';
-import { dateTime, statusLabel } from '../lib/format';
+import { conferenceApi, session } from '../lib/api';
 
 const versions = ref<RegistrationForm[]>([]);
 const loading = ref(true);
@@ -98,7 +97,7 @@ async function load() {
       editor.fields = standardFields();
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '报名表版本读取失败';
+    errorMessage.value = error instanceof Error ? error.message : '报名表与条款读取失败';
     if (!editor.fields.length) editor.fields = standardFields();
   } finally {
     loading.value = false;
@@ -134,7 +133,7 @@ async function save() {
   pending.value = true;
   errorMessage.value = '';
   try {
-    const result = await conferenceApi.publishForm({
+    await conferenceApi.publishForm({
       name: editor.name,
       fields: editor.fields,
       termsVersion: editor.termsVersion,
@@ -143,8 +142,8 @@ async function save() {
     message.value = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
       eventStatus.value,
     )
-      ? `已保存，新的报名使用表单 V${result.version}`
-      : `已保存表单 V${result.version}，大会上线时生效`;
+      ? '已保存，新的报名已使用最新表单与条款'
+      : '已保存，大会上线时生效';
     await load();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '表单保存失败';
@@ -159,21 +158,21 @@ onMounted(() => void load());
 <template>
   <header class="admin-page-head reveal is-visible">
     <div>
-      <p class="eyebrow">VERSIONED CONSENT</p>
+      <p class="eyebrow">REGISTRATION FORM / CONSENT</p>
       <h1>报名表与条款</h1>
-      <p>保存后立即用于新的报名，历史报名继续保留当时确认的字段、条款和同意时间。</p>
+      <p>维护报名字段和条款正文，保存后直接用于新的报名。</p>
     </div>
     <button class="button secondary" type="button" @click="addField">＋ 添加字段</button>
   </header>
   <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading" role="status">正在读取报名表版本…</div>
 
-  <div v-else class="content-grid">
+  <div v-else>
     <section class="admin-panel">
       <header class="admin-panel-header">
         <div>
           <h2>表单编辑器</h2>
-          <p>字段键用于数据契约，保存生效后请保持语义稳定</p>
+          <p>历史报名继续保留当时确认的字段、条款和同意时间</p>
         </div>
       </header>
       <form class="event-form" @submit.prevent="requestSave">
@@ -272,34 +271,11 @@ onMounted(() => void load());
         </div>
       </form>
     </section>
-
-    <section class="admin-panel">
-      <header class="admin-panel-header">
-        <div>
-          <h2>版本记录</h2>
-          <p>历史版本保持不可变，新报名只使用当前版本</p>
-        </div>
-        <span class="status-badge">{{ versions.length }} VERSIONS</span>
-      </header>
-      <ul class="operations-list">
-        <li v-for="item in versions" :key="item.id">
-          <div>
-            <strong>V{{ item.version }} · {{ item.name }}</strong><small>条款 {{ item.termsVersion }} · {{ item.fields.length }} 个字段 ·
-              {{ item.publishedAt ? dateTime(item.publishedAt) : '草稿' }}</small>
-          </div>
-          <span class="status-badge" :class="{ success: item.status === 'published' }">{{
-            statusLabel(item.status)
-          }}</span>
-        </li>
-      </ul>
-      <div v-if="!versions.length" class="admin-empty">
-        尚无表单版本，当前编辑器已载入标准报名字段。
-      </div>
-    </section>
   </div>
 
   <AdminConfirmDialog
     :open="showImportantChangeConfirm"
+    :event-name="session.activeEvent.value?.name"
     title="确认更新报名表与条款？"
     description="保存成功后新的报名会立即使用以下配置，历史报名继续保留原表单和条款快照。"
     :details="importantChanges"

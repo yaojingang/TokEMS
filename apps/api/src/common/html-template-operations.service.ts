@@ -8,6 +8,8 @@ import {
   HtmlTemplateBindingManifestSchema,
   OrganizationSettingsSchema,
   normalizeConferenceTemplateDefinition,
+  publicEventHomePath,
+  publicEventScopedPath,
   type HtmlTemplateBindingManifest,
   type HtmlTemplateVariablePath,
 } from '@conference/contracts';
@@ -1298,6 +1300,7 @@ export class HtmlTemplateOperationsService {
     html: string,
     settings: ReturnType<typeof OrganizationSettingsSchema.parse>,
     eventName: string,
+    eventSlug: string,
   ) {
     const escape = (value: string) =>
       value
@@ -1308,8 +1311,16 @@ export class HtmlTemplateOperationsService {
     const website = settings.website;
     const analytics = settings.analytics;
     const title = website.seoTitle || eventName;
+    const canonicalPath = publicEventHomePath(eventSlug);
+    const publicOrigin = (process.env.PUBLIC_ORIGIN ?? process.env.PUBLIC_SITE_URL ?? '').replace(
+      /\/+$/u,
+      '',
+    );
+    const canonicalUrl = publicOrigin ? `${publicOrigin}${canonicalPath}` : canonicalPath;
     const headParts = [
       `<title>${escape(title)}</title>`,
+      `<link rel="canonical" href="${escape(canonicalUrl)}">`,
+      `<meta property="og:url" content="${escape(canonicalUrl)}">`,
       website.seoDescription
         ? `<meta name="description" content="${escape(website.seoDescription)}">`
         : '',
@@ -1348,6 +1359,8 @@ export class HtmlTemplateOperationsService {
     const cleaned = html
       .replace(/<title[\s\S]*?<\/title>/iu, '')
       .replace(/<meta\s+name=["']description["'][^>]*>/giu, '')
+      .replace(/<meta\s+property=["']og:url["'][^>]*>/giu, '')
+      .replace(/<link\s+[^>]*rel=["']canonical["'][^>]*>/giu, '')
       .replace(/<link\s+[^>]*rel=["'][^"']*icon[^"']*["'][^>]*>/giu, '');
     const injected = cleaned.replace(
       /<\/head>/iu,
@@ -1442,7 +1455,11 @@ export class HtmlTemplateOperationsService {
       speakers: event.speakers,
       sessions: event.sessions,
       faqs: event.faqs,
-      routes: { registration: '/register', faq: '/faq', account: '/account' },
+      routes: {
+        registration: publicEventScopedPath('/register', event.slug),
+        faq: publicEventScopedPath('/faq', event.slug),
+        account: publicEventScopedPath('/account', event.slug),
+      },
       site: OrganizationSettingsSchema.parse(organization.settings).website,
     };
     const rendered = (await renderHtmlTemplate(compiled, context)).replace(
@@ -1450,7 +1467,7 @@ export class HtmlTemplateOperationsService {
       '',
     );
     const settings = OrganizationSettingsSchema.parse(organization.settings);
-    const result = this.systemHead(rendered, settings, event.name);
+    const result = this.systemHead(rendered, settings, event.name, event.slug);
     const etag = publishedHtmlEtag(result.html);
     return { ...result, etag };
   }
@@ -1506,6 +1523,7 @@ export class HtmlTemplateOperationsService {
         artifact,
         OrganizationSettingsSchema.parse(scope.organizationSettings),
         scope.eventName,
+        slug,
       );
       const etag = publishedHtmlEtag(result.html);
       return { ...result, etag };

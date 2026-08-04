@@ -1,20 +1,33 @@
 import { createRouter, createWebHistory, type RouteLocationRaw } from 'vue-router';
 import { conferenceApi, session } from './lib/api';
+import {
+  adminEntryPreferenceNotice,
+  hasEventWorkspaceLanding,
+  resolveAdminEntry,
+  safeRedirectPath,
+} from './lib/admin-entry';
 import { parseEventId } from './lib/route-scope';
+import { createRouteLoadRecovery } from './lib/route-load-recovery';
 
 function recentEventRoute(
   name: string,
   query: Record<string, string | string[]> = {},
 ): RouteLocationRaw {
+  const eventId = session.activeEventId.value;
+  if (!eventId) return { name: 'login' };
   return {
     name,
-    params: { eventId: session.activeEventId.value },
+    params: { eventId },
     query,
   };
 }
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior(to) {
+    if (to.hash) return { el: to.hash, top: 96 };
+    return { top: 0 };
+  },
   routes: [
     {
       path: '/login',
@@ -57,9 +70,29 @@ export const router = createRouter({
         },
         {
           path: 'invoices/:invoiceId?',
-          name: 'manage-invoices',
-          component: () => import('./views/InvoicesView.vue'),
-          meta: { title: '发票管理', code: 'INVOICES', requiredGrants: ['org.invoice.read'] },
+          redirect: (to) => {
+            const queryValue = Array.isArray(to.query.eventId)
+              ? to.query.eventId[0]
+              : to.query.eventId;
+            const explicitEventId = parseEventId(queryValue ?? undefined);
+            const eventId = explicitEventId ?? session.activeEventId.value;
+            if (!eventId) return { name: 'manage-events' };
+            const query = { ...to.query };
+            delete query.eventId;
+            if (!explicitEventId && to.params.invoiceId) {
+              session.entryNotice.value = '旧发票详情地址缺少大会信息，已进入最近大会的发票列表。';
+            }
+            return {
+              name: 'event-invoices',
+              params: {
+                eventId,
+                ...(explicitEventId && to.params.invoiceId
+                  ? { invoiceId: to.params.invoiceId }
+                  : {}),
+              },
+              query,
+            };
+          },
         },
         {
           path: 'templates',
@@ -195,7 +228,7 @@ export const router = createRouter({
           name: 'event-overview',
           component: () => import('./views/DashboardView.vue'),
           meta: {
-            title: '大会概览',
+            title: '数据概览',
             code: 'OVERVIEW',
             requiredGrants: ['event.dashboard.read'],
           },
@@ -209,7 +242,9 @@ export const router = createRouter({
                     ? 'event-settings-general'
                     : session.can('event.site.read')
                       ? 'event-settings-site'
-                      : 'event-settings-registration',
+                      : session.canAny(['event.content.manage', 'event.ai.read'])
+                        ? 'event-content'
+                        : 'event-settings-registration',
                   params: to.params,
                 }
               : {
@@ -242,6 +277,7 @@ export const router = createRouter({
             code: 'REGISTRATION',
             requiredGrants: [
               'event.manage',
+              'event.site.read',
               'event.registration.manage',
               'event.inventory.read',
               'event.inventory.manage',
@@ -259,16 +295,52 @@ export const router = createRouter({
           },
         },
         {
-          path: 'content',
+          path: 'settings/changes',
+          name: 'event-settings-changes',
+          component: () => import('./views/EventChangesView.vue'),
+          meta: {
+            title: '大会配置',
+            code: 'CHANGES',
+            requiredGrants: ['event.site.read', 'event.registration.manage'],
+          },
+        },
+        {
+          path: 'settings/content',
           name: 'event-content',
           component: () => import('./views/ContentView.vue'),
-          meta: { title: '内容运营', code: 'CONTENT', requiredGrants: ['event.content.manage'] },
+          meta: {
+            title: '内容运营',
+            code: 'CONTENT',
+            requiredGrants: ['event.content.manage', 'event.ai.read'],
+          },
         },
         {
           path: 'content/ai',
           name: 'event-ai',
-          component: () => import('./views/AiView.vue'),
-          meta: { title: '内容运营', code: 'AI COPY', requiredGrants: ['event.ai.read'] },
+          redirect: (to) => ({
+            name: 'event-content',
+            params: to.params,
+            query: to.query,
+            hash: to.hash || '#ai-copy',
+          }),
+        },
+        {
+          path: 'content',
+          redirect: (to) => ({
+            name: 'event-content',
+            params: to.params,
+            query: to.query,
+            hash: to.hash,
+          }),
+        },
+        {
+          path: 'settings/content/ai',
+          redirect: (to) => ({
+            name: 'event-ai',
+            params: to.params,
+            query: to.query,
+            hash: to.hash || '#ai-copy',
+          }),
         },
         {
           path: 'registrations',
@@ -281,10 +353,34 @@ export const router = createRouter({
           },
         },
         {
+          path: 'registrations/:registrationId',
+          name: 'event-registration-detail',
+          component: () => import('./views/RegistrationDetailView.vue'),
+          meta: {
+            title: '报名详情',
+            code: 'REGISTRATION DETAIL',
+            requiredGrants: ['event.registration.read'],
+          },
+        },
+        {
+          path: 'invoices/:invoiceId?',
+          name: 'event-invoices',
+          component: () => import('./views/InvoicesView.vue'),
+          meta: {
+            title: '发票管理',
+            code: 'INVOICES',
+            requiredAllGrants: ['event.read', 'org.invoice.read'],
+          },
+        },
+        {
           path: 'orders',
           name: 'event-orders',
           component: () => import('./views/OrdersView.vue'),
-          meta: { title: '订单与退款', code: 'ORDERS', requiredGrants: ['event.order.read'] },
+          beforeEnter: (to) =>
+            session.can('event.registration.read')
+              ? { name: 'event-registrations', params: to.params, query: to.query }
+              : true,
+          meta: { title: '订单管理', code: 'ORDERS', requiredGrants: ['event.order.read'] },
         },
         {
           path: 'notifications',
@@ -297,13 +393,13 @@ export const router = createRouter({
           },
         },
         {
-          path: 'check-in',
-          name: 'event-check-in',
-          component: () => import('./views/CheckInView.vue'),
+          path: 'notifications/new',
+          name: 'event-notification-create',
+          component: () => import('./views/NotificationCreateView.vue'),
           meta: {
-            title: '现场签到',
-            code: 'CHECK IN',
-            requiredGrants: ['event.checkin.execute', 'event.checkin.manage'],
+            title: '新建消息通知',
+            code: 'NEW MESSAGE',
+            requiredGrants: ['event.notification.send'],
           },
         },
         {
@@ -355,11 +451,6 @@ export const router = createRouter({
         recentEventRoute('event-orders', to.query as Record<string, string | string[]>),
     },
     {
-      path: '/checkin',
-      redirect: (to) =>
-        recentEventRoute('event-check-in', to.query as Record<string, string | string[]>),
-    },
-    {
       path: '/content',
       redirect: (to) =>
         recentEventRoute('event-content', to.query as Record<string, string | string[]>),
@@ -387,7 +478,79 @@ export const router = createRouter({
   ],
 });
 
-router.beforeEach(async (to) => {
+const routeLoadRecovery = createRouteLoadRecovery({
+  origin: window.location.origin,
+  storage: window.sessionStorage,
+  navigate: (target) => window.location.assign(target),
+});
+
+function knownAdminRoute(path: string) {
+  const resolved = router.resolve(path);
+  return resolved.matched.length > 0 && resolved.name !== 'not-found';
+}
+
+function markEventRedirect(path: string) {
+  const resolved = router.resolve(path);
+  const value = Array.isArray(resolved.params.eventId)
+    ? resolved.params.eventId[0]
+    : resolved.params.eventId;
+  const eventId = parseEventId(value);
+  if (eventId) session.markExplicitEventRoute(eventId);
+}
+
+function eventIdFromDestination(destination: RouteLocationRaw) {
+  const resolved = router.resolve(destination);
+  const value = Array.isArray(resolved.params.eventId)
+    ? resolved.params.eventId[0]
+    : resolved.params.eventId;
+  return parseEventId(value);
+}
+
+let entryResolvedEventId: ReturnType<typeof parseEventId>;
+
+function initialNavigationCanBeRemembered() {
+  if (typeof performance === 'undefined' || !performance.getEntriesByType) return true;
+  const navigation = performance.getEntriesByType('navigation')[0] as
+    PerformanceNavigationTiming | undefined;
+  return navigation?.type !== 'reload';
+}
+
+export async function resolveAuthenticatedEntry(redirect?: unknown): Promise<RouteLocationRaw> {
+  const currentIdentity = session.identity.value;
+  const grants = currentIdentity?.membership.grants ?? [];
+  const safeRedirect = safeRedirectPath(redirect, knownAdminRoute);
+  if (safeRedirect) {
+    markEventRedirect(safeRedirect);
+    return safeRedirect;
+  }
+
+  if (!hasEventWorkspaceLanding(grants) || !session.can('event.read')) {
+    return resolveAdminEntry({ grants, events: [] }).route;
+  }
+
+  try {
+    const events = await session.loadEventOptions();
+    const localEventId = session.recentEventId();
+    const serverEventId = currentIdentity?.adminPreferences.lastEventId ?? undefined;
+    const result = resolveAdminEntry({
+      grants,
+      events,
+      ...(localEventId === undefined ? {} : { localEventId }),
+      ...(serverEventId === undefined ? {} : { serverEventId }),
+    });
+    if (result.clearLocalPreference) session.forgetRecentEvent();
+    if (result.clearServerPreference) session.clearServerRecentEvent();
+    if (result.seedLocalEventId) session.setRecentEventId(result.seedLocalEventId);
+    session.entryNotice.value = adminEntryPreferenceNotice(result);
+    return result.route;
+  } catch {
+    session.entryNotice.value = '大会列表暂时无法读取，请重试。';
+    return { name: session.managementLandingRouteName() };
+  }
+}
+
+router.beforeEach(async (to, from) => {
+  routeLoadRecovery.begin(router.resolve(to).href);
   if (!to.meta.public && !session.token.value) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
@@ -401,13 +564,18 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.name === 'login' && session.token.value) {
-    const redirect = String(to.query.redirect ?? '');
-    if (redirect.startsWith('/') && !redirect.startsWith('//')) return redirect;
-    return { name: session.landingRouteName() };
+    const destination = await resolveAuthenticatedEntry(to.query.redirect);
+    entryResolvedEventId = eventIdFromDestination(destination);
+    return destination;
   }
 
   const requiredGrants = to.meta.requiredGrants as string[] | undefined;
   if (requiredGrants?.length && !session.canAny(requiredGrants)) {
+    return { name: 'forbidden' };
+  }
+
+  const requiredAllGrants = to.meta.requiredAllGrants as string[] | undefined;
+  if (requiredAllGrants?.length && !requiredAllGrants.every((grant) => session.can(grant))) {
     return { name: 'forbidden' };
   }
 
@@ -421,12 +589,21 @@ router.beforeEach(async (to) => {
   if (typeof eventId === 'string' && eventId) {
     const parsedEventId = parseEventId(eventId);
     if (!parsedEventId) return { name: 'manage-events' };
-    session.setActiveEvent(parsedEventId);
+    const resolvedFromEntry = entryResolvedEventId === parsedEventId;
+    entryResolvedEventId = undefined;
+    if (!resolvedFromEntry && !from.matched.length && initialNavigationCanBeRemembered()) {
+      session.markExplicitEventRoute(parsedEventId);
+    }
   }
   return true;
 });
 
-router.afterEach((to) => {
+router.onError((error, to) => {
+  routeLoadRecovery.recover(error, router.resolve(to).href);
+});
+
+router.afterEach((to, _from, failure) => {
+  if (!failure) routeLoadRecovery.complete(router.resolve(to).href);
   const title = typeof to.meta.title === 'string' ? to.meta.title : '后台管理';
   document.title = `${title} · TokEMS 运营台`;
 });

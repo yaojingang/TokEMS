@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, Speaker } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import ContentAiPanel from '../components/ContentAiPanel.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi, publicEventUrl } from '../lib/api';
+import { conferenceApi, publicEventUrl, session } from '../lib/api';
 
 interface SessionRow {
   id: string;
@@ -27,9 +28,11 @@ const deletionTarget = ref<{
   name: string;
 }>();
 const showEditor = ref(false);
+const editorPanel = ref<HTMLElement>();
 const editorMode = ref<'speaker' | 'session'>('speaker');
 const editingId = ref('');
 const pending = ref(false);
+const canManageContent = session.can('event.content.manage');
 const sessions = computed(() => sessionRows.value.filter((item) => item.day === day.value));
 const speakerForm = reactive({ name: '', role: '', topic: '', initials: '' });
 const sessionForm = reactive({
@@ -84,9 +87,15 @@ function switchMode(mode: 'speaker' | 'session') {
   resetSessionForm();
 }
 
-function openCreate() {
-  switchMode('speaker');
+async function revealEditor() {
   showEditor.value = true;
+  await nextTick();
+  editorPanel.value?.scrollIntoView({ block: 'start' });
+}
+
+function openCreate(mode: 'speaker' | 'session') {
+  switchMode(mode);
+  void revealEditor();
 }
 
 function editSpeaker(speaker: Speaker) {
@@ -98,7 +107,7 @@ function editSpeaker(speaker: Speaker) {
     topic: speaker.topic,
     initials: speaker.initials,
   });
-  showEditor.value = true;
+  void revealEditor();
 }
 
 function editSession(sessionItem: SessionRow) {
@@ -112,10 +121,11 @@ function editSession(sessionItem: SessionRow) {
     speaker: sessionItem.speaker ?? '',
     kind: sessionItem.kind,
   });
-  showEditor.value = true;
+  void revealEditor();
 }
 
 onMounted(async () => {
+  if (!canManageContent) return;
   try {
     await load();
   } catch (error) {
@@ -208,44 +218,33 @@ function clock(value: string) {
 <template>
   <header class="admin-page-head reveal is-visible">
     <div>
-      <p class="eyebrow">PROGRAM CONTENT</p>
-      <h1>嘉宾与两日议程</h1>
-      <p>统一查看前台展示的嘉宾资料、分享主题和议程时段。</p>
+      <p class="eyebrow">EVENT CONTENT</p>
+      <h1>内容运营</h1>
+      <p>在同一页面维护大会嘉宾、议程安排和 AI 运营文案。</p>
     </div>
-    <div class="admin-head-actions">
+    <div v-if="canManageContent" class="admin-head-actions">
       <a
+        class="button secondary"
+        :href="publicEventUrl('/#speakers')"
+        target="_blank"
+        rel="noopener noreferrer"
+      >预览嘉宾 ↗</a><a
         class="button secondary"
         :href="publicEventUrl('/#agenda')"
         target="_blank"
         rel="noopener noreferrer"
-      >预览议程 ↗</a><button class="button" type="button" @click="openCreate">＋ 新增内容</button>
+      >预览议程 ↗</a>
     </div>
   </header>
   <SaveStatus :message="message" :error="errorMessage" />
 
-  <section v-if="showEditor" class="admin-panel editor-panel">
+  <section v-if="showEditor" ref="editorPanel" class="admin-panel editor-panel">
     <header class="admin-panel-header">
       <div>
         <h2>{{ editingId ? '编辑大会内容' : '新增大会内容' }}</h2>
         <p>保存成功后自动生成大会版本，并立即同步到前台</p>
       </div>
-      <div class="panel-tabs">
-        <button
-          class="panel-tab"
-          :class="{ active: editorMode === 'speaker' }"
-          type="button"
-          @click="switchMode('speaker')"
-        >
-          嘉宾
-        </button><button
-          class="panel-tab"
-          :class="{ active: editorMode === 'session' }"
-          type="button"
-          @click="switchMode('session')"
-        >
-          议程
-        </button>
-      </div>
+      <span class="status-badge">{{ editorMode === 'speaker' ? '嘉宾' : '议程' }}</span>
     </header>
     <form class="event-form" @submit.prevent="saveContent">
       <div v-if="editorMode === 'speaker'" class="form-grid">
@@ -307,14 +306,19 @@ function clock(value: string) {
     </form>
   </section>
 
-  <div class="content-grid">
+  <div v-if="canManageContent" class="content-grid content-operations-grid">
     <section class="admin-panel reveal is-visible">
       <header class="admin-panel-header">
         <div>
           <h2>大会嘉宾</h2>
           <p>内容库已收录 {{ speakers.length }} 位嘉宾</p>
         </div>
-        <span class="status-badge">{{ speakers.length }} SPEAKERS</span>
+        <div class="content-module-actions">
+          <span class="status-badge">{{ speakers.length }} SPEAKERS</span>
+          <button class="button compact" type="button" @click="openCreate('speaker')">
+            ＋ 新增嘉宾
+          </button>
+        </div>
       </header>
       <ul class="speaker-list">
         <li v-for="speaker in speakers" :key="speaker.id">
@@ -348,11 +352,16 @@ function clock(value: string) {
           <h2>议程时间表</h2>
           <p>当前查看第 {{ day }} 天</p>
         </div>
-        <div class="panel-tabs">
-          <button class="panel-tab" :class="{ active: day === 1 }" type="button" @click="day = 1">
-            DAY 1
-          </button><button class="panel-tab" :class="{ active: day === 2 }" type="button" @click="day = 2">
-            DAY 2
+        <div class="content-module-actions">
+          <label class="content-day-filter" for="content-session-day">
+            <span>查看日程</span>
+            <select id="content-session-day" v-model="day" class="admin-select">
+              <option :value="1">DAY 1</option>
+              <option :value="2">DAY 2</option>
+            </select>
+          </label>
+          <button class="button compact" type="button" @click="openCreate('session')">
+            ＋ 新增议程
           </button>
         </div>
       </header>
@@ -382,10 +391,14 @@ function clock(value: string) {
     </section>
   </div>
 
+  <ContentAiPanel v-if="session.can('event.ai.read')" />
+
   <AdminConfirmDialog
+    v-if="canManageContent"
     :open="Boolean(deletionTarget)"
+    :event-name="session.activeEvent.value?.name"
     :title="`确认删除${deletionTarget?.kind === 'speaker' ? '嘉宾' : '议程'}“${deletionTarget?.name ?? ''}”？`"
-    description="删除成功后前台会立即移除该内容。如需恢复，可从变更记录回滚到之前的大会版本。"
+    description="删除成功后前台会立即移除该内容。如需恢复，可从修改记录恢复到之前的大会配置。"
     confirm-label="确认删除"
     tone="danger"
     :busy="pending"

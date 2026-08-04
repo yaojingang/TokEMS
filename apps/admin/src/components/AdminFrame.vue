@@ -2,14 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { useRoute, useRouter } from 'vue-router';
-import { publicEventUrl, session } from '../lib/api';
+import { session } from '../lib/api';
 import { organizationRoleLabel } from '../lib/roles';
 
-defineProps<{
-  title: string;
-  code: string;
-  scopeLabel: string;
+const props = defineProps<{
   brandTo: RouteLocationRaw;
+  publicEntryUrl?: string | undefined;
 }>();
 
 const route = useRoute();
@@ -23,7 +21,6 @@ const accountTrigger = ref<HTMLButtonElement>();
 const accountMenu = ref<HTMLElement>();
 const accountRole = computed(() => organizationRoleLabel(session.identity.value?.membership.role));
 const accountInitial = computed(() => session.user.value?.name.trim().charAt(0) || '管');
-const publicSiteUrl = computed(() => publicEventUrl());
 const accountRoute = computed<RouteLocationRaw>(() => ({
   name: 'account-profile',
   ...(route.name === 'account-profile' ? {} : { query: { from: route.fullPath } }),
@@ -102,7 +99,7 @@ onBeforeUnmount(() => {
         <span class="brand-copy"><strong>TokEMS</strong></span>
       </RouterLink>
 
-      <slot name="context" />
+      <slot name="context" :close-navigation="closeNavigation" />
       <div class="admin-navigation">
         <slot name="navigation" :close-navigation="closeNavigation" />
       </div>
@@ -184,7 +181,13 @@ onBeforeUnmount(() => {
     <div class="admin-sidebar-resizer" aria-hidden="true"></div>
 
     <div class="admin-workspace">
-      <header class="admin-topbar">
+      <header
+        class="admin-topbar"
+        :class="{
+          'has-topbar-tools':
+            props.publicEntryUrl || $slots['topbar-context'] || $slots['topbar-actions'],
+        }"
+      >
         <button
           ref="navigationTrigger"
           class="admin-navigation-trigger"
@@ -196,24 +199,21 @@ onBeforeUnmount(() => {
         >
           <span aria-hidden="true">≡</span>
         </button>
-        <div class="workspace-label">
-          <strong>{{ title }}</strong>
-          <span>{{ scopeLabel }} / {{ code }}</span>
-        </div>
-        <div class="admin-topbar-center">
-          <slot name="topbar-center" />
+        <div v-if="$slots['topbar-context']" class="admin-topbar-context">
+          <slot name="topbar-context" />
         </div>
         <div class="topbar-tools">
           <slot name="topbar-actions" />
           <a
-            class="admin-public-entry"
-            :href="publicSiteUrl"
+            v-if="props.publicEntryUrl"
+            class="admin-topbar-action"
+            :href="props.publicEntryUrl"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="访问大会前台，在新标签页打开"
             title="访问大会前台"
           >
-            <span class="admin-public-entry__label">访问前台</span>
+            <span class="admin-topbar-action__label">访问前台</span>
             <span aria-hidden="true">↗</span>
           </a>
         </div>

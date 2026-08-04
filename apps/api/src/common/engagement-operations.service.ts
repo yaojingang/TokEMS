@@ -20,6 +20,7 @@ import {
   events,
   notificationDeliveries,
   notificationTemplates,
+  orders,
   outboxEvents,
   publicUserIds,
   registrations,
@@ -637,8 +638,9 @@ export class EngagementOperationsService {
     const db = this.db();
     const actorPublicId = await requirePublicUserId(db, 'staff', actorId);
     const rows = await db
-      .select()
+      .select({ registration: registrations, order: orders })
       .from(registrations)
+      .leftJoin(orders, eq(orders.registrationId, registrations.id))
       .where(
         and(eq(registrations.organizationId, organizationId), eq(registrations.eventId, eventId)),
       )
@@ -657,7 +659,12 @@ export class EngagementOperationsService {
       `# 数据范围,${escape(`${organizationId}/${eventId}`)}`,
       [
         '报名编号',
-        '状态',
+        '报名状态',
+        '订单号',
+        '订单状态',
+        '订单金额（分）',
+        '币种',
+        '支付方式',
         '姓名',
         '手机',
         '邮箱',
@@ -671,20 +678,25 @@ export class EngagementOperationsService {
       ]
         .map(escape)
         .join(','),
-      ...rows.map((row) =>
+      ...rows.map(({ registration, order }) =>
         [
-          row.registrationCode,
-          row.status,
-          row.attendee.name,
-          row.attendee.mobile,
-          row.attendee.email,
-          row.attendee.company,
-          row.attendee.title,
-          row.attendee.city,
-          row.formVersion,
-          row.termsVersion,
-          JSON.stringify(row.formAnswers),
-          row.createdAt.toISOString(),
+          registration.registrationCode,
+          registration.status,
+          order?.orderNo,
+          order?.status,
+          order?.amount,
+          order?.currency,
+          order ? (order.amount === 0 ? 'free' : 'wechat') : undefined,
+          registration.attendee.name,
+          registration.attendee.mobile,
+          registration.attendee.email,
+          registration.attendee.company,
+          registration.attendee.title,
+          registration.attendee.city,
+          registration.formVersion,
+          registration.termsVersion,
+          JSON.stringify(registration.formAnswers),
+          registration.createdAt.toISOString(),
         ]
           .map(escape)
           .join(','),

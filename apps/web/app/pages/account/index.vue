@@ -1190,7 +1190,7 @@ useHead({ title: '个人中心' });
   overflow: hidden;
   border: 1px solid #cedbf1;
   border-top: 3px solid var(--conference-primary);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--account-surface);
   color: var(--account-ink);
 }

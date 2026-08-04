@@ -6,6 +6,7 @@ import type {
   OrganizationRole,
 } from '@conference/contracts';
 import { conferenceApi, session } from '../lib/api';
+import { buildOrganizationInvitationAcceptanceUrl } from '../lib/organization-invitation';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 
 interface RolePreset {
@@ -92,7 +93,7 @@ const rolePresets: RolePreset[] = [
   {
     value: 'viewer',
     label: '只读成员',
-    description: '查看大会概览、报名和订单',
+    description: '查看数据概览、报名和订单',
     grants: ['event.read', 'event.dashboard.read', 'event.registration.read', 'event.order.read'],
   },
 ];
@@ -286,11 +287,10 @@ async function invite() {
       grants: preset.grants,
     });
     invitations.value.unshift(result.invitation);
-    const invitationParams = new URLSearchParams({
-      token: result.acceptanceToken,
-      organization: session.identity.value?.organization.slug ?? '',
-    });
-    acceptanceLink.value = `${window.location.origin}/accept-invitation#${invitationParams}`;
+    acceptanceLink.value = buildOrganizationInvitationAcceptanceUrl(
+      result.acceptanceToken,
+      session.identity.value?.organization.slug ?? '',
+    );
     inviteForm.email = '';
     inviteBaseline.value = readInviteDraft();
     syncDirtyState();

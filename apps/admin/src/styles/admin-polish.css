@@ -76,7 +76,6 @@
 .field-builder-row input:not([type='checkbox']),
 .field-builder-row select,
 .login-fields input,
-.checkin-input,
 .admin-select {
   border-color: var(--admin-control-border);
 }
@@ -131,7 +130,6 @@
 .admin-nav-label,
 .workspace-label span,
 .admin-command kbd,
-.nav-count,
 .eyebrow,
 .delta,
 .trend-summary span,
@@ -179,7 +177,6 @@
 .management-settings-note,
 .management-setting-list dt,
 .integration-status-list span,
-.checkin-result > p,
 .speaker-copy small,
 .session-copy small,
 .ticket-recommended,
@@ -260,8 +257,7 @@
 .form-field select:focus,
 .field-builder-row input:focus,
 .field-builder-row select:focus,
-.login-fields input:focus,
-.checkin-input:focus {
+.login-fields input:focus {
   border-color: var(--blue);
   box-shadow: var(--admin-focus-ring);
 }
@@ -575,7 +571,6 @@
   .field-builder-row input:hover:not(:focus):not(:disabled),
   .field-builder-row select:hover:not(:focus):not(:disabled),
   .login-fields input:hover:not(:focus):not(:disabled),
-  .checkin-input:hover:not(:focus):not(:disabled),
   .admin-select:hover:not(:focus):not(:disabled) {
     border-color: var(--admin-control-border-hover);
   }

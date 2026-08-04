@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "webPages": 10,
-  "adminViews": 34,
-  "migrations": 40,
-  "latestMigration": "0039_event_release_change_context.sql",
-  "databaseTables": 60,
-  "apiControllers": 23,
-  "apiOperations": 175,
-  "testFiles": 45
+  "adminViews": 35,
+  "migrations": 42,
+  "latestMigration": "0041_needy_the_liberteens.sql",
+  "databaseTables": 62,
+  "apiControllers": 24,
+  "apiOperations": 188,
+  "testFiles": 63
 }
