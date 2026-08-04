@@ -352,7 +352,7 @@ const [dashboard, registrations, orders] = await Promise.all([
 ]);
 assert(dashboard.metrics.checkedIn >= 1, '后台指标未反映核销记录');
 assert(registrations.total === 1 && registrations.items.length === 1, '后台报名搜索未找到新参会人');
-assert(orders.length === 1, '后台订单搜索未找到新订单');
+assert(orders.total === 1 && orders.items.length === 1, '后台订单搜索未找到新订单');
 
 const { pool } = createDatabase(databaseUrl);
 try {
