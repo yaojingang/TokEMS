@@ -9,6 +9,7 @@ const databaseUrl =
   process.env.DATABASE_URL ?? 'postgresql://conference:conference@localhost:15432/conference';
 const notificationSinkUrl = process.env.NOTIFICATION_SINK_URL ?? 'http://localhost:4080';
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -69,7 +70,7 @@ try {
     (item) => item.currentPublishedVersionId,
   )?.currentPublishedVersionId;
   assert(templateVersionId, 'No published conference template is available');
-  const slug = `waitlist-conference-${runId}`;
+  const slug = `wait-${slugRunId}`;
   const event = await request('/admin/events', {
     method: 'POST',
     headers: {

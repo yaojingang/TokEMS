@@ -8,6 +8,7 @@ if (!paymentWebhookSecret) {
   throw new Error('PAYMENT_WEBHOOK_SECRET is required for the check-in load test');
 }
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -46,7 +47,7 @@ try {
     (item) => item.currentPublishedVersionId,
   )?.currentPublishedVersionId;
   if (!templateVersionId) throw new Error('No published conference template is available');
-  const slug = `checkin-load-${runId}`;
+  const slug = `load-${slugRunId}`;
   const event = await request('/admin/events', {
     method: 'POST',
     headers: {
