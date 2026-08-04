@@ -385,9 +385,8 @@ async function runVisualSmoke() {
     await dialog.waitFor({ state: 'hidden' });
   }
 
-  async function assertEventSwitcher(page, eventPath, file, label, mobile = false) {
+  async function assertEventSwitcher(page, eventPath, file, label) {
     await page.goto(`${adminBase}${eventPath}/overview`, { waitUntil: 'networkidle' });
-    if (mobile) await page.getByRole('button', { name: '打开导航' }).click();
     const trigger = page.locator('.event-context-switcher__trigger');
     const panel = page.locator('.event-switcher-panel[role="dialog"]');
     if (await page.getByText('CURRENT EVENT', { exact: true }).count()) {
@@ -422,7 +421,6 @@ async function runVisualSmoke() {
     if (!(await trigger.evaluate((element) => element === document.activeElement))) {
       issues.push(`${label}: Escape 关闭后没有恢复大会切换按钮焦点`);
     }
-    if (mobile) await page.keyboard.press('Escape');
   }
 
   async function assertInvalidRecentEventNotice(page, label) {
@@ -822,7 +820,6 @@ async function runVisualSmoke() {
     eventBase,
     'admin-event-switcher-mobile.png',
     '大会切换器手机端',
-    true,
   );
 
   await assertLiveSettingsConfirmDialog(mobileAdmin, eventBase, '保存生效确认弹窗手机端');
