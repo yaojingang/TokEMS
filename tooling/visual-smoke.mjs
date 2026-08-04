@@ -658,7 +658,6 @@ async function runVisualSmoke() {
       '报名管理桌面端',
     ],
     [`${eventBase}/invoices`, '发票管理', 'admin-invoices-desktop.png', '发票管理桌面端'],
-    [`${eventBase}/orders`, '订单管理', 'admin-orders-desktop.png', '订单支付桌面端'],
     [
       `${eventBase}/notifications`,
       '通知中心',
@@ -672,6 +671,9 @@ async function runVisualSmoke() {
     await admin.getByRole('heading', { name: heading }).waitFor();
     await screenshot(admin, file, label);
   }
+  await admin.goto(`${adminBase}${eventBase}/orders`, { waitUntil: 'networkidle' });
+  await admin.waitForURL((url) => url.pathname.endsWith(`${eventBase}/registrations`));
+  await admin.getByRole('heading', { name: '报名管理' }).waitFor();
 
   await assertEventSwitcher(
     admin,
@@ -803,6 +805,9 @@ async function runVisualSmoke() {
       label.replace('桌面端', '手机端'),
     );
   }
+  await mobileAdmin.goto(`${adminBase}${eventBase}/orders`, { waitUntil: 'networkidle' });
+  await mobileAdmin.waitForURL((url) => url.pathname.endsWith(`${eventBase}/registrations`));
+  await mobileAdmin.getByRole('heading', { name: '报名管理' }).waitFor();
 
   await assertEventSwitcher(
     mobileAdmin,

@@ -525,8 +525,9 @@ export const conferenceApi = {
     if (!slug) {
       return request<PublicEvent>(`/admin/events/${eventScope(eventId)}`);
     }
+    const organizationSlug = session.identity.value?.organization.slug;
     return request<PublicEvent>(`/events/${slug}`, {
-      headers: { 'X-Organization-Slug': 'tokems-demo' },
+      ...(organizationSlug ? { headers: { 'X-Organization-Slug': organizationSlug } } : {}),
     });
   },
   async updateEvent(patch: UpdateEvent, eventId?: EventId) {

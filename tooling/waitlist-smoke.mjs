@@ -8,6 +8,7 @@ const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const databaseUrl =
   process.env.DATABASE_URL ?? 'postgresql://conference:conference@localhost:15432/conference';
 const notificationSinkUrl = process.env.NOTIFICATION_SINK_URL ?? 'http://localhost:4080';
+const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const testEventIds = [];
@@ -131,7 +132,7 @@ try {
     body: JSON.stringify({ templateKey: 'editorial-blue' }),
   });
   const publicEvent = await request(`/events/${slug}`, {
-    headers: { 'X-Organization-Slug': 'tokems-demo' },
+    headers: { 'X-Organization-Slug': publicOrganizationSlug },
   });
   const publicTicket = publicEvent.tickets.find((item) => item.id === ticket.id);
   assert(publicTicket.remaining === 1, 'The single test seat was not published');

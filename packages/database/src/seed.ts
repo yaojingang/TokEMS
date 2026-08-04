@@ -48,6 +48,7 @@ const CONFERENCE_TEMPLATE_VERSION_ID = DEMO_IDS.template.version;
 const EDITORIAL_RENDERER_ID = '12121212-1212-4121-8121-121212121212';
 const HTML_RENDERER_ID = '17171717-1717-4171-8171-171717171717';
 const isLocalDemoSeed = process.env.DEPLOYMENT_MODE === 'local';
+const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
 
 const DEMO_CUSTOMERS = [
   {
@@ -227,7 +228,7 @@ try {
       .insert(organizations)
       .values({
         id: DEMO_IDS.organization,
-        slug: 'tokems-demo',
+        slug: publicOrganizationSlug,
         name: 'TokEMS Demo Team',
         settings: {
           brandName: 'TokEMS 运营台',
@@ -237,7 +238,13 @@ try {
           defaultTemplateId: CONFERENCE_TEMPLATE_ID,
         },
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: organizations.id,
+        set: {
+          slug: publicOrganizationSlug,
+          updatedAt: new Date(),
+        },
+      });
 
     await tx
       .insert(users)
