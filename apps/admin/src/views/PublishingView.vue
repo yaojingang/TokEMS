@@ -439,20 +439,29 @@ onMounted(() => void load());
           >
             <div class="form-grid">
               <div class="form-field">
-                <label>分类</label>
-                <input v-model="item.category" :disabled="!canManageExperience || !item.enabled" />
+                <label :for="`event-faq-category-${index}`">分类</label>
+                <input
+                  :id="`event-faq-category-${index}`"
+                  v-model="item.category"
+                  :disabled="!canManageExperience || !item.enabled"
+                />
               </div>
               <label class="setting-toggle">
                 <input v-model="item.enabled" type="checkbox" :disabled="!canManageExperience" />
                 <span><strong>显示</strong><small>{{ item.nodeKey }}</small></span>
               </label>
               <div class="form-field full">
-                <label>问题</label>
-                <input v-model="item.question" :disabled="!canManageExperience || !item.enabled" />
+                <label :for="`event-faq-question-${index}`">问题</label>
+                <input
+                  :id="`event-faq-question-${index}`"
+                  v-model="item.question"
+                  :disabled="!canManageExperience || !item.enabled"
+                />
               </div>
               <div class="form-field full">
-                <label>答案</label>
+                <label :for="`event-faq-answer-${index}`">答案</label>
                 <textarea
+                  :id="`event-faq-answer-${index}`"
                   v-model="item.answer"
                   rows="4"
                   :disabled="!canManageExperience || !item.enabled"

@@ -631,7 +631,7 @@
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -2353,9 +2353,11 @@ form[data-settings-form] > .settings-form-actions {
   }
 
   .admin-navigation-trigger {
-    width: 40px;
-    height: 40px;
+    min-width: 44px;
+    width: 44px;
+    height: 44px;
     display: grid;
+    flex: 0 0 44px;
     place-items: center;
     color: var(--blue);
     background: #fff;

@@ -1609,7 +1609,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 999px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }

@@ -1295,7 +1295,7 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
   backdrop-filter: blur(12px);
 }
 .detail-anchor-nav button {
-  min-height: 34px;
+  min-height: 40px;
   padding: 0 12px;
   background: transparent;
   border: 0;
@@ -1389,8 +1389,9 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
   color: var(--muted) !important;
 }
 .text-action {
-  min-height: 34px;
-  padding: 0;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 8px;
   background: transparent;
   border: 0;
   color: var(--blue);
