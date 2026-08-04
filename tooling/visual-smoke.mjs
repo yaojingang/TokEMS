@@ -653,7 +653,7 @@ async function runVisualSmoke() {
     [`${eventBase}/settings/content`, '内容运营', 'admin-content-desktop.png', '内容管理桌面端'],
     [
       `${eventBase}/registrations`,
-      '报名与参会人',
+      '报名管理',
       'admin-registrations-desktop.png',
       '报名管理桌面端',
     ],
@@ -705,16 +705,14 @@ async function runVisualSmoke() {
   if (pagedRegistrationRows > 3) {
     issues.push(`报名管理桌面端: 自定义每页 3 条后仍显示 ${pagedRegistrationRows} 条`);
   }
-  const registrationView = admin.getByRole('button', { name: '查看' }).first();
+  const registrationView = admin.getByRole('link', { name: '查看' }).first();
   if (await registrationView.count()) {
     await registrationView.click();
-    await admin.locator('.registration-detail-dialog[open]').waitFor();
-    await assertCenteredDialog(admin, '.registration-detail-dialog[open]', '报名详情弹窗桌面端');
-    await admin.getByRole('heading', { name: /的报名详情$/ }).waitFor();
-    await screenshot(admin, 'admin-registration-detail-desktop.png', '报名详情弹窗桌面端');
-    await admin.getByRole('button', { name: '关闭报名详情' }).click();
+    await admin.waitForURL(/\/registrations\/[^/]+/);
+    await admin.locator('.registration-detail-page .registration-hero').waitFor();
+    await screenshot(admin, 'admin-registration-detail-desktop.png', '报名详情页桌面端');
   } else {
-    issues.push('报名管理桌面端: 没有可用于详情弹窗验收的报名');
+    issues.push('报名管理桌面端: 没有可用于详情页验收的报名');
   }
 
   const mobileContext = await browser.newContext({
@@ -821,20 +819,14 @@ async function runVisualSmoke() {
   await screenshot(mobileAdmin, 'admin-event-unavailable-mobile.png', '大会上下文不可用状态手机端');
 
   await mobileAdmin.goto(`${adminBase}${eventBase}/registrations`, { waitUntil: 'networkidle' });
-  const mobileRegistrationView = mobileAdmin.getByRole('button', { name: '查看' }).first();
+  const mobileRegistrationView = mobileAdmin.getByRole('link', { name: '查看' }).first();
   if (await mobileRegistrationView.count()) {
     await mobileRegistrationView.click();
-    await mobileAdmin.locator('.registration-detail-dialog[open]').waitFor();
-    await assertCenteredDialog(
-      mobileAdmin,
-      '.registration-detail-dialog[open]',
-      '报名详情弹窗手机端',
-    );
-    await mobileAdmin.getByRole('heading', { name: /的报名详情$/ }).waitFor();
-    await screenshot(mobileAdmin, 'admin-registration-detail-mobile.png', '报名详情弹窗手机端');
-    await mobileAdmin.getByRole('button', { name: '关闭报名详情' }).click();
+    await mobileAdmin.waitForURL(/\/registrations\/[^/]+/);
+    await mobileAdmin.locator('.registration-detail-page .registration-hero').waitFor();
+    await screenshot(mobileAdmin, 'admin-registration-detail-mobile.png', '报名详情页手机端');
   } else {
-    issues.push('报名管理手机端: 没有可用于详情弹窗验收的报名');
+    issues.push('报名管理手机端: 没有可用于详情页验收的报名');
   }
 
   for (const [path, heading, file, label] of standaloneAdminSurfaces) {
