@@ -44,6 +44,19 @@ const statusLabels: Record<string, string> = {
   succeeded: '已完成',
   queued: '等待处理',
   active: '已启用',
+  valid: '有效',
+  used: '已使用',
+  awaiting_details: '待提交资料',
+  issuing: '开票中',
+  issue_failed: '开票失败',
+  issued: '已开具',
+  adjustment_required: '待调整',
+  voided: '已作废',
+  not_sent: '未发送',
+  preparing: '准备中',
+  query_pending: '查询中',
+  close_pending: '关闭中',
+  unknown: '状态未知',
 };
 
 export function statusLabel(status: string) {
@@ -51,7 +64,7 @@ export function statusLabel(status: string) {
 }
 
 export function statusClass(status: string) {
-  if (['pending_review', 'processing', 'prepublished'].includes(status)) return 'pending';
+  if (['pending_review', 'processing', 'prepublished', 'queued'].includes(status)) return 'pending';
   if (['cancelled', 'closed', 'refunded', 'rejected', 'failed'].includes(status)) return 'issue';
   if (['pending_payment', 'draft', 'configuring'].includes(status)) return 'draft';
   if (['ended', 'archived'].includes(status)) return 'muted';

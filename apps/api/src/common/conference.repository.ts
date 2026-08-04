@@ -6,6 +6,10 @@ import {
   DEMO_IDS,
   isPublicEventStatus,
   type AdminDashboard,
+  type AdminDashboardQuery,
+  type AdminOrderList,
+  type AdminOrderListQuery,
+  type AdminOrderRow,
   type AdminRegistrationDetail,
   type AdminRegistrationList,
   type AdminRegistrationListQuery,
@@ -81,12 +85,6 @@ import {
   type EventReleaseChangeContext,
   type EventReleaseEventField,
 } from './event-release-activation.service.js';
-
-export interface AdminOrderRow extends Order {
-  attendeeName: string;
-  attendeeCompany: string;
-  ticketTypeName: string;
-}
 
 export interface CheckInResultPayload {
   result: 'accepted' | 'duplicate' | 'invalid' | 'forbidden' | 'manual_review';
@@ -449,10 +447,7 @@ export class ConferenceRepository {
         ),
       )
       .where(
-        and(
-          eq(eventSlugAliases.organizationId, organization.id),
-          eq(eventSlugAliases.slug, slug),
-        ),
+        and(eq(eventSlugAliases.organizationId, organization.id), eq(eventSlugAliases.slug, slug)),
       )
       .limit(1);
     if (!alias) {
@@ -489,11 +484,7 @@ export class ConferenceRepository {
     }
 
     const route = await this.resolvePublicEventRoute(slug, organizationSlug);
-    const [event] = await db
-      .select()
-      .from(events)
-      .where(eq(events.id, route.eventId))
-      .limit(1);
+    const [event] = await db.select().from(events).where(eq(events.id, route.eventId)).limit(1);
     if (!event) {
       throw new DomainError(
         API_ERROR_CODES.NOT_FOUND,
@@ -3077,19 +3068,23 @@ export class ConferenceRepository {
 
   async listOrders(
     eventId: EventId = DEMO_IDS.event,
-    filters: { q?: string; status?: string } = {},
+    filters: Partial<AdminOrderListQuery> = {},
     organizationId: string = DEMO_IDS.organization,
-  ) {
+  ): Promise<AdminOrderList> {
+    const requestedPage = Math.max(1, Math.floor(filters.page ?? 1));
+    const pageSize = 20 as const;
     const db = this.database.db;
     if (!db) {
       const query = filters.q?.trim().toLowerCase();
-      return [...this.memory.orders.values()]
+      const matching = [...this.memory.orders.values()]
+        .filter((order) => this.memory.registrations.get(order.registrationId)?.eventId === eventId)
         .filter((order) => !filters.status || order.status === filters.status)
         .map((order): AdminOrderRow => {
           const registration = this.memory.registrations.get(order.registrationId)!;
           return {
             ...order,
             attendeeName: registration.attendee.name,
+            attendeeMobile: registration.attendee.mobile,
             attendeeCompany: registration.attendee.company,
             ticketTypeName: registration.ticketType.name,
           };
@@ -3097,12 +3092,22 @@ export class ConferenceRepository {
         .filter(
           (order) =>
             !query ||
-            [order.orderNo, order.attendeeName, order.attendeeCompany, order.ticketTypeName]
+            [order.orderNo, order.attendeeName, order.attendeeMobile, order.attendeeCompany]
               .join(' ')
               .toLowerCase()
               .includes(query),
         )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      const total = matching.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(requestedPage, totalPages);
+      const start = (page - 1) * pageSize;
+      return {
+        items: matching.slice(start, start + pageSize),
+        total,
+        page,
+        pageSize,
+      };
     }
 
     const conditions = [eq(orders.eventId, eventId), eq(orders.organizationId, organizationId)];
@@ -3114,19 +3119,30 @@ export class ConferenceRepository {
           ilike(orders.orderNo, pattern),
           sql`${registrations.attendee}->>'name' ilike ${pattern}`,
           sql`${registrations.attendee}->>'company' ilike ${pattern}`,
+          sql`${registrations.attendee}->>'mobile' ilike ${pattern}`,
+          ilike(registrations.attendeeMobileE164, pattern),
         )!,
       );
     }
+    const [totalRow] = await db
+      .select({ value: count() })
+      .from(orders)
+      .innerJoin(registrations, eq(orders.registrationId, registrations.id))
+      .where(and(...conditions));
+    const total = Number(totalRow?.value ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
     const rows = await db
       .select({ order: orders, registration: registrations, ticketType: ticketTypes })
       .from(orders)
       .innerJoin(registrations, eq(orders.registrationId, registrations.id))
       .innerJoin(ticketTypes, eq(registrations.ticketTypeId, ticketTypes.id))
       .where(and(...conditions))
-      .orderBy(desc(orders.createdAt))
-      .limit(200);
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
 
-    return rows.map(({ order, registration, ticketType }): AdminOrderRow => ({
+    const items = rows.map(({ order, registration, ticketType }): AdminOrderRow => ({
       id: order.id,
       orderNo: order.orderNo,
       registrationId: order.registrationId,
@@ -3137,14 +3153,17 @@ export class ConferenceRepository {
       expiresAt: order.expiresAt.toISOString(),
       createdAt: order.createdAt.toISOString(),
       attendeeName: registration.attendee.name,
+      attendeeMobile: registration.attendee.mobile,
       attendeeCompany: registration.attendee.company,
       ticketTypeName: ticketType.name,
     }));
+    return { items, total, page, pageSize };
   }
 
   async getDashboard(
     eventId: EventId = DEMO_IDS.event,
     organizationId: string = DEMO_IDS.organization,
+    trendQuery: AdminDashboardQuery = {},
   ): Promise<AdminDashboard> {
     const db = this.database.db;
     if (!db) {
@@ -3156,6 +3175,8 @@ export class ConferenceRepository {
       );
       const paidOrders = orderRows.filter((order) => order.status === 'paid');
       const newCount = Math.max(0, registrationRows.length - 6);
+      const trendRange = this.dashboardTrendRange(trendQuery, this.demoEvent.timezone);
+      const sampleTrend = [18, 24, 31, 27, 38, 42, 55, 49, 63, 68, 74, 82, 77, 91];
       return {
         eventId,
         eventName: this.demoEvent.name,
@@ -3168,12 +3189,15 @@ export class ConferenceRepository {
           conversionRate: 89.7,
           pendingReview: registrationRows.filter((item) => item.status === 'pending_review').length,
         },
-        registrationTrend: [18, 24, 31, 27, 38, 42, 55, 49, 63, 68, 74, 82, 77, 91].map(
-          (value, index) => ({
-            date: new Date(Date.now() - (13 - index) * 86_400_000).toISOString().slice(5, 10),
-            value,
-          }),
-        ),
+        registrationTrend: this.dashboardTrendDates(trendRange).map((date, index, dates) => ({
+          date,
+          value:
+            sampleTrend[
+              (((sampleTrend.length - dates.length + index) % sampleTrend.length) +
+                sampleTrend.length) %
+                sampleTrend.length
+            ] ?? 0,
+        })),
         ticketBreakdown: this.demoEvent.tickets.map((ticket, index) => ({
           id: ticket.id,
           name: ticket.name,
@@ -3237,7 +3261,7 @@ export class ConferenceRepository {
           : 0,
         pendingReview: Number(pendingRows[0]?.value ?? 0),
       },
-      registrationTrend: await this.registrationTrend(eventId),
+      registrationTrend: await this.registrationTrend(eventId, trendQuery, event.timezone),
       ticketBreakdown: ticketRows.map((ticket) => ({
         id: ticket.id,
         name: ticket.name,
@@ -3247,24 +3271,81 @@ export class ConferenceRepository {
     };
   }
 
-  private async registrationTrend(eventId: EventId) {
+  private dashboardTimeZone(timeZone: string) {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone }).format();
+      return timeZone;
+    } catch {
+      return 'UTC';
+    }
+  }
+
+  private dashboardDateInTimeZone(date: Date, timeZone: string) {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+        .formatToParts(date)
+        .filter((part) => part.type !== 'literal')
+        .map((part) => [part.type, part.value]),
+    );
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
+  private dashboardTrendRange(query: AdminDashboardQuery, requestedTimeZone: string) {
+    if (query.from && query.to) return { from: query.from, to: query.to };
+    const timeZone = this.dashboardTimeZone(requestedTimeZone);
+    const to = this.dashboardDateInTimeZone(new Date(), timeZone);
+    const from = new Date(`${to}T00:00:00.000Z`);
+    from.setUTCDate(from.getUTCDate() - (query.days ?? 14) + 1);
+    return {
+      from: from.toISOString().slice(0, 10),
+      to,
+    };
+  }
+
+  private dashboardTrendDates(range: { from: string; to: string }) {
+    const dates: string[] = [];
+    const cursor = new Date(`${range.from}T00:00:00.000Z`);
+    const end = new Date(`${range.to}T00:00:00.000Z`);
+    while (cursor <= end) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+  }
+
+  private async registrationTrend(
+    eventId: EventId,
+    query: AdminDashboardQuery,
+    requestedTimeZone: string,
+  ) {
     const db = this.database.db;
     if (!db) return [];
+    const timeZone = this.dashboardTimeZone(requestedTimeZone);
+    const range = this.dashboardTrendRange(query, timeZone);
     const rows = await db
       .select({
-        date: sql<string>`to_char(date_trunc('day', ${registrations.createdAt}), 'MM-DD')`,
+        date: sql<string>`to_char(date_trunc('day', timezone(${timeZone}, ${registrations.createdAt})), 'YYYY-MM-DD')`,
         value: count(),
       })
       .from(registrations)
       .where(
         and(
           eq(registrations.eventId, eventId),
-          gt(registrations.createdAt, new Date(Date.now() - 14 * 86_400_000)),
+          sql`date(timezone(${timeZone}, ${registrations.createdAt})) between ${range.from}::date and ${range.to}::date`,
         ),
       )
-      .groupBy(sql`date_trunc('day', ${registrations.createdAt})`)
-      .orderBy(sql`date_trunc('day', ${registrations.createdAt})`);
-    return rows.map((row) => ({ date: row.date, value: Number(row.value) }));
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+    const valuesByDate = new Map(rows.map((row) => [row.date, Number(row.value)]));
+    return this.dashboardTrendDates(range).map((date) => ({
+      date,
+      value: valuesByDate.get(date) ?? 0,
+    }));
   }
 
   async checkIn(

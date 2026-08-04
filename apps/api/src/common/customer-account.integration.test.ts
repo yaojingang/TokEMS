@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createHash, randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventId } from '@conference/contracts';
 import {
   auditLogs,
@@ -406,6 +406,71 @@ describePersistent('customer account deletion', () => {
   });
 });
 
+describePersistent('administrator-created customer accounts', () => {
+  const organizationId = randomUUID();
+  const actorId = randomUUID();
+  const database = new DatabaseService();
+  const service = new CustomerAccountService(database);
+
+  beforeAll(async () => {
+    await database.db!.insert(organizations).values({
+      id: organizationId,
+      slug: `customer-create-${organizationId.slice(0, 8)}`,
+      name: '管理员新增用户验收组织',
+    });
+  });
+
+  afterAll(async () => {
+    await database.db!.delete(organizations).where(eq(organizations.id, organizationId));
+    await database.onModuleDestroy();
+  });
+
+  it('normalizes the mobile, creates the profile and records an audit event', async () => {
+    const created = await service.adminCreate(organizationId, actorId, {
+      mobile: '13800138000',
+      realName: '林晓',
+      email: 'linxiao@example.com',
+      company: '灵犀会务',
+    });
+    const detail = await service.adminDetail(organizationId, created.customerId);
+
+    expect(detail.customer).toMatchObject({
+      mobile: '+8613800138000',
+      status: 'active',
+      lastLoginAt: null,
+      profile: {
+        realName: '林晓',
+        email: 'linxiao@example.com',
+        company: '灵犀会务',
+      },
+    });
+    expect(created.customerId).toBeGreaterThanOrEqual(101);
+    await expect(
+      service.adminCreate(organizationId, actorId, { mobile: '+8613800138000' }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      service.adminCreate(organizationId, actorId, { mobile: '12345' }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const [log] = await database
+      .db!.select()
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.organizationId, organizationId),
+          eq(auditLogs.action, 'customer.admin.create'),
+          eq(auditLogs.resourceId, String(created.customerId)),
+        ),
+      )
+      .limit(1);
+    expect(log?.after).toMatchObject({
+      status: 'active',
+      hasEmail: true,
+      profileFields: ['realName', 'email', 'company'],
+    });
+  });
+});
+
 describePersistent('customer invoice center', () => {
   const organizationId = randomUUID();
   const customerUserId = randomUUID();
@@ -672,6 +737,16 @@ describePersistent('customer invoice center', () => {
     expect(pagedOrderIds).toEqual(new Set([orderIds[0], orderIds[1], orderIds[2]]));
   });
 
+  it('isolates administrator invoice reads by conference inside one organization', async () => {
+    const page = await invoices.page(organizationId, { eventId: eventIds[1], limit: 20 });
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.items.every((item) => item.eventId === eventIds[1])).toBe(true);
+
+    await expect(
+      invoices.detail(organizationId, page.items[0]!.id, true, eventIds[0]),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
   it('protects concurrent edits and keeps pending-review revisions out of the state timeline', async () => {
     const before = await account.invoices(session, { category: 'action_required', limit: 20 });
     const awaiting = before.items[0]!;
@@ -739,6 +814,171 @@ describePersistent('customer invoice center', () => {
         expectedUpdatedAt: revised.updatedAt,
       }),
     ).resolves.toMatchObject({ status: 'issuing' });
+  });
+
+  it('atomically replaces and restores an invoice file for the customer frontend', async () => {
+    const before = await invoices.readCustomerOrderInvoice(
+      organizationId,
+      customerUserId,
+      orderIds[2]!,
+    );
+    const document = before.documents[0]!;
+    const previousStorage = {
+      endpoint: process.env.S3_ENDPOINT,
+      publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
+      accessKey: process.env.S3_ACCESS_KEY,
+      secretKey: process.env.S3_SECRET_KEY,
+      bucket: process.env.S3_BUCKET,
+    };
+    process.env.S3_ENDPOINT = 'http://invoice-storage.test';
+    process.env.S3_PUBLIC_ENDPOINT = 'http://invoice-storage.test';
+    process.env.S3_ACCESS_KEY = 'invoice-test-access';
+    process.env.S3_SECRET_KEY = 'invoice-test-secret';
+    process.env.S3_BUCKET = 'invoice-test-bucket';
+    const replacement = new TextEncoder().encode('%PDF-1.7\nreplacement-one');
+    const replacementDigest = createHash('sha256').update(replacement).digest('hex');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(replacement, {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      }),
+    );
+    try {
+      const replaced = await invoices.replaceDocumentFile(
+        organizationId,
+        before.id,
+        document.id,
+        adminUserId,
+        {
+          storageKey: `invoices/${organizationId}/${eventIds[2]}/${before.id}/replacement-one.pdf`,
+          mediaType: 'application/pdf',
+          size: replacement.byteLength,
+          contentDigest: replacementDigest,
+          reason: '修正电子发票文件内容',
+          expectedUpdatedAt: before.updatedAt,
+        },
+        eventIds[2],
+      );
+      expect(replaced).toMatchObject({ status: 'issued', deliveryStatus: 'not_sent' });
+      expect(replaced.documents[0]).toMatchObject({
+        id: document.id,
+        contentDigest: replacementDigest,
+        voidedAt: null,
+      });
+      const customerAfterReplace = await invoices.readCustomerOrderInvoice(
+        organizationId,
+        customerUserId,
+        orderIds[2]!,
+      );
+      expect(customerAfterReplace.documents[0]).toMatchObject({
+        id: document.id,
+        contentDigest: replacementDigest,
+        downloadUrl: expect.stringContaining(`/invoice-documents/${document.id}/download`),
+      });
+      const replacementDownload = new URL(
+        customerAfterReplace.documents[0]!.downloadUrl!,
+        'http://customer.test',
+      );
+      const replacementExpires = Number(replacementDownload.searchParams.get('expires'));
+      const replacementSignature = replacementDownload.searchParams.get('signature')!;
+      const resolvedReplacement = await invoices.resolveInvoiceDownload(
+        orderIds[2]!,
+        document.id,
+        replacementExpires,
+        replacementSignature,
+      );
+      expect(decodeURIComponent(new URL(resolvedReplacement).pathname)).toContain(
+        '/replacement-one.pdf',
+      );
+
+      const deleted = await invoices.voidDocument(
+        organizationId,
+        before.id,
+        document.id,
+        adminUserId,
+        {
+          reason: '删除错误的发票文件',
+          expectedUpdatedAt: replaced.updatedAt,
+        },
+        eventIds[2],
+      );
+      const customerAfterDelete = await invoices.readCustomerOrderInvoice(
+        organizationId,
+        customerUserId,
+        orderIds[2]!,
+      );
+      expect(customerAfterDelete.status).toBe('voided');
+      expect(customerAfterDelete.documents[0]).toMatchObject({
+        id: document.id,
+        downloadUrl: null,
+      });
+      await expect(
+        invoices.resolveInvoiceDownload(
+          orderIds[2]!,
+          document.id,
+          replacementExpires,
+          replacementSignature,
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+
+      const restoredFile = new TextEncoder().encode('%PDF-1.7\nreplacement-two');
+      const restoredDigest = createHash('sha256').update(restoredFile).digest('hex');
+      fetchSpy.mockResolvedValueOnce(
+        new Response(restoredFile, {
+          status: 200,
+          headers: { 'content-type': 'application/pdf' },
+        }),
+      );
+      const restored = await invoices.replaceDocumentFile(
+        organizationId,
+        before.id,
+        document.id,
+        adminUserId,
+        {
+          storageKey: `invoices/${organizationId}/${eventIds[2]}/${before.id}/replacement-two.pdf`,
+          mediaType: 'application/pdf',
+          size: restoredFile.byteLength,
+          contentDigest: restoredDigest,
+          reason: '重新上传正确的发票文件',
+          expectedUpdatedAt: deleted.updatedAt,
+        },
+        eventIds[2],
+      );
+      expect(restored).toMatchObject({ status: 'issued', deliveryStatus: 'not_sent' });
+      expect(restored.documents[0]).toMatchObject({
+        id: document.id,
+        contentDigest: restoredDigest,
+        voidedAt: null,
+      });
+      const customerAfterRestore = await invoices.readCustomerOrderInvoice(
+        organizationId,
+        customerUserId,
+        orderIds[2]!,
+      );
+      expect(customerAfterRestore.documents[0]?.downloadUrl).toContain(
+        `/invoice-documents/${document.id}/download`,
+      );
+      const resolvedRestore = await invoices.resolveInvoiceDownload(
+        orderIds[2]!,
+        document.id,
+        replacementExpires,
+        replacementSignature,
+      );
+      expect(decodeURIComponent(new URL(resolvedRestore).pathname)).toContain(
+        '/replacement-two.pdf',
+      );
+    } finally {
+      fetchSpy.mockRestore();
+      const restore = (name: string, value: string | undefined) => {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      };
+      restore('S3_ENDPOINT', previousStorage.endpoint);
+      restore('S3_PUBLIC_ENDPOINT', previousStorage.publicEndpoint);
+      restore('S3_ACCESS_KEY', previousStorage.accessKey);
+      restore('S3_SECRET_KEY', previousStorage.secretKey);
+      restore('S3_BUCKET', previousStorage.bucket);
+    }
   });
 
   it('queues one customer resend request and treats a repeated click as idempotent', async () => {

@@ -5,8 +5,13 @@ import {
   type AiGenerate,
   type AiRun,
   type AdminDashboard,
+  type AdminDashboardQuery,
+  type AdminOrderList,
+  type AdminOrderListQuery,
+  type AdminOrderRow,
   type AdminPreferences,
   type AdminRegistrationDetail,
+  type AdminRegistrationOperationsDetail,
   type AdminRegistrationList,
   type AdminRegistrationListQuery,
   type AdminRegistrationRow,
@@ -19,6 +24,9 @@ import {
   type ConferenceTemplateSummary,
   type ConferenceTemplateVersion,
   type CreateConferenceTemplate,
+  type CreateCustomerAdmin,
+  type CreateCustomerAdminResult,
+  type CreateRegistrationNote,
   type CreateOrganizationInvitation,
   type CreateOrganizationInvitationResult,
   type CreateEvent,
@@ -48,7 +56,6 @@ import {
   type MembershipStatus,
   type NotificationTemplate,
   type OfflineCheckInSync,
-  type Order,
   type OrganizationHomepageEvent,
   type OrganizationInvitation,
   type OrganizationMember,
@@ -65,6 +72,7 @@ import {
   type TemplateSurface,
   type TestAliyunSmsConfiguration,
   type UpdateAccountProfile,
+  type UpdateAdminRegistrationAttendee,
   type UpdateAliyunSmsConfiguration,
   type UpdateCustomerAdmin,
   type UpdateEvent,
@@ -92,13 +100,12 @@ import {
 } from './admin-entry.js';
 import { routeEventId } from './route-scope.js';
 
-export type { AdminRegistrationDetail, AdminRegistrationRow };
-
-export interface AdminOrderRow extends Order {
-  attendeeName: string;
-  attendeeCompany: string;
-  ticketTypeName: string;
-}
+export type {
+  AdminOrderRow,
+  AdminRegistrationDetail,
+  AdminRegistrationOperationsDetail,
+  AdminRegistrationRow,
+};
 
 export interface CheckInResult {
   result: 'accepted' | 'duplicate' | 'invalid' | 'forbidden' | 'manual_review';
@@ -507,8 +514,12 @@ export const conferenceApi = {
       body: JSON.stringify(input),
     });
   },
-  getDashboard(eventId?: EventId) {
-    return request<AdminDashboard>(`/admin/dashboard?eventId=${eventScope(eventId)}`);
+  getDashboard(filters: AdminDashboardQuery = {}, eventId?: EventId) {
+    const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
+    if (filters.days) query.set('days', String(filters.days));
+    if (filters.from) query.set('from', filters.from);
+    if (filters.to) query.set('to', filters.to);
+    return request<AdminDashboard>(`/admin/dashboard?${query}`);
   },
   async getEvent(slug?: string, eventId?: EventId) {
     if (!slug) {
@@ -540,6 +551,27 @@ export const conferenceApi = {
       `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}`,
     );
   },
+  getRegistrationOperations(registrationId: string, eventId?: EventId) {
+    return request<AdminRegistrationOperationsDetail>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/operations-detail`,
+    );
+  },
+  updateRegistrationAttendee(
+    registrationId: string,
+    input: UpdateAdminRegistrationAttendee,
+    eventId?: EventId,
+  ) {
+    return request<{ attendee: UpdateAdminRegistrationAttendee['attendee']; updatedAt: string }>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/attendee`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  addRegistrationNote(registrationId: string, input: CreateRegistrationNote, eventId?: EventId) {
+    return request<AdminRegistrationOperationsDetail['notes'][number]>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/notes`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
+  },
   getWaitlist(eventId?: EventId) {
     return request<WaitlistEntry[]>(`/admin/events/${eventScope(eventId)}/waitlist`);
   },
@@ -553,11 +585,12 @@ export const conferenceApi = {
       },
     );
   },
-  getOrders(filters: { q?: string; status?: string } = {}, eventId?: EventId) {
+  getOrders(filters: Partial<AdminOrderListQuery> = {}, eventId?: EventId) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.q) query.set('q', filters.q);
     if (filters.status) query.set('status', filters.status);
-    return request<AdminOrderRow[]>(`/admin/orders?${query}`);
+    if (filters.page) query.set('page', String(filters.page));
+    return request<AdminOrderList>(`/admin/orders?${query}`);
   },
   checkIn(payload: Omit<CheckInRequest, 'eventId' | 'checkInListId'>, eventId?: EventId) {
     return request<CheckInResult>('/checkins', {
@@ -607,6 +640,12 @@ export const conferenceApi = {
   },
   getCustomer(userId: number) {
     return request<CustomerAdminDetail>(`/admin/customers/${userId}`);
+  },
+  createCustomer(input: CreateCustomerAdmin) {
+    return request<CreateCustomerAdminResult>('/admin/customers', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
   getCustomerRegistrations(userId: number, cursor?: string, limit = 50) {
     const query = new URLSearchParams({ limit: String(limit) });
@@ -1206,38 +1245,47 @@ export const conferenceApi = {
   getRefunds(eventId?: EventId) {
     return request<Refund[]>(`/admin/refunds?eventId=${eventScope(eventId)}`);
   },
-  getInvoices(filters: InvoiceListQuery = {}) {
+  getInvoices(filters: InvoiceListQuery = {}, eventId?: EventId) {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value) query.set(key, String(value));
     });
     return request<{ items: InvoiceRequest[]; nextCursor: string | null }>(
-      `/admin/invoices?${query}`,
+      `/admin/events/${eventScope(eventId)}/invoices?${query}`,
     );
   },
-  getInvoice(invoiceId: string) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}`);
+  getInvoice(invoiceId: string, eventId?: EventId) {
+    return request<InvoiceRequest>(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}`);
   },
-  getInvoicePendingCount() {
-    return request<{ count: number }>('/admin/invoices/pending-count');
+  getInvoicePendingCount(eventId?: EventId) {
+    return request<{ count: number }>(
+      `/admin/events/${eventScope(eventId)}/invoices/pending-count`,
+    );
   },
-  approveInvoice(invoiceId: string, expectedUpdatedAt: string) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/approve`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-approve-${crypto.randomUUID()}` },
-      body: JSON.stringify({ expectedUpdatedAt }),
-    });
+  approveInvoice(invoiceId: string, expectedUpdatedAt: string, eventId?: EventId) {
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/approve`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-approve-${crypto.randomUUID()}` },
+        body: JSON.stringify({ expectedUpdatedAt }),
+      },
+    );
   },
   invoiceAction(
     invoiceId: string,
     action: 'reject' | 'retry' | 'issue-failed' | 'cancel',
     input: InvoiceAction,
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/${action}`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-${action}-${crypto.randomUUID()}` },
-      body: JSON.stringify(input),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/${action}`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-${action}-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   addInvoiceDocument(
     invoiceId: string,
@@ -1252,12 +1300,16 @@ export const conferenceApi = {
       contentDigest: string;
       replacesDocumentId?: string;
     },
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/documents`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-document-${crypto.randomUUID()}` },
-      body: JSON.stringify(input),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-document-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   prepareInvoiceDocumentUpload(
     invoiceId: string,
@@ -1266,7 +1318,9 @@ export const conferenceApi = {
       mediaType: 'application/pdf' | 'application/ofd';
       size: number;
       contentDigest: string;
+      replaceDocumentId?: string;
     },
+    eventId?: EventId,
   ) {
     return request<{
       uploadUrl: string;
@@ -1274,33 +1328,76 @@ export const conferenceApi = {
       headers: Record<string, string>;
       storageKey: string;
       expiresAt: string;
-    }>(`/admin/invoices/${invoiceId}/document-uploads`, {
+    }>(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/document-uploads`, {
       method: 'POST',
       headers: { 'Idempotency-Key': `invoice-upload-${crypto.randomUUID()}` },
       body: JSON.stringify(input),
     });
+  },
+  replaceInvoiceDocumentFile(
+    invoiceId: string,
+    documentId: string,
+    input: {
+      storageKey: string;
+      mediaType: 'application/pdf' | 'application/ofd';
+      size: number;
+      contentDigest: string;
+      reason: string;
+      expectedUpdatedAt: string;
+    },
+    eventId?: EventId,
+  ) {
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/replace-file`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-replace-file-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   voidInvoiceDocument(
     invoiceId: string,
     documentId: string,
     reason: string,
     expectedUpdatedAt: string,
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/documents/${documentId}/void`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-void-${crypto.randomUUID()}` },
-      body: JSON.stringify({ reason, expectedUpdatedAt }),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/void`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-void-${crypto.randomUUID()}` },
+        body: JSON.stringify({ reason, expectedUpdatedAt }),
+      },
+    );
   },
-  sendInvoice(invoiceId: string) {
-    return request<{ queued: boolean }>(`/admin/invoices/${invoiceId}/send`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-send-${crypto.randomUUID()}` },
-    });
+  sendInvoice(invoiceId: string, eventId?: EventId) {
+    return request<{ queued: boolean }>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/send`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-send-${crypto.randomUUID()}` },
+      },
+    );
   },
-  async downloadInvoiceDocument(invoiceId: string, documentId: string, fileName: string) {
+  requestInvoiceDetailsReminder(invoiceId: string, eventId?: EventId) {
+    return request<{ queued: boolean; alreadyQueued: boolean }>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/details-reminder`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-details-reminder-${crypto.randomUUID()}` },
+      },
+    );
+  },
+  async downloadInvoiceDocument(
+    invoiceId: string,
+    documentId: string,
+    fileName: string,
+    eventId?: EventId,
+  ) {
     const response = await fetch(
-      `${baseURL}/admin/invoices/${invoiceId}/documents/${documentId}/download`,
+      `${baseURL}/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/download`,
       { headers: { Authorization: `Bearer ${session.token.value}` } },
     );
     if (!response.ok) throw new Error('下载电子发票失败');
@@ -1312,17 +1409,21 @@ export const conferenceApi = {
     anchor.click();
     URL.revokeObjectURL(url);
   },
-  async exportInvoices(filters: InvoiceListQuery = {}) {
+  async exportInvoices(filters: InvoiceListQuery = {}, eventId?: EventId) {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value) query.set(key, String(value));
     });
-    const response = await fetch(`${baseURL}/admin/invoices/export.csv?${query}`, {
-      headers: {
-        Authorization: `Bearer ${session.token.value}`,
-        'Idempotency-Key': `invoice-export-${crypto.randomUUID()}`,
+    const scopedEventId = eventScope(eventId);
+    const response = await fetch(
+      `${baseURL}/admin/events/${scopedEventId}/invoices/export.csv?${query}`,
+      {
+        headers: {
+          Authorization: `Bearer ${session.token.value}`,
+          'Idempotency-Key': `invoice-export-${crypto.randomUUID()}`,
+        },
       },
-    });
+    );
     if (!response.ok) throw new Error('导出发票申请失败');
     let downloadResponse = response;
     let exportedRowCount = Number(response.headers.get('x-export-row-count') ?? 0);
@@ -1338,16 +1439,21 @@ export const conferenceApi = {
       let retried = false;
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1_000));
-        job = await request<typeof job>(`/admin/invoices/export-jobs/${job.id}`);
+        job = await request<typeof job>(
+          `/admin/events/${scopedEventId}/invoices/export-jobs/${job.id}`,
+        );
         if (job.status === 'ready' && job.downloadPath) break;
         if (job.status === 'failed' && !retried) {
           retried = true;
-          job = await request<typeof job>(`/admin/invoices/export-jobs/${job.id}/retry`, {
-            method: 'POST',
-            headers: {
-              'Idempotency-Key': `invoice-export-retry-${crypto.randomUUID()}`,
+          job = await request<typeof job>(
+            `/admin/events/${scopedEventId}/invoices/export-jobs/${job.id}/retry`,
+            {
+              method: 'POST',
+              headers: {
+                'Idempotency-Key': `invoice-export-retry-${crypto.randomUUID()}`,
+              },
             },
-          });
+          );
         } else if (job.status === 'failed' || job.status === 'expired') {
           throw new Error(job.error || '导出任务失败，请重新发起');
         }
@@ -1362,7 +1468,7 @@ export const conferenceApi = {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `invoice-requests-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `invoice-requests-${scopedEventId}-${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
     return exportedRowCount;

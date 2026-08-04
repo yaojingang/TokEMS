@@ -1,73 +1,69 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import type { AiRun, NotificationTemplate } from '@conference/contracts';
+import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { conferenceApi, session } from '../lib/api';
-import { dateTime, statusLabel } from '../lib/format';
+import { dateTime, statusClass, statusLabel } from '../lib/format';
 
-const templates = ref<NotificationTemplate[]>([]);
-const deliveries = ref<Array<Record<string, unknown>>>([]);
-const aiRuns = ref<AiRun[]>([]);
-const pending = ref(false);
-const message = ref('');
+type NotificationDelivery = {
+  id: string;
+  channel: string;
+  recipient: string;
+  subject: string;
+  status: string;
+  error?: string | null;
+  sentAt?: string | null;
+  createdAt: string;
+};
+
+const PAGE_SIZE = 20;
+
+const route = useRoute();
+const deliveries = ref<NotificationDelivery[]>([]);
+const page = ref(1);
+const loading = ref(true);
 const errorMessage = ref('');
 const canSend = session.can('event.notification.send');
-const form = reactive({
-  templateId: '',
-  recipient: 'attendee@example.com',
-  attendeeName: '参会人',
-  eventName: '中国第二届 TokEMS 大会',
-  ticketCode: 'TOK-T-00DEMO0001',
-  startsAt: '2026年11月21日 09:00',
-  venue: '深圳湾科技生态园国际会议中心',
-  aiRunId: '',
+const totalPages = computed(() => Math.max(1, Math.ceil(deliveries.value.length / PAGE_SIZE)));
+const paginatedDeliveries = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE;
+  return deliveries.value.slice(start, start + PAGE_SIZE);
 });
-const selected = computed(() => templates.value.find((item) => item.id === form.templateId));
-const approvedRuns = computed(() => aiRuns.value.filter((item) => item.status === 'approved'));
+const visibleRange = computed(() => {
+  if (!deliveries.value.length) return '0 条通知';
+  const start = (page.value - 1) * PAGE_SIZE + 1;
+  const end = start + paginatedDeliveries.value.length - 1;
+  return `第 ${start}–${end} 条，共 ${deliveries.value.length} 条通知`;
+});
+const queuedMessage = computed(() =>
+  route.query.queued === '1' ? '消息通知已加入发送队列。' : '',
+);
 
-async function load() {
-  errorMessage.value = '';
-  try {
-    const [loadedTemplates, loadedDeliveries] = await Promise.all([
-      conferenceApi.getNotificationTemplates(),
-      conferenceApi.getNotificationDeliveries(),
-    ]);
-    templates.value = loadedTemplates;
-    deliveries.value = loadedDeliveries;
-    aiRuns.value = session.can('event.ai.read') ? await conferenceApi.getAiRuns() : [];
-    if (session.can('event.read')) {
-      const event = await conferenceApi.getEvent();
-      form.eventName = event.name;
-      form.startsAt = `${dateTime(event.startsAt)} 至 ${dateTime(event.endsAt)}`;
-      form.venue = `${event.city} · ${event.venue}`;
-    }
-    form.templateId ||= templates.value[0]?.id ?? '';
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '通知数据读取失败';
-  }
+function channelLabel(channel: string) {
+  return (
+    {
+      email: '邮件',
+      sms: '短信',
+      wechat: '微信',
+    }[channel] ?? channel
+  );
 }
 
-async function queue() {
-  pending.value = true;
+function changePage(nextPage: number) {
+  page.value = Math.min(Math.max(nextPage, 1), totalPages.value);
+  const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  window.scrollTo({ top: 0, behavior });
+}
+
+async function load() {
+  loading.value = true;
   errorMessage.value = '';
   try {
-    await conferenceApi.queueNotification({
-      templateId: form.templateId,
-      recipient: form.recipient,
-      variables: {
-        attendeeName: form.attendeeName,
-        eventName: form.eventName,
-        ticketCode: form.ticketCode,
-        startsAt: form.startsAt,
-        venue: form.venue,
-      },
-      ...(form.aiRunId ? { aiRunId: form.aiRunId } : {}),
-    });
-    message.value = '通知已进入 Outbox，Worker 将完成投递并更新状态。';
-    await load();
+    deliveries.value = (await conferenceApi.getNotificationDeliveries()) as NotificationDelivery[];
+    page.value = Math.min(page.value, totalPages.value);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '通知入队失败';
+    errorMessage.value = error instanceof Error ? error.message : '通知数据读取失败';
   } finally {
-    pending.value = false;
+    loading.value = false;
   }
 }
 
@@ -78,90 +74,200 @@ onMounted(() => void load());
   <header class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">MESSAGE OPERATIONS</p>
-      <h1>模板通知与投递记录</h1>
-      <p>模板变量在入队时固化，AI 生成内容需要完成审核后才能进入发送流程。</p>
+      <h1>通知中心</h1>
+      <p>查看当前大会的消息通知、接收对象与投递状态。</p>
     </div>
-    <span class="status-badge">OUTBOX ENABLED</span>
   </header>
+
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
+  <p v-if="queuedMessage" class="admin-success" role="status">{{ queuedMessage }}</p>
 
-  <div class="content-grid">
-    <section v-if="canSend" class="admin-panel">
-      <header class="admin-panel-header">
-        <div>
-          <h2>发送测试通知</h2>
-          <p>{{ selected?.subject ?? '选择通知模板' }}</p>
-        </div>
-      </header>
-      <form class="event-form" @submit.prevent="queue">
-        <div class="form-grid">
-          <div class="form-field full">
-            <label for="notification-template">通知模板</label><select id="notification-template" v-model="form.templateId" required>
-              <option v-for="item in templates" :key="item.id" :value="item.id">
-                {{ item.name }} · V{{ item.version }}
-              </option>
-            </select>
-          </div>
-          <div class="form-field full">
-            <label for="notification-recipient">接收地址</label><input id="notification-recipient" v-model="form.recipient" type="email" required />
-          </div>
-          <div class="form-field">
-            <label for="notification-attendee">参会人</label><input id="notification-attendee" v-model="form.attendeeName" />
-          </div>
-          <div class="form-field">
-            <label for="notification-event">大会名称</label><input id="notification-event" v-model="form.eventName" />
-          </div>
-          <div class="form-field">
-            <label for="notification-ticket">票号</label><input id="notification-ticket" v-model="form.ticketCode" />
-          </div>
-          <div class="form-field">
-            <label for="notification-starts-at">大会时间</label><input id="notification-starts-at" v-model="form.startsAt" />
-          </div>
-          <div class="form-field full">
-            <label for="notification-ai-run">AI 审核记录，可选</label><select id="notification-ai-run" v-model="form.aiRunId">
-              <option value="">使用模板正文</option>
-              <option v-for="run in approvedRuns" :key="run.id" :value="run.id">
-                {{ run.task }} · {{ run.output.slice(0, 36) }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <div class="event-form-actions">
-          <span class="operation-event-context">发送范围 · {{ form.eventName }}</span>
-          <button class="button" type="submit" :disabled="pending || !form.templateId">
-            {{ pending ? '正在入队…' : '加入发送队列' }}
-          </button>
-        </div>
-      </form>
-    </section>
+  <section class="admin-panel reveal is-visible">
+    <header class="admin-panel-header">
+      <div>
+        <h2>通知列表</h2>
+        <p>每页显示 20 条，最新通知排在最前</p>
+      </div>
+      <div class="admin-head-actions">
+        <span class="status-badge">{{ deliveries.length }} MESSAGES</span>
+        <RouterLink
+          v-if="canSend"
+          class="button"
+          :to="{
+            name: 'event-notification-create',
+            params: { eventId: route.params.eventId },
+          }"
+        >
+          新建消息通知
+        </RouterLink>
+      </div>
+    </header>
 
-    <section class="admin-panel">
-      <header class="admin-panel-header">
-        <div>
-          <h2>最近投递</h2>
-          <p>由 Worker 更新最终状态</p>
-        </div>
-        <div class="row-actions">
-          <button class="button secondary compact" type="button" @click="load">刷新状态</button>
-          <span class="status-badge">{{ deliveries.length }}</span>
-        </div>
-      </header>
-      <ul class="operations-list">
-        <li v-for="item in deliveries" :key="String(item.id)">
-          <div>
-            <strong>{{ item.subject }}</strong><small>{{ item.recipient }} · {{ dateTime(String(item.createdAt)) }}</small>
-          </div>
-          <span class="status-badge" :class="{ success: item.status === 'sent' }">{{
-            statusLabel(String(item.status))
-          }}</span>
-        </li>
-        <li v-if="!deliveries.length">
-          <div>
-            <strong>暂无投递记录</strong><small>发送一条测试通知后可在这里追踪状态。</small>
-          </div>
-        </li>
-      </ul>
-    </section>
-  </div>
+    <div class="data-table-wrap">
+      <table class="data-table notification-table">
+        <caption class="sr-only">
+          大会消息通知列表
+        </caption>
+        <thead>
+          <tr>
+            <th>消息内容</th>
+            <th>接收对象</th>
+            <th>渠道</th>
+            <th>状态</th>
+            <th>创建时间</th>
+            <th>发送时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in paginatedDeliveries" :key="item.id">
+            <td class="notification-subject-cell">
+              <span class="row-title">{{ item.subject }}</span>
+              <span class="row-sub mono-code">{{ item.id }}</span>
+            </td>
+            <td class="mono-code">{{ item.recipient }}</td>
+            <td>{{ channelLabel(item.channel) }}</td>
+            <td>
+              <span class="status-badge" :class="statusClass(item.status)">
+                {{ statusLabel(item.status) }}
+              </span>
+              <span v-if="item.error" class="row-sub notification-error">{{ item.error }}</span>
+            </td>
+            <td>{{ dateTime(item.createdAt) }}</td>
+            <td>{{ item.sentAt ? dateTime(item.sentAt) : '等待发送' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="loading" class="admin-loading" role="status">正在读取通知记录…</div>
+      <div v-else-if="!deliveries.length" class="admin-empty">
+        当前大会暂无通知记录，可以新建第一条消息通知。
+      </div>
+    </div>
+
+    <footer class="table-footer notification-pagination">
+      <span>{{ visibleRange }} · 时间均为 Asia/Shanghai</span>
+      <nav v-if="totalPages > 1" class="notification-page-nav" aria-label="通知列表分页">
+        <button
+          type="button"
+          aria-label="上一页"
+          :disabled="page === 1"
+          @click="changePage(page - 1)"
+        >
+          ‹
+        </button>
+        <button
+          v-for="pageNumber in totalPages"
+          :key="pageNumber"
+          type="button"
+          :class="{ active: pageNumber === page }"
+          :aria-current="pageNumber === page ? 'page' : undefined"
+          :aria-label="`第 ${pageNumber} 页`"
+          @click="changePage(pageNumber)"
+        >
+          {{ pageNumber }}
+        </button>
+        <button
+          type="button"
+          aria-label="下一页"
+          :disabled="page === totalPages"
+          @click="changePage(page + 1)"
+        >
+          ›
+        </button>
+      </nav>
+    </footer>
+  </section>
 </template>
+
+<style scoped>
+.notification-table {
+  min-width: 920px;
+}
+
+.notification-subject-cell {
+  min-width: 320px;
+}
+
+.notification-error {
+  max-width: 240px;
+  color: var(--red);
+  white-space: normal;
+}
+
+.notification-pagination {
+  min-height: 64px;
+  flex-wrap: wrap;
+}
+
+.notification-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.notification-page-nav button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-family: var(--mono);
+  font-size: 10px;
+  transition:
+    color 140ms var(--ease),
+    background-color 140ms var(--ease),
+    border-color 140ms var(--ease),
+    transform 140ms var(--ease);
+}
+
+.notification-page-nav button:active {
+  transform: scale(0.96);
+}
+
+.notification-page-nav button.active {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.notification-page-nav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.notification-page-nav button:focus-visible {
+  border-color: var(--blue);
+  outline: 2px solid color-mix(in srgb, var(--blue) 18%, transparent);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .notification-page-nav button:hover:not(:disabled, .active) {
+    color: var(--blue);
+    background: var(--blue-soft);
+    border-color: color-mix(in srgb, var(--blue) 28%, var(--line));
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-panel-header .admin-head-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .notification-pagination {
+    justify-content: center;
+  }
+
+  .notification-pagination > span {
+    width: 100%;
+    text-align: center;
+  }
+}
+</style>

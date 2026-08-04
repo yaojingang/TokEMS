@@ -5,6 +5,9 @@ import {
   clearLegacyEventPreference,
   createEventOptionsLoader,
   createLatestPreferenceWriter,
+  eventLandingRouteName,
+  hasEventWorkspaceLanding,
+  managementLandingRouteName,
   mergeEventContextOption,
   readRecentEventId,
   recentEventStorageKey,
@@ -28,6 +31,33 @@ function event(id: EventId, status: EventContextOption['status']): EventContextO
 }
 
 describe('administrator entry resolution', () => {
+  it('does not expose a workspace landing page for check-in-only permissions', () => {
+    const grants = ['event.read', 'event.checkin.execute', 'event.checkin.manage'];
+
+    expect(eventLandingRouteName(grants)).toBe('forbidden');
+    expect(hasEventWorkspaceLanding(grants)).toBe(false);
+  });
+
+  it('routes conference-scoped invoice users into the conference workspace', () => {
+    const grants = ['event.read', 'org.invoice.read'];
+
+    expect(eventLandingRouteName(grants)).toBe('event-invoices');
+    expect(managementLandingRouteName(['org.invoice.read'])).toBe('forbidden');
+    expect(
+      resolveAdminEntry({
+        grants,
+        events: [event(101, 'in_progress')],
+      }),
+    ).toMatchObject({
+      route: { name: 'event-invoices', params: { eventId: 101 } },
+      reason: 'single_live',
+    });
+  });
+
+  it('routes AI readers directly to the unified content workspace', () => {
+    expect(eventLandingRouteName(['event.read', 'event.ai.read'])).toBe('event-content');
+  });
+
   it('keeps known same-origin redirects and rejects unsafe or looping targets', () => {
     const knownRoute = (path: string) => path.startsWith('/events/') || path === '/manage/events';
 

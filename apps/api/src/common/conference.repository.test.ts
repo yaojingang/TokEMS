@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_EVENT, type PublicEvent } from '@conference/contracts';
 import {
   ConferenceRepository,
@@ -17,6 +17,7 @@ describe('ConferenceRepository in-memory operational loop', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
     else delete process.env.DATABASE_URL;
   });
@@ -211,6 +212,36 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(dashboard.metrics.checkedIn).toBe(1);
   });
 
+  it('returns every day in a custom dashboard trend range', async () => {
+    const dashboard = await repository.getDashboard(DEMO_EVENT.id, DEMO_EVENT.organizationId, {
+      from: '2026-07-06',
+      to: '2026-08-04',
+    });
+
+    expect(dashboard.registrationTrend).toHaveLength(30);
+    expect(dashboard.registrationTrend[0]?.date).toBe('2026-07-06');
+    expect(dashboard.registrationTrend.at(-1)?.date).toBe('2026-08-04');
+  });
+
+  it('returns the requested number of preset trend days', async () => {
+    const dashboard = await repository.getDashboard(DEMO_EVENT.id, DEMO_EVENT.organizationId, {
+      days: 30,
+    });
+
+    expect(dashboard.registrationTrend).toHaveLength(30);
+  });
+
+  it('anchors preset trend days to the event timezone', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T16:30:00.000Z'));
+
+    const dashboard = await repository.getDashboard(DEMO_EVENT.id, DEMO_EVENT.organizationId, {
+      days: 1,
+    });
+
+    expect(dashboard.registrationTrend.map((item) => item.date)).toEqual(['2026-08-04']);
+  });
+
   it('keeps in-memory demo tickets readable through the strict new-ticket contract', async () => {
     const ticket = await repository.getTicket('TOK-T-0000000001');
 
@@ -242,7 +273,40 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(updated.tagline).toBe('测试后的大会主张');
     expect(registrations.items).toHaveLength(1);
     expect(registrations.total).toBe(1);
-    expect(orders.every((order) => order.status === 'paid')).toBe(true);
+    expect(orders.items.every((order) => order.status === 'paid')).toBe(true);
+    expect(orders.pageSize).toBe(20);
+  });
+
+  it('searches orders by attendee mobile', async () => {
+    const result = await repository.listOrders(DEMO_EVENT.id, { q: '13800002101' });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      attendeeName: '王欣怡',
+      attendeeMobile: '13800002101',
+    });
+  });
+
+  it('returns exactly 20 orders per page', async () => {
+    for (let index = 0; index < 11; index += 1) {
+      const suffix = String(3000 + index);
+      const input = registrationInput();
+      const actor = customerActor();
+      input.attendee.mobile = `1390000${suffix}`;
+      input.attendee.email = `pagination-${index}@example.com`;
+      actor.customerUserId = `11111111-1111-4111-8111-${String(200 + index).padStart(12, '0')}`;
+      actor.mobile = `+861390000${suffix}`;
+      actor.profile.email = input.attendee.email;
+      await repository.createCheckout(input, `order-pagination-${index}-key`, actor);
+    }
+
+    const firstPage = await repository.listOrders(DEMO_EVENT.id, { page: 1 });
+    const secondPage = await repository.listOrders(DEMO_EVENT.id, { page: 2 });
+
+    expect(firstPage).toMatchObject({ total: 21, page: 1, pageSize: 20 });
+    expect(firstPage.items).toHaveLength(20);
+    expect(secondPage).toMatchObject({ total: 21, page: 2, pageSize: 20 });
+    expect(secondPage.items).toHaveLength(1);
   });
 
   it('keeps an offline demo event readable to administrators', async () => {

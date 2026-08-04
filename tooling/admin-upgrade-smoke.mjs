@@ -64,6 +64,10 @@ try {
   assert(await page.locator('.event-context-switcher').isVisible(), '大会工作台缺少当前大会切换器');
   assert(await page.getByRole('link', { name: /管理中心/ }).isVisible(), '大会工作台缺少管理中心入口');
   assert(await page.getByRole('link', { name: /访问大会前台/ }).isVisible(), '大会工作台缺少大会前台入口');
+  assert(
+    (await page.locator('.workspace-label, .admin-command-search, .tool-button').count()) === 0,
+    '大会工作台仍显示已精简的顶部标题、全局搜索或工具按钮',
+  );
 
   await page.getByRole('link', { name: /管理中心/ }).click();
   await page.waitForURL(/\/manage\/events/);
@@ -72,6 +76,7 @@ try {
     !(await page.getByRole('link', { name: /访问大会前台/ }).count()),
     '管理中心不应显示大会前台入口',
   );
+  assert(!(await page.locator('.admin-topbar').isVisible()), '管理中心仍保留空白顶部工具栏');
 
   await page.getByRole('button', { name: '创建大会' }).click();
   await page.locator('#event-timezone').waitFor();

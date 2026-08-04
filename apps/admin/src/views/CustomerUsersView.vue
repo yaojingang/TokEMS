@@ -6,20 +6,32 @@ import type {
   CustomerAdminExportQuery,
   CustomerAdminSummary,
   CustomerStatus,
+  OrganizationInvitation,
+  OrganizationMember,
 } from '@conference/contracts';
 import { conferenceApi, session } from '../lib/api';
+import { buildOrganizationInvitationAcceptanceUrl } from '../lib/organization-invitation';
+import { organizationRoleLabel } from '../lib/roles';
+
+type DirectoryKind = 'customers' | 'administrators';
+type CreateAccountKind = 'customer' | 'administrator';
 
 const items = ref<CustomerAdminSummary[]>([]);
 const selected = ref<CustomerAdminDetail>();
 const deleteTarget = ref<CustomerAdminSummary>();
 const detailDialog = ref<HTMLDialogElement>();
 const deleteDialog = ref<HTMLDialogElement>();
+const createAccountDialog = ref<HTMLDialogElement>();
 const customerListHeading = ref<HTMLElement>();
 const detailTrigger = ref<HTMLButtonElement>();
 const deleteTrigger = ref<HTMLButtonElement>();
+const createAccountTrigger = ref<HTMLButtonElement>();
 const registrationHistoryHeading = ref<HTMLElement>();
 const detailOpen = ref(false);
 const deleteOpen = ref(false);
+const createAccountOpen = ref(false);
+const createAccountKind = ref<CreateAccountKind>('customer');
+const activeDirectory = ref<DirectoryKind>('customers');
 const exportConfirmation = ref(false);
 const exporting = ref(false);
 const appliedFilters = ref<CustomerAdminExportQuery>({});
@@ -34,6 +46,12 @@ const historyLoading = ref(false);
 const invoiceHistoryLoading = ref(false);
 const pending = ref(false);
 const deletePending = ref(false);
+const createAccountPending = ref(false);
+const administratorsLoading = ref(false);
+const administratorsLoaded = ref(false);
+const administrators = ref<OrganizationMember[]>([]);
+const administratorInvitations = ref<OrganizationInvitation[]>([]);
+const acceptanceLink = ref('');
 const total = ref(0);
 const page = ref(1);
 const totalPages = ref(1);
@@ -42,6 +60,7 @@ const errorMessage = ref('');
 const detailMessage = ref('');
 const detailErrorMessage = ref('');
 const deleteErrorMessage = ref('');
+const createAccountErrorMessage = ref('');
 let loadRequestId = 0;
 const filters = reactive({
   q: '',
@@ -58,10 +77,30 @@ const form = reactive({
   internalNote: '',
   tags: '',
 });
+const createCustomerForm = reactive({
+  mobile: '',
+  nickname: '',
+  realName: '',
+  email: '',
+  company: '',
+  title: '',
+  city: '',
+});
+const createAdministratorForm = reactive({ email: '' });
 const canManage = computed(() => session.can('customer.manage'));
 const canManageStatus = computed(() => session.can('customer.status.manage'));
 const canDelete = computed(() => session.can('customer.delete'));
 const canExport = computed(() => session.canAll(['customer.read', 'customer.export']));
+const canReadAdministrators = computed(() => session.can('org.member.read'));
+const canCreateAdministrator = computed(() => session.can('*'));
+const pendingAdministratorInvitations = computed(() =>
+  administratorInvitations.value.filter((item) => item.status === 'pending'),
+);
+const directoryCountLabel = computed(() =>
+  activeDirectory.value === 'customers'
+    ? `${total.value} USERS`
+    : `${administrators.value.length} ADMINS`,
+);
 const hasFilters = computed(() => Boolean(filters.q.trim() || filters.status));
 const selectedSummary = computed(() =>
   items.value.find((item) => item.id === selected.value?.customer.id),
@@ -123,6 +162,10 @@ const invoiceStatusLabel: Record<string, string> = {
   voided: '已作废',
   cancelled: '已取消',
 };
+
+function registrationStatus(value: string) {
+  return registrationStatusLabel[value] || value;
+}
 
 function date(value: string | null | undefined) {
   if (!value) return '暂无';
@@ -216,6 +259,130 @@ async function load(targetPage = 1, reuseAppliedFilters = false) {
     if (requestId === loadRequestId) {
       loading.value = false;
     }
+  }
+}
+
+async function loadAdministrators(force = false) {
+  if (!canReadAdministrators.value || (administratorsLoaded.value && !force)) return;
+  administratorsLoading.value = true;
+  errorMessage.value = '';
+  try {
+    const [members, invitations] = await Promise.all([
+      conferenceApi.getMembers(),
+      conferenceApi.getInvitations(),
+    ]);
+    administrators.value = members;
+    administratorInvitations.value = invitations;
+    administratorsLoaded.value = true;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '管理员列表读取失败';
+  } finally {
+    administratorsLoading.value = false;
+  }
+}
+
+async function switchDirectory(directory: DirectoryKind) {
+  activeDirectory.value = directory;
+  exportConfirmation.value = false;
+  closeMenu();
+  if (directory === 'administrators') await loadAdministrators();
+}
+
+function resetCreateAccountForm() {
+  Object.assign(createCustomerForm, {
+    mobile: '',
+    nickname: '',
+    realName: '',
+    email: '',
+    company: '',
+    title: '',
+    city: '',
+  });
+  createAdministratorForm.email = '';
+  acceptanceLink.value = '';
+  createAccountErrorMessage.value = '';
+}
+
+async function openCreateAccount(kind: CreateAccountKind, event: MouseEvent) {
+  createAccountKind.value = kind;
+  createAccountTrigger.value = event.currentTarget as HTMLButtonElement;
+  resetCreateAccountForm();
+  createAccountOpen.value = true;
+  await nextTick();
+  if (createAccountDialog.value && !createAccountDialog.value.open) {
+    createAccountDialog.value.showModal();
+  }
+}
+
+async function closeCreateAccount() {
+  if (createAccountPending.value) return;
+  const trigger = createAccountTrigger.value;
+  createAccountDialog.value?.close();
+  createAccountOpen.value = false;
+  resetCreateAccountForm();
+  await nextTick();
+  trigger?.focus();
+}
+
+function closeCreateAccountFromBackdrop(event: MouseEvent) {
+  if (event.target === event.currentTarget) void closeCreateAccount();
+}
+
+async function createCustomer() {
+  createAccountPending.value = true;
+  createAccountErrorMessage.value = '';
+  try {
+    const result = await conferenceApi.createCustomer({
+      mobile: createCustomerForm.mobile.trim(),
+      nickname: createCustomerForm.nickname.trim() || null,
+      realName: createCustomerForm.realName.trim() || null,
+      email: createCustomerForm.email.trim() || null,
+      company: createCustomerForm.company.trim() || null,
+      title: createCustomerForm.title.trim() || null,
+      city: createCustomerForm.city.trim() || null,
+    });
+    createAccountDialog.value?.close();
+    createAccountOpen.value = false;
+    resetCreateAccountForm();
+    activeDirectory.value = 'customers';
+    message.value = `用户 ${result.customerId} 已创建。`;
+    await load(1);
+  } catch (error) {
+    createAccountErrorMessage.value = error instanceof Error ? error.message : '用户创建失败';
+  } finally {
+    createAccountPending.value = false;
+  }
+}
+
+async function createAdministrator() {
+  createAccountPending.value = true;
+  createAccountErrorMessage.value = '';
+  try {
+    const result = await conferenceApi.createInvitation({
+      email: createAdministratorForm.email.trim(),
+      role: 'organization_admin',
+      grants: ['*'],
+    });
+    administratorInvitations.value.unshift(result.invitation);
+    acceptanceLink.value = buildOrganizationInvitationAcceptanceUrl(
+      result.acceptanceToken,
+      session.identity.value?.organization.slug ?? '',
+    );
+    administratorsLoaded.value = true;
+    message.value = '管理员邀请已创建，请复制一次性链接并发送给对方。';
+  } catch (error) {
+    createAccountErrorMessage.value = error instanceof Error ? error.message : '管理员邀请创建失败';
+  } finally {
+    createAccountPending.value = false;
+  }
+}
+
+async function copyAcceptanceLink() {
+  try {
+    await navigator.clipboard.writeText(acceptanceLink.value);
+    message.value = '管理员邀请链接已复制。';
+  } catch {
+    createAccountErrorMessage.value = '邀请链接复制失败，请手动复制。';
   }
 }
 
@@ -487,6 +654,7 @@ function closeMenuOnViewportChange() {
 
 onMounted(() => {
   void load();
+  if (canReadAdministrators.value) void loadAdministrators();
   window.addEventListener('resize', closeMenuOnViewportChange);
   window.addEventListener('scroll', closeMenuOnViewportChange, true);
 });
@@ -502,15 +670,57 @@ onBeforeUnmount(() => {
     <div>
       <p class="eyebrow">CUSTOMER DIRECTORY</p>
       <h1>用户管理</h1>
-      <p>查看前台普通用户、报名大会、最近活动与发票记录。</p>
+      <p>集中维护前台普通用户与后台管理员账号。</p>
     </div>
-    <span class="status-badge">{{ total }} USERS</span>
+    <div class="directory-page-actions">
+      <span class="status-badge">{{ directoryCountLabel }}</span>
+      <button
+        v-if="canManage"
+        class="button secondary compact"
+        type="button"
+        @click="openCreateAccount('customer', $event)"
+      >
+        新增用户
+      </button>
+      <button
+        v-if="canCreateAdministrator"
+        class="button compact"
+        type="button"
+        @click="openCreateAccount('administrator', $event)"
+      >
+        新增管理员
+      </button>
+    </div>
   </header>
 
   <p v-if="message" class="admin-success" role="status">{{ message }}</p>
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
-  <section class="admin-panel customer-list-panel">
+  <nav class="directory-tabs" aria-label="用户目录">
+    <button
+      class="directory-tab"
+      :class="{ active: activeDirectory === 'customers' }"
+      type="button"
+      :aria-current="activeDirectory === 'customers' ? 'page' : undefined"
+      @click="switchDirectory('customers')"
+    >
+      <span>普通用户</span>
+      <b>{{ total }}</b>
+    </button>
+    <button
+      v-if="canReadAdministrators"
+      class="directory-tab"
+      :class="{ active: activeDirectory === 'administrators' }"
+      type="button"
+      :aria-current="activeDirectory === 'administrators' ? 'page' : undefined"
+      @click="switchDirectory('administrators')"
+    >
+      <span>管理员</span>
+      <b>{{ administrators.length }}</b>
+    </button>
+  </nav>
+
+  <section v-if="activeDirectory === 'customers'" class="admin-panel customer-list-panel">
     <header class="admin-panel-header">
       <div>
         <h2 ref="customerListHeading" tabindex="-1">全部普通用户</h2>
@@ -641,10 +851,7 @@ onBeforeUnmount(() => {
               >
                 <strong>{{ item.latestRegistration.eventName }}</strong>
                 <span>
-                  {{
-                    registrationStatusLabel[item.latestRegistration.registrationStatus] ||
-                      item.latestRegistration.registrationStatus
-                  }}
+                  {{ registrationStatus(item.latestRegistration.registrationStatus) }}
                   · {{ date(item.latestRegistration.createdAt) }}
                 </span>
               </button>
@@ -752,6 +959,272 @@ onBeforeUnmount(() => {
       </nav>
     </footer>
   </section>
+
+  <section v-else class="admin-panel administrator-list-panel">
+    <header class="admin-panel-header">
+      <div>
+        <h2>全部管理员</h2>
+        <p>显示可进入后台的组织成员、角色和当前访问状态</p>
+      </div>
+    </header>
+
+    <section
+      v-if="pendingAdministratorInvitations.length"
+      class="administrator-pending"
+      aria-labelledby="administrator-pending-title"
+    >
+      <div>
+        <strong id="administrator-pending-title">
+          {{ pendingAdministratorInvitations.length }} 个邀请待接受
+        </strong>
+        <p>对方完成账号设置后会自动进入管理员列表。</p>
+      </div>
+      <ul>
+        <li v-for="invitation in pendingAdministratorInvitations" :key="invitation.id">
+          <span>{{ invitation.email }}</span>
+          <small>{{ date(invitation.expiresAt) }} 到期</small>
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="administratorsLoading" class="admin-loading">正在载入管理员…</div>
+    <div v-else class="data-table-wrap">
+      <table class="data-table administrator-table">
+        <caption class="sr-only">
+          管理员列表
+        </caption>
+        <thead>
+          <tr>
+            <th>用户 ID</th>
+            <th>管理员</th>
+            <th>手机号</th>
+            <th>角色</th>
+            <th>公司与职位</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="administrator in administrators" :key="administrator.id">
+            <td class="administrator-id" data-label="用户 ID">{{ administrator.userId }}</td>
+            <td data-label="管理员">
+              <span class="row-title">
+                {{ administrator.name }}
+                <small v-if="administrator.userId === session.identity.value?.user.id">你</small>
+              </span>
+              <span class="row-sub">{{ administrator.email }}</span>
+            </td>
+            <td data-label="手机号">{{ domesticMobile(administrator.mobile) || '未填写' }}</td>
+            <td data-label="角色">
+              <span class="status-badge">{{ organizationRoleLabel(administrator.role) }}</span>
+            </td>
+            <td data-label="公司与职位">
+              {{ administrator.profile?.company || '未填写' }}
+              <span v-if="administrator.profile?.title" class="row-sub">
+                {{ administrator.profile.title }}
+              </span>
+            </td>
+            <td data-label="状态">
+              <span
+                class="status-badge"
+                :class="administrator.status === 'active' ? 'paid' : 'draft'"
+              >
+                {{ administrator.status === 'active' ? '已启用' : '已停用' }}
+              </span>
+            </td>
+          </tr>
+          <tr v-if="!administrators.length">
+            <td colspan="6" class="admin-empty">当前没有可显示的管理员。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog
+    v-if="createAccountOpen"
+    ref="createAccountDialog"
+    class="account-create-dialog"
+    :aria-labelledby="
+      createAccountKind === 'customer' ? 'create-customer-title' : 'create-administrator-title'
+    "
+    @cancel.prevent="closeCreateAccount"
+    @click="closeCreateAccountFromBackdrop"
+  >
+    <header>
+      <div>
+        <p class="eyebrow">
+          {{ createAccountKind === 'customer' ? 'NEW CUSTOMER' : 'NEW ADMINISTRATOR' }}
+        </p>
+        <h2
+          :id="
+            createAccountKind === 'customer'
+              ? 'create-customer-title'
+              : 'create-administrator-title'
+          "
+        >
+          {{ createAccountKind === 'customer' ? '新增普通用户' : '新增管理员' }}
+        </h2>
+        <p>
+          {{
+            createAccountKind === 'customer'
+              ? '创建可使用手机验证码登录的前台账号。'
+              : '创建完整权限的组织管理员邀请。'
+          }}
+        </p>
+      </div>
+      <button
+        class="customer-detail-close"
+        type="button"
+        :disabled="createAccountPending"
+        @click="closeCreateAccount"
+      >
+        <span aria-hidden="true">×</span>关闭
+      </button>
+    </header>
+
+    <form
+      v-if="createAccountKind === 'customer'"
+      id="create-customer-form"
+      class="account-create-form"
+      @submit.prevent="createCustomer"
+    >
+      <div class="form-grid">
+        <div class="form-field full">
+          <label for="create-customer-mobile">登录手机号</label>
+          <input
+            id="create-customer-mobile"
+            v-model="createCustomerForm.mobile"
+            type="tel"
+            inputmode="tel"
+            autocomplete="off"
+            required
+            placeholder="13800138000"
+          />
+          <small>中国大陆手机号，用户首次登录时仍需通过短信验证码。</small>
+        </div>
+        <div class="form-field">
+          <label for="create-customer-real-name">真实姓名</label>
+          <input
+            id="create-customer-real-name"
+            v-model="createCustomerForm.realName"
+            maxlength="120"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-nickname">用户名</label>
+          <input
+            id="create-customer-nickname"
+            v-model="createCustomerForm.nickname"
+            maxlength="80"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-email">邮箱</label>
+          <input
+            id="create-customer-email"
+            v-model="createCustomerForm.email"
+            type="email"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-company">公司</label>
+          <input
+            id="create-customer-company"
+            v-model="createCustomerForm.company"
+            maxlength="160"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-title">职位</label>
+          <input
+            id="create-customer-title"
+            v-model="createCustomerForm.title"
+            maxlength="100"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-city">城市</label>
+          <input
+            id="create-customer-city"
+            v-model="createCustomerForm.city"
+            maxlength="80"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+      </div>
+    </form>
+
+    <form
+      v-else
+      id="create-administrator-form"
+      class="account-create-form"
+      @submit.prevent="createAdministrator"
+    >
+      <div class="form-field">
+        <label for="create-administrator-email">管理员邮箱</label>
+        <input
+          id="create-administrator-email"
+          v-model="createAdministratorForm.email"
+          type="email"
+          autocomplete="off"
+          required
+          placeholder="name@example.com"
+          :disabled="Boolean(acceptanceLink)"
+        />
+        <small>对方通过邀请链接设置姓名和密码，链接接受后立即失效。</small>
+      </div>
+      <div v-if="acceptanceLink" class="administrator-invitation-link">
+        <span>一次性邀请链接</span>
+        <code>{{ acceptanceLink }}</code>
+        <button class="button secondary compact" type="button" @click="copyAcceptanceLink">
+          复制链接
+        </button>
+      </div>
+    </form>
+
+    <p v-if="createAccountErrorMessage" class="admin-error" role="alert">
+      {{ createAccountErrorMessage }}
+    </p>
+
+    <footer>
+      <button
+        class="button secondary"
+        type="button"
+        :disabled="createAccountPending"
+        @click="closeCreateAccount"
+      >
+        {{ acceptanceLink ? '完成' : '取消' }}
+      </button>
+      <button
+        v-if="!acceptanceLink"
+        class="button"
+        type="submit"
+        :form="
+          createAccountKind === 'customer' ? 'create-customer-form' : 'create-administrator-form'
+        "
+        :disabled="createAccountPending"
+      >
+        {{
+          createAccountPending
+            ? '正在创建…'
+            : createAccountKind === 'customer'
+              ? '创建用户'
+              : '创建邀请'
+        }}
+      </button>
+    </footer>
+  </dialog>
 
   <dialog
     v-if="detailOpen"
@@ -971,10 +1444,7 @@ onBeforeUnmount(() => {
                   <small>{{ registration.ticketTypeName }} · {{ registration.orderNo }}</small>
                 </span>
                 <span>
-                  <b>{{
-                    registrationStatusLabel[registration.registrationStatus] ||
-                      registration.registrationStatus
-                  }}</b>
+                  <b>{{ registrationStatus(registration.registrationStatus) }}</b>
                   <small>{{ date(registration.createdAt) }}</small>
                 </span>
               </li>
@@ -1096,6 +1566,65 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.directory-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.directory-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.directory-tab {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+
+.directory-tab b {
+  min-width: 22px;
+  padding: 2px 6px;
+  color: var(--muted);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.directory-tab.active {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+
+.directory-tab.active b {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: transparent;
+}
+
 .customer-list-tools {
   display: flex;
   align-items: center;
@@ -1407,8 +1936,196 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-:global(.admin-body:has(.customer-detail-dialog[open], .customer-delete-dialog[open])) {
+.administrator-pending {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(320px, 1fr);
+  gap: 20px;
+  padding: 16px 18px;
+  background: var(--blue-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.administrator-pending strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.administrator-pending p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.administrator-pending ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.administrator-pending li {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid rgb(47 83 120 / 12%);
+  border-radius: var(--radius-xs);
+}
+
+.administrator-pending li span {
   overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.administrator-pending li small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.administrator-table {
+  min-width: 860px;
+}
+
+.administrator-table th,
+.administrator-table td {
+  padding-inline: 16px;
+}
+
+.administrator-id {
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.administrator-table .row-title small {
+  margin-left: 5px;
+  padding: 2px 5px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+:global(
+  .admin-body:has(
+    .account-create-dialog[open],
+    .customer-detail-dialog[open],
+    .customer-delete-dialog[open]
+  )
+) {
+  overflow: hidden;
+}
+
+.account-create-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 185;
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 24px 70px rgb(23 34 51 / 24%);
+  overscroll-behavior: contain;
+  animation: customer-dialog-enter 160ms ease-out;
+}
+
+.account-create-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-create-dialog h2 {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.account-create-dialog > header p:not(.eyebrow) {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-create-form {
+  padding: 22px 24px 24px;
+  background: var(--paper);
+}
+
+.account-create-form .form-grid {
+  gap: 16px;
+}
+
+.account-create-form .form-field > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.account-create-dialog > .admin-error {
+  margin: 0 24px 18px;
+}
+
+.account-create-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.administrator-invitation-link {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+
+.administrator-invitation-link > span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.administrator-invitation-link code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.administrator-invitation-link .button {
+  justify-self: start;
 }
 
 .customer-detail-dialog {
@@ -1432,11 +2149,13 @@ onBeforeUnmount(() => {
   animation: customer-dialog-enter 160ms ease-out;
 }
 
+.account-create-dialog:not([open]),
 .customer-detail-dialog:not([open]),
 .customer-delete-dialog:not([open]) {
   display: none;
 }
 
+.account-create-dialog::backdrop,
 .customer-detail-dialog::backdrop,
 .customer-delete-dialog::backdrop {
   background: rgb(16 38 62 / 50%);
@@ -1802,6 +2521,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
+  .administrator-pending {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
   .customer-list-tools {
     width: 100%;
     flex-wrap: wrap;
@@ -1834,6 +2558,103 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 700px) {
+  .directory-page-actions {
+    justify-content: flex-start;
+  }
+
+  .directory-page-actions .status-badge {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .directory-tabs,
+  .directory-tab {
+    width: 100%;
+  }
+
+  .directory-tab {
+    justify-content: center;
+  }
+
+  .administrator-list-panel .admin-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .administrator-pending li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .administrator-table {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .administrator-table thead {
+    display: none;
+  }
+
+  .administrator-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .administrator-table tr {
+    display: grid;
+    overflow: hidden;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .administrator-table td {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .administrator-table td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .administrator-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .administrator-table .admin-empty {
+    display: block;
+  }
+
+  .administrator-table .admin-empty::before {
+    content: none;
+  }
+
+  .account-create-dialog {
+    width: calc(100vw - 24px);
+  }
+
+  .account-create-dialog > header,
+  .account-create-form,
+  .account-create-dialog > footer {
+    padding-inline: 16px;
+  }
+
+  .account-create-form .form-grid {
+    grid-template-columns: 1fr;
+  }
+
   .customer-list-panel .admin-panel-header {
     align-items: stretch;
     flex-direction: column;
@@ -2017,6 +2838,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 520px) {
+  .directory-page-actions .button {
+    flex: 1 1 0;
+  }
+
+  .account-create-dialog {
+    width: 100vw;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .account-create-dialog > footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .account-create-dialog > footer .button {
+    width: 100%;
+  }
+
   .customer-detail-dialog {
     width: 100vw;
     height: 100dvh;
@@ -2083,6 +2924,7 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .account-create-dialog,
   .customer-detail-dialog,
   .customer-delete-dialog {
     animation: none;

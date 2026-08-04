@@ -9,6 +9,7 @@ if (!paymentWebhookSecret) {
   throw new Error('PAYMENT_WEBHOOK_SECRET is required for the operations smoke test');
 }
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -219,7 +220,7 @@ try {
   );
   assert(cancelledInvitation.cancelled === true, 'Invitation cancellation failed');
 
-  const slug = `acceptance-conference-${runId}`;
+  const slug = `accept-${slugRunId}`;
   const eventCreateKey = `event-create-${runId}`;
   const eventCreateInput = {
     name: `系统验收大会 ${runId}`,
@@ -808,7 +809,7 @@ try {
     'Export audit event is missing',
   );
 
-  const freeSlug = `free-conference-${runId}`;
+  const freeSlug = `free-${slugRunId}`;
   const { body: freeEvent } = await request('/admin/events', {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': `free-event-create-${runId}` }),

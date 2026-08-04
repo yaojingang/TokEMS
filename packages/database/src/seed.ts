@@ -461,9 +461,10 @@ try {
         id: CONFERENCE_TEMPLATE_ID,
         organizationId: DEMO_IDS.organization,
         code: 'tokems-editorial-standard',
-        name: 'TokEMS Demo Conference 2026',
-        description: '附件版本的白底编辑式大会官网，包含 AI 答案首屏、完整议程与单一通票报名。',
-        tags: ['大会运营', '活动科技', '收费报名'],
+        name: '中国第二届 GEO & AI 营销大会',
+        description:
+          'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
+        tags: ['GEO', 'AI 营销', '收费报名'],
         status: 'active',
         createdBy: DEMO_IDS.adminUser,
         updatedBy: DEMO_IDS.adminUser,
@@ -471,9 +472,10 @@ try {
       .onConflictDoUpdate({
         target: conferenceTemplates.id,
         set: {
-          name: 'TokEMS Demo Conference 2026',
-          description: '附件版本的白底编辑式大会官网，包含 AI 答案首屏、完整议程与单一通票报名。',
-          tags: ['大会运营', '活动科技', '收费报名'],
+          name: '中国第二届 GEO & AI 营销大会',
+          description:
+            'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
+          tags: ['GEO', 'AI 营销', '收费报名'],
           status: 'active',
           updatedBy: DEMO_IDS.adminUser,
           updatedAt: new Date(),
@@ -489,9 +491,10 @@ try {
         rendererPackageId: EDITORIAL_RENDERER_ID,
         schemaVersion: 2,
         definition: templateDefinition,
-        contentDigest: 'seed-tokems-2026-reference-template-v1',
+        contentDigest: 'seed-geo-2026-reference-template-v2',
         previewAssetKey: 'template-previews/tokems-editorial-standard-v1.webp',
-        changeSummary: '同步附件版大会首页、完整 FAQ、单一通票与标准四步报名流程。',
+        changeSummary:
+          '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
         createdBy: DEMO_IDS.adminUser,
         publishedAt: new Date('2026-07-16T08:30:00+08:00'),
       })
@@ -500,8 +503,9 @@ try {
         set: {
           schemaVersion: 2,
           definition: templateDefinition,
-          contentDigest: 'seed-tokems-2026-reference-template-v1',
-          changeSummary: '同步附件版大会首页、完整 FAQ、单一通票与标准四步报名流程。',
+          contentDigest: 'seed-geo-2026-reference-template-v2',
+          changeSummary:
+            '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
         },
       });
 
@@ -522,7 +526,7 @@ try {
         schemaVersion: 2,
         definition: templateDefinition,
         revision: 1,
-        contentDigest: 'seed-tokems-2026-reference-template-v1',
+        contentDigest: 'seed-geo-2026-reference-template-v2',
         updatedBy: DEMO_IDS.adminUser,
       })
       .onConflictDoUpdate({
@@ -531,7 +535,7 @@ try {
           schemaVersion: 2,
           definition: templateDefinition,
           rendererPackageId: EDITORIAL_RENDERER_ID,
-          contentDigest: 'seed-tokems-2026-reference-template-v1',
+          contentDigest: 'seed-geo-2026-reference-template-v2',
           updatedBy: DEMO_IDS.adminUser,
           updatedAt: new Date(),
         },

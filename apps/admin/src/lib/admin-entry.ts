@@ -208,7 +208,6 @@ function hasAnyGrant(grants: string[], required: string[]) {
 export function managementLandingRouteName(grants: string[]) {
   if (hasGrant(grants, 'event.read')) return 'manage-events';
   if (hasGrant(grants, 'customer.read')) return 'manage-users';
-  if (hasGrant(grants, 'org.invoice.read')) return 'manage-invoices';
   if (hasGrant(grants, 'org.template.read')) return 'manage-templates';
   if (hasAnyGrant(grants, ['org.settings.read', 'org.member.read'])) return 'manage-settings';
   return 'forbidden';
@@ -228,13 +227,11 @@ export function eventLandingRouteName(grants: string[]) {
     return 'event-settings-registration';
   }
   if (hasGrant(grants, 'event.content.manage')) return 'event-content';
-  if (hasGrant(grants, 'event.ai.read')) return 'event-ai';
+  if (hasGrant(grants, 'event.ai.read')) return 'event-content';
   if (hasGrant(grants, 'event.registration.read')) return 'event-registrations';
   if (hasGrant(grants, 'event.order.read')) return 'event-orders';
+  if (hasGrant(grants, 'org.invoice.read')) return 'event-invoices';
   if (hasGrant(grants, 'event.notification.read')) return 'event-notifications';
-  if (hasAnyGrant(grants, ['event.checkin.execute', 'event.checkin.manage'])) {
-    return 'event-check-in';
-  }
   if (hasGrant(grants, 'event.audit.read')) return 'event-activity';
   return 'forbidden';
 }

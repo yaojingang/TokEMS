@@ -22,6 +22,7 @@ import { Throttle } from '@nestjs/throttler';
 import {
   API_ERROR_CODES,
   ClaimCustomerRegistrationSchema,
+  CreateCustomerAdminSchema,
   CustomerAdminExportQuerySchema,
   CustomerAdminListQuerySchema,
   CustomerCreateInvoiceSchema,
@@ -262,6 +263,16 @@ class CustomerAdminController {
     return this.customerAccount.adminList(
       request.user.organizationId,
       parse(CustomerAdminListQuerySchema, query, '用户筛选条件校验失败'),
+    );
+  }
+
+  @Post()
+  @RequireGrant('customer.manage')
+  create(@Req() request: FastifyRequest & { user: AuthenticatedUser }, @Body() body: unknown) {
+    return this.customerAccount.adminCreate(
+      request.user.organizationId,
+      request.user.sub,
+      parse(CreateCustomerAdminSchema, body, '新增用户信息校验失败'),
     );
   }
 

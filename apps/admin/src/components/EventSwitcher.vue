@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue';
 import type { EventContextOption } from '@conference/contracts';
 import { eventSwitcherGroups, filterEventOptions } from '../lib/event-switcher.js';
-import { statusClass, statusLabel } from '../lib/format.js';
+import { statusLabel } from '../lib/format.js';
 
 const props = withDefaults(
   defineProps<{
@@ -28,13 +28,6 @@ const searchable = computed(
   () => props.events.filter((event) => event.status !== 'archived').length > 8,
 );
 const groups = computed(() => eventSwitcherGroups(filterEventOptions(props.events, query.value)));
-const activeDate = computed(() => {
-  if (!props.activeEvent) return '大会信息载入中';
-  const start = new Date(props.activeEvent.startsAt);
-  const end = new Date(props.activeEvent.endsAt);
-  const formatter = new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' });
-  return `${formatter.format(start)} 至 ${formatter.format(end)} · ${props.activeEvent.city}`;
-});
 
 async function openPanel() {
   if (props.loading || !props.events.length) return;
@@ -90,8 +83,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section ref="root" class="event-context-switcher" aria-label="当前大会">
-    <span class="event-context-switcher__label">CURRENT EVENT</span>
+  <section
+    ref="root"
+    class="event-context-switcher"
+    :class="{ 'is-open': open }"
+    aria-label="当前大会"
+    lang="zh-CN"
+  >
     <button
       ref="trigger"
       class="event-context-switcher__trigger"
@@ -99,22 +97,19 @@ onBeforeUnmount(() => {
       aria-haspopup="dialog"
       :aria-expanded="open"
       :aria-controls="panelId"
+      :aria-label="`当前大会：${activeEvent?.name ?? '大会不可用'}，打开大会切换器`"
       :disabled="loading || !events.length"
       @click.stop="togglePanel"
       @keydown.down.prevent="openPanel"
     >
       <span class="event-context-switcher__identity">
         <strong>{{ activeEvent?.name ?? (loading ? '正在载入大会…' : '大会不可用') }}</strong>
-        <small>{{ activeDate }}</small>
       </span>
-      <span
-        v-if="activeEvent"
-        class="status-badge event-context-switcher__status"
-        :class="statusClass(activeEvent.status)"
-      >
-        {{ statusLabel(activeEvent.status) }}
+      <span class="event-context-switcher__chevron" aria-hidden="true">
+        <svg viewBox="0 0 14 8" focusable="false">
+          <path d="M1 1l6 6 6-6" />
+        </svg>
       </span>
-      <span class="event-context-switcher__chevron" aria-hidden="true">⌄</span>
     </button>
 
     <div
@@ -158,7 +153,10 @@ onBeforeUnmount(() => {
           >
             <span>
               <strong>{{ event.name }}</strong>
-              <small>{{ event.shortName }} · {{ event.city }} · {{ statusLabel(event.status) }}</small>
+              <small>
+                {{ event.shortName }} · {{ event.city }} ·
+                {{ statusLabel(event.status) }}
+              </small>
             </span>
             <b v-if="event.id === activeEvent?.id" aria-hidden="true">✓</b>
           </button>
@@ -179,83 +177,85 @@ onBeforeUnmount(() => {
 <style scoped>
 .event-context-switcher {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 7px 8px;
-  margin: 2px 4px 14px;
-  padding: 11px;
+  margin: 2px 4px 16px;
   color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xs);
-}
-
-.event-context-switcher__label {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--admin-font-micro);
-  letter-spacing: 0.08em;
 }
 
 .event-context-switcher__trigger {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 44px;
-  padding: 0;
+  min-height: 56px;
+  padding: 8px 8px 8px 10px;
   color: inherit;
   text-align: left;
   background: transparent;
   border: 0;
   cursor: pointer;
+  transition:
+    color 160ms var(--ease),
+    transform 160ms var(--ease);
 }
 
 .event-context-switcher__trigger:disabled {
   cursor: wait;
+  opacity: 0.72;
 }
 
 .event-context-switcher__trigger:focus-visible {
   outline: 2px solid var(--blue);
-  outline-offset: 4px;
+  outline-offset: 2px;
 }
 
 .event-context-switcher__identity {
   display: grid;
+  flex: 0 1 auto;
   min-width: 0;
-  gap: 4px;
 }
 
 .event-context-switcher__identity strong {
   overflow: hidden;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.event-context-switcher__identity small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: var(--admin-font-caption);
+  font-weight: 700;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .event-context-switcher__chevron {
-  align-self: center;
+  display: grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--muted);
+  border-radius: var(--radius-xs);
+  transform-origin: center;
+  transition:
+    color 140ms var(--ease),
+    transform 140ms var(--ease);
+}
+
+.event-context-switcher__chevron svg {
+  display: block;
+  width: 14px;
+  height: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.event-context-switcher.is-open .event-context-switcher__trigger {
   color: var(--blue);
-  font-family: var(--mono);
-  font-size: 16px;
-  transition: transform 140ms var(--ease);
 }
 
-.event-context-switcher:has(.event-switcher-panel) .event-context-switcher__chevron {
+.event-context-switcher.is-open .event-context-switcher__chevron {
+  color: var(--blue);
   transform: rotate(180deg);
-}
-
-.event-context-switcher__status {
-  align-self: center;
 }
 
 .event-switcher-panel {
@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
   top: calc(100% + 7px);
   left: 0;
   display: grid;
-  width: min(340px, calc(100vw - 32px));
+  width: 100%;
   max-height: min(520px, calc(100dvh - 120px));
   overflow: hidden;
   background: var(--paper);
@@ -365,7 +365,6 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 
-.event-switcher-option strong,
 .event-switcher-option small {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -374,6 +373,8 @@ onBeforeUnmount(() => {
 
 .event-switcher-option strong {
   font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .event-switcher-option small {
@@ -412,8 +413,12 @@ onBeforeUnmount(() => {
 }
 
 @media (hover: hover) {
-  .event-context-switcher:hover {
-    border-color: var(--admin-control-border-hover);
+  .event-context-switcher__trigger:hover {
+    color: var(--blue);
+  }
+
+  .event-context-switcher__trigger:hover .event-context-switcher__chevron {
+    color: var(--blue);
   }
 
   .event-switcher-option:hover,
@@ -431,7 +436,7 @@ onBeforeUnmount(() => {
 .event-context-switcher__trigger:active,
 .event-switcher-panel__all:active,
 .event-switcher-panel__head button:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 @keyframes event-switcher-in {
@@ -455,6 +460,10 @@ onBeforeUnmount(() => {
   .event-switcher-panel {
     width: 100%;
     max-height: min(460px, calc(100dvh - 180px));
+  }
+
+  .event-switcher-search input {
+    font-size: 16px;
   }
 }
 </style>

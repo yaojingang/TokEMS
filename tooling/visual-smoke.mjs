@@ -386,14 +386,24 @@ async function runVisualSmoke() {
     await page.goto(`${adminBase}${eventPath}/overview`, { waitUntil: 'networkidle' });
     if (mobile) await page.getByRole('button', { name: '打开导航' }).click();
     const trigger = page.locator('.event-context-switcher__trigger');
-    const status = page.locator('.event-context-switcher__status');
     const panel = page.locator('.event-switcher-panel[role="dialog"]');
-    await status.click();
+    if (await page.getByText('CURRENT EVENT', { exact: true }).count()) {
+      issues.push(`${label}: 大会切换器仍显示 CURRENT EVENT 冗余标题`);
+    }
+    await trigger.click();
     if (!(await panel.isVisible())) {
-      issues.push(`${label}: 当前大会卡片的状态区域不能打开切换器`);
-      await trigger.click();
+      issues.push(`${label}: 当前大会按钮不能打开切换器`);
     }
     await panel.waitFor();
+    const sidebarScrollLeft = await page
+      .locator('.admin-sidebar')
+      .evaluate((element) => element.scrollLeft);
+    if (sidebarScrollLeft > 0) {
+      issues.push(`${label}: 打开切换器后侧栏发生了横向滚动`);
+    }
+    await panel.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    });
     const listbox = page.locator('.event-switcher-options[role="listbox"]');
     if (await listbox.count()) {
       const beforeArrow = await page.evaluate(() => document.activeElement?.textContent?.trim());
@@ -518,7 +528,6 @@ async function runVisualSmoke() {
 
   const managementSurfaces = [
     ['/manage/users', '用户管理', 'admin-users-desktop.png', '用户管理桌面端'],
-    ['/manage/invoices', '发票管理', 'admin-invoices-desktop.png', '发票管理桌面端'],
     ['/manage/templates', '模板管理', 'admin-templates-desktop.png', '模板管理桌面端'],
     [
       '/manage/settings',
@@ -612,7 +621,7 @@ async function runVisualSmoke() {
   const adminSurfaces = [
     [
       `${eventBase}/overview`,
-      'TokEMS Demo Conference 2026',
+      '第二届中国 GEO & AI 营销大会',
       'admin-dashboard-desktop.png',
       '大会概览桌面端',
     ],
@@ -624,25 +633,31 @@ async function runVisualSmoke() {
     ],
     [
       `${eventBase}/settings/site`,
-      '大会模板与前台体验',
+      '大会官网设置',
       'admin-publishing-desktop.png',
-      '站点发布桌面端',
+      '官网设置桌面端',
     ],
     [
       `${eventBase}/settings/registration`,
-      '报名与票务',
+      '报名设置',
       'admin-registration-settings-desktop.png',
-      '报名票务设置桌面端',
+      '报名设置桌面端',
     ],
     [`${eventBase}/settings/form`, '报名表与条款', 'admin-forms-desktop.png', '表单条款桌面端'],
-    [`${eventBase}/content`, '嘉宾与两日议程', 'admin-content-desktop.png', '内容管理桌面端'],
-    [`${eventBase}/content/ai`, '大会运营文案助手', 'admin-ai-desktop.png', 'AI 文案桌面端'],
+    [
+      `${eventBase}/settings/changes`,
+      '修改记录',
+      'admin-change-history-desktop.png',
+      '修改记录桌面端',
+    ],
+    [`${eventBase}/settings/content`, '内容运营', 'admin-content-desktop.png', '内容管理桌面端'],
     [
       `${eventBase}/registrations`,
       '报名与参会人',
       'admin-registrations-desktop.png',
       '报名管理桌面端',
     ],
+    [`${eventBase}/invoices`, '发票管理', 'admin-invoices-desktop.png', '发票管理桌面端'],
     [`${eventBase}/orders`, '订单与支付流水', 'admin-orders-desktop.png', '订单支付桌面端'],
     [
       `${eventBase}/notifications`,
@@ -650,7 +665,6 @@ async function runVisualSmoke() {
       'admin-notifications-desktop.png',
       '通知中心桌面端',
     ],
-    [`${eventBase}/check-in`, '主入口扫码核销', 'admin-checkin-desktop.png', '现场签到桌面端'],
     [`${eventBase}/activity`, '审计日志与数据导出', 'admin-audit-desktop.png', '操作记录桌面端'],
   ];
   for (const [path, heading, file, label] of adminSurfaces) {

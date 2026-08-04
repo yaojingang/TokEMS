@@ -191,6 +191,8 @@ TokEMS 的产品定位面向全球大会运营团队。`v0.1.0` 的界面语言�
 
 - [系统架构与设计决策](docs/architecture.md)
 - [后台管理信息架构](docs/admin-architecture.md)
+- [后台默认大会入口与工作区升级计划](docs/admin-event-workspace-upgrade-plan.md)
+- [报名详情统一运营工作台最终方案](docs/admin-registration-detail-unified-operations-plan-final.md)
 - [REST API 摘要](docs/api.md)
 - [普通用户系统](docs/user-system.md)
 - [运行、迁移与发布](docs/operations.md)

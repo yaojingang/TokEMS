@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
-import type { Refund } from '@conference/contracts';
+import type { OrderStatus, Refund } from '@conference/contracts';
 import { conferenceApi, session, type AdminOrderRow } from '../lib/api';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
 
 const rows = ref<AdminOrderRow[]>([]);
 const q = ref('');
-const status = ref('');
+const status = ref<OrderStatus | ''>('');
 const loading = ref(false);
 const exporting = ref(false);
 const refundPending = ref(false);
@@ -17,6 +17,10 @@ const refunds = ref<Refund[]>([]);
 const selected = ref<AdminOrderRow>();
 const refundTarget = ref<AdminOrderRow>();
 const refundAmountInput = ref<HTMLInputElement>();
+const page = ref(1);
+const totalRecords = ref(0);
+const pageSize = 20;
+let loadRequestId = 0;
 const refundForm = reactive({
   amountYuan: 0,
   reason: '参会人申请退款',
@@ -49,19 +53,62 @@ const refundTargetRefunded = computed(() =>
 const refundTargetRemaining = computed(() =>
   Math.max(0, (refundTarget.value?.amount ?? 0) - refundTargetRefunded.value),
 );
+const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize)));
+const visibleRange = computed(() => {
+  if (!totalRecords.value) return '0 条订单';
+  const start = (page.value - 1) * pageSize + 1;
+  const end = start + rows.value.length - 1;
+  return `第 ${start}–${end} 条，共 ${totalRecords.value} 条`;
+});
+const paginationItems = computed<Array<number | 'ellipsis'>>(() => {
+  if (totalPages.value <= 7) {
+    return Array.from({ length: totalPages.value }, (_, index) => index + 1);
+  }
+  const anchors = [...new Set([1, page.value - 1, page.value, page.value + 1, totalPages.value])]
+    .filter((item) => item >= 1 && item <= totalPages.value)
+    .sort((left, right) => left - right);
+  const items: Array<number | 'ellipsis'> = [];
+  anchors.forEach((item, index) => {
+    if (index > 0 && item - anchors[index - 1]! > 1) items.push('ellipsis');
+    items.push(item);
+  });
+  return items;
+});
 
-async function load() {
+function changePage(nextPage: number) {
+  const normalized = Math.min(Math.max(Math.round(nextPage) || 1, 1), totalPages.value);
+  if (normalized === page.value || loading.value) return;
+  page.value = normalized;
+  void load();
+}
+
+async function load(resetPage = false) {
+  const requestId = ++loadRequestId;
+  const requestedPage = resetPage ? 1 : page.value;
   loading.value = true;
+  errorMessage.value = '';
   try {
-    [rows.value, inventory.value, refunds.value] = await Promise.all([
-      conferenceApi.getOrders({ q: q.value, status: status.value }),
+    const [result, nextInventory, nextRefunds] = await Promise.all([
+      conferenceApi.getOrders({
+        ...(q.value.trim() ? { q: q.value.trim() } : {}),
+        ...(status.value ? { status: status.value } : {}),
+        page: requestedPage,
+      }),
       canReadInventory ? conferenceApi.getInventory() : Promise.resolve([]),
       conferenceApi.getRefunds(),
     ]);
+    if (requestId !== loadRequestId) return;
+    rows.value = result.items;
+    totalRecords.value = result.total;
+    page.value = result.page;
+    inventory.value = nextInventory;
+    refunds.value = nextRefunds;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '订单数据读取失败';
+    if (requestId === loadRequestId) {
+      errorMessage.value = error instanceof Error ? error.message : '订单数据读取失败';
+    }
   } finally {
-    loading.value = false;
+    if (requestId === loadRequestId) loading.value = false;
   }
 }
 
@@ -137,24 +184,24 @@ onMounted(load);
   <header class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">COMMERCE LEDGER</p>
-      <h1>订单与支付流水</h1>
+      <h1>订单管理</h1>
       <p>查看订单状态、支付金额、票种与关联参会人。</p>
     </div>
     <div class="admin-head-actions">
-      <button class="button secondary" type="button" @click="load">刷新流水</button><button class="button" type="button" :disabled="exporting" @click="exportData">
-        {{ exporting ? '正在导出…' : '导出订单 CSV' }}
+      <button class="button secondary" type="button" @click="load()">刷新流水</button><button class="button" type="button" :disabled="exporting" @click="exportData">
+        {{ exporting ? '正在导出…' : '导出当前页 CSV' }}
       </button>
     </div>
   </header>
 
-  <form class="admin-filter-bar" @submit.prevent="load">
+  <form class="admin-filter-bar" @submit.prevent="load(true)">
     <label class="admin-search"><span aria-hidden="true">⌕</span><input
       v-model="q"
       type="search"
       aria-label="搜索订单"
-      placeholder="搜索订单号、参会人或公司"
+      placeholder="搜索姓名、手机号、订单号或公司"
     /></label>
-    <select v-model="status" class="admin-select" aria-label="按订单状态筛选" @change="load">
+    <select v-model="status" class="admin-select" aria-label="按订单状态筛选" @change="load(true)">
       <option value="">全部状态</option>
       <option value="pending_review">待审核</option>
       <option value="pending_payment">待支付</option>
@@ -170,7 +217,7 @@ onMounted(load);
       @click="
         q = '';
         status = '';
-        load();
+        load(true);
       "
     >
       重置
@@ -244,11 +291,11 @@ onMounted(load);
       <div>
         <h2>订单列表</h2>
         <p>
-          当前筛选合计
+          本页已支付合计
           {{ money(rows.reduce((sum, row) => sum + (row.status === 'paid' ? row.amount : 0), 0)) }}
         </p>
       </div>
-      <span class="status-badge">{{ rows.length }} ORDERS</span>
+      <span class="status-badge">共 {{ totalRecords }} 条</span>
     </header>
     <div class="data-table-wrap">
       <table class="data-table">
@@ -273,7 +320,7 @@ onMounted(load);
               <span class="row-title mono-code">{{ row.orderNo }}</span><span class="row-sub">{{ row.id }}</span>
             </td>
             <td>
-              <span class="row-title">{{ row.attendeeName }}</span><span class="row-sub">{{ row.attendeeCompany }}</span>
+              <span class="row-title">{{ row.attendeeName }}</span><span class="row-sub">{{ row.attendeeCompany }} · {{ row.attendeeMobile }}</span>
             </td>
             <td>{{ row.ticketTypeName }}</td>
             <td>{{ row.paymentMethod === 'wechat' ? '微信支付' : row.paymentMethod }}</td>
@@ -306,9 +353,40 @@ onMounted(load);
       </table>
       <div v-if="!loading && !rows.length" class="admin-empty">当前筛选条件下没有订单记录。</div>
     </div>
-    <footer class="table-footer">
-      <span>订单与支付回调按幂等价处理</span>
-      <span class="mono-code">PAGE 1</span>
+    <footer class="table-footer order-pagination">
+      <span>{{ visibleRange }} · 每页 20 条</span>
+      <nav class="order-page-nav" aria-label="订单列表分页">
+        <button
+          type="button"
+          aria-label="上一页"
+          :disabled="page === 1 || loading"
+          @click="changePage(page - 1)"
+        >
+          ‹
+        </button>
+        <template v-for="(item, index) in paginationItems" :key="`${item}-${index}`">
+          <span v-if="item === 'ellipsis'" class="page-ellipsis" aria-hidden="true">…</span>
+          <button
+            v-else
+            type="button"
+            :class="{ active: item === page }"
+            :aria-current="item === page ? 'page' : undefined"
+            :aria-label="`第 ${item} 页`"
+            :disabled="loading"
+            @click="changePage(item)"
+          >
+            {{ item }}
+          </button>
+        </template>
+        <button
+          type="button"
+          aria-label="下一页"
+          :disabled="page === totalPages || loading"
+          @click="changePage(page + 1)"
+        >
+          ›
+        </button>
+      </nav>
     </footer>
   </section>
 
@@ -327,7 +405,8 @@ onMounted(load);
         <span>订单标识</span><strong class="mono-code">{{ selected.id }}</strong>
       </div>
       <div class="summary-row">
-        <span>参会人</span><strong>{{ selected.attendeeName }} · {{ selected.attendeeCompany }}</strong>
+        <span>参会人</span><strong>{{ selected.attendeeName }} · {{ selected.attendeeMobile }} ·
+          {{ selected.attendeeCompany }}</strong>
       </div>
       <div class="summary-row">
         <span>票种</span><strong>{{ selected.ticketTypeName }}</strong>
@@ -355,3 +434,81 @@ onMounted(load);
     </div>
   </section>
 </template>
+
+<style scoped>
+.order-pagination {
+  min-height: 64px;
+  flex-wrap: wrap;
+}
+
+.order-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.order-page-nav button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-family: var(--mono);
+  font-size: 10px;
+  transition:
+    color 140ms var(--ease),
+    background-color 140ms var(--ease),
+    border-color 140ms var(--ease);
+}
+
+.order-page-nav button:hover:not(:disabled) {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: color-mix(in srgb, var(--blue) 28%, var(--line));
+}
+
+.order-page-nav button.active {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.order-page-nav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.order-page-nav button:focus-visible {
+  border-color: var(--blue);
+  outline: 2px solid color-mix(in srgb, var(--blue) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.page-ellipsis {
+  width: 20px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .order-pagination {
+    justify-content: center;
+  }
+
+  .order-pagination > span {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .order-page-nav button {
+    width: 40px;
+    height: 40px;
+  }
+}
+</style>

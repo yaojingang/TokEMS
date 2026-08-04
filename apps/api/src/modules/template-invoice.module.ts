@@ -136,6 +136,17 @@ const PrepareInvoiceDocumentUploadSchema = z.object({
     .positive()
     .max(20 * 1024 * 1024),
   contentDigest: z.string().trim().min(16).max(128),
+  replaceDocumentId: z.string().uuid().optional(),
+});
+const ReplaceInvoiceDocumentFileSchema = InvoiceActionSchema.extend({
+  storageKey: z.string().trim().min(3).max(500),
+  mediaType: z.enum(['application/pdf', 'application/ofd']),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(20 * 1024 * 1024),
+  contentDigest: z.string().trim().min(16).max(128),
 });
 const SaveEventAsTemplateSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -846,7 +857,7 @@ class TemplateController {
 @ApiTags('invoice-operations')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
-@Controller('admin/invoices')
+@Controller('admin/events/:eventId/invoices')
 class InvoiceController {
   constructor(
     @Inject(InvoiceOperationsService)
@@ -856,43 +867,55 @@ class InvoiceController {
   ) {}
 
   @Get()
-  @RequireGrant('org.invoice.read')
-  list(@Query() query: Record<string, unknown>, @Req() request: AuthenticatedRequest) {
-    return this.invoices.page(request.user.organizationId, parse(InvoiceListQuerySchema, query));
+  @RequireAllGrants('event.read', 'org.invoice.read')
+  list(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Query() query: Record<string, unknown>,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.page(
+      request.user.organizationId,
+      parse(InvoiceListQuerySchema, { ...query, eventId: String(eventId) }),
+    );
   }
 
   @Get('pending-count')
-  @RequireGrant('org.invoice.read')
-  async pendingCount(@Req() request: AuthenticatedRequest) {
+  @RequireAllGrants('event.read', 'org.invoice.read')
+  async pendingCount(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: AuthenticatedRequest,
+  ) {
     const statuses = ['pending_review', 'issue_failed', 'adjustment_required'] as const;
     const groups = await Promise.all(
       statuses.map((status) =>
-        this.invoices.exportRowCount(request.user.organizationId, { status }),
+        this.invoices.exportRowCount(request.user.organizationId, { eventId, status }),
       ),
     );
     return { count: groups.reduce((sum, group) => sum + group, 0) };
   }
 
   @Get('export.csv')
-  @RequireGrant('org.invoice.export')
+  @RequireAllGrants('event.read', 'org.invoice.export')
   async exportCsv(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Query() query: Record<string, unknown>,
     @Headers('idempotency-key') key: string | undefined,
     @Req() request: AuthenticatedRequest,
     @Res() reply: FastifyReply,
   ) {
-    const parsed = parse(InvoiceListQuerySchema, query);
+    const parsed = parse(InvoiceListQuerySchema, { ...query, eventId: String(eventId) });
     const parsedQuery = { ...parsed, cursor: undefined, limit: undefined };
     const exportKey = requireIdempotencyKey(key);
     const rowCount = await this.invoices.exportRowCount(request.user.organizationId, parsedQuery);
     if (this.invoices.requiresAsyncExport(rowCount)) {
       const job = await this.idempotency.execute(
-        `invoice:export:${request.user.organizationId}`,
+        `invoice:export:${request.user.organizationId}:${eventId}`,
         exportKey,
         parsedQuery,
         () =>
           this.invoices.queueExport(
             request.user.organizationId,
+            eventId,
             request.user.sub,
             parsedQuery,
             rowCount,
@@ -903,6 +926,7 @@ class InvoiceController {
     const rows = await this.invoices.list(request.user.organizationId, parsedQuery);
     await this.invoices.auditExport(
       request.user.organizationId,
+      eventId,
       request.user.sub,
       parsedQuery,
       rows.length,
@@ -916,29 +940,41 @@ class InvoiceController {
   }
 
   @Get('export-jobs/:exportJobId')
-  @RequireGrant('org.invoice.export')
-  exportJob(@Param('exportJobId') exportJobId: string, @Req() request: AuthenticatedRequest) {
-    return this.invoices.exportJob(request.user.organizationId, exportJobId);
+  @RequireAllGrants('event.read', 'org.invoice.export')
+  exportJob(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('exportJobId') exportJobId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.exportJob(request.user.organizationId, eventId, exportJobId);
   }
 
   @Post('export-jobs/:exportJobId/retry')
-  @RequireGrant('org.invoice.export')
+  @RequireAllGrants('event.read', 'org.invoice.export')
   retryExport(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('exportJobId') exportJobId: string,
     @Headers('idempotency-key') key: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
     return this.idempotency.execute(
-      `invoice:export:retry:${request.user.organizationId}:${exportJobId}`,
+      `invoice:export:retry:${request.user.organizationId}:${eventId}:${exportJobId}`,
       requireIdempotencyKey(key),
       { exportJobId },
-      () => this.invoices.retryExport(request.user.organizationId, exportJobId, request.user.sub),
+      () =>
+        this.invoices.retryExport(
+          request.user.organizationId,
+          eventId,
+          exportJobId,
+          request.user.sub,
+        ),
     );
   }
 
   @Get('export-jobs/:exportJobId/download')
-  @RequireGrant('org.invoice.export')
+  @RequireAllGrants('event.read', 'org.invoice.export')
   async downloadExport(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('exportJobId') exportJobId: string,
     @Query('expires') expiresValue: string,
     @Query('signature') signature: string,
@@ -947,6 +983,7 @@ class InvoiceController {
   ) {
     const result = await this.invoices.downloadExport(
       request.user.organizationId,
+      eventId,
       exportJobId,
       Number(expiresValue),
       signature,
@@ -984,16 +1021,31 @@ class InvoiceController {
   }
 
   @Get(':invoiceId')
-  @RequireGrant('org.invoice.read')
-  async detail(@Param('invoiceId') invoiceId: string, @Req() request: AuthenticatedRequest) {
-    const result = await this.invoices.detail(request.user.organizationId, invoiceId);
-    await this.invoices.auditRead(request.user.organizationId, invoiceId, request.user.sub);
+  @RequireAllGrants('event.read', 'org.invoice.read')
+  async detail(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('invoiceId') invoiceId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const result = await this.invoices.detail(
+      request.user.organizationId,
+      invoiceId,
+      true,
+      eventId,
+    );
+    await this.invoices.auditRead(
+      request.user.organizationId,
+      eventId,
+      invoiceId,
+      request.user.sub,
+    );
     return result;
   }
 
   @Get(':invoiceId/documents/:documentId/download')
-  @RequireGrant('org.invoice.read')
+  @RequireAllGrants('event.read', 'org.invoice.read')
   async downloadDocument(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Param('documentId') documentId: string,
     @Req() request: AuthenticatedRequest,
@@ -1001,6 +1053,7 @@ class InvoiceController {
   ) {
     const downloadUrl = await this.invoices.adminDocumentDownload(
       request.user.organizationId,
+      eventId,
       invoiceId,
       documentId,
       request.user.sub,
@@ -1009,8 +1062,9 @@ class InvoiceController {
   }
 
   @Post(':invoiceId/approve')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   approve(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1018,16 +1072,24 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceVersionSchema, body);
     return this.idempotency.execute(
-      `invoice:approve:${request.user.organizationId}:${invoiceId}`,
+      `invoice:approve:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
-      () => this.invoices.approve(request.user.organizationId, invoiceId, request.user.sub, input),
+      () =>
+        this.invoices.approve(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          input,
+          eventId,
+        ),
     );
   }
 
   @Post(':invoiceId/reject')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   reject(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1035,16 +1097,24 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:reject:${request.user.organizationId}:${invoiceId}`,
+      `invoice:reject:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
-      () => this.invoices.reject(request.user.organizationId, invoiceId, request.user.sub, input),
+      () =>
+        this.invoices.reject(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          input,
+          eventId,
+        ),
     );
   }
 
   @Post(':invoiceId/retry')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   retry(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1052,16 +1122,24 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:retry:${request.user.organizationId}:${invoiceId}`,
+      `invoice:retry:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
-      () => this.invoices.retry(request.user.organizationId, invoiceId, request.user.sub, input),
+      () =>
+        this.invoices.retry(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          input,
+          eventId,
+        ),
     );
   }
 
   @Post(':invoiceId/issue-failed')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   issueFailed(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1069,7 +1147,7 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:issue-failed:${request.user.organizationId}:${invoiceId}`,
+      `invoice:issue-failed:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
       () =>
@@ -1078,13 +1156,15 @@ class InvoiceController {
           invoiceId,
           request.user.sub,
           input,
+          eventId,
         ),
     );
   }
 
   @Post(':invoiceId/cancel')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   cancel(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1092,16 +1172,24 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:cancel:${request.user.organizationId}:${invoiceId}`,
+      `invoice:cancel:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
-      () => this.invoices.cancel(request.user.organizationId, invoiceId, request.user.sub, input),
+      () =>
+        this.invoices.cancel(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          input,
+          eventId,
+        ),
     );
   }
 
   @Post(':invoiceId/documents')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   document(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1109,17 +1197,24 @@ class InvoiceController {
   ) {
     const input = parse(CreateInvoiceDocumentSchema, body);
     return this.idempotency.execute(
-      `invoice:document:create:${request.user.organizationId}:${invoiceId}`,
+      `invoice:document:create:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
       () =>
-        this.invoices.addDocument(request.user.organizationId, invoiceId, request.user.sub, input),
+        this.invoices.addDocument(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          input,
+          eventId,
+        ),
     );
   }
 
   @Post(':invoiceId/document-uploads')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   prepareDocumentUpload(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
@@ -1127,7 +1222,7 @@ class InvoiceController {
   ) {
     const input = parse(PrepareInvoiceDocumentUploadSchema, body);
     return this.idempotency.execute(
-      `invoice:document-upload:${request.user.organizationId}:${invoiceId}`,
+      `invoice:document-upload:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       input,
       () =>
@@ -1136,14 +1231,16 @@ class InvoiceController {
           invoiceId,
           request.user.sub,
           input,
+          eventId,
         ),
       9 * 60_000,
     );
   }
 
   @Post(':invoiceId/documents/:documentId/void')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   voidDocument(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Param('documentId') documentId: string,
     @Body() body: unknown,
@@ -1152,7 +1249,7 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:document:void:${request.user.organizationId}:${invoiceId}:${documentId}`,
+      `invoice:document:void:${request.user.organizationId}:${eventId}:${invoiceId}:${documentId}`,
       requireIdempotencyKey(key),
       input,
       () =>
@@ -1162,22 +1259,73 @@ class InvoiceController {
           documentId,
           request.user.sub,
           input,
+          eventId,
+        ),
+    );
+  }
+
+  @Post(':invoiceId/documents/:documentId/replace-file')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
+  replaceDocumentFile(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('invoiceId') invoiceId: string,
+    @Param('documentId') documentId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parse(ReplaceInvoiceDocumentFileSchema, body);
+    return this.idempotency.execute(
+      `invoice:document:replace-file:${request.user.organizationId}:${eventId}:${invoiceId}:${documentId}`,
+      requireIdempotencyKey(key),
+      input,
+      () =>
+        this.invoices.replaceDocumentFile(
+          request.user.organizationId,
+          invoiceId,
+          documentId,
+          request.user.sub,
+          input,
+          eventId,
         ),
     );
   }
 
   @Post(':invoiceId/send')
-  @RequireGrant('org.invoice.manage')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
   send(
+    @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('invoiceId') invoiceId: string,
     @Headers('idempotency-key') key: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
     return this.idempotency.execute(
-      `invoice:send:${request.user.organizationId}:${invoiceId}`,
+      `invoice:send:${request.user.organizationId}:${eventId}:${invoiceId}`,
       requireIdempotencyKey(key),
       { invoiceId },
-      () => this.invoices.send(request.user.organizationId, invoiceId, request.user.sub),
+      () => this.invoices.send(request.user.organizationId, invoiceId, request.user.sub, eventId),
+    );
+  }
+
+  @Post(':invoiceId/details-reminder')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
+  requestDetailsReminder(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('invoiceId') invoiceId: string,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.idempotency.execute(
+      `invoice:details-reminder:${request.user.organizationId}:${eventId}:${invoiceId}`,
+      requireIdempotencyKey(key),
+      { invoiceId },
+      () =>
+        this.invoices.requestDetailsReminder(
+          request.user.organizationId,
+          invoiceId,
+          request.user.sub,
+          eventId,
+        ),
     );
   }
 }

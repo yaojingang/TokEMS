@@ -6,9 +6,6 @@ import { session } from '../lib/api';
 import { organizationRoleLabel } from '../lib/roles';
 
 const props = defineProps<{
-  title: string;
-  code: string;
-  scopeLabel: string;
   brandTo: RouteLocationRaw;
   publicEntryUrl?: string | undefined;
 }>();
@@ -102,7 +99,7 @@ onBeforeUnmount(() => {
         <span class="brand-copy"><strong>TokEMS</strong></span>
       </RouterLink>
 
-      <slot name="context" />
+      <slot name="context" :close-navigation="closeNavigation" />
       <div class="admin-navigation">
         <slot name="navigation" :close-navigation="closeNavigation" />
       </div>
@@ -184,7 +181,13 @@ onBeforeUnmount(() => {
     <div class="admin-sidebar-resizer" aria-hidden="true"></div>
 
     <div class="admin-workspace">
-      <header class="admin-topbar">
+      <header
+        class="admin-topbar"
+        :class="{
+          'has-topbar-tools':
+            props.publicEntryUrl || $slots['topbar-context'] || $slots['topbar-actions'],
+        }"
+      >
         <button
           ref="navigationTrigger"
           class="admin-navigation-trigger"
@@ -196,25 +199,21 @@ onBeforeUnmount(() => {
         >
           <span aria-hidden="true">≡</span>
         </button>
-        <div class="workspace-label">
-          <strong>{{ title }}</strong>
-          <span>{{ scopeLabel }} / {{ code }}</span>
-        </div>
-        <div class="admin-topbar-center">
-          <slot name="topbar-center" />
+        <div v-if="$slots['topbar-context']" class="admin-topbar-context">
+          <slot name="topbar-context" />
         </div>
         <div class="topbar-tools">
           <slot name="topbar-actions" />
           <a
             v-if="props.publicEntryUrl"
-            class="admin-public-entry"
+            class="admin-topbar-action"
             :href="props.publicEntryUrl"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="访问大会前台，在新标签页打开"
             title="访问大会前台"
           >
-            <span class="admin-public-entry__label">访问前台</span>
+            <span class="admin-topbar-action__label">访问前台</span>
             <span aria-hidden="true">↗</span>
           </a>
         </div>

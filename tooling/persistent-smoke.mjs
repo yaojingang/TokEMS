@@ -222,7 +222,8 @@ const invoiceAdminHeaders = {
   Authorization: `Bearer ${login.accessToken}`,
   'Idempotency-Key': `invoice-approve-${runId}`,
 };
-const approvedInvoice = await request(`/admin/invoices/${firstPayment.invoice.id}/approve`, {
+const invoiceAdminBase = `/admin/events/${DEMO_EVENT.id}/invoices`;
+const approvedInvoice = await request(`${invoiceAdminBase}/${firstPayment.invoice.id}/approve`, {
   method: 'POST',
   headers: invoiceAdminHeaders,
   body: JSON.stringify({ expectedUpdatedAt: submittedInvoice.updatedAt }),
@@ -231,7 +232,7 @@ assert(approvedInvoice.status === 'issuing', '发票审核通过后未进入开�
 
 const invoiceFile = Buffer.from('%PDF-1.4\n% TokEMS invoice verification\n%%EOF\n');
 const invoiceDigest = createHash('sha256').update(invoiceFile).digest('hex');
-const upload = await request(`/admin/invoices/${firstPayment.invoice.id}/document-uploads`, {
+const upload = await request(`${invoiceAdminBase}/${firstPayment.invoice.id}/document-uploads`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -252,7 +253,7 @@ const uploadResponse = await fetch(upload.uploadUrl, {
 });
 assert(uploadResponse.ok, `电子发票文件上传失败：${uploadResponse.status}`);
 
-const issuedInvoice = await request(`/admin/invoices/${firstPayment.invoice.id}/documents`, {
+const issuedInvoice = await request(`${invoiceAdminBase}/${firstPayment.invoice.id}/documents`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -283,7 +284,7 @@ assert(
   '下载的发票文件与上传内容不一致',
 );
 
-const invoiceExportResponse = await fetch(`${apiBase}/admin/invoices/export.csv`, {
+const invoiceExportResponse = await fetch(`${apiBase}${invoiceAdminBase}/export.csv`, {
   headers: {
     Authorization: `Bearer ${login.accessToken}`,
     'Idempotency-Key': `invoice-export-${runId}`,
@@ -298,7 +299,7 @@ if (invoiceExportResponse.status === 202) {
   const exportDeadline = Date.now() + 30_000;
   while (Date.now() < exportDeadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    exportJob = await request(`/admin/invoices/export-jobs/${exportJob.id}`, {
+    exportJob = await request(`${invoiceAdminBase}/export-jobs/${exportJob.id}`, {
       headers: { Authorization: `Bearer ${login.accessToken}` },
     });
     if (exportJob.status === 'ready' && exportJob.downloadPath) break;
