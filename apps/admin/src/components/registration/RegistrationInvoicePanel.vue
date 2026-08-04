@@ -923,8 +923,9 @@ async function downloadDocument(document: InvoiceDetail['documents'][number]) {
   border-bottom: 1px solid var(--line);
 }
 .text-action {
-  min-height: 36px;
-  padding: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
   background: transparent;
   border: 0;
   color: var(--blue);
@@ -1085,9 +1086,10 @@ async function downloadDocument(document: InvoiceDetail['documents'][number]) {
 }
 .document-actions .button,
 .document-delete-action {
-  min-height: 40px;
+  min-height: 44px;
 }
 .document-delete-action {
+  min-width: 44px;
   padding: 0 10px;
   background: transparent;
   border: 0;
