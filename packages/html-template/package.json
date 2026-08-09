@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@conference/contracts": "workspace:*",
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.13",
     "ipaddr.js": "2.4.0",
     "jsdom": "30.0.1",
     "liquidjs": "10.27.2",
