@@ -59,8 +59,8 @@ try {
     body: JSON.stringify({ email: adminEmail, password: adminPassword }),
   });
   assert(login.accessToken, 'Admin login did not return an access token');
-  const token = login.accessToken;
-  const headers = authHeaders(token);
+  let token = login.accessToken;
+  let headers = authHeaders(token);
 
   const [
     { body: identity },
@@ -108,6 +108,13 @@ try {
     }),
   });
   assert(updatedMember.id === currentMember.id, 'Organization member update failed');
+  const { body: refreshedLogin } = await request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+  });
+  assert(refreshedLogin.accessToken, 'Admin re-login did not return an access token');
+  token = refreshedLogin.accessToken;
+  headers = authHeaders(token);
 
   const invitedEmail = `invited-${runId}@example.com`;
   const { body: invitationResult } = await request('/admin/organization/invitations', {
