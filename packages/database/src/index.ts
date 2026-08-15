@@ -23,3 +23,4 @@ export function createDatabase(databaseUrl = process.env.DATABASE_URL) {
 }
 
 export * from './schema.js';
+export * from './migration-status.js';

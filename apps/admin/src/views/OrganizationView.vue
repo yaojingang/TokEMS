@@ -6,6 +6,7 @@ import type {
   OrganizationRole,
 } from '@conference/contracts';
 import { conferenceApi, session } from '../lib/api';
+import { buildOrganizationInvitationAcceptanceUrl } from '../lib/organization-invitation';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 
 interface RolePreset {
@@ -55,7 +56,7 @@ const rolePresets: RolePreset[] = [
   {
     value: 'content_manager',
     label: '内容管理员',
-    description: '维护嘉宾、议程、前台体验与 AI 文案，上线大会保存后立即生效',
+    description: '维护大会公开页面，并通过 Skill 或 API 使用内容与 AI 能力',
     grants: [
       'event.read',
       'event.content.manage',
@@ -92,7 +93,7 @@ const rolePresets: RolePreset[] = [
   {
     value: 'viewer',
     label: '只读成员',
-    description: '查看大会概览、报名和订单',
+    description: '查看数据概览、报名和订单',
     grants: ['event.read', 'event.dashboard.read', 'event.registration.read', 'event.order.read'],
   },
 ];
@@ -126,13 +127,16 @@ const memberBaseline = ref<ReturnType<typeof readMemberDraft> | null>(null);
 
 const roleLabels = Object.fromEntries(rolePresets.map((item) => [item.value, item.label]));
 const canManageMembers = computed(() => session.can('org.member.manage'));
+const isSuperAdministrator = computed(
+  () => session.identity.value?.membership.isSuperAdministrator === true,
+);
 const editingMember = computed(() => members.value.find((item) => item.id === editingId.value));
 const editingSelf = computed(() => Boolean(editingMember.value && isSelf(editingMember.value)));
 const delegableRolePresets = computed(() =>
-  rolePresets.filter(
-    (preset) =>
-      session.can('*') ||
-      (preset.value !== 'organization_admin' && preset.grants.every((grant) => session.can(grant))),
+  rolePresets.filter((preset) =>
+    preset.value === 'organization_admin'
+      ? isSuperAdministrator.value
+      : preset.grants.every((grant) => session.can(grant)),
   ),
 );
 const pendingInvitations = computed(() =>
@@ -286,11 +290,10 @@ async function invite() {
       grants: preset.grants,
     });
     invitations.value.unshift(result.invitation);
-    const invitationParams = new URLSearchParams({
-      token: result.acceptanceToken,
-      organization: session.identity.value?.organization.slug ?? '',
-    });
-    acceptanceLink.value = `${window.location.origin}/accept-invitation#${invitationParams}`;
+    acceptanceLink.value = buildOrganizationInvitationAcceptanceUrl(
+      result.acceptanceToken,
+      session.identity.value?.organization.slug ?? '',
+    );
     inviteForm.email = '';
     inviteBaseline.value = readInviteDraft();
     syncDirtyState();
@@ -351,19 +354,18 @@ function isSelf(item: OrganizationMember) {
 }
 
 function canAdminister(item: OrganizationMember) {
-  return (
-    session.can('*') ||
-    (item.role !== 'organization_admin' && item.grants.every((grant) => session.can(grant)))
-  );
+  if (isSelf(item)) return false;
+  if (item.role === 'organization_admin') return isSuperAdministrator.value;
+  return session.can('*') || item.grants.every((grant) => session.can(grant));
 }
 </script>
 
 <template>
   <header class="admin-page-head settings-team-head reveal is-visible">
     <div>
-      <p class="eyebrow">TEAM ACCESS</p>
-      <h1>团队与权限</h1>
-      <p>邀请组织成员，分配角色与访问范围，并维护启用状态。</p>
+      <p class="eyebrow">ADMIN ACCESS</p>
+      <h1>管理员与权限</h1>
+      <p>邀请管理员，分配角色与访问范围，并维护启用状态。</p>
     </div>
     <span class="status-badge">{{ members.length }} MEMBERS</span>
   </header>
@@ -375,11 +377,15 @@ function canAdminister(item: OrganizationMember) {
     <section class="admin-panel">
       <header class="admin-panel-header">
         <div>
-          <h2>邀请新成员</h2>
+          <h2>邀请管理员</h2>
           <p>角色会自动带入一组清晰、可审计的权限</p>
         </div>
       </header>
+      <p v-if="!delegableRolePresets.length" class="admin-empty">
+        当前账号没有可委派的角色预设，请联系超级管理员补充授权。
+      </p>
       <form
+        v-else
         class="event-form settings-form-spaced"
         data-settings-form
         :inert="invitationPending"
@@ -388,7 +394,7 @@ function canAdminister(item: OrganizationMember) {
       >
         <div class="form-grid">
           <div class="form-field full">
-            <label for="invite-member-email">成员邮箱</label>
+            <label for="invite-member-email">管理员邮箱</label>
             <input
               id="invite-member-email"
               v-model="inviteForm.email"
@@ -440,7 +446,12 @@ function canAdminister(item: OrganizationMember) {
             <small>{{ roleLabels[item.role] ?? item.role }} ·
               {{ new Date(item.expiresAt).toLocaleDateString('zh-CN') }} 到期</small>
           </span>
-          <button class="button danger compact" type="button" @click="cancelInvitation(item)">
+          <button
+            v-if="item.role !== 'organization_admin' || isSuperAdministrator"
+            class="button danger compact"
+            type="button"
+            @click="cancelInvitation(item)"
+          >
             取消
           </button>
         </li>
@@ -452,7 +463,7 @@ function canAdminister(item: OrganizationMember) {
   <section v-if="canManageMembers && editingId" class="admin-panel editor-panel">
     <header class="admin-panel-header">
       <div>
-        <h2>编辑成员</h2>
+        <h2>编辑管理员</h2>
         <p>切换角色会载入对应权限预设，详细权限可在高级设置中调整。</p>
       </div>
       <button class="button secondary compact" type="button" @click="closeEditor">关闭</button>
@@ -488,21 +499,6 @@ function canAdminister(item: OrganizationMember) {
             </option>
           </select>
         </div>
-        <div class="form-field">
-          <label for="member-city">城市</label><input id="member-city" v-model="memberForm.city" />
-        </div>
-        <div class="form-field">
-          <label for="member-company">公司</label><input id="member-company" v-model="memberForm.company" />
-        </div>
-        <div class="form-field">
-          <label for="member-title">职位</label><input id="member-title" v-model="memberForm.title" />
-        </div>
-        <div class="form-field full">
-          <label for="member-bio">成员简介</label><textarea id="member-bio" v-model="memberForm.bio"></textarea>
-        </div>
-        <div class="form-field full">
-          <label for="member-tags">标签</label><input id="member-tags" v-model="memberForm.tags" placeholder="大会运营、内容" />
-        </div>
         <details class="advanced-permissions full">
           <summary>高级权限设置</summary>
           <div class="form-field">
@@ -519,7 +515,7 @@ function canAdminister(item: OrganizationMember) {
       <div class="event-form-actions">
         <button class="button secondary" type="button" @click="closeEditor">取消</button>
         <button class="button" type="submit" :disabled="pending">
-          {{ pending ? '保存中…' : '保存成员' }}
+          {{ pending ? '保存中…' : '保存管理员' }}
         </button>
       </div>
     </form>
@@ -528,48 +524,49 @@ function canAdminister(item: OrganizationMember) {
   <section class="admin-panel">
     <header class="admin-panel-header">
       <div>
-        <h2>成员目录</h2>
+        <h2>管理员目录</h2>
         <p>管理员保护规则会阻止停用、移除自己或最后一位管理员</p>
       </div>
     </header>
-    <div class="data-table-wrap">
+    <div class="data-table-wrap administrator-directory">
       <table class="data-table">
         <caption class="sr-only">
-          组织成员目录
+          组织管理员目录
         </caption>
         <thead>
           <tr>
             <th>用户 ID</th>
-            <th>成员</th>
+            <th>管理员</th>
             <th>角色</th>
-            <th>公司与职位</th>
             <th>状态</th>
-            <th>操作</th>
+            <th v-if="canManageMembers">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in members" :key="item.id">
             <td class="mono-code" data-label="用户 ID">{{ item.userId }}</td>
-            <td>
+            <td data-label="管理员">
               <span class="row-title">{{ item.name }}{{ isSelf(item) ? '（你）' : '' }}</span>
-              <span class="row-sub">{{ item.email }}</span>
+              <span class="row-sub">
+                {{ item.username ? `用户名：${item.username}` : item.email || '未填写邮箱' }}
+              </span>
             </td>
-            <td>
-              <span class="status-badge">{{ roleLabels[item.role] ?? item.role }}</span>
+            <td data-label="角色">
+              <span class="status-badge">
+                {{
+                  item.isSuperAdministrator ? '超级管理员' : (roleLabels[item.role] ?? item.role)
+                }}
+              </span>
             </td>
-            <td>
-              {{ item.profile?.company ?? '未填写' }}
-              <span class="row-sub">{{ item.profile?.title }}</span>
-            </td>
-            <td>
+            <td data-label="状态">
               <span class="status-badge" :class="item.status === 'active' ? 'paid' : 'draft'">
                 {{ item.status === 'active' ? '已启用' : '已停用' }}
               </span>
             </td>
-            <td>
-              <div v-if="canManageMembers" class="table-actions">
+            <td v-if="canManageMembers" data-label="操作">
+              <span v-if="!canAdminister(item)" class="row-sub">受保护账号</span>
+              <div v-else class="table-actions">
                 <button
-                  v-if="canAdminister(item)"
                   class="button secondary compact"
                   type="button"
                   @click="edit(item)"
@@ -577,7 +574,6 @@ function canAdminister(item: OrganizationMember) {
                   编辑
                 </button>
                 <button
-                  v-if="canAdminister(item)"
                   :class="['button compact', item.status === 'active' ? 'danger' : 'secondary']"
                   type="button"
                   :disabled="isSelf(item)"
@@ -586,7 +582,6 @@ function canAdminister(item: OrganizationMember) {
                   {{ item.status === 'active' ? '停用' : '启用' }}
                 </button>
                 <button
-                  v-if="canAdminister(item)"
                   class="button danger compact"
                   type="button"
                   :disabled="isSelf(item)"

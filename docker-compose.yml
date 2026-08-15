@@ -4,6 +4,7 @@ x-build-args: &build-args
   BUILD_SHA: ${BUILD_SHA:-unknown}
   BUILD_TIME: ${BUILD_TIME:-unknown}
   BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+  BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
 
 x-build: &app-build
   context: .
@@ -50,6 +51,7 @@ x-app-environment: &app-environment
   CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT: ${CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT:-8}
   ALLOW_INSECURE_LOCAL_AUTH: ${ALLOW_INSECURE_LOCAL_AUTH:-false}
   ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_USER_ID: ${ADMIN_USER_ID:-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}
   ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@tokems.local}
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
   SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
@@ -70,6 +72,7 @@ x-app-environment: &app-environment
   INTEGRATION_ENCRYPTION_KEY_VERSION: ${INTEGRATION_ENCRYPTION_KEY_VERSION:-1}
   INTEGRATION_ENCRYPTION_PREVIOUS_KEYS: ${INTEGRATION_ENCRYPTION_PREVIOUS_KEYS:-}
   ENABLE_LOCAL_PAYMENT_SIMULATION: ${ENABLE_LOCAL_PAYMENT_SIMULATION:-false}
+  LOCAL_PAYMENT_SIMULATION_MOBILES: ${LOCAL_PAYMENT_SIMULATION_MOBILES:-}
   AI_API_URL: ${AI_API_URL:-}
   AI_API_KEY: ${AI_API_KEY:-}
   AI_MODEL: ${AI_MODEL:-conference-copywriter-local-v1}
@@ -90,6 +93,7 @@ x-app-environment: &app-environment
   BUILD_SHA: ${BUILD_SHA:-unknown}
   BUILD_TIME: ${BUILD_TIME:-unknown}
   BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+  BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
 
 services:
   postgres:
@@ -330,6 +334,7 @@ services:
       BUILD_SHA: ${BUILD_SHA:-unknown}
       BUILD_TIME: ${BUILD_TIME:-unknown}
       BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+      BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
       HOST: 0.0.0.0
       PORT: 3000
     expose:
@@ -374,6 +379,7 @@ services:
       BUILD_SHA: ${BUILD_SHA:-unknown}
       BUILD_TIME: ${BUILD_TIME:-unknown}
       BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+      BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
       HOST: 0.0.0.0
       PORT: 3000
     expose:

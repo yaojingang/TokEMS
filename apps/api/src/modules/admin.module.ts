@@ -12,15 +12,20 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   API_ERROR_CODES,
+  AdminDashboardQuerySchema,
+  AdminOrderListQuerySchema,
   AdminRegistrationListQuerySchema,
+  CreateRegistrationNoteSchema,
   DEMO_IDS,
   ReviewRegistrationSchema,
+  UpdateAdminRegistrationAttendeeSchema,
   UpdateEventSchema,
   type EventId,
 } from '@conference/contracts';
@@ -31,6 +36,7 @@ import {
   type AuthenticatedUser,
 } from '../common/auth.guard.js';
 import { ConferenceRepository } from '../common/conference.repository.js';
+import { AdminRegistrationOperationsService } from '../common/admin-registration-operations.service.js';
 import { DomainError } from '../common/domain-error.js';
 import { EventIdPipe, OptionalEventIdPipe } from '../common/event-id.pipe.js';
 
@@ -45,12 +51,25 @@ function idempotencyKey(value: string | undefined) {
   return value;
 }
 
+export const ADMIN_EVENT_READ_GRANTS = [
+  'event.read',
+  'event.manage',
+  'event.registration.manage',
+  'event.inventory.read',
+  'event.inventory.manage',
+  'event.site.read',
+] as const;
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('admin')
 class AdminController {
-  constructor(@Inject(ConferenceRepository) private readonly repository: ConferenceRepository) {}
+  constructor(
+    @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
+    @Inject(AdminRegistrationOperationsService)
+    private readonly registrationOperations: AdminRegistrationOperationsService,
+  ) {}
 
   @Get(['dashboard', 'events/:eventId/dashboard'])
   @RequireGrant('event.dashboard.read')
@@ -58,10 +77,21 @@ class AdminController {
     @Param('eventId', OptionalEventIdPipe) scopedEventId: EventId | undefined,
     @Query('eventId', OptionalEventIdPipe) queryEventId: EventId = DEMO_IDS.event,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+    @Query() query?: Record<string, unknown>,
   ) {
+    const parsed = AdminDashboardQuerySchema.safeParse(query ?? {});
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '报名趋势日期区间校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
     return this.repository.getDashboard(
       scopedEventId ?? queryEventId,
       request.user!.organizationId,
+      parsed.data,
     );
   }
 
@@ -104,6 +134,75 @@ class AdminController {
     );
   }
 
+  @Get('events/:eventId/registrations/:registrationId/operations-detail')
+  @RequireGrant('event.registration.read')
+  registrationOperationsDetail(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('registrationId') registrationId: string,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    return this.registrationOperations.detail(
+      eventId,
+      registrationId,
+      request.user!.organizationId,
+      request.user!.grants,
+    );
+  }
+
+  @Patch('events/:eventId/registrations/:registrationId/attendee')
+  @RequireGrant('event.registration.manage')
+  updateRegistrationAttendee(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('registrationId') registrationId: string,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+  ) {
+    const parsed = UpdateAdminRegistrationAttendeeSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '参会人资料校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.registrationOperations.updateAttendee(
+      eventId,
+      registrationId,
+      request.user!.organizationId,
+      request.user!.sub,
+      parsed.data,
+    );
+  }
+
+  @Post('events/:eventId/registrations/:registrationId/notes')
+  @RequireGrant('event.registration.manage')
+  addRegistrationNote(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('registrationId') registrationId: string,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+  ) {
+    const parsed = CreateRegistrationNoteSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '报名备注校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.registrationOperations.addNote(
+      eventId,
+      registrationId,
+      request.user!.organizationId,
+      request.user!.sub,
+      parsed.data,
+    );
+  }
+
   @Post('events/:eventId/registrations/:registrationId/review')
   @RequireGrant('event.registration.manage')
   reviewRegistration(
@@ -138,27 +237,26 @@ class AdminController {
     @Param('eventId', OptionalEventIdPipe) scopedEventId: EventId | undefined,
     @Query('eventId', OptionalEventIdPipe) queryEventId: EventId = DEMO_IDS.event,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },
-    @Query('q') q?: string,
-    @Query('status') status?: string,
+    @Query() query?: Record<string, unknown>,
   ) {
+    const parsed = AdminOrderListQuerySchema.safeParse(query ?? {});
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '订单列表查询条件校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
     return this.repository.listOrders(
       scopedEventId ?? queryEventId,
-      {
-        ...(q ? { q } : {}),
-        ...(status ? { status } : {}),
-      },
+      parsed.data,
       request.user!.organizationId,
     );
   }
 
   @Get('events/:eventId')
-  @RequireGrant(
-    'event.read',
-    'event.manage',
-    'event.registration.manage',
-    'event.inventory.read',
-    'event.inventory.manage',
-  )
+  @RequireGrant(...ADMIN_EVENT_READ_GRANTS)
   event(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },

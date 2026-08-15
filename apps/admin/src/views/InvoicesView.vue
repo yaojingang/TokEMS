@@ -1,21 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import {
-  EventIdParamSchema,
-  type EventId,
+  type InvoiceBatchManifestItem,
+  type InvoiceBatchPreflightResult,
   type InvoiceListQuery,
   type InvoiceRequest,
   type InvoiceRequestStatus,
 } from '@conference/contracts';
 import { useRoute, useRouter } from 'vue-router';
 import { conferenceApi, session } from '../lib/api';
+import { readInvoiceBatchZip, type InvoiceBatchArchive } from '../lib/invoice-batch-import';
 import { dateTime } from '../lib/format';
+import { parseEventId } from '../lib/route-scope';
+
+const PAGE_SIZE = 20;
 
 const route = useRoute();
 const router = useRouter();
 const rows = ref<InvoiceRequest[]>([]);
-const events = ref<Array<{ id: EventId; name: string }>>([]);
 const nextCursor = ref<string | null>(null);
+const currentPage = ref(1);
+const pageCursors = ref<Array<string | undefined>>([undefined]);
 const detail = ref<InvoiceRequest>();
 const detailDialog = ref<HTMLDialogElement>();
 const detailTrigger = ref<HTMLButtonElement>();
@@ -26,8 +31,12 @@ const errorMessage = ref('');
 const message = ref('');
 const query = ref(String(route.query.q ?? ''));
 const status = ref(String(route.query.status ?? ''));
-const initialEventId = EventIdParamSchema.safeParse(String(route.query.eventId ?? ''));
-const eventId = ref<EventId | ''>(initialEventId.success ? initialEventId.data : '');
+const eventId = computed(() => {
+  const value = Array.isArray(route.params.eventId)
+    ? route.params.eventId[0]
+    : route.params.eventId;
+  return parseEventId(value);
+});
 const fromDate = ref(String(route.query.fromDate ?? ''));
 const toDate = ref(String(route.query.toDate ?? ''));
 const dateField = ref<'requested' | 'issued'>(
@@ -40,18 +49,27 @@ const actionReason = ref('');
 const voidDocumentId = ref('');
 const exportConfirmation = ref(false);
 const exporting = ref(false);
+const batchArchive = ref<InvoiceBatchArchive>();
+const batchFileName = ref('');
+const batchPreflight = ref<InvoiceBatchPreflightResult>();
+const batchParsing = ref(false);
+const batchImporting = ref(false);
+const batchResults = ref<
+  Array<{ requestNo: string; status: 'imported' | 'error'; message: string }>
+>([]);
 const selectedDocumentFile = ref<File>();
 const canManage = computed(() => session.can('org.invoice.manage'));
 const canExport = computed(() => session.can('org.invoice.export'));
 const selectedId = computed(() => String(route.params.invoiceId ?? ''));
+const visibleRange = computed(() => {
+  if (!rows.value.length) return '0 条发票申请';
+  const start = (currentPage.value - 1) * PAGE_SIZE + 1;
+  const end = start + rows.value.length - 1;
+  return `第 ${start}–${end} 条 · 每页 ${PAGE_SIZE} 条`;
+});
 const activeDocument = computed(() =>
   detail.value?.documents.find((document) => !document.voidedAt),
 );
-const eventOptions = computed(() => {
-  const unique = new Map(events.value.map((item) => [item.id, item.name]));
-  rows.value.forEach((item) => unique.set(item.eventId, item.eventName));
-  return [...unique.entries()].map(([id, name]) => ({ id, name }));
-});
 const documentForm = reactive({
   documentType: 'original' as 'original' | 'adjustment' | 'reissue',
   invoiceNumber: '',
@@ -110,7 +128,6 @@ function currentFilters(): InvoiceListQuery {
   return {
     ...(query.value.trim() ? { q: query.value.trim() } : {}),
     ...(status.value ? { status: status.value as InvoiceRequestStatus } : {}),
-    ...(eventId.value ? { eventId: eventId.value } : {}),
     ...(fromDate.value ? { from: new Date(`${fromDate.value}T00:00:00+08:00`).toISOString() } : {}),
     ...(toDate.value ? { to: new Date(`${toDate.value}T23:59:59.999+08:00`).toISOString() } : {}),
     dateField: dateField.value,
@@ -121,26 +138,35 @@ function routeFilters() {
   return {
     ...(query.value ? { q: query.value } : {}),
     ...(status.value ? { status: status.value } : {}),
-    ...(eventId.value ? { eventId: String(eventId.value) } : {}),
     ...(fromDate.value ? { fromDate: fromDate.value } : {}),
     ...(toDate.value ? { toDate: toDate.value } : {}),
     ...(dateField.value === 'issued' ? { dateField: 'issued' } : {}),
   };
 }
 
-async function load(append = false) {
+async function load(targetPage = currentPage.value) {
+  const normalizedPage = Math.max(1, Math.round(targetPage) || 1);
+  const cursor = pageCursors.value[normalizedPage - 1];
+  if (normalizedPage > 1 && !cursor) return;
   const sequence = ++loadSequence;
   loading.value = true;
   errorMessage.value = '';
   try {
-    const page = await conferenceApi.getInvoices({
-      ...currentFilters(),
-      ...(append && nextCursor.value ? { cursor: nextCursor.value } : {}),
-      limit: 50,
-    });
+    const result = await conferenceApi.getInvoices(
+      {
+        ...currentFilters(),
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      },
+      eventId.value,
+    );
     if (sequence !== loadSequence) return;
-    rows.value = append ? [...rows.value, ...page.items] : page.items;
-    nextCursor.value = page.nextCursor;
+    rows.value = result.items;
+    currentPage.value = normalizedPage;
+    nextCursor.value = result.nextCursor;
+    const nextPageCursors = pageCursors.value.slice(0, normalizedPage);
+    if (result.nextCursor) nextPageCursors[normalizedPage] = result.nextCursor;
+    pageCursors.value = nextPageCursors;
   } catch (error) {
     if (sequence !== loadSequence) return;
     errorMessage.value = error instanceof Error ? error.message : '发票申请读取失败';
@@ -149,15 +175,16 @@ async function load(append = false) {
   }
 }
 
-async function loadEventOptions() {
-  try {
-    events.value = (await conferenceApi.getEvents()).map((event) => ({
-      id: event.id,
-      name: event.name,
-    }));
-  } catch {
-    events.value = [];
-  }
+function resetPagination() {
+  currentPage.value = 1;
+  pageCursors.value = [undefined];
+  nextCursor.value = null;
+}
+
+function changePage(targetPage: number) {
+  if (loading.value || targetPage < 1 || targetPage === currentPage.value) return;
+  if (targetPage > currentPage.value && !nextCursor.value) return;
+  void load(targetPage);
 }
 
 async function loadDetail() {
@@ -168,7 +195,7 @@ async function loadDetail() {
   detailLoading.value = true;
   errorMessage.value = '';
   try {
-    detail.value = await conferenceApi.getInvoice(selectedId.value);
+    detail.value = await conferenceApi.getInvoice(selectedId.value, eventId.value);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '发票详情读取失败';
   } finally {
@@ -180,8 +207,8 @@ function selectInvoice(item: InvoiceRequest, event: MouseEvent) {
   actionMode.value = '';
   detailTrigger.value = event.currentTarget as HTMLButtonElement;
   void router.push({
-    name: 'manage-invoices',
-    params: { invoiceId: item.id },
+    name: 'event-invoices',
+    params: { eventId: eventId.value, invoiceId: item.id },
     query: routeFilters(),
   });
 }
@@ -189,7 +216,8 @@ function selectInvoice(item: InvoiceRequest, event: MouseEvent) {
 async function closeDetail() {
   const trigger = detailTrigger.value;
   await router.push({
-    name: 'manage-invoices',
+    name: 'event-invoices',
+    params: { eventId: eventId.value },
     query: routeFilters(),
   });
   await nextTick();
@@ -210,6 +238,7 @@ async function refreshAfterAction(updated?: InvoiceRequest) {
   actionMode.value = '';
   actionReason.value = '';
   await load();
+  if (!rows.value.length && currentPage.value > 1) await load(currentPage.value - 1);
 }
 
 async function approve() {
@@ -217,7 +246,11 @@ async function approve() {
   pending.value = true;
   errorMessage.value = '';
   try {
-    const updated = await conferenceApi.approveInvoice(detail.value.id, detail.value.updatedAt);
+    const updated = await conferenceApi.approveInvoice(
+      detail.value.id,
+      detail.value.updatedAt,
+      eventId.value,
+    );
     message.value = `${updated.requestNo} 已审核通过，进入开具中。`;
     await refreshAfterAction(updated);
   } catch (error) {
@@ -238,10 +271,15 @@ async function submitAction() {
   pending.value = true;
   errorMessage.value = '';
   try {
-    const updated = await conferenceApi.invoiceAction(detail.value.id, actionMode.value, {
-      reason: actionReason.value.trim(),
-      expectedUpdatedAt: detail.value.updatedAt,
-    });
+    const updated = await conferenceApi.invoiceAction(
+      detail.value.id,
+      actionMode.value,
+      {
+        reason: actionReason.value.trim(),
+        expectedUpdatedAt: detail.value.updatedAt,
+      },
+      eventId.value,
+    );
     message.value = `${updated.requestNo} 状态已更新为“${statusLabels[updated.status]}”。`;
     await refreshAfterAction(updated);
   } catch (error) {
@@ -278,12 +316,16 @@ async function submitDocument() {
   pending.value = true;
   errorMessage.value = '';
   try {
-    const upload = await conferenceApi.prepareInvoiceDocumentUpload(detail.value.id, {
-      fileName: documentForm.fileName,
-      mediaType: documentForm.mediaType,
-      size: documentForm.size,
-      contentDigest: documentForm.contentDigest,
-    });
+    const upload = await conferenceApi.prepareInvoiceDocumentUpload(
+      detail.value.id,
+      {
+        fileName: documentForm.fileName,
+        mediaType: documentForm.mediaType,
+        size: documentForm.size,
+        contentDigest: documentForm.contentDigest,
+      },
+      eventId.value,
+    );
     const uploadResponse = await fetch(upload.uploadUrl, {
       method: upload.method,
       headers: upload.headers,
@@ -293,21 +335,27 @@ async function submitDocument() {
       throw new Error(`电子发票文件上传失败（${uploadResponse.status}）`);
     }
     documentForm.storageKey = upload.storageKey;
-    const updated = await conferenceApi.addInvoiceDocument(detail.value.id, {
-      documentType: documentForm.documentType,
-      invoiceNumber: documentForm.invoiceNumber.trim(),
-      ...(documentForm.invoiceCode.trim() ? { invoiceCode: documentForm.invoiceCode.trim() } : {}),
-      ...(documentForm.externalReference.trim()
-        ? { externalReference: documentForm.externalReference.trim() }
-        : {}),
-      storageKey: documentForm.storageKey,
-      mediaType: documentForm.mediaType,
-      size: documentForm.size,
-      contentDigest: documentForm.contentDigest,
-      ...(documentForm.documentType !== 'original' && detail.value.documents[0]
-        ? { replacesDocumentId: detail.value.documents[0].id }
-        : {}),
-    });
+    const updated = await conferenceApi.addInvoiceDocument(
+      detail.value.id,
+      {
+        documentType: documentForm.documentType,
+        invoiceNumber: documentForm.invoiceNumber.trim(),
+        ...(documentForm.invoiceCode.trim()
+          ? { invoiceCode: documentForm.invoiceCode.trim() }
+          : {}),
+        ...(documentForm.externalReference.trim()
+          ? { externalReference: documentForm.externalReference.trim() }
+          : {}),
+        storageKey: documentForm.storageKey,
+        mediaType: documentForm.mediaType,
+        size: documentForm.size,
+        contentDigest: documentForm.contentDigest,
+        ...(documentForm.documentType !== 'original' && detail.value.documents[0]
+          ? { replacesDocumentId: detail.value.documents[0].id }
+          : {}),
+      },
+      eventId.value,
+    );
     message.value = `${documentForm.invoiceNumber} 已登记，申请状态已更新为已开具。`;
     Object.assign(documentForm, {
       documentType: 'original',
@@ -339,6 +387,7 @@ async function voidDocument() {
       voidDocumentId.value,
       actionReason.value.trim(),
       detail.value.updatedAt,
+      eventId.value,
     );
     message.value = '指定发票文件已作废，历史记录继续保留。';
     voidDocumentId.value = '';
@@ -354,7 +403,7 @@ async function sendInvoice() {
   if (!detail.value) return;
   pending.value = true;
   try {
-    await conferenceApi.sendInvoice(detail.value.id);
+    await conferenceApi.sendInvoice(detail.value.id, eventId.value);
     message.value = `发票已加入发送队列，将发送至 ${detail.value.maskedEmail ?? '接收邮箱'}。`;
     await loadDetail();
   } catch (error) {
@@ -372,6 +421,7 @@ async function downloadDocument(documentId: string, invoiceNumber: string, media
       detail.value.id,
       documentId,
       `${invoiceNumber}.${mediaType === 'application/ofd' ? 'ofd' : 'pdf'}`,
+      eventId.value,
     );
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '电子发票下载失败';
@@ -382,7 +432,7 @@ async function exportRows() {
   exporting.value = true;
   errorMessage.value = '';
   try {
-    const count = await conferenceApi.exportInvoices(currentFilters());
+    const count = await conferenceApi.exportInvoices(currentFilters(), eventId.value);
     exportConfirmation.value = false;
     message.value = `已按当前筛选导出 ${count} 条发票申请。`;
   } catch (error) {
@@ -392,9 +442,120 @@ async function exportRows() {
   }
 }
 
-watch([query, status, eventId, fromDate, toDate, dateField], (_values, _oldValues, onCleanup) => {
-  const timer = window.setTimeout(() => void load(), query.value ? 300 : 0);
+async function chooseBatchArchive(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  batchParsing.value = true;
+  batchArchive.value = undefined;
+  batchPreflight.value = undefined;
+  batchResults.value = [];
+  errorMessage.value = '';
+  message.value = '';
+  try {
+    const archive = await readInvoiceBatchZip(file);
+    const preflight = await conferenceApi.preflightInvoiceBatch(
+      { items: archive.items },
+      eventId.value,
+    );
+    batchArchive.value = archive;
+    batchFileName.value = file.name;
+    batchPreflight.value = preflight;
+    message.value = `预检完成：${preflight.readyCount} 条可导入，${preflight.errorCount} 条需处理。`;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '批量导入包预检失败';
+  } finally {
+    input.value = '';
+    batchParsing.value = false;
+  }
+}
+
+async function importBatchItem(
+  item: InvoiceBatchManifestItem,
+  invoiceId: string,
+  bytes: Uint8Array,
+) {
+  const upload = await conferenceApi.prepareInvoiceDocumentUpload(
+    invoiceId,
+    {
+      fileName: item.uploadFile.split('/').at(-1) ?? item.uploadFile,
+      mediaType: item.mediaType,
+      size: item.size,
+      contentDigest: item.contentDigest,
+    },
+    eventId.value,
+  );
+  const uploadResponse = await fetch(upload.uploadUrl, {
+    method: upload.method,
+    headers: upload.headers,
+    body: new Blob([bytes.slice().buffer as ArrayBuffer], { type: item.mediaType }),
+  });
+  if (!uploadResponse.ok) throw new Error(`文件上传失败（${uploadResponse.status}）`);
+  await conferenceApi.addInvoiceDocument(
+    invoiceId,
+    {
+      documentType: 'original',
+      invoiceNumber: item.invoiceNumber,
+      ...(item.invoiceCode ? { invoiceCode: item.invoiceCode } : {}),
+      storageKey: upload.storageKey,
+      mediaType: item.mediaType,
+      size: item.size,
+      contentDigest: item.contentDigest,
+    },
+    eventId.value,
+  );
+}
+
+async function confirmBatchImport() {
+  const archive = batchArchive.value;
+  const preflight = batchPreflight.value;
+  if (!archive || !preflight?.readyCount) return;
+  batchImporting.value = true;
+  batchResults.value = [];
+  errorMessage.value = '';
+  const preflightByRequest = new Map(preflight.items.map((item) => [item.requestNo, item]));
+  for (const item of archive.items) {
+    const match = preflightByRequest.get(item.requestNo);
+    if (match?.status !== 'ready' || !match.invoiceId) continue;
+    const bytes = archive.files.get(item.uploadFile);
+    try {
+      if (!bytes) throw new Error('ZIP 中缺少目标文件');
+      await importBatchItem(item, match.invoiceId, bytes);
+      batchResults.value.push({ requestNo: item.requestNo, status: 'imported', message: '已开具' });
+    } catch (error) {
+      batchResults.value.push({
+        requestNo: item.requestNo,
+        status: 'error',
+        message: error instanceof Error ? error.message : '导入失败',
+      });
+    }
+  }
+  const imported = batchResults.value.filter((item) => item.status === 'imported').length;
+  const failed = batchResults.value.length - imported;
+  message.value = `批量导入完成：${imported} 条成功，${failed} 条失败。成功文件已进入用户个人中心。`;
+  batchImporting.value = false;
+  await load(1);
+}
+
+watch([query, status, fromDate, toDate, dateField], (_values, _oldValues, onCleanup) => {
+  const timer = window.setTimeout(
+    () => {
+      resetPagination();
+      void load(1);
+    },
+    query.value ? 300 : 0,
+  );
   onCleanup(() => window.clearTimeout(timer));
+});
+watch(eventId, (nextEventId, previousEventId) => {
+  if (!nextEventId || nextEventId === previousEventId) return;
+  rows.value = [];
+  resetPagination();
+  detail.value = undefined;
+  batchArchive.value = undefined;
+  batchPreflight.value = undefined;
+  batchResults.value = [];
+  void load(1);
 });
 watch(
   selectedId,
@@ -407,7 +568,7 @@ watch(
   { immediate: true },
 );
 onMounted(() => {
-  void Promise.all([load(), loadEventOptions()]);
+  void load(1);
 });
 </script>
 
@@ -416,19 +577,94 @@ onMounted(() => {
     <div>
       <p class="eyebrow">FINANCE OPERATIONS</p>
       <h1>发票管理</h1>
-      <p>跨大会处理发票资料、审核、开具、发送、退款调整与作废记录。</p>
+      <p>处理当前大会的发票资料、审核、开具、发送、退款调整与作废记录。</p>
+    </div>
+    <div v-if="canManage" class="admin-head-actions">
+      <label
+        class="button secondary invoice-batch-trigger"
+        :aria-disabled="batchParsing || batchImporting"
+      >
+        {{
+          batchParsing ? '正在读取文件包…' : batchImporting ? '正在批量导入…' : '批量导入发票文件包'
+        }}
+        <input
+          class="sr-only"
+          type="file"
+          accept=".zip,application/zip"
+          :disabled="batchParsing || batchImporting"
+          @change="chooseBatchArchive"
+        />
+      </label>
     </div>
   </header>
   <p v-if="message" class="admin-success" role="status">{{ message }}</p>
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
+  <section
+    v-if="canManage && (batchPreflight || batchResults.length)"
+    class="admin-panel invoice-batch-panel"
+  >
+    <div v-if="batchPreflight" class="admin-panel-header invoice-batch-summary">
+      <p>
+        <strong>{{ batchFileName }}</strong>
+        · 可导入 {{ batchPreflight.readyCount }} 条 · 需处理 {{ batchPreflight.errorCount }} 条
+      </p>
+      <button
+        class="button"
+        type="button"
+        :disabled="batchImporting || batchPreflight.readyCount === 0"
+        @click="confirmBatchImport"
+      >
+        {{ batchImporting ? '正在批量导入…' : `确认导入 ${batchPreflight.readyCount} 条` }}
+      </button>
+    </div>
+    <div v-if="batchPreflight?.items.length" class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>申请单号</th>
+            <th>预检结果</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in batchPreflight.items" :key="item.requestNo">
+            <td>{{ item.requestNo }}</td>
+            <td>
+              <span class="status-badge" :class="item.status === 'ready' ? '' : 'issue'">{{
+                item.status === 'ready' ? '可导入' : '需处理'
+              }}</span>
+            </td>
+            <td>{{ item.message }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-if="batchResults.length" class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>申请单号</th>
+            <th>导入结果</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in batchResults" :key="item.requestNo">
+            <td>{{ item.requestNo }}</td>
+            <td>
+              <span class="status-badge" :class="item.status === 'imported' ? '' : 'issue'">{{
+                item.status === 'imported' ? '成功' : '失败'
+              }}</span>
+            </td>
+            <td>{{ item.message }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="admin-panel invoice-list-panel">
-    <header class="admin-panel-header">
-      <div>
-        <h2>发票申请</h2>
-        <p>{{ rows.length }} 条已加载</p>
-      </div>
-    </header>
     <form class="admin-filter-bar invoice-filter-bar" role="search" @submit.prevent>
       <label class="admin-search">
         <span aria-hidden="true">⌕</span>
@@ -438,15 +674,6 @@ onMounted(() => {
           aria-label="搜索发票"
           placeholder="搜索申请单、订单、抬头或税号"
         />
-      </label>
-      <label class="admin-select-label invoice-compact-filter">
-        <span class="sr-only">大会</span>
-        <select v-model="eventId" class="admin-select" aria-label="大会">
-          <option value="">全部大会</option>
-          <option v-for="event in eventOptions" :key="event.id" :value="event.id">
-            {{ event.name }}
-          </option>
-        </select>
       </label>
       <label class="admin-select-label invoice-compact-filter">
         <span class="sr-only">状态</span>
@@ -491,7 +718,6 @@ onMounted(() => {
         <thead>
           <tr>
             <th>申请单 / 订单</th>
-            <th>大会</th>
             <th>申请人</th>
             <th>发票抬头</th>
             <th>金额</th>
@@ -505,7 +731,6 @@ onMounted(() => {
             <td data-label="申请单 / 订单">
               <strong>{{ item.requestNo }}</strong><small>{{ item.orderNo }}</small>
             </td>
-            <td data-label="大会">{{ item.eventName }}</td>
             <td data-label="申请人">
               <strong>{{ item.attendeeName }}</strong>
               <small>{{ item.maskedMobile ?? '手机号待补充' }}</small>
@@ -534,11 +759,36 @@ onMounted(() => {
       </table>
     </div>
     <div v-else class="admin-empty">当前筛选下没有发票申请。</div>
-    <div v-if="nextCursor" class="event-form-actions invoice-load-more">
-      <button class="button secondary" type="button" :disabled="loading" @click="load(true)">
-        {{ loading ? '正在加载…' : '加载更多' }}
-      </button>
-    </div>
+    <footer v-if="rows.length || currentPage > 1" class="table-footer invoice-pagination">
+      <span>{{ visibleRange }}</span>
+      <nav class="mini-pagination" aria-label="发票申请分页">
+        <button
+          type="button"
+          aria-label="上一页"
+          :disabled="currentPage === 1 || loading"
+          @click="changePage(currentPage - 1)"
+        >
+          ‹
+        </button>
+        <button
+          class="active"
+          type="button"
+          :aria-label="`第 ${currentPage} 页`"
+          aria-current="page"
+          disabled
+        >
+          {{ currentPage }}
+        </button>
+        <button
+          type="button"
+          aria-label="下一页"
+          :disabled="!nextCursor || loading"
+          @click="changePage(currentPage + 1)"
+        >
+          ›
+        </button>
+      </nav>
+    </footer>
   </section>
 
   <dialog

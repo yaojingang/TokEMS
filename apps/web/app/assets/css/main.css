@@ -333,28 +333,6 @@
   box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
 }
 
-.form-checks {
-  display: grid;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.form-check {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  color: var(--conference-ink-soft);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
-.form-check input {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  accent-color: var(--conference-primary);
-}
-
 .flow-action {
   display: inline-flex;
   min-height: 46px;
@@ -524,13 +502,14 @@
 
 .order-card {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   overflow: hidden;
   text-align: left;
 }
 
 .order-details {
-  padding: 28px;
+  min-width: 0;
+  padding: 32px;
 }
 
 .order-details h2 {
@@ -538,11 +517,18 @@
   font-size: 17px;
 }
 
+.order-details .summary-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .order-payment {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  justify-content: center;
-  padding: 28px;
+  justify-content: flex-start;
+  padding: 32px;
+  border-left: 1px solid var(--conference-line);
   background: var(--conference-bg-soft);
   text-align: center;
 }
@@ -570,7 +556,10 @@
 }
 
 .order-payment .payment-prepare-error {
-  margin-top: -4px;
+  margin: 0 0 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 
 .payment-countdown {
@@ -1081,6 +1070,11 @@
 
   .summary-card {
     position: static;
+  }
+
+  .order-payment {
+    border-top: 1px solid var(--conference-line);
+    border-left: 0;
   }
 
   .ticket-paper__aside {

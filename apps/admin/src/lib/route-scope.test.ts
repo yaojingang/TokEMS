@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { routeEventId } from './route-scope.js';
+import { parseEventId, routeEventId } from './route-scope.js';
 
 describe('routeEventId', () => {
   it('finds an event below the Docker admin base path', () => {
@@ -10,6 +10,12 @@ describe('routeEventId', () => {
     expect(routeEventId('/events/999/orders', '/')).toBe(999);
     expect(routeEventId('/events/1000/orders', '/')).toBe(1000);
     expect(routeEventId('/events/2147483647/orders', '/')).toBe(2_147_483_647);
+  });
+
+  it('accepts numeric IDs retained by named route resolution', () => {
+    expect(parseEventId(101)).toBe(101);
+    expect(parseEventId(2_147_483_647)).toBe(2_147_483_647);
+    expect(parseEventId(100)).toBeUndefined();
   });
 
   it('does not infer an event from an unrelated route', () => {

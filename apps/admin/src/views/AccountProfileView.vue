@@ -16,6 +16,7 @@ const savedSnapshot = ref('');
 const form = reactive({
   name: '',
   email: '',
+  username: '',
   mobile: '',
   company: '',
   title: '',
@@ -50,6 +51,7 @@ const dirty = computed(
 );
 const roleLabel = computed(() => organizationRoleLabel(account.value?.membership.role));
 const accountInitial = computed(() => form.name.trim().charAt(0) || '管');
+const loginIdentifier = computed(() => form.username || form.email);
 const permissionSummary = computed(() => {
   const grants = account.value?.membership.grants ?? [];
   return grants.includes('*') ? '完整管理权限' : `${grants.length} 项授权`;
@@ -71,7 +73,8 @@ function fill(value: AccountProfile) {
   account.value = value;
   Object.assign(form, {
     name: value.user.name,
-    email: value.user.email,
+    email: value.user.email ?? '',
+    username: value.user.username ?? '',
     mobile: value.user.mobile ?? '',
     company: value.profile?.company ?? '',
     title: value.profile?.title ?? '',
@@ -162,7 +165,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
       <div class="account-identity-copy">
         <p>当前登录身份</p>
         <h2>{{ form.name }}</h2>
-        <span>{{ form.email }}</span>
+        <span>{{ loginIdentifier }}</span>
       </div>
       <dl class="account-identity-facts">
         <div>
@@ -210,16 +213,20 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
               />
             </div>
             <div class="form-field">
-              <label for="account-email">登录邮箱</label>
+              <label for="account-login-identifier">
+                {{ form.username ? '登录用户名' : '登录邮箱' }}
+              </label>
               <input
-                id="account-email"
-                v-model="form.email"
+                id="account-login-identifier"
+                :value="loginIdentifier"
                 class="account-readonly-input"
-                type="email"
+                :type="form.username ? 'text' : 'email'"
                 readonly
-                aria-describedby="account-email-help"
+                aria-describedby="account-login-identifier-help"
               />
-              <small id="account-email-help">邮箱变更需要身份验证，请联系组织管理员。</small>
+              <small id="account-login-identifier-help">
+                登录凭据变更需要身份验证，请联系组织管理员。
+              </small>
             </div>
             <div class="form-field">
               <label for="account-mobile">手机号</label>

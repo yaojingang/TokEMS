@@ -8,6 +8,8 @@ import {
   HtmlTemplateBindingManifestSchema,
   OrganizationSettingsSchema,
   normalizeConferenceTemplateDefinition,
+  publicEventHomePath,
+  publicEventScopedPath,
   type HtmlTemplateBindingManifest,
   type HtmlTemplateVariablePath,
 } from '@conference/contracts';
@@ -1298,6 +1300,7 @@ export class HtmlTemplateOperationsService {
     html: string,
     settings: ReturnType<typeof OrganizationSettingsSchema.parse>,
     eventName: string,
+    eventSlug: string,
   ) {
     const escape = (value: string) =>
       value
@@ -1306,48 +1309,27 @@ export class HtmlTemplateOperationsService {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;');
     const website = settings.website;
-    const analytics = settings.analytics;
     const title = website.seoTitle || eventName;
+    const canonicalPath = publicEventHomePath(eventSlug);
+    const publicOrigin = (process.env.PUBLIC_ORIGIN ?? process.env.PUBLIC_SITE_URL ?? '').replace(
+      /\/+$/u,
+      '',
+    );
+    const canonicalUrl = publicOrigin ? `${publicOrigin}${canonicalPath}` : canonicalPath;
     const headParts = [
       `<title>${escape(title)}</title>`,
+      `<link rel="canonical" href="${escape(canonicalUrl)}">`,
+      `<meta property="og:url" content="${escape(canonicalUrl)}">`,
       website.seoDescription
         ? `<meta name="description" content="${escape(website.seoDescription)}">`
         : '',
       website.faviconUrl ? `<link rel="icon" href="${escape(website.faviconUrl)}">` : '',
     ];
-    const scriptOrigins = new Set<string>();
-    const connectOrigins = new Set<string>();
-    const imageOrigins = new Set<string>();
-    const scriptHashes: string[] = [];
-    if (analytics.enabled) {
-      if (analytics.provider === 'baidu' && analytics.trackingId) {
-        const src = `https://hm.baidu.com/hm.js?${encodeURIComponent(analytics.trackingId)}`;
-        headParts.push(`<script async src="${src}"></script>`);
-        scriptOrigins.add('https://hm.baidu.com');
-        imageOrigins.add('https://hm.baidu.com');
-      } else if (analytics.provider === 'google' && analytics.trackingId) {
-        const id = JSON.stringify(analytics.trackingId);
-        const inline = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config',${id});`;
-        headParts.push(
-          `<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analytics.trackingId)}"></script>`,
-          `<script>${inline}</script>`,
-        );
-        scriptOrigins.add('https://www.googletagmanager.com');
-        connectOrigins.add('https://www.google-analytics.com');
-        imageOrigins.add('https://www.google-analytics.com');
-        scriptHashes.push(`'sha256-${createHash('sha256').update(inline).digest('base64')}'`);
-      } else if (analytics.provider === 'umami' && analytics.scriptUrl) {
-        const source = new URL(analytics.scriptUrl);
-        headParts.push(
-          `<script async defer src="${escape(analytics.scriptUrl)}" data-website-id="${escape(analytics.siteId)}"></script>`,
-        );
-        scriptOrigins.add(source.origin);
-        connectOrigins.add(source.origin);
-      }
-    }
     const cleaned = html
       .replace(/<title[\s\S]*?<\/title>/iu, '')
       .replace(/<meta\s+name=["']description["'][^>]*>/giu, '')
+      .replace(/<meta\s+property=["']og:url["'][^>]*>/giu, '')
+      .replace(/<link\s+[^>]*rel=["']canonical["'][^>]*>/giu, '')
       .replace(/<link\s+[^>]*rel=["'][^"']*icon[^"']*["'][^>]*>/giu, '');
     const injected = cleaned.replace(
       /<\/head>/iu,
@@ -1357,12 +1339,12 @@ export class HtmlTemplateOperationsService {
     const assetOrigin = publicEndpoint ? new URL(publicEndpoint).origin : null;
     const csp = [
       "default-src 'none'",
-      `script-src ${scriptOrigins.size || scriptHashes.length ? ["'self'", ...scriptOrigins, ...scriptHashes].join(' ') : "'none'"}`,
+      "script-src 'none'",
       "script-src-attr 'none'",
       "style-src 'unsafe-inline'",
-      `img-src ${["'self'", ...(assetOrigin ? [assetOrigin] : []), ...imageOrigins].join(' ')}`,
+      `img-src ${["'self'", ...(assetOrigin ? [assetOrigin] : [])].join(' ')}`,
       "font-src 'self'",
-      `connect-src ${connectOrigins.size ? [...connectOrigins].join(' ') : "'none'"}`,
+      "connect-src 'none'",
       "frame-src 'none'",
       "object-src 'none'",
       "base-uri 'none'",
@@ -1442,7 +1424,11 @@ export class HtmlTemplateOperationsService {
       speakers: event.speakers,
       sessions: event.sessions,
       faqs: event.faqs,
-      routes: { registration: '/register', faq: '/faq', account: '/account' },
+      routes: {
+        registration: publicEventScopedPath('/register', event.slug),
+        faq: publicEventScopedPath('/faq', event.slug),
+        account: publicEventScopedPath('/account', event.slug),
+      },
       site: OrganizationSettingsSchema.parse(organization.settings).website,
     };
     const rendered = (await renderHtmlTemplate(compiled, context)).replace(
@@ -1450,7 +1436,7 @@ export class HtmlTemplateOperationsService {
       '',
     );
     const settings = OrganizationSettingsSchema.parse(organization.settings);
-    const result = this.systemHead(rendered, settings, event.name);
+    const result = this.systemHead(rendered, settings, event.name, event.slug);
     const etag = publishedHtmlEtag(result.html);
     return { ...result, etag };
   }
@@ -1506,6 +1492,7 @@ export class HtmlTemplateOperationsService {
         artifact,
         OrganizationSettingsSchema.parse(scope.organizationSettings),
         scope.eventName,
+        slug,
       );
       const etag = publishedHtmlEtag(result.html);
       return { ...result, etag };

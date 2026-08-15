@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
+import { createCustomerSession } from './lib/customer-session.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const deviceCount = Number(process.env.CHECKIN_DEVICE_COUNT ?? 100);
@@ -8,6 +9,7 @@ if (!paymentWebhookSecret) {
   throw new Error('PAYMENT_WEBHOOK_SECRET is required for the check-in load test');
 }
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -40,13 +42,14 @@ try {
     }),
   });
   const headers = { Authorization: `Bearer ${login.accessToken}` };
+  const identity = await request('/auth/me', { headers });
   const blueprints = await request('/admin/event-blueprints', { headers });
   const templateOptions = await request('/admin/template-options', { headers });
   const templateVersionId = templateOptions.find(
     (item) => item.currentPublishedVersionId,
   )?.currentPublishedVersionId;
   if (!templateVersionId) throw new Error('No published conference template is available');
-  const slug = `checkin-load-${runId}`;
+  const slug = `load-${slugRunId}`;
   const event = await request('/admin/events', {
     method: 'POST',
     headers: {
@@ -74,7 +77,7 @@ try {
     body: JSON.stringify({
       settings: {
         registration: {
-          accountMode: 'guest_allowed',
+          accountMode: 'mobile_otp_required',
         },
       },
     }),
@@ -99,14 +102,26 @@ try {
   const eventDetail = await request(`/admin/events/${event.id}`, { headers });
   const ticketTypeId = eventDetail.tickets[0].id;
 
+  const registrationCustomers = await Promise.all(
+    Array.from({ length: deviceCount }, (_, index) => {
+      const forwardedFor = `198.51.100.${(index % 250) + 1}`;
+      const mobile = `139${String(10_000_000 + index)}`;
+      return createCustomerSession({
+        apiBase: baseUrl,
+        mobile,
+        organizationSlug: identity.organization.slug,
+        forwardedFor,
+      });
+    }),
+  );
   const registrationStartedAt = performance.now();
   const checkouts = await Promise.all(
-    Array.from({ length: deviceCount }, (_, index) =>
+    registrationCustomers.map((customer, index) =>
       request('/registrations', {
         method: 'POST',
         headers: {
           'Idempotency-Key': `load-registration-${runId}-${index}`,
-          'X-Forwarded-For': `198.51.100.${(index % 250) + 1}`,
+          ...customer.headers,
         },
         body: JSON.stringify({
           eventId: event.id,

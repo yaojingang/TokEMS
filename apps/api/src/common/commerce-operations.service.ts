@@ -27,8 +27,23 @@ import { and, count, eq, gt, inArray, isNull, lt, sql, sum } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
+import { withPostgresTransactionRetry } from './transaction-retry.js';
 
 type Database = NonNullable<DatabaseService['db']>;
+
+export const REFUND_LOCK_ORDER = ['order', 'ticket', 'registration'] as const;
+
+export function fullRefundAttendanceConflict(input: {
+  refundAmount: number;
+  refundableAmount: number;
+  ticketStatus?: string | null | undefined;
+  registrationStatus?: string | null | undefined;
+}) {
+  return (
+    input.refundAmount === input.refundableAmount &&
+    (input.ticketStatus === 'used' || input.registrationStatus === 'checked_in')
+  );
+}
 
 @Injectable()
 export class CommerceOperationsService {
@@ -70,16 +85,23 @@ export class CommerceOperationsService {
     input: RefundRequest,
   ): Promise<Refund> {
     const db = this.db();
-    const requestHash = this.hash({ orderId, ...input });
+    const requestHash = this.hash({ organizationId, orderId, ...input });
+    const scopedIdempotencyKey = this.hash({ organizationId, idempotencyKey });
 
-    return db.transaction(async (tx) => {
+    return withPostgresTransactionRetry(() =>
+      db.transaction(async (tx) => {
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`refund:${idempotencyKey}`}, 0))`,
+        sql`select pg_advisory_xact_lock(hashtextextended(${`refund:${scopedIdempotencyKey}`}, 0))`,
       );
       const [cached] = await tx
         .select()
         .from(refunds)
-        .where(eq(refunds.idempotencyKey, idempotencyKey))
+        .where(
+          and(
+            eq(refunds.organizationId, organizationId),
+            inArray(refunds.idempotencyKey, [scopedIdempotencyKey, idempotencyKey]),
+          ),
+        )
         .limit(1);
       if (cached) {
         const payload = cached.providerPayload as { requestHash?: string };
@@ -106,6 +128,36 @@ export class CommerceOperationsService {
           HttpStatus.NOT_FOUND,
         );
       }
+      const [ticket] = await tx
+        .select()
+        .from(tickets)
+        .where(
+          and(
+            eq(tickets.registrationId, order.registrationId),
+            eq(tickets.eventId, order.eventId),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      const [registration] = await tx
+        .select()
+        .from(registrations)
+        .where(
+          and(
+            eq(registrations.id, order.registrationId),
+            eq(registrations.organizationId, order.organizationId),
+            eq(registrations.eventId, order.eventId),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!registration) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '订单缺少有效的报名记录，无法退款',
+          HttpStatus.CONFLICT,
+        );
+      }
       if (!['paid', 'partially_refunded'].includes(order.status)) {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -122,11 +174,6 @@ export class CommerceOperationsService {
         .select()
         .from(payments)
         .where(and(eq(payments.orderId, order.id), eq(payments.status, 'succeeded')))
-        .limit(1);
-      const registration = await tx
-        .select()
-        .from(registrations)
-        .where(eq(registrations.id, order.registrationId))
         .limit(1);
       const refunded = Number(totals[0]?.amount ?? 0);
       const remaining = order.amount - refunded;
@@ -153,6 +200,20 @@ export class CommerceOperationsService {
       }
 
       const fullRefund = input.amount === remaining;
+      if (
+        fullRefundAttendanceConflict({
+          refundAmount: input.amount,
+          refundableAmount: remaining,
+          ticketStatus: ticket?.status,
+          registrationStatus: registration?.status,
+        })
+      ) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '参会人已签到或电子票已使用，不允许全额退款',
+          HttpStatus.CONFLICT,
+        );
+      }
       const now = new Date();
       const [refund] = await tx
         .insert(refunds)
@@ -165,7 +226,7 @@ export class CommerceOperationsService {
           amount: input.amount,
           currency: order.currency,
           reason: input.reason,
-          idempotencyKey,
+          idempotencyKey: scopedIdempotencyKey,
           providerPayload: {
             provider: payment[0].provider,
             requestHash,
@@ -203,11 +264,11 @@ export class CommerceOperationsService {
           .update(registrations)
           .set({ status: 'cancelled', updatedAt: now })
           .where(eq(registrations.id, order.registrationId));
-        if (registration[0]) {
+        if (ticket?.status === 'valid' && registration.status !== 'cancelled') {
           await tx
             .update(ticketTypes)
             .set({ sold: sql`greatest(${ticketTypes.sold} - 1, 0)`, updatedAt: now })
-            .where(eq(ticketTypes.id, registration[0].ticketTypeId));
+            .where(eq(ticketTypes.id, registration.ticketTypeId));
         }
       }
 
@@ -260,6 +321,7 @@ export class CommerceOperationsService {
           orderId: order.id,
           amount: input.amount,
           fullRefund,
+          recipientRole: 'purchaser',
         },
       });
       await tx.insert(auditLogs).values({
@@ -273,8 +335,9 @@ export class CommerceOperationsService {
         after: { orderStatus: nextStatus, amount: input.amount, reason: input.reason },
         traceId: idempotencyKey,
       });
-      return this.refundFromRow(refund!);
-    });
+        return this.refundFromRow(refund!);
+      }),
+    );
   }
 
   async listRefunds(organizationId: string, eventId?: EventId): Promise<Refund[]> {

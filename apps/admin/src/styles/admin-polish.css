@@ -76,7 +76,6 @@
 .field-builder-row input:not([type='checkbox']),
 .field-builder-row select,
 .login-fields input,
-.checkin-input,
 .admin-select {
   border-color: var(--admin-control-border);
 }
@@ -128,10 +127,14 @@
   font-size: var(--admin-font-body);
 }
 
+.latest-registration-person .row-sub,
+.latest-registration-meta {
+  font-size: var(--admin-font-micro);
+}
+
 .admin-nav-label,
 .workspace-label span,
 .admin-command kbd,
-.nav-count,
 .eyebrow,
 .delta,
 .trend-summary span,
@@ -146,7 +149,6 @@
 .event-switcher span,
 .template-card b,
 .inventory-strip small,
-.ai-run-head small,
 .quality-note span,
 .grant-list code,
 .integration-status-list b,
@@ -179,9 +181,6 @@
 .management-settings-note,
 .management-setting-list dt,
 .integration-status-list span,
-.checkin-result > p,
-.speaker-copy small,
-.session-copy small,
 .ticket-recommended,
 .invitation-link,
 .invitation-link code,
@@ -200,8 +199,6 @@
 .choice-card strong,
 .setting-toggle strong,
 .invitation-list strong,
-.speaker-copy strong,
-.session-copy strong,
 .management-setting-list dd {
   font-size: var(--admin-font-body);
 }
@@ -260,8 +257,7 @@
 .form-field select:focus,
 .field-builder-row input:focus,
 .field-builder-row select:focus,
-.login-fields input:focus,
-.checkin-input:focus {
+.login-fields input:focus {
   border-color: var(--blue);
   box-shadow: var(--admin-focus-ring);
 }
@@ -300,8 +296,7 @@
   height: 40px;
 }
 
-.ticket-row-actions b,
-.session-time {
+.ticket-row-actions b {
   font-size: var(--admin-font-micro);
 }
 
@@ -503,19 +498,6 @@
   place-items: center;
 }
 
-.speaker-copy,
-.session-copy {
-  min-width: 0;
-}
-
-.speaker-copy small,
-.session-copy small {
-  overflow: visible;
-  line-height: 1.55;
-  text-overflow: clip;
-  white-space: normal;
-}
-
 .field-error {
   margin: -6px 0 0;
   color: var(--red);
@@ -575,7 +557,6 @@
   .field-builder-row input:hover:not(:focus):not(:disabled),
   .field-builder-row select:hover:not(:focus):not(:disabled),
   .login-fields input:hover:not(:focus):not(:disabled),
-  .checkin-input:hover:not(:focus):not(:disabled),
   .admin-select:hover:not(:focus):not(:disabled) {
     border-color: var(--admin-control-border-hover);
   }
@@ -685,18 +666,6 @@
   .field-builder-action {
     align-self: end;
     justify-content: end;
-  }
-
-  .speaker-list li,
-  .session-list li {
-    align-items: start;
-    padding-block: 14px;
-  }
-
-  .speaker-list .row-actions,
-  .session-list .row-actions {
-    grid-column: 2 / -1;
-    justify-content: flex-start;
   }
 }
 

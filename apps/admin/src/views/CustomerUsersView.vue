@@ -6,20 +6,40 @@ import type {
   CustomerAdminExportQuery,
   CustomerAdminSummary,
   CustomerStatus,
+  OrganizationInvitation,
+  OrganizationMember,
 } from '@conference/contracts';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import {
+  administratorDirectoryInvitations,
+  administratorDirectoryMembers,
+} from '../lib/administrator-directory';
+import { buildAdministratorLoginUrl } from '../lib/administrator-login-url';
 import { conferenceApi, session } from '../lib/api';
+import { organizationRoleLabel } from '../lib/roles';
+
+type DirectoryKind = 'customers' | 'administrators';
+type CreateAccountKind = 'customer' | 'administrator';
 
 const items = ref<CustomerAdminSummary[]>([]);
 const selected = ref<CustomerAdminDetail>();
 const deleteTarget = ref<CustomerAdminSummary>();
 const detailDialog = ref<HTMLDialogElement>();
 const deleteDialog = ref<HTMLDialogElement>();
+const createAccountDialog = ref<HTMLDialogElement>();
+const administratorEditDialog = ref<HTMLDialogElement>();
 const customerListHeading = ref<HTMLElement>();
 const detailTrigger = ref<HTMLButtonElement>();
 const deleteTrigger = ref<HTMLButtonElement>();
+const createAccountTrigger = ref<HTMLButtonElement>();
+const administratorEditTrigger = ref<HTMLButtonElement>();
 const registrationHistoryHeading = ref<HTMLElement>();
 const detailOpen = ref(false);
 const deleteOpen = ref(false);
+const createAccountOpen = ref(false);
+const administratorEditOpen = ref(false);
+const createAccountKind = ref<CreateAccountKind>('customer');
+const activeDirectory = ref<DirectoryKind>('customers');
 const exportConfirmation = ref(false);
 const exporting = ref(false);
 const appliedFilters = ref<CustomerAdminExportQuery>({});
@@ -33,7 +53,18 @@ const detailLoading = ref(false);
 const historyLoading = ref(false);
 const invoiceHistoryLoading = ref(false);
 const pending = ref(false);
+const moderationPendingId = ref('');
+const moderationReasons = reactive<Record<string, string>>({});
 const deletePending = ref(false);
+const createAccountPending = ref(false);
+const administratorEditPending = ref(false);
+const administratorDeletePending = ref(false);
+const administratorsLoading = ref(false);
+const administratorsLoaded = ref(false);
+const administrators = ref<OrganizationMember[]>([]);
+const administratorInvitations = ref<OrganizationInvitation[]>([]);
+const administratorEditTarget = ref<OrganizationMember>();
+const administratorDeleteTarget = ref<OrganizationMember>();
 const total = ref(0);
 const page = ref(1);
 const totalPages = ref(1);
@@ -42,6 +73,10 @@ const errorMessage = ref('');
 const detailMessage = ref('');
 const detailErrorMessage = ref('');
 const deleteErrorMessage = ref('');
+const createAccountErrorMessage = ref('');
+const administratorEditErrorMessage = ref('');
+const administratorDeleteErrorMessage = ref('');
+const administratorLoginUrl = ref('');
 let loadRequestId = 0;
 const filters = reactive({
   q: '',
@@ -58,10 +93,43 @@ const form = reactive({
   internalNote: '',
   tags: '',
 });
+const createCustomerForm = reactive({
+  mobile: '',
+  nickname: '',
+  realName: '',
+  email: '',
+  company: '',
+  title: '',
+  city: '',
+});
+const createAdministratorForm = reactive({ username: '', password: '' });
+const editAdministratorForm = reactive({ username: '', password: '' });
 const canManage = computed(() => session.can('customer.manage'));
 const canManageStatus = computed(() => session.can('customer.status.manage'));
 const canDelete = computed(() => session.can('customer.delete'));
 const canExport = computed(() => session.canAll(['customer.read', 'customer.export']));
+const canReadAdministrators = computed(() => session.can('org.member.read'));
+const isSuperAdministrator = computed(
+  () => session.identity.value?.membership.isSuperAdministrator === true,
+);
+const canCreateAdministrator = computed(() => isSuperAdministrator.value);
+const administratorEditDirty = computed(() => {
+  const target = administratorEditTarget.value;
+  if (!target) return false;
+  const username = editAdministratorForm.username.trim().toLowerCase();
+  return (
+    Boolean(username && username !== (target.username ?? '')) ||
+    Boolean(editAdministratorForm.password)
+  );
+});
+const pendingAdministratorInvitations = computed(() =>
+  administratorInvitations.value.filter((item) => item.status === 'pending'),
+);
+const directoryCountLabel = computed(() =>
+  activeDirectory.value === 'customers'
+    ? `${total.value} USERS`
+    : `${administrators.value.length} ADMINS`,
+);
 const hasFilters = computed(() => Boolean(filters.q.trim() || filters.status));
 const selectedSummary = computed(() =>
   items.value.find((item) => item.id === selected.value?.customer.id),
@@ -77,6 +145,17 @@ const selectedName = computed(() => {
   );
 });
 const deleteTargetName = computed(() => deleteTarget.value?.displayName || '当前用户');
+const administratorDeleteDetails = computed(() => {
+  const target = administratorDeleteTarget.value;
+  if (!target) return [];
+  return [
+    {
+      label: '管理员',
+      value: target.username || target.email || target.name,
+    },
+    { label: '当前组织', value: session.identity.value?.organization.name || '当前组织' },
+  ];
+});
 const visibleRange = computed(() => {
   if (!total.value) return '暂无用户';
   const start = (page.value - 1) * 20 + 1;
@@ -123,6 +202,22 @@ const invoiceStatusLabel: Record<string, string> = {
   voided: '已作废',
   cancelled: '已取消',
 };
+const showcaseFieldLabels: Record<string, string> = {
+  avatar: '头像',
+  displayName: '姓名',
+  company: '公司',
+  title: '职位',
+  industry: '行业',
+  businessIntro: '业务介绍',
+  businessUrl: '项目网址',
+  contactPhone: '联系电话',
+  contactEmail: '联系邮箱',
+  wechatId: '微信号',
+};
+
+function registrationStatus(value: string) {
+  return registrationStatusLabel[value] || value;
+}
 
 function date(value: string | null | undefined) {
   if (!value) return '暂无';
@@ -148,6 +243,10 @@ function money(value: number) {
     style: 'currency',
     currency: 'CNY',
   }).format(value / 100);
+}
+
+function showcasePath(showcase: CustomerAdminDetail['showcases'][number]) {
+  return showcase.publicPreviewUrl ?? '';
 }
 
 function assignForm(detail: CustomerAdminDetail) {
@@ -216,6 +315,239 @@ async function load(targetPage = 1, reuseAppliedFilters = false) {
     if (requestId === loadRequestId) {
       loading.value = false;
     }
+  }
+}
+
+async function loadAdministrators(force = false) {
+  if (!canReadAdministrators.value || (administratorsLoaded.value && !force)) return;
+  administratorsLoading.value = true;
+  errorMessage.value = '';
+  try {
+    const [members, invitations] = await Promise.all([
+      conferenceApi.getMembers(),
+      conferenceApi.getInvitations(),
+    ]);
+    administrators.value = administratorDirectoryMembers(members);
+    administratorInvitations.value = administratorDirectoryInvitations(invitations);
+    administratorsLoaded.value = true;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '管理员列表读取失败';
+  } finally {
+    administratorsLoading.value = false;
+  }
+}
+
+async function switchDirectory(directory: DirectoryKind) {
+  activeDirectory.value = directory;
+  exportConfirmation.value = false;
+  closeMenu();
+  if (directory === 'administrators') await loadAdministrators();
+}
+
+function resetCreateAccountForm() {
+  Object.assign(createCustomerForm, {
+    mobile: '',
+    nickname: '',
+    realName: '',
+    email: '',
+    company: '',
+    title: '',
+    city: '',
+  });
+  Object.assign(createAdministratorForm, { username: '', password: '' });
+  createAccountErrorMessage.value = '';
+}
+
+async function openCreateAccount(kind: CreateAccountKind, event: MouseEvent) {
+  createAccountKind.value = kind;
+  createAccountTrigger.value = event.currentTarget as HTMLButtonElement;
+  resetCreateAccountForm();
+  createAccountOpen.value = true;
+  await nextTick();
+  if (createAccountDialog.value && !createAccountDialog.value.open) {
+    createAccountDialog.value.showModal();
+  }
+}
+
+async function closeCreateAccount() {
+  if (createAccountPending.value) return;
+  const trigger = createAccountTrigger.value;
+  createAccountDialog.value?.close();
+  createAccountOpen.value = false;
+  resetCreateAccountForm();
+  await nextTick();
+  trigger?.focus();
+}
+
+function closeCreateAccountFromBackdrop(event: MouseEvent) {
+  if (event.target === event.currentTarget) void closeCreateAccount();
+}
+
+async function createCustomer() {
+  createAccountPending.value = true;
+  createAccountErrorMessage.value = '';
+  try {
+    administratorLoginUrl.value = '';
+    const result = await conferenceApi.createCustomer({
+      mobile: createCustomerForm.mobile.trim(),
+      nickname: createCustomerForm.nickname.trim() || null,
+      realName: createCustomerForm.realName.trim() || null,
+      email: createCustomerForm.email.trim() || null,
+      company: createCustomerForm.company.trim() || null,
+      title: createCustomerForm.title.trim() || null,
+      city: createCustomerForm.city.trim() || null,
+    });
+    createAccountDialog.value?.close();
+    createAccountOpen.value = false;
+    resetCreateAccountForm();
+    activeDirectory.value = 'customers';
+    message.value = `用户 ${result.customerId} 已创建。`;
+    await load(1);
+  } catch (error) {
+    createAccountErrorMessage.value = error instanceof Error ? error.message : '用户创建失败';
+  } finally {
+    createAccountPending.value = false;
+  }
+}
+
+async function createAdministrator() {
+  createAccountPending.value = true;
+  createAccountErrorMessage.value = '';
+  try {
+    const username = createAdministratorForm.username.trim().toLowerCase();
+    await conferenceApi.createAdministrator({
+      username,
+      password: createAdministratorForm.password,
+    });
+    createAccountDialog.value?.close();
+    createAccountOpen.value = false;
+    resetCreateAccountForm();
+    activeDirectory.value = 'administrators';
+    const organizationSlug = session.identity.value?.organization.slug ?? '';
+    administratorLoginUrl.value = buildAdministratorLoginUrl(
+      window.location.origin,
+      import.meta.env.BASE_URL,
+      organizationSlug,
+    );
+    message.value = `管理员 ${username} 已创建，请将当前组织的登录入口和登录凭据安全地交给对方。`;
+    await loadAdministrators(true);
+  } catch (error) {
+    createAccountErrorMessage.value = error instanceof Error ? error.message : '管理员创建失败';
+  } finally {
+    createAccountPending.value = false;
+  }
+}
+
+async function copyAdministratorLoginUrl() {
+  if (!administratorLoginUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(administratorLoginUrl.value);
+    message.value = '当前组织登录入口已复制。';
+  } catch {
+    errorMessage.value = '登录入口复制失败，请打开链接后手动复制。';
+  }
+}
+
+function canManageAdministrator(administrator: OrganizationMember) {
+  return (
+    isSuperAdministrator.value &&
+    administrator.role === 'organization_admin' &&
+    administrator.grants.includes('*') &&
+    !administrator.isSuperAdministrator &&
+    administrator.userId !== session.identity.value?.user.id
+  );
+}
+
+async function openAdministratorEdit(administrator: OrganizationMember, event: MouseEvent) {
+  if (!canManageAdministrator(administrator)) return;
+  administratorEditTrigger.value = event.currentTarget as HTMLButtonElement;
+  administratorEditTarget.value = administrator;
+  Object.assign(editAdministratorForm, {
+    username: administrator.username ?? '',
+    password: '',
+  });
+  administratorEditErrorMessage.value = '';
+  administratorEditOpen.value = true;
+  await nextTick();
+  if (administratorEditDialog.value && !administratorEditDialog.value.open) {
+    administratorEditDialog.value.showModal();
+  }
+}
+
+async function closeAdministratorEdit() {
+  if (administratorEditPending.value) return;
+  const trigger = administratorEditTrigger.value;
+  administratorEditDialog.value?.close();
+  administratorEditOpen.value = false;
+  administratorEditTarget.value = undefined;
+  Object.assign(editAdministratorForm, { username: '', password: '' });
+  administratorEditErrorMessage.value = '';
+  await nextTick();
+  trigger?.focus();
+}
+
+function closeAdministratorEditFromBackdrop(event: MouseEvent) {
+  if (event.target === event.currentTarget) void closeAdministratorEdit();
+}
+
+async function saveAdministratorCredentials() {
+  const target = administratorEditTarget.value;
+  if (!target || !administratorEditDirty.value) return;
+  administratorEditPending.value = true;
+  administratorEditErrorMessage.value = '';
+  const trigger = administratorEditTrigger.value;
+  try {
+    administratorLoginUrl.value = '';
+    const username = editAdministratorForm.username.trim().toLowerCase();
+    const updated = await conferenceApi.updateAdministratorCredentials(target.id, {
+      ...(username && username !== (target.username ?? '') ? { username } : {}),
+      ...(editAdministratorForm.password ? { password: editAdministratorForm.password } : {}),
+    });
+    const index = administrators.value.findIndex((item) => item.id === updated.id);
+    if (index >= 0) administrators.value[index] = updated;
+    administratorEditDialog.value?.close();
+    administratorEditOpen.value = false;
+    administratorEditTarget.value = undefined;
+    Object.assign(editAdministratorForm, { username: '', password: '' });
+    message.value = `管理员 ${username || target.username || target.name} 的登录凭据已更新。`;
+    await nextTick();
+    trigger?.focus();
+  } catch (error) {
+    administratorEditErrorMessage.value =
+      error instanceof Error ? error.message : '管理员登录凭据更新失败';
+  } finally {
+    administratorEditPending.value = false;
+  }
+}
+
+function openAdministratorDelete(administrator: OrganizationMember) {
+  if (!canManageAdministrator(administrator)) return;
+  administratorDeleteTarget.value = administrator;
+  administratorDeleteErrorMessage.value = '';
+}
+
+function closeAdministratorDelete() {
+  if (administratorDeletePending.value) return;
+  administratorDeleteTarget.value = undefined;
+  administratorDeleteErrorMessage.value = '';
+}
+
+async function deleteAdministrator() {
+  const target = administratorDeleteTarget.value;
+  if (!target) return;
+  administratorDeletePending.value = true;
+  administratorDeleteErrorMessage.value = '';
+  try {
+    administratorLoginUrl.value = '';
+    await conferenceApi.deleteAdministrator(target.id);
+    administrators.value = administrators.value.filter((item) => item.id !== target.id);
+    administratorDeleteTarget.value = undefined;
+    message.value = `管理员 ${target.username ?? target.name} 已从当前组织删除。`;
+  } catch (error) {
+    administratorDeleteErrorMessage.value =
+      error instanceof Error ? error.message : '管理员删除失败';
+  } finally {
+    administratorDeletePending.value = false;
   }
 }
 
@@ -427,6 +759,32 @@ async function loadMoreInvoices() {
   }
 }
 
+async function moderateShowcase(showcase: CustomerAdminDetail['showcases'][number]) {
+  if (!selected.value || !showcase.id || moderationPendingId.value) return;
+  const hidden = !showcase.adminHidden;
+  const reason = moderationReasons[showcase.id]?.trim() ?? '';
+  if (hidden && !reason) {
+    detailErrorMessage.value = '下架参会名片时需要填写原因。';
+    return;
+  }
+  moderationPendingId.value = showcase.id;
+  detailErrorMessage.value = '';
+  try {
+    await conferenceApi.moderateAttendeeShowcase(showcase.eventId, showcase.id, {
+      hidden,
+      reason: hidden ? reason : null,
+    });
+    selected.value = await conferenceApi.getCustomer(selected.value.customer.id);
+    moderationReasons[showcase.id] = '';
+    detailMessage.value = hidden ? '参会名片已下架。' : '参会名片已恢复展示资格。';
+    await load(page.value, true);
+  } catch (error) {
+    detailErrorMessage.value = error instanceof Error ? error.message : '参会名片状态更新失败';
+  } finally {
+    moderationPendingId.value = '';
+  }
+}
+
 async function requestDelete(item: CustomerAdminSummary, event: MouseEvent) {
   deleteTrigger.value = openMenuId.value
     ? menuTrigger.value
@@ -487,6 +845,7 @@ function closeMenuOnViewportChange() {
 
 onMounted(() => {
   void load();
+  if (canReadAdministrators.value) void loadAdministrators();
   window.addEventListener('resize', closeMenuOnViewportChange);
   window.addEventListener('scroll', closeMenuOnViewportChange, true);
 });
@@ -502,15 +861,64 @@ onBeforeUnmount(() => {
     <div>
       <p class="eyebrow">CUSTOMER DIRECTORY</p>
       <h1>用户管理</h1>
-      <p>查看前台普通用户、报名大会、最近活动与发票记录。</p>
+      <p>集中维护前台普通用户与后台管理员账号。</p>
     </div>
-    <span class="status-badge">{{ total }} USERS</span>
+    <div class="directory-page-actions">
+      <span class="status-badge">{{ directoryCountLabel }}</span>
+      <button
+        v-if="canManage"
+        class="button secondary compact"
+        type="button"
+        @click="openCreateAccount('customer', $event)"
+      >
+        新增用户
+      </button>
+      <button
+        v-if="canCreateAdministrator"
+        class="button compact"
+        type="button"
+        @click="openCreateAccount('administrator', $event)"
+      >
+        新增管理员
+      </button>
+    </div>
   </header>
 
-  <p v-if="message" class="admin-success" role="status">{{ message }}</p>
+  <div v-if="message" class="admin-success administrator-create-success" role="status">
+    <span>{{ message }}</span>
+    <span v-if="administratorLoginUrl">
+      <a :href="administratorLoginUrl" target="_blank" rel="noopener noreferrer">打开登录入口</a>
+      ·
+      <button type="button" @click="copyAdministratorLoginUrl">复制链接</button>
+    </span>
+  </div>
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
-  <section class="admin-panel customer-list-panel">
+  <nav class="directory-tabs" aria-label="用户目录">
+    <button
+      class="directory-tab"
+      :class="{ active: activeDirectory === 'customers' }"
+      type="button"
+      :aria-current="activeDirectory === 'customers' ? 'page' : undefined"
+      @click="switchDirectory('customers')"
+    >
+      <span>普通用户</span>
+      <b>{{ total }}</b>
+    </button>
+    <button
+      v-if="canReadAdministrators"
+      class="directory-tab"
+      :class="{ active: activeDirectory === 'administrators' }"
+      type="button"
+      :aria-current="activeDirectory === 'administrators' ? 'page' : undefined"
+      @click="switchDirectory('administrators')"
+    >
+      <span>管理员</span>
+      <b>{{ administrators.length }}</b>
+    </button>
+  </nav>
+
+  <section v-if="activeDirectory === 'customers'" class="admin-panel customer-list-panel">
     <header class="admin-panel-header">
       <div>
         <h2 ref="customerListHeading" tabindex="-1">全部普通用户</h2>
@@ -588,6 +996,7 @@ onBeforeUnmount(() => {
             <th>公司</th>
             <th>账号注册时间</th>
             <th class="customer-registration-column">报名记录</th>
+            <th>参会名片</th>
             <th>最新报名大会</th>
             <th class="customer-status-column">状态</th>
             <th class="customer-actions-column">操作</th>
@@ -631,6 +1040,10 @@ onBeforeUnmount(() => {
               {{ item.registrationsCount }}
               <span class="row-sub">{{ item.eventCount }} 场大会</span>
             </td>
+            <td data-label="参会名片">
+              <span class="row-title">{{ item.showcaseCount }}</span>
+              <span class="row-sub">{{ item.publicShowcaseCount }} 张公开</span>
+            </td>
             <td class="customer-latest-cell" data-label="最新报名大会">
               <button
                 v-if="item.latestRegistration"
@@ -641,10 +1054,7 @@ onBeforeUnmount(() => {
               >
                 <strong>{{ item.latestRegistration.eventName }}</strong>
                 <span>
-                  {{
-                    registrationStatusLabel[item.latestRegistration.registrationStatus] ||
-                      item.latestRegistration.registrationStatus
-                  }}
+                  {{ registrationStatus(item.latestRegistration.registrationStatus) }}
                   · {{ date(item.latestRegistration.createdAt) }}
                 </span>
               </button>
@@ -752,6 +1162,416 @@ onBeforeUnmount(() => {
       </nav>
     </footer>
   </section>
+
+  <section v-else class="admin-panel administrator-list-panel">
+    <header class="admin-panel-header">
+      <div>
+        <h2>全部管理员</h2>
+        <p>显示可进入后台的组织成员、角色和当前访问状态</p>
+      </div>
+    </header>
+
+    <section
+      v-if="pendingAdministratorInvitations.length"
+      class="administrator-pending"
+      aria-labelledby="administrator-pending-title"
+    >
+      <div>
+        <strong id="administrator-pending-title">
+          {{ pendingAdministratorInvitations.length }} 个邀请待接受
+        </strong>
+        <p>对方完成账号设置后会自动进入管理员列表。</p>
+      </div>
+      <ul>
+        <li v-for="invitation in pendingAdministratorInvitations" :key="invitation.id">
+          <span>{{ invitation.email }}</span>
+          <small>{{ date(invitation.expiresAt) }} 到期</small>
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="administratorsLoading" class="admin-loading">正在载入管理员…</div>
+    <div v-else class="data-table-wrap">
+      <table class="data-table administrator-table">
+        <caption class="sr-only">
+          管理员列表
+        </caption>
+        <thead>
+          <tr>
+            <th>用户 ID</th>
+            <th>管理员</th>
+            <th>手机号</th>
+            <th>角色</th>
+            <th>公司与职位</th>
+            <th>状态</th>
+            <th v-if="isSuperAdministrator">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="administrator in administrators" :key="administrator.id">
+            <td class="administrator-id" data-label="用户 ID">{{ administrator.userId }}</td>
+            <td data-label="管理员">
+              <span class="row-title">
+                {{ administrator.name }}
+                <small v-if="administrator.userId === session.identity.value?.user.id">你</small>
+              </span>
+              <span class="row-sub">
+                {{
+                  administrator.username
+                    ? `用户名：${administrator.username}`
+                    : administrator.email || '未填写邮箱'
+                }}
+              </span>
+            </td>
+            <td data-label="手机号">{{ domesticMobile(administrator.mobile) || '未填写' }}</td>
+            <td data-label="角色">
+              <span class="status-badge">
+                {{
+                  administrator.isSuperAdministrator
+                    ? '超级管理员'
+                    : organizationRoleLabel(administrator.role)
+                }}
+              </span>
+            </td>
+            <td data-label="公司与职位">
+              {{ administrator.profile?.company || '未填写' }}
+              <span v-if="administrator.profile?.title" class="row-sub">
+                {{ administrator.profile.title }}
+              </span>
+            </td>
+            <td data-label="状态">
+              <span
+                class="status-badge"
+                :class="administrator.status === 'active' ? 'paid' : 'draft'"
+              >
+                {{ administrator.status === 'active' ? '已启用' : '已停用' }}
+              </span>
+            </td>
+            <td v-if="isSuperAdministrator" data-label="操作">
+              <div v-if="canManageAdministrator(administrator)" class="administrator-actions">
+                <button
+                  class="button secondary compact"
+                  type="button"
+                  @click="openAdministratorEdit(administrator, $event)"
+                >
+                  编辑
+                </button>
+                <button
+                  class="button danger compact"
+                  type="button"
+                  @click="openAdministratorDelete(administrator)"
+                >
+                  删除
+                </button>
+              </div>
+              <span v-else class="administrator-protected">受保护</span>
+            </td>
+          </tr>
+          <tr v-if="!administrators.length">
+            <td :colspan="isSuperAdministrator ? 7 : 6" class="admin-empty">
+              当前没有可显示的管理员。
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog
+    v-if="administratorEditOpen && administratorEditTarget"
+    ref="administratorEditDialog"
+    class="account-create-dialog administrator-credential-dialog"
+    aria-labelledby="administrator-edit-title"
+    aria-describedby="administrator-edit-description"
+    @cancel.prevent="closeAdministratorEdit"
+    @click="closeAdministratorEditFromBackdrop"
+  >
+    <header>
+      <div>
+        <p class="eyebrow">EDIT ADMINISTRATOR</p>
+        <h2 id="administrator-edit-title">编辑管理员</h2>
+        <p id="administrator-edit-description">
+          修改 {{ administratorEditTarget.name }} 的用户名，或为其设置新的登录密码。
+        </p>
+      </div>
+      <button
+        class="customer-detail-close"
+        type="button"
+        :disabled="administratorEditPending"
+        @click="closeAdministratorEdit"
+      >
+        <span aria-hidden="true">×</span>关闭
+      </button>
+    </header>
+
+    <form
+      id="administrator-edit-form"
+      class="account-create-form"
+      @submit.prevent="saveAdministratorCredentials"
+    >
+      <div class="administrator-credential-summary">
+        <span>当前账号</span>
+        <strong>
+          {{
+            administratorEditTarget.username
+              ? `@${administratorEditTarget.username}`
+              : administratorEditTarget.email
+          }}
+        </strong>
+      </div>
+      <div class="form-grid">
+        <div class="form-field full">
+          <label for="administrator-edit-username">管理员用户名（可选）</label>
+          <input
+            id="administrator-edit-username"
+            v-model="editAdministratorForm.username"
+            type="text"
+            autocomplete="off"
+            minlength="3"
+            maxlength="32"
+            pattern="[A-Za-z][A-Za-z0-9_-]*"
+            placeholder="例如：operations"
+          />
+          <small>留空会保留当前登录账号；填写新用户名后，该账号需使用新用户名登录。</small>
+        </div>
+        <div class="form-field full">
+          <label for="administrator-edit-password">新登录密码</label>
+          <input
+            id="administrator-edit-password"
+            v-model="editAdministratorForm.password"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            maxlength="72"
+            placeholder="留空则保持原密码"
+          />
+          <small>可留空。填写时需为 8～72 个 UTF-8 字节，保存后立即生效。</small>
+        </div>
+      </div>
+      <p class="administrator-credential-note">
+        如果该账号加入了多个组织，本次修改会同步更新所有组织的登录用户名或密码。
+      </p>
+    </form>
+
+    <p v-if="administratorEditErrorMessage" class="admin-error" role="alert">
+      {{ administratorEditErrorMessage }}
+    </p>
+
+    <footer>
+      <button
+        class="button secondary"
+        type="button"
+        :disabled="administratorEditPending"
+        @click="closeAdministratorEdit"
+      >
+        取消
+      </button>
+      <button
+        class="button"
+        type="submit"
+        form="administrator-edit-form"
+        :disabled="administratorEditPending || !administratorEditDirty"
+      >
+        {{ administratorEditPending ? '正在保存…' : '保存登录凭据' }}
+      </button>
+    </footer>
+  </dialog>
+
+  <dialog
+    v-if="createAccountOpen"
+    ref="createAccountDialog"
+    class="account-create-dialog"
+    :aria-labelledby="
+      createAccountKind === 'customer' ? 'create-customer-title' : 'create-administrator-title'
+    "
+    @cancel.prevent="closeCreateAccount"
+    @click="closeCreateAccountFromBackdrop"
+  >
+    <header>
+      <div>
+        <p class="eyebrow">
+          {{ createAccountKind === 'customer' ? 'NEW CUSTOMER' : 'NEW ADMINISTRATOR' }}
+        </p>
+        <h2
+          :id="
+            createAccountKind === 'customer'
+              ? 'create-customer-title'
+              : 'create-administrator-title'
+          "
+        >
+          {{ createAccountKind === 'customer' ? '新增普通用户' : '新增管理员' }}
+        </h2>
+        <p>
+          {{
+            createAccountKind === 'customer'
+              ? '创建可使用手机验证码登录的前台账号。'
+              : '设置登录凭据，直接创建完整权限的组织管理员。'
+          }}
+        </p>
+      </div>
+      <button
+        class="customer-detail-close"
+        type="button"
+        :disabled="createAccountPending"
+        @click="closeCreateAccount"
+      >
+        <span aria-hidden="true">×</span>关闭
+      </button>
+    </header>
+
+    <form
+      v-if="createAccountKind === 'customer'"
+      id="create-customer-form"
+      class="account-create-form"
+      @submit.prevent="createCustomer"
+    >
+      <div class="form-grid">
+        <div class="form-field full">
+          <label for="create-customer-mobile">登录手机号</label>
+          <input
+            id="create-customer-mobile"
+            v-model="createCustomerForm.mobile"
+            type="tel"
+            inputmode="tel"
+            autocomplete="off"
+            required
+            placeholder="13800138000"
+          />
+          <small>中国大陆手机号，用户首次登录时仍需通过短信验证码。</small>
+        </div>
+        <div class="form-field">
+          <label for="create-customer-real-name">真实姓名</label>
+          <input
+            id="create-customer-real-name"
+            v-model="createCustomerForm.realName"
+            maxlength="120"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-nickname">用户名</label>
+          <input
+            id="create-customer-nickname"
+            v-model="createCustomerForm.nickname"
+            maxlength="80"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-email">邮箱</label>
+          <input
+            id="create-customer-email"
+            v-model="createCustomerForm.email"
+            type="email"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-company">公司</label>
+          <input
+            id="create-customer-company"
+            v-model="createCustomerForm.company"
+            maxlength="160"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-title">职位</label>
+          <input
+            id="create-customer-title"
+            v-model="createCustomerForm.title"
+            maxlength="100"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+        <div class="form-field">
+          <label for="create-customer-city">城市</label>
+          <input
+            id="create-customer-city"
+            v-model="createCustomerForm.city"
+            maxlength="80"
+            autocomplete="off"
+            placeholder="可留空"
+          />
+        </div>
+      </div>
+    </form>
+
+    <form
+      v-else
+      id="create-administrator-form"
+      class="account-create-form"
+      @submit.prevent="createAdministrator"
+    >
+      <div class="form-grid">
+        <div class="form-field full">
+          <label for="create-administrator-username">管理员用户名</label>
+          <input
+            id="create-administrator-username"
+            v-model="createAdministratorForm.username"
+            type="text"
+            autocomplete="off"
+            minlength="3"
+            maxlength="32"
+            pattern="[A-Za-z][A-Za-z0-9_-]*"
+            required
+            placeholder="例如：operations"
+          />
+          <small>3～32 个字符，以字母开头，可使用字母、数字、下划线和短横线。</small>
+        </div>
+        <div class="form-field full">
+          <label for="create-administrator-password">登录密码</label>
+          <input
+            id="create-administrator-password"
+            v-model="createAdministratorForm.password"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            maxlength="72"
+            required
+            placeholder="至少 8 个字符"
+          />
+          <small>8～72 个 UTF-8 字节，创建后立即生效，请通过安全方式告知管理员。</small>
+        </div>
+      </div>
+    </form>
+
+    <p v-if="createAccountErrorMessage" class="admin-error" role="alert">
+      {{ createAccountErrorMessage }}
+    </p>
+
+    <footer>
+      <button
+        class="button secondary"
+        type="button"
+        :disabled="createAccountPending"
+        @click="closeCreateAccount"
+      >
+        取消
+      </button>
+      <button
+        class="button"
+        type="submit"
+        :form="
+          createAccountKind === 'customer' ? 'create-customer-form' : 'create-administrator-form'
+        "
+        :disabled="createAccountPending"
+      >
+        {{
+          createAccountPending
+            ? '正在创建…'
+            : createAccountKind === 'customer'
+              ? '创建用户'
+              : '创建管理员'
+        }}
+      </button>
+    </footer>
+  </dialog>
 
   <dialog
     v-if="detailOpen"
@@ -953,6 +1773,114 @@ onBeforeUnmount(() => {
           </dl>
         </section>
 
+        <section class="customer-detail-section">
+          <div class="customer-section-heading">
+            <div>
+              <p class="settings-module-kicker">ATTENDEE PROFILES</p>
+              <h3>参会名片</h3>
+            </div>
+            <span class="customer-record-count">{{ selected.showcases.length }} 张</span>
+          </div>
+
+          <div v-if="selected.showcases.length" class="admin-showcase-list">
+            <article
+              v-for="showcase in selected.showcases"
+              :key="showcase.id ?? showcase.registrationId"
+            >
+              <header>
+                <div>
+                  <span>NO.{{ String(showcase.sequence ?? 0).padStart(3, '0') }}</span>
+                  <h4>{{ showcase.eventName }}</h4>
+                  <p>
+                    {{ showcase.displayName || '姓名未填写' }} ·
+                    {{ showcase.company || '公司未填写' }}
+                  </p>
+                </div>
+                <span
+                  class="status-badge"
+                  :class="showcase.effectivePublic ? 'paid' : showcase.adminHidden ? 'failed' : ''"
+                >
+                  {{
+                    showcase.effectivePublic ? '公开中' : showcase.adminHidden ? '已下架' : '未公开'
+                  }}
+                </span>
+              </header>
+              <dl>
+                <div>
+                  <dt>完成度</dt>
+                  <dd>{{ showcase.completion.score }}%</dd>
+                </div>
+                <div>
+                  <dt>行业</dt>
+                  <dd>{{ showcase.industryCode || '未选择' }}</dd>
+                </div>
+                <div>
+                  <dt>授权时间</dt>
+                  <dd>{{ date(showcase.consentAt) }}</dd>
+                </div>
+                <div>
+                  <dt>资格状态</dt>
+                  <dd>
+                    {{ showcase.qualified ? '有效' : showcase.qualificationReason || '无效' }}
+                  </dd>
+                </div>
+              </dl>
+              <div class="admin-showcase-fields">
+                <span
+                  v-for="(enabled, field) in showcase.visibleFields"
+                  :key="field"
+                  :class="{ enabled }"
+                >
+                  {{ showcaseFieldLabels[field] || field }} · {{ enabled ? '公开' : '隐藏' }}
+                </span>
+              </div>
+              <p v-if="showcase.businessIntro" class="admin-showcase-intro">
+                {{ showcase.businessIntro }}
+              </p>
+              <div class="admin-showcase-links">
+                <a
+                  v-if="showcase.effectivePublic && showcasePath(showcase)"
+                  :href="showcasePath(showcase)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  打开公开预览
+                </a>
+                <code v-if="showcasePath(showcase)">{{ showcasePath(showcase) }}</code>
+              </div>
+              <div v-if="canManage && showcase.id" class="admin-showcase-moderation">
+                <template v-if="!showcase.adminHidden">
+                  <input
+                    v-model="moderationReasons[showcase.id]"
+                    maxlength="500"
+                    placeholder="填写下架原因，用户可在个人中心看到"
+                  />
+                  <button
+                    class="button danger compact"
+                    type="button"
+                    :disabled="Boolean(moderationPendingId)"
+                    @click="moderateShowcase(showcase)"
+                  >
+                    {{ moderationPendingId === showcase.id ? '正在下架…' : '下架名片' }}
+                  </button>
+                </template>
+                <template v-else>
+                  <p>下架原因：{{ showcase.adminHiddenReason || '未填写' }}</p>
+                  <button
+                    class="button secondary compact"
+                    type="button"
+                    :disabled="Boolean(moderationPendingId)"
+                    @click="moderateShowcase(showcase)"
+                  >
+                    {{ moderationPendingId === showcase.id ? '正在恢复…' : '恢复名片' }}
+                  </button>
+                </template>
+              </div>
+            </article>
+          </div>
+          <p v-else class="admin-empty">该用户还没有完善过参会名片。</p>
+        </section>
+
         <div class="customer-history-grid">
           <section class="customer-detail-section">
             <div class="customer-section-heading">
@@ -971,10 +1899,7 @@ onBeforeUnmount(() => {
                   <small>{{ registration.ticketTypeName }} · {{ registration.orderNo }}</small>
                 </span>
                 <span>
-                  <b>{{
-                    registrationStatusLabel[registration.registrationStatus] ||
-                      registration.registrationStatus
-                  }}</b>
+                  <b>{{ registrationStatus(registration.registrationStatus) }}</b>
                   <small>{{ date(registration.createdAt) }}</small>
                 </span>
               </li>
@@ -1093,9 +2018,106 @@ onBeforeUnmount(() => {
       </button>
     </footer>
   </dialog>
+
+  <AdminConfirmDialog
+    :open="Boolean(administratorDeleteTarget)"
+    title="确认删除这个管理员？"
+    description="删除后，该账号会立即失去当前组织的后台访问权限。账号在其他组织的权限和登录凭据会保留。"
+    confirm-label="确认删除管理员"
+    cancel-label="取消"
+    tone="danger"
+    :busy="administratorDeletePending"
+    :error="administratorDeleteErrorMessage"
+    :details="administratorDeleteDetails"
+    @confirm="deleteAdministrator"
+    @cancel="closeAdministratorDelete"
+  />
 </template>
 
 <style scoped>
+.administrator-create-success {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.administrator-create-success a,
+.administrator-create-success button {
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.administrator-create-success button {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.directory-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.directory-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.directory-tab {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+
+.directory-tab b {
+  min-width: 22px;
+  padding: 2px 6px;
+  color: var(--muted);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.directory-tab.active {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+
+.directory-tab.active b {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: transparent;
+}
+
 .customer-list-tools {
   display: flex;
   align-items: center;
@@ -1380,8 +2402,9 @@ onBeforeUnmount(() => {
 
 .customer-pagination .page-arrow,
 .customer-pagination .page-number {
-  min-width: 32px;
-  height: 32px;
+  min-width: 40px;
+  min-height: 40px;
+  height: 40px;
   padding: 0 8px;
   color: var(--ink);
   background: #fff;
@@ -1407,8 +2430,241 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-:global(.admin-body:has(.customer-detail-dialog[open], .customer-delete-dialog[open])) {
+.administrator-pending {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(320px, 1fr);
+  gap: 20px;
+  padding: 16px 18px;
+  background: var(--blue-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.administrator-pending strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.administrator-pending p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.administrator-pending ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.administrator-pending li {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid rgb(47 83 120 / 12%);
+  border-radius: var(--radius-xs);
+}
+
+.administrator-pending li span {
   overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.administrator-pending li small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.administrator-table {
+  min-width: 980px;
+}
+
+.administrator-table th,
+.administrator-table td {
+  padding-inline: 16px;
+}
+
+.administrator-id {
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.administrator-table .row-title small {
+  margin-left: 5px;
+  padding: 2px 5px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+.administrator-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.administrator-actions .button {
+  min-height: 40px;
+}
+
+.administrator-protected {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+:global(
+  .admin-body:has(
+    .account-create-dialog[open],
+    .customer-detail-dialog[open],
+    .customer-delete-dialog[open]
+  )
+) {
+  overflow: hidden;
+}
+
+.account-create-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 185;
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 24px 70px rgb(23 34 51 / 24%);
+  overscroll-behavior: contain;
+  animation: customer-dialog-enter 160ms ease-out;
+}
+
+.account-create-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-create-dialog h2 {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.account-create-dialog > header p:not(.eyebrow) {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-create-form {
+  padding: 22px 24px 24px;
+  background: var(--paper);
+}
+
+.account-create-form .form-grid {
+  gap: 16px;
+}
+
+.account-create-form .form-field > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.administrator-credential-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 11px 13px;
+  color: var(--muted);
+  background: var(--blue-soft);
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+}
+
+.administrator-credential-summary strong {
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.administrator-credential-note {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.account-create-dialog > .admin-error {
+  margin: 0 24px 18px;
+}
+
+.account-create-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+
+.administrator-invitation-link {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+
+.administrator-invitation-link > span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.administrator-invitation-link code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.administrator-invitation-link .button {
+  justify-self: start;
 }
 
 .customer-detail-dialog {
@@ -1432,11 +2688,13 @@ onBeforeUnmount(() => {
   animation: customer-dialog-enter 160ms ease-out;
 }
 
+.account-create-dialog:not([open]),
 .customer-detail-dialog:not([open]),
 .customer-delete-dialog:not([open]) {
   display: none;
 }
 
+.account-create-dialog::backdrop,
 .customer-detail-dialog::backdrop,
 .customer-delete-dialog::backdrop {
   background: rgb(16 38 62 / 50%);
@@ -1568,6 +2826,135 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--radius-xs);
+}
+
+.admin-showcase-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.admin-showcase-list > article {
+  padding: 18px;
+  border: 1px solid var(--admin-line, #dfe4eb);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.admin-showcase-list article > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.admin-showcase-list header span:first-child {
+  color: #5f6f87;
+  font: 700 10px var(--admin-mono, monospace);
+}
+
+.admin-showcase-list h4 {
+  margin: 5px 0 4px;
+  font-size: 15px;
+}
+
+.admin-showcase-list header p,
+.admin-showcase-intro {
+  margin: 0;
+  color: #677286;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.admin-showcase-list dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 16px 0;
+  border-block: 1px solid #e7ebf1;
+}
+
+.admin-showcase-list dl > div {
+  padding: 12px 8px 12px 0;
+}
+
+.admin-showcase-list dt {
+  color: #8a94a5;
+  font-size: 10px;
+}
+
+.admin-showcase-list dd {
+  margin: 5px 0 0;
+  color: #2a3446;
+  font-size: 12px;
+}
+
+.admin-showcase-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-showcase-fields span {
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #eceff4;
+  color: #788396;
+  font-size: 10px;
+}
+
+.admin-showcase-fields span.enabled {
+  background: #e9f6ef;
+  color: #18704a;
+}
+
+.admin-showcase-intro {
+  margin-top: 14px;
+  white-space: pre-wrap;
+}
+
+.admin-showcase-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.admin-showcase-links a {
+  color: #215ecf;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-showcase-links code {
+  overflow: hidden;
+  color: #7d8798;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-showcase-moderation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e7ebf1;
+}
+
+.admin-showcase-moderation input {
+  min-height: 36px;
+  flex: 1;
+  border: 1px solid #d7dde7;
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+.admin-showcase-moderation p {
+  flex: 1;
+  margin: 0;
+  color: #9b4b25;
+  font-size: 11px;
 }
 
 .customer-section-heading {
@@ -1802,6 +3189,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
+  .administrator-pending {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
   .customer-list-tools {
     width: 100%;
     flex-wrap: wrap;
@@ -1834,6 +3226,103 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 700px) {
+  .directory-page-actions {
+    justify-content: flex-start;
+  }
+
+  .directory-page-actions .status-badge {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .directory-tabs,
+  .directory-tab {
+    width: 100%;
+  }
+
+  .directory-tab {
+    justify-content: center;
+  }
+
+  .administrator-list-panel .admin-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .administrator-pending li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .administrator-table {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .administrator-table thead {
+    display: none;
+  }
+
+  .administrator-table tbody {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .administrator-table tr {
+    display: grid;
+    overflow: hidden;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .administrator-table td {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .administrator-table td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .administrator-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .administrator-table .admin-empty {
+    display: block;
+  }
+
+  .administrator-table .admin-empty::before {
+    content: none;
+  }
+
+  .account-create-dialog {
+    width: calc(100vw - 24px);
+  }
+
+  .account-create-dialog > header,
+  .account-create-form,
+  .account-create-dialog > footer {
+    padding-inline: 16px;
+  }
+
+  .account-create-form .form-grid {
+    grid-template-columns: 1fr;
+  }
+
   .customer-list-panel .admin-panel-header {
     align-items: stretch;
     flex-direction: column;
@@ -2017,6 +3506,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 520px) {
+  .directory-page-actions .button {
+    flex: 1 1 0;
+  }
+
+  .account-create-dialog {
+    width: 100vw;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .account-create-dialog > footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .account-create-dialog > footer .button {
+    width: 100%;
+  }
+
   .customer-detail-dialog {
     width: 100vw;
     height: 100dvh;
@@ -2083,6 +3592,7 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .account-create-dialog,
   .customer-detail-dialog,
   .customer-delete-dialog {
     animation: none;

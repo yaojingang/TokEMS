@@ -318,10 +318,17 @@ export class EventReleaseActivationService {
           : ('ticketed' as const),
       currency: 'CNY' as const,
       registrationOpen: !('registrationOpen' in value) || value.registrationOpen !== false,
-      accountMode:
-        'accountMode' in value && value.accountMode === 'guest_allowed'
-          ? ('guest_allowed' as const)
-          : ('mobile_otp_required' as const),
+      accountMode: 'mobile_otp_required' as const,
+      additionalPurchaseEnabled:
+        'additionalPurchaseEnabled' in value && value.additionalPurchaseEnabled === true,
+      maxActiveSeatsPerPurchaser:
+        'maxActiveSeatsPerPurchaser' in value &&
+        typeof value.maxActiveSeatsPerPurchaser === 'number' &&
+        Number.isInteger(value.maxActiveSeatsPerPurchaser) &&
+        value.maxActiveSeatsPerPurchaser >= 1 &&
+        value.maxActiveSeatsPerPurchaser <= 20
+          ? value.maxActiveSeatsPerPurchaser
+          : 5,
     };
   }
 

@@ -251,35 +251,46 @@ describe('customer account configuration contracts', () => {
     const expectedUpdatedAt = new Date().toISOString();
     expect(
       CustomerUpdateInvoiceSchema.parse({
-        buyerType: 'company',
-        title: '测试公司',
+        companyName: '测试公司',
         taxId: '911100001234567801',
         email: 'invoice@example.com',
-        mobile: '13800138000',
-        content: '会务费',
         expectedUpdatedAt,
       }).expectedUpdatedAt,
     ).toBe(expectedUpdatedAt);
     expect(
       CustomerCreateInvoiceSchema.safeParse({
-        buyerType: 'company',
-        title: '测试公司',
+        companyName: '测试公司',
         taxId: '911100001234567801',
         email: 'invoice@example.com',
-        mobile: '13800138000',
-        content: '会务费',
         expectedUpdatedAt,
       }).success,
     ).toBe(false);
     expect(
       CustomerCreateInvoiceSchema.safeParse({
-        buyerType: 'individual',
-        title: '测试用户',
+        companyName: '测试公司',
         taxId: '',
         email: `${'a'.repeat(250)}@example.com`,
+      }).success,
+    ).toBe(false);
+    expect(
+      CustomerCreateInvoiceSchema.safeParse({
+        buyerType: 'company',
+        title: '旧版企业抬头',
+        taxId: '911100001234567801',
+        email: 'legacy-company@example.com',
         mobile: '13800138000',
         content: '会务费',
       }).success,
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      CustomerCreateInvoiceSchema.safeParse({
+        buyerType: 'individual',
+        title: '旧版个人抬头',
+        taxId: '',
+        email: 'legacy-person@example.com',
+        mobile: '13800138000',
+        content: '会务费',
+      }).success,
+    ).toBe(true);
   });
 });

@@ -46,6 +46,7 @@
     "db:generate": "pnpm --filter @conference/database generate",
     "db:prepare": "pnpm --filter \"@conference/database^...\" build",
     "db:migrate": "pnpm db:prepare && pnpm --filter @conference/database migrate",
+    "db:repair-registration-identities": "pnpm db:prepare && pnpm --filter @conference/database repair-registration-identities",
     "db:seed": "pnpm db:prepare && pnpm --filter @conference/database seed",
     "db:cleanup-local-demo": "DEPLOYMENT_MODE=local node tooling/cleanup-local-demo-users.mjs",
     "format": "prettier --write \"{apps,packages,docs,tooling}/**/*.{ts,vue,css,md,json}\""

@@ -17,11 +17,12 @@
   "dependencies": {
     "@conference/contracts": "workspace:*",
     "@conference/database": "workspace:*",
-    "@conference/integrations": "workspace:*",
     "@conference/html-template": "workspace:*",
+    "@conference/integrations": "workspace:*",
     "@conference/security": "workspace:*",
     "bullmq": "5.81.2",
     "drizzle-orm": "0.45.2",
+    "sharp": "^0.35.3",
     "undici": "8.9.0"
   },
   "devDependencies": {

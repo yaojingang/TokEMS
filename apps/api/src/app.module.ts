@@ -11,8 +11,10 @@ import { OperationsModule } from './modules/operations.module.js';
 import { CoreModule } from './common/core.module.js';
 import { TemplateInvoiceModule } from './modules/template-invoice.module.js';
 import { CustomerModule } from './modules/customer.module.js';
+import { configuredSuperAdministratorId } from './common/staff-account.js';
 
 const jwtSecret = process.env.JWT_SECRET ?? 'conference-local-development-secret-2026';
+configuredSuperAdministratorId();
 if (
   process.env.NODE_ENV === 'production' &&
   (!process.env.JWT_SECRET ||

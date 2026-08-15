@@ -1,16 +1,42 @@
 <script setup lang="ts">
-import { DEMO_EVENT, type CreateRegistration, type PublicEvent } from '@conference/contracts';
+import {
+  DEMO_EVENT,
+  type CreateRegistration,
+  type EventPurchaseContext,
+  type PublicEvent,
+  type PublicSiteConfiguration,
+} from '@conference/contracts';
 import { watch } from 'vue';
 import {
   activeFlowStep,
   enabledFlowSteps,
+  hasEnabledEventFlowStep,
   resolveEventExperience,
 } from '~/composables/useEventExperience';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
+import {
+  createRegistrationIntent,
+  resolveCheckoutSuccessDestination,
+  resolveRegistrationIntent,
+} from '~/utils/purchase-journey';
+import {
+  pruneRegistrationDrafts,
+  readRegistrationDraft,
+  registrationDraftIdentityTransition,
+  registrationDraftStorageKey,
+  removeRegistrationDraft,
+  removeRegistrationDraftVersions,
+  sanitizeRegistrationDraftAnswers,
+  type RegistrationDraftScope,
+  type RegistrationDraftStorage,
+  writeRegistrationDraft,
+} from '~/utils/registration-draft';
 
 const api = useConferenceApi();
 const customer = useCustomerSession();
 const router = useRouter();
+const route = useRoute();
 /** Real event only — never seed DEMO_EVENT prices into the first paint. */
 const event = ref<PublicEvent | null>(null);
 const pageLoading = ref(true);
@@ -20,6 +46,15 @@ const pending = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 const offerToken = ref('');
+const purchaseFor = ref<'self' | 'other'>('self');
+const purchaseIntentId = ref('');
+const proxyAuthorizationAccepted = ref(false);
+const termsAccepted = ref(false);
+const invoiceRequired = ref(false);
+const marketingConsent = ref(false);
+const purchaseContext = ref<EventPurchaseContext | null>(null);
+const purchaseContextReady = ref(false);
+const siteConfiguration = ref<PublicSiteConfiguration | null>(null);
 const answers = reactive<Record<string, string>>({
   name: '',
   mobile: '',
@@ -28,12 +63,6 @@ const answers = reactive<Record<string, string>>({
   title: '',
   city: '',
 });
-const preferences = reactive({
-  invoiceRequired: false,
-  marketingConsent: false,
-  termsAccepted: false,
-});
-
 const registrationFields = computed(() => event.value?.registrationForm?.fields ?? []);
 const experience = computed(() =>
   event.value ? resolveEventExperience(event.value) : resolveEventExperience(DEMO_EVENT),
@@ -70,6 +99,7 @@ const registrationAvailable = computed(() =>
 );
 const joiningWaitlist = computed(
   () =>
+    purchaseFor.value === 'self' &&
     registrationAvailable.value &&
     experience.value.registrationFlow.branches.waitlist &&
     selectedTicket.value.remaining < 1 &&
@@ -78,8 +108,8 @@ const joiningWaitlist = computed(
 const flowSteps = computed(() =>
   event.value
     ? enabledFlowSteps(event.value, {
-        paymentRequired: !isFreeTicket.value,
-        invoiceRequired: preferences.invoiceRequired,
+      paymentRequired: !isFreeTicket.value,
+      invoiceRequired: invoiceRequired.value,
       })
     : [],
 );
@@ -94,6 +124,25 @@ const accountRequired = computed(
   () => event.value?.registration.accountMode === 'mobile_otp_required',
 );
 const verifiedMobile = computed(() => customer.session.value?.customer.maskedMobile ?? '');
+const canPurchaseAdditional = computed(
+  () => purchaseContext.value?.canPurchaseAdditional === true,
+);
+const pendingOrderHref = computed(() => {
+  const orderId = purchaseContext.value?.resumePaymentOrderId;
+  if (!orderId || !event.value) return '';
+  const token = readOrderAccessToken(orderId);
+  if (token) {
+    return `/order/${encodeURIComponent(orderId)}?event=${encodeURIComponent(event.value.slug)}`;
+  }
+  return `/account?event=${encodeURIComponent(event.value.slug)}&order=${encodeURIComponent(orderId)}#purchases`;
+});
+const termsUrl = computed(() => siteConfiguration.value?.customerAccounts.termsUrl ?? '');
+const termsVersion = computed(
+  () =>
+    event.value?.registrationForm?.termsVersion ||
+    siteConfiguration.value?.customerAccounts.termsVersion ||
+    '2026-07-16',
+);
 const inputAutocomplete = (key: string) =>
   ({
     name: 'name',
@@ -115,6 +164,193 @@ const dateRange = computed(() => {
 });
 useHead(() => ({ title: `报名 · ${event.value?.name ?? '大会'}` }));
 
+interface ActiveRegistrationDraftContext {
+  identity: string;
+  storage: RegistrationDraftStorage;
+  scope: RegistrationDraftScope;
+  formVersion: number;
+}
+
+let activeRegistrationDraftContext: ActiveRegistrationDraftContext | null = null;
+let retainedAnonymousDraftContext: ActiveRegistrationDraftContext | null = null;
+let registrationDraftSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let registrationDraftCompleted = false;
+
+function clearRegistrationDraftSaveTimer() {
+  if (!registrationDraftSaveTimer) return;
+  clearTimeout(registrationDraftSaveTimer);
+  registrationDraftSaveTimer = undefined;
+}
+
+function resetRegistrationAnswers(loaded: PublicEvent, preserveCurrentAnswers: boolean) {
+  const fields = loaded.registrationForm?.fields ?? [];
+  const preserved = preserveCurrentAnswers ? sanitizeRegistrationDraftAnswers(answers, fields) : {};
+  for (const key of Object.keys(answers)) delete answers[key];
+  for (const field of fields) answers[field.key] = preserved[field.key] ?? '';
+}
+
+function browserRegistrationDraftStorage(kind: 'local' | 'session') {
+  if (!import.meta.client) return null;
+  try {
+    return kind === 'local' ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function currentRegistrationDraftContext(): ActiveRegistrationDraftContext | null {
+  if (!import.meta.client || !event.value) return null;
+
+  const session = customer.session.value;
+  const scope: RegistrationDraftScope = {
+    organizationId: event.value.organizationId,
+    eventId: event.value.id,
+    ownerId: session ? `customer:${session.customer.id}` : 'anonymous',
+    purchaseFor: purchaseFor.value,
+    purchaseIntentId: purchaseIntentId.value,
+  };
+  const formVersion = event.value.registrationForm?.version ?? 1;
+  const storage = browserRegistrationDraftStorage(session ? 'local' : 'session');
+  if (!storage) return null;
+  return {
+    identity: registrationDraftStorageKey(scope, formVersion),
+    storage,
+    scope,
+    formVersion,
+  };
+}
+
+function prefillFromCustomerSession(session: typeof customer.session.value) {
+  if (!session || purchaseFor.value !== 'self') return;
+  answers.mobile = session.customer.mobile;
+  answers.name ||= session.customer.profile.realName || session.customer.profile.nickname || '';
+  answers.email ||= session.customer.profile.email || '';
+  answers.company ||= session.customer.profile.company || '';
+  answers.title ||= session.customer.profile.title || '';
+  answers.city ||= session.customer.profile.city || '';
+}
+
+function sameRegistrationDraftForm(
+  first: ActiveRegistrationDraftContext,
+  second: ActiveRegistrationDraftContext,
+) {
+  return (
+    first.scope.organizationId === second.scope.organizationId &&
+    first.scope.eventId === second.scope.eventId &&
+    first.formVersion === second.formVersion
+  );
+}
+
+function persistRegistrationDraftToContext(context: ActiveRegistrationDraftContext) {
+  const written = writeRegistrationDraft(
+    context.storage,
+    context.scope,
+    context.formVersion,
+    answers,
+    registrationFields.value,
+  );
+  if (
+    written &&
+    retainedAnonymousDraftContext &&
+    String(context.scope.ownerId).startsWith('customer:') &&
+    sameRegistrationDraftForm(context, retainedAnonymousDraftContext)
+  ) {
+    removeRegistrationDraft(
+      retainedAnonymousDraftContext.storage,
+      retainedAnonymousDraftContext.scope,
+      retainedAnonymousDraftContext.formVersion,
+    );
+    retainedAnonymousDraftContext = null;
+  }
+  return written;
+}
+
+function persistRegistrationDraft() {
+  if (registrationDraftCompleted || !activeRegistrationDraftContext) return false;
+  return persistRegistrationDraftToContext(activeRegistrationDraftContext);
+}
+
+function restoreRegistrationDraftForCurrentIdentity() {
+  if (registrationDraftCompleted) return;
+  const next = currentRegistrationDraftContext();
+  if (!next || next.identity === activeRegistrationDraftContext?.identity) return;
+
+  const previous = activeRegistrationDraftContext;
+  clearRegistrationDraftSaveTimer();
+  if (previous && !registrationDraftCompleted) persistRegistrationDraftToContext(previous);
+
+  const identityTransition = previous
+    ? registrationDraftIdentityTransition(previous.scope.ownerId, next.scope.ownerId)
+    : null;
+  const anonymousLogin = identityTransition?.kind === 'anonymous_to_customer';
+  const sessionExpired = identityTransition?.kind === 'customer_to_anonymous';
+
+  const preserveCurrentAnswers = identityTransition?.migrateCurrentAnswers === true;
+  const customerChanged =
+    previous && identityTransition?.clearAnswers === true;
+  const purchaseModeChanged = previous && previous.scope.purchaseFor !== next.scope.purchaseFor;
+  if ((customerChanged || purchaseModeChanged) && event.value) {
+    resetRegistrationAnswers(event.value, false);
+  }
+
+  if (sessionExpired) {
+    activeRegistrationDraftContext = next;
+    return;
+  }
+
+  const restored = readRegistrationDraft(
+    next.storage,
+    next.scope,
+    next.formVersion,
+    registrationFields.value,
+  );
+  if (preserveCurrentAnswers) {
+    for (const [key, value] of Object.entries(restored)) answers[key] ||= value;
+  } else {
+    Object.assign(answers, restored);
+  }
+  prefillFromCustomerSession(customer.session.value);
+
+  activeRegistrationDraftContext = next;
+  if (preserveCurrentAnswers && previous) {
+    const migrated = persistRegistrationDraftToContext(next);
+    if (anonymousLogin && migrated) {
+      removeRegistrationDraft(previous.storage, previous.scope, previous.formVersion);
+    } else if (anonymousLogin) {
+      retainedAnonymousDraftContext = previous;
+    }
+  }
+}
+
+function completeRegistrationDraft() {
+  registrationDraftCompleted = true;
+  clearRegistrationDraftSaveTimer();
+  if (activeRegistrationDraftContext) {
+    removeRegistrationDraftVersions(
+      activeRegistrationDraftContext.storage,
+      activeRegistrationDraftContext.scope,
+    );
+    const anonymousStorage = browserRegistrationDraftStorage('session');
+    if (anonymousStorage) {
+      removeRegistrationDraftVersions(anonymousStorage, {
+        ...activeRegistrationDraftContext.scope,
+        ownerId: 'anonymous',
+      });
+    }
+  }
+  if (
+    retainedAnonymousDraftContext &&
+    activeRegistrationDraftContext &&
+    sameRegistrationDraftForm(activeRegistrationDraftContext, retainedAnonymousDraftContext)
+  ) {
+    removeRegistrationDraftVersions(
+      retainedAnonymousDraftContext.storage,
+      retainedAnonymousDraftContext.scope,
+    );
+    retainedAnonymousDraftContext = null;
+  }
+}
+
 /**
  * Applies a loaded public event and selects the ticket from the query string when valid.
  *
@@ -122,16 +358,50 @@ useHead(() => ({ title: `报名 · ${event.value?.name ?? '大会'}` }));
  * @param ticketFromQuery - Optional ticket id from the URL
  */
 function applyLoadedEvent(loaded: PublicEvent, ticketFromQuery = '') {
+  const eventChanged = Boolean(event.value && event.value.id !== loaded.id);
+  const formChanged = Boolean(
+    event.value &&
+    event.value.id === loaded.id &&
+    event.value.registrationForm?.version !== loaded.registrationForm?.version,
+  );
+  if (eventChanged || formChanged) {
+    if (activeRegistrationDraftContext && !registrationDraftCompleted) {
+      persistRegistrationDraftToContext(activeRegistrationDraftContext);
+    }
+    clearRegistrationDraftSaveTimer();
+    resetRegistrationAnswers(loaded, formChanged);
+    activeRegistrationDraftContext = null;
+    registrationDraftCompleted = false;
+  }
+
   event.value = loaded;
+  if (!loaded.registration.additionalPurchaseEnabled || offerToken.value) {
+    purchaseFor.value = 'self';
+  }
   selectedTicketId.value = loaded.tickets.some((ticket) => ticket.id === ticketFromQuery)
     ? ticketFromQuery
     : (loaded.tickets[0]?.id ?? '');
   for (const field of registrationFields.value) answers[field.key] ??= '';
 }
 
-watch(isFreeTicket, (free) => {
-  if (free) preferences.invoiceRequired = false;
-});
+watch(
+  answers,
+  () => {
+    if (!activeRegistrationDraftContext || registrationDraftCompleted) return;
+    clearRegistrationDraftSaveTimer();
+    const scheduledContext = activeRegistrationDraftContext;
+    registrationDraftSaveTimer = setTimeout(() => {
+      if (
+        registrationDraftCompleted ||
+        activeRegistrationDraftContext?.identity !== scheduledContext.identity
+      ) {
+        return;
+      }
+      persistRegistrationDraftToContext(scheduledContext);
+    }, 400);
+  },
+  { deep: true },
+);
 
 watch(api.eventState, (loaded) => {
   if (!event.value || event.value.slug !== loaded.slug) return;
@@ -139,19 +409,56 @@ watch(api.eventState, (loaded) => {
 });
 
 watch(
+  () => [
+    event.value?.id,
+    event.value?.registrationForm?.version,
+    customer.session.value?.customer.id,
+    purchaseFor.value,
+    purchaseIntentId.value,
+  ],
+  restoreRegistrationDraftForCurrentIdentity,
+  { flush: 'sync' },
+);
+
+watch(
   () => customer.session.value,
   (session) => {
-    if (!session) return;
-    // Prefill from profile; keep any value the user already typed (including a different mobile).
-    answers.mobile ||= session.customer.mobile;
-    answers.name ||= session.customer.profile.realName || session.customer.profile.nickname || '';
-    answers.email ||= session.customer.profile.email || '';
-    answers.company ||= session.customer.profile.company || '';
-    answers.title ||= session.customer.profile.title || '';
-    answers.city ||= session.customer.profile.city || '';
+    prefillFromCustomerSession(session);
   },
   { immediate: true },
 );
+
+watch(purchaseFor, (next) => {
+  proxyAuthorizationAccepted.value = false;
+  if (next === 'other') marketingConsent.value = false;
+  if (next === 'self') prefillFromCustomerSession(customer.session.value);
+});
+
+async function loadPurchaseContext() {
+  if (!event.value || !customer.session.value) {
+    purchaseContext.value = null;
+    purchaseContextReady.value = true;
+    return;
+  }
+  purchaseContextReady.value = false;
+  try {
+    purchaseContext.value = await customer.purchaseContext(event.value.id);
+  } catch {
+    purchaseContext.value = null;
+  } finally {
+    purchaseContextReady.value = true;
+  }
+}
+
+function beginAdditionalPurchase() {
+  purchaseFor.value = 'other';
+  purchaseIntentId.value = createRegistrationIntent();
+  termsAccepted.value = false;
+  proxyAuthorizationAccepted.value = false;
+  void router.replace({
+    query: { ...route.query, intent: purchaseIntentId.value, purchaseFor: 'other' },
+  });
+}
 
 function errorStatus(error: unknown) {
   const value = error as {
@@ -172,22 +479,62 @@ async function registrationError(error: unknown, fallback: string) {
 }
 
 onMounted(async () => {
+  const localDraftStorage = browserRegistrationDraftStorage('local');
+  const sessionDraftStorage = browserRegistrationDraftStorage('session');
+  if (localDraftStorage) pruneRegistrationDrafts(localDraftStorage);
+  if (sessionDraftStorage) pruneRegistrationDrafts(sessionDraftStorage);
+  window.addEventListener('pagehide', persistRegistrationDraft);
   const query = new URL(window.location.href).searchParams;
-  const slug = query.get('event') ?? DEMO_EVENT.slug;
+  const slug = query.get('event');
   const ticketFromQuery = query.get('ticket') ?? '';
   offerToken.value = query.get('offer') ?? '';
+  const intentFromQuery = query.get('intent');
+  const requestedPurchaseFor = query.get('purchaseFor') === 'other' ? 'other' : 'self';
+  purchaseFor.value = requestedPurchaseFor;
+  const resolvedIntent = resolveRegistrationIntent(intentFromQuery);
+  purchaseIntentId.value = resolvedIntent.purchaseIntentId;
+  if (resolvedIntent.shouldReplace) {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}?${new URLSearchParams({
+        ...Object.fromEntries(query.entries()),
+        intent: purchaseIntentId.value,
+      }).toString()}${window.location.hash}`,
+    );
+  }
+  if (offerToken.value) purchaseFor.value = 'self';
 
   // Prefer a cache hit for the same slug; never paint DEMO_EVENT ticket prices.
   const cached = api.readEvent();
-  if (cached?.slug === slug) {
+  if (slug && cached?.slug === slug) {
     applyLoadedEvent(cached, ticketFromQuery);
+    if (
+      requestedPurchaseFor === 'other' &&
+      cached.registration.additionalPurchaseEnabled &&
+      !offerToken.value
+    ) {
+      purchaseFor.value = 'other';
+    }
     pageLoading.value = false;
   }
 
   try {
-    const loaded = await api.getEvent(slug);
+    const [loaded, site] = await Promise.all([
+      slug ? api.getEvent(slug) : api.getHomepageEvent(),
+      api.getSiteConfiguration().catch(() => null),
+    ]);
+    siteConfiguration.value = site;
     applyLoadedEvent(loaded, ticketFromQuery);
+    if (
+      requestedPurchaseFor === 'other' &&
+      loaded.registration.additionalPurchaseEnabled &&
+      !offerToken.value
+    ) {
+      purchaseFor.value = 'other';
+    }
     await customer.refresh().catch(() => null);
+    await loadPurchaseContext();
     if (accountRequired.value && !customer.session.value) {
       customer.openLogin();
     }
@@ -200,6 +547,12 @@ onMounted(async () => {
   }
 });
 
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', persistRegistrationDraft);
+  clearRegistrationDraftSaveTimer();
+  persistRegistrationDraft();
+});
+
 async function submit() {
   errorMessage.value = '';
   successMessage.value = '';
@@ -207,13 +560,25 @@ async function submit() {
     errorMessage.value = '报名信息仍在加载，请稍后再试。';
     return;
   }
-  if (accountRequired.value && !customer.session.value) {
+  if (!customer.session.value) {
     errorMessage.value = '本场大会需要先登录，登录后会继续保留当前填写内容。';
     customer.openLogin();
     return;
   }
   if (!registrationAvailable.value) {
     errorMessage.value = '当前大会已暂停报名，请留意后续开放通知。';
+    return;
+  }
+  if (!termsAccepted.value) {
+    errorMessage.value = '请阅读并同意报名条款后继续。';
+    return;
+  }
+  if (purchaseFor.value === 'other' && !proxyAuthorizationAccepted.value) {
+    errorMessage.value = '请确认已获得参会人授权后继续。';
+    return;
+  }
+  if (purchaseFor.value === 'other' && selectedTicket.value.remaining < 1) {
+    errorMessage.value = '候补仅支持本人报名，请选择仍有名额的票种。';
     return;
   }
   if (
@@ -232,9 +597,10 @@ async function submit() {
         ticketTypeId: selectedTicketId.value,
         name: answer('name'),
         email: answer('email'),
-        mobile: answer('mobile'),
+        mobile: customer.session.value.customer.mobile,
       });
       const contact = entry.email || entry.mobile;
+      completeRegistrationDraft();
       successMessage.value = `候补申请已提交，你当前位于第 ${entry.position} 位。名额释放后会向 ${contact} 发送两小时有效的报名链接。`;
     } catch (error) {
       errorMessage.value = await registrationError(error, '候补申请提交失败。');
@@ -243,27 +609,29 @@ async function submit() {
     }
     return;
   }
-  if (!preferences.termsAccepted) {
-    errorMessage.value = '请阅读并同意报名服务条款和隐私政策。';
-    return;
-  }
-
   const input: CreateRegistration = {
     eventId: event.value.id,
     ticketTypeId: selectedTicketId.value,
     attendee: {
       name: answer('name'),
-      mobile: answer('mobile'),
+      mobile:
+        purchaseFor.value === 'self'
+          ? customer.session.value.customer.mobile
+          : answer('mobile'),
       email: answer('email'),
       company: answer('company'),
       title: answer('title'),
       city: answer('city'),
     },
-    invoiceRequired: !isFreeTicket.value && preferences.invoiceRequired,
-    marketingConsent: preferences.marketingConsent,
+    invoiceRequired: invoiceRequired.value,
+    marketingConsent: purchaseFor.value === 'other' ? false : marketingConsent.value,
     termsAccepted: true,
+    purchaseFor: purchaseFor.value,
+    purchaseIntentId: purchaseIntentId.value,
+    proxyAuthorizationAccepted:
+      purchaseFor.value === 'other' && proxyAuthorizationAccepted.value,
     formVersion: event.value.registrationForm?.version ?? 1,
-    termsVersion: event.value.registrationForm?.termsVersion ?? '2026-07-16',
+    termsVersion: termsVersion.value,
     formAnswers: Object.fromEntries(
       registrationFields.value.map((field) => [field.key, answer(field.key)]),
     ),
@@ -274,16 +642,23 @@ async function submit() {
   try {
     const checkout = await api.createRegistration(input);
     api.saveCheckout(checkout);
+    completeRegistrationDraft();
     const freeCheckoutCompleted =
       (checkout.order.amount === 0 || checkout.order.paymentMethod === 'free') &&
       checkout.order.status === 'paid';
     if (checkout.ticket || freeCheckoutCompleted) {
-      if (checkout.ticket) api.saveTicket(checkout.ticket);
-      await router.push({
-        path: `/ticket/${checkout.ticket?.code ?? checkout.registration.id}`,
-        query: { event: event.value.slug },
+      if (checkout.ticket && !checkout.isProxyPurchase) api.saveTicket(checkout.ticket);
+      const destination = resolveCheckoutSuccessDestination({
+        isProxyPurchase: checkout.isProxyPurchase,
+        eventSlug: event.value.slug,
+        registrationId: checkout.registration.id,
+        ticketCode: checkout.ticket?.code,
+        memberProfileEnabled: hasEnabledEventFlowStep(event.value, 'member-profile'),
       });
-      return;
+      if (destination) {
+        await router.push(destination);
+        return;
+      }
     }
     const accessToken = checkout.orderAccessToken ?? '';
     const paymentCheckoutUrl = api.resolvePaymentCheckoutUrl(
@@ -331,6 +706,29 @@ async function submit() {
         <p v-if="!registrationAvailable" class="waitlist-offer-banner" role="status">
           当前大会已暂停报名。页面内容仍可查看，报名重新开放后可继续提交。
         </p>
+        <div
+          v-if="purchaseContextReady && customer.session.value && purchaseContext?.resumePaymentOrderId"
+          class="registration-state-line"
+          role="status"
+        >
+          <span>你有一笔待支付订单，席位仍在保留时间内。</span>
+          <a :href="pendingOrderHref">继续支付 →</a>
+        </div>
+        <div
+          v-else-if="
+            purchaseContextReady &&
+              customer.session.value &&
+              purchaseFor === 'self' &&
+              purchaseContext?.myAttendance
+          "
+          class="registration-state-line"
+          role="status"
+        >
+          <span>你已拥有本场大会的参会名额。</span>
+          <button v-if="canPurchaseAdditional" type="button" @click="beginAdditionalPurchase">
+            继续为他人增加名额 →
+          </button>
+        </div>
         <FlowStepper
           :active="activeStep"
           :payment-required="!isFreeTicket"
@@ -373,6 +771,24 @@ async function submit() {
               </div>
 
               <h3 class="form-section-title">参会人信息</h3>
+              <fieldset class="purchase-for-switch">
+                <legend>这张票给谁使用</legend>
+                <label :class="{ 'is-selected': purchaseFor === 'self' }">
+                  <input v-model="purchaseFor" type="radio" value="self" />
+                  <span><strong>本人参会</strong><small>使用当前登录手机号核验身份</small></span>
+                </label>
+                <label
+                  :class="{ 'is-selected': purchaseFor === 'other', 'is-disabled': !event.registration.additionalPurchaseEnabled }"
+                >
+                  <input
+                    v-model="purchaseFor"
+                    type="radio"
+                    value="other"
+                    :disabled="!event.registration.additionalPurchaseEnabled"
+                  />
+                  <span><strong>为他人购票</strong><small>填写实际参会人的信息，可继续增加名额</small></span>
+                </label>
+              </fieldset>
               <div
                 v-if="accountRequired"
                 class="registration-auth-status"
@@ -381,7 +797,7 @@ async function submit() {
                 <span aria-hidden="true">{{ customer.session.value ? '✓' : '•' }}</span>
                 <p v-if="customer.session.value">
                   手机号已验证：<strong>{{ verifiedMobile }}</strong>
-                  。报名手机号可单独填写，不必与登录号相同。
+                  。{{ purchaseFor === 'self' ? '本人报名将绑定该手机号。' : '代购订单归入你的购买记录。' }}
                 </p>
                 <p v-else>本场大会需要先验证手机号，验证成功后会保留当前填写内容。</p>
                 <button v-if="!customer.session.value" type="button" @click="customer.openLogin">
@@ -390,7 +806,9 @@ async function submit() {
               </div>
               <div class="form-grid">
                 <div v-for="field in registrationFields" :key="field.key" class="form-field">
-                  <label :for="`registration-${field.key}`">{{ field.label }}<em v-if="field.required">*</em></label>
+                  <label :for="`registration-${field.key}`">
+                    {{ field.label }}<em v-if="field.required">*</em>
+                  </label>
                   <select
                     v-if="field.type === 'select'"
                     :id="`registration-${field.key}`"
@@ -412,28 +830,31 @@ async function submit() {
                     :type="field.type"
                     :autocomplete="inputAutocomplete(field.key)"
                     :placeholder="field.placeholder ?? `请填写${field.label}`"
+                    :readonly="field.key === 'mobile' && purchaseFor === 'self'"
                   />
                 </div>
               </div>
 
-              <div class="form-checks">
-                <label v-if="!isFreeTicket" class="form-check">
-                  <input v-model="preferences.invoiceRequired" type="checkbox" />
-                  <span>需要开具发票，支付后可在订单页补充抬头与税号。</span>
+              <div class="registration-consents">
+                <label v-if="purchaseFor === 'other'">
+                  <input v-model="proxyAuthorizationAccepted" type="checkbox" required />
+                  <span>我已获得参会人授权，可代为提交其报名信息并接收订单通知。</span>
                 </label>
-                <label class="form-check">
-                  <input v-model="preferences.marketingConsent" type="checkbox" />
-                  <span>同意接收本届大会议程、嘉宾与交通提醒。</span>
+                <label>
+                  <input v-model="invoiceRequired" type="checkbox" />
+                  <span>支付完成后需要申请发票</span>
                 </label>
-                <label class="form-check">
-                  <input
-                    v-model="preferences.termsAccepted"
-                    type="checkbox"
-                    :required="!joiningWaitlist"
-                  />
+                <label v-if="purchaseFor === 'self'">
+                  <input v-model="marketingConsent" type="checkbox" />
+                  <span>接收本场大会及后续相关活动通知</span>
+                </label>
+                <label>
+                  <input v-model="termsAccepted" type="checkbox" required />
                   <span>
-                    我已阅读并同意《报名服务条款》和《隐私政策》
-                    <small v-if="event.registrationForm">（版本 {{ event.registrationForm.termsVersion }}）</small>。
+                    我已阅读并同意
+                    <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer">报名条款</a>
+                    <span v-else>报名条款</span>
+                    （版本 {{ termsVersion }}）
                   </span>
                 </label>
               </div>
@@ -443,7 +864,11 @@ async function submit() {
               <button
                 class="flow-action is-full"
                 type="submit"
-                :disabled="pending || !registrationAvailable"
+                :disabled="
+                  pending ||
+                    !registrationAvailable ||
+                    (purchaseFor === 'other' && selectedTicket.remaining < 1)
+                "
                 style="margin-top: 24px"
               >
                 {{
@@ -453,11 +878,13 @@ async function submit() {
                       : isFreeTicket
                         ? '正在确认报名…'
                         : '正在创建订单…'
-                    : joiningWaitlist
-                      ? '加入候补名单'
-                      : isFreeTicket
-                        ? '免费报名并领取电子票'
-                        : `提交报名并支付 ${money(selectedTicket.price)}`
+                    : purchaseFor === 'other' && selectedTicket.remaining < 1
+                      ? '候补仅支持本人报名'
+                      : joiningWaitlist
+                        ? '加入候补名单'
+                        : isFreeTicket
+                          ? '免费报名并领取电子票'
+                          : `提交报名并支付 ${money(selectedTicket.price)}`
                 }}
                 <span aria-hidden="true">→</span>
               </button>
@@ -479,7 +906,8 @@ async function submit() {
               </div>
               <div class="summary-row"><span>电子票数量</span><strong>1 张</strong></div>
               <div class="summary-row">
-                <span>退改规则</span><strong>{{ isFreeTicket ? '可取消报名' : '7 天内可退' }}</strong>
+                <span>退改规则</span>
+                <strong>{{ isFreeTicket ? '可取消报名' : '7 天内可退' }}</strong>
               </div>
               <div class="summary-row is-total">
                 <span>{{ isFreeTicket ? '报名费用' : '应付金额' }}</span>
@@ -501,6 +929,110 @@ async function submit() {
 </template>
 
 <style scoped>
+.registration-state-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0;
+  padding: 12px 0;
+  border-block: 1px solid #dbe4f7;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.registration-state-line a,
+.registration-state-line button {
+  min-height: 40px;
+  padding: 0 4px;
+  color: #1f5fe0;
+  font-weight: 760;
+  white-space: nowrap;
+  touch-action: manipulation;
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.registration-state-line a:active,
+.registration-state-line button:active {
+  transform: scale(0.96);
+}
+.purchase-for-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+.purchase-for-switch legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: #697386;
+  font-size: 12px;
+  font-weight: 680;
+}
+.purchase-for-switch label {
+  display: flex;
+  min-height: 72px;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 13px;
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.purchase-for-switch label.is-selected {
+  border-color: #1f5fe0;
+  box-shadow: inset 0 0 0 1px #1f5fe0;
+}
+.purchase-for-switch label.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.purchase-for-switch input {
+  margin-top: 3px;
+  accent-color: #1f5fe0;
+}
+.purchase-for-switch span {
+  display: grid;
+  gap: 3px;
+}
+.purchase-for-switch strong {
+  color: #111827;
+  font-size: 14px;
+}
+.purchase-for-switch small {
+  color: #697386;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.registration-consents {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e3e7ef;
+}
+.registration-consents label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: #4b5565;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.registration-consents input {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  accent-color: #1f5fe0;
+}
+.registration-consents a {
+  color: #1f5fe0;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .registration-auth-status {
   display: grid;
   grid-template-columns: 24px 1fr auto;
@@ -509,8 +1041,8 @@ async function submit() {
   margin: 0 0 18px;
   padding: 12px 14px;
   border-radius: 8px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: #eef4ff;
+  color: #194caa;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -520,7 +1052,7 @@ async function submit() {
   height: 24px;
   place-items: center;
   border-radius: 50%;
-  background: rgb(154 52 18 / 10%);
+  background: rgb(31 95 224 / 10%);
   font-weight: 760;
 }
 .registration-auth-status p {
@@ -530,7 +1062,7 @@ async function submit() {
   min-height: 40px;
   padding: 0 12px;
   border-radius: 7px;
-  background: #9a3412;
+  background: #1f5fe0;
   color: #fff;
   font-size: 12px;
   font-weight: 720;
@@ -549,6 +1081,14 @@ async function submit() {
   background: rgb(4 120 87 / 10%);
 }
 @media (max-width: 560px) {
+  .registration-state-line {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .purchase-for-switch {
+    grid-template-columns: 1fr;
+  }
   .registration-auth-status {
     grid-template-columns: 24px 1fr;
   }

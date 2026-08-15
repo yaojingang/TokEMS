@@ -1,0 +1,1 @@
+ALTER TABLE "notification_deliveries" ADD COLUMN "uncertain_at" timestamp with time zone;

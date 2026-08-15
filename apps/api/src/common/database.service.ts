@@ -1,5 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { createDatabase, type ConferenceDatabase } from '@conference/database';
+import {
+  createDatabase,
+  readDatabaseMigrationStatus,
+  type ConferenceDatabase,
+} from '@conference/database';
 import type { Pool } from 'pg';
 
 @Injectable()
@@ -27,9 +31,19 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async ping() {
-    if (!this.pool) return { mode: 'memory' as const, ok: true };
+    if (!this.pool) {
+      return {
+        mode: 'memory' as const,
+        ok: true,
+        migration: { ok: true, expected: 'memory', applied: 'memory' },
+      };
+    }
     await this.pool.query('select 1');
-    return { mode: 'postgresql' as const, ok: true };
+    return {
+      mode: 'postgresql' as const,
+      ok: true,
+      migration: await readDatabaseMigrationStatus(this.pool),
+    };
   }
 
   async onModuleDestroy() {

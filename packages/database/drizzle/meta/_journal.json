@@ -281,6 +281,83 @@
       "when": 1785681600001,
       "tag": "0039_event_release_change_context",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785767904713,
+      "tag": "0040_exotic_shinobi_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785772920280,
+      "tag": "0041_needy_the_liberteens",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786759067853,
+      "tag": "0042_registration_identity_support",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786759090902,
+      "tag": "0043_enforce_registration_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786760342194,
+      "tag": "0044_brief_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786764414181,
+      "tag": "0045_chubby_bloodscream",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786765744665,
+      "tag": "0046_tricky_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786781240039,
+      "tag": "0047_multi_purchase_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786782752422,
+      "tag": "0048_registration_purchase_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786833532726,
+      "tag": "0049_far_ken_ellis",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786834745635,
+      "tag": "0050_flimsy_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

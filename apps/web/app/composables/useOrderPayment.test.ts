@@ -5,6 +5,7 @@ import {
   isTransientPaymentFailure,
   manualSwitchChannels,
   paymentErrorMessage,
+  shouldAutoPrepareWeChatPayment,
   shouldPollOrderStatus,
 } from './useOrderPayment';
 import type { PaymentEnvironmentSignals } from './usePaymentEnvironment';
@@ -71,6 +72,14 @@ describe('paymentErrorMessage / isTransientPaymentFailure', () => {
   it('prefers Error.message and API message payloads', () => {
     expect(paymentErrorMessage(new Error('网络中断'), 'fallback')).toBe('网络中断');
     expect(paymentErrorMessage({ data: { message: '通道未启用' } }, 'fallback')).toBe('通道未启用');
+    expect(
+      paymentErrorMessage(
+        Object.assign(new Error('[POST] /payments/wechat/order/native: 503 Service Unavailable'), {
+          data: { message: '微信支付尚未完成配置' },
+        }),
+        'fallback',
+      ),
+    ).toBe('微信支付尚未完成配置');
     expect(paymentErrorMessage({}, 'fallback')).toBe('fallback');
   });
 
@@ -78,6 +87,14 @@ describe('paymentErrorMessage / isTransientPaymentFailure', () => {
     expect(isTransientPaymentFailure(new TypeError('Failed to fetch'))).toBe(true);
     expect(isTransientPaymentFailure({ statusCode: 503 })).toBe(false);
     expect(isTransientPaymentFailure({ response: { status: 400 } })).toBe(false);
+  });
+});
+
+describe('shouldAutoPrepareWeChatPayment', () => {
+  it('skips real WeChat prepare for an authorized local simulation order', () => {
+    expect(shouldAutoPrepareWeChatPayment(order('pending_payment'), true)).toBe(false);
+    expect(shouldAutoPrepareWeChatPayment(order('pending_payment'), false)).toBe(true);
+    expect(shouldAutoPrepareWeChatPayment(order('paid'), false)).toBe(false);
   });
 });
 

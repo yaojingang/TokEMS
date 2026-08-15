@@ -2,13 +2,21 @@
 import type {
   CustomerInvoiceCenterCounts,
   CustomerInvoiceCenterItem,
+  CustomerPurchasedOrder,
   CustomerRegistrationSummary,
+  EventPurchaseContext,
 } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
+import { createRegistrationIntent } from '~/utils/purchase-journey';
 
 const customer = useCustomerSession();
+const api = useConferenceApi();
+const router = useRouter();
 const registrations = ref<CustomerRegistrationSummary[]>([]);
+const purchasedOrders = ref<CustomerPurchasedOrder[]>([]);
+const purchaseContexts = ref<Record<number, EventPurchaseContext>>({});
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
   all: 0,
@@ -22,6 +30,10 @@ const loading = ref(true);
 const loadingMore = ref(false);
 const saving = ref(false);
 const nextCursor = ref<string | null>(null);
+const nextOrdersCursor = ref<string | null>(null);
+const editingOrderId = ref('');
+const attendeeSaving = ref(false);
+const attendeeEdit = reactive({ name: '', mobile: '' });
 const errorMessage = ref('');
 const successMessage = ref('');
 const emailError = ref('');
@@ -52,17 +64,18 @@ const validTicketCount = computed(
 const pendingActionCount = computed(
   () =>
     registrations.value.filter(
-      (item) =>
-        ['pending_review', 'pending_payment'].includes(item.registrationStatus) ||
-        ['pending_review', 'pending_payment'].includes(item.orderStatus),
-    ).length + invoiceCounts.value.actionRequired,
+      (item) => ['pending_review', 'pending_payment'].includes(item.registrationStatus),
+    ).length +
+    purchasedOrders.value.filter((item) =>
+      ['pending_review', 'pending_payment', 'processing'].includes(item.status),
+    ).length +
+    invoiceCounts.value.actionRequired,
 );
 const featuredRegistration = computed(
   () =>
     registrations.value.find(
       (item) =>
-        ['pending_review', 'pending_payment'].includes(item.registrationStatus) ||
-        ['pending_review', 'pending_payment'].includes(item.orderStatus),
+        ['pending_review', 'pending_payment'].includes(item.registrationStatus),
     ) ??
     registrations.value.find((item) => item.ticketStatus === 'valid') ??
     registrations.value[0] ??
@@ -135,8 +148,7 @@ const primaryRegistrationAction = (item: CustomerRegistrationSummary) => {
     };
   }
   if (
-    ['pending_review', 'pending_payment'].includes(item.registrationStatus) ||
-    ['pending_review', 'pending_payment'].includes(item.orderStatus)
+    ['pending_review', 'pending_payment'].includes(item.registrationStatus)
   ) {
     return { label: '处理报名', to: `/account/registrations/${item.id}` };
   }
@@ -144,8 +156,62 @@ const primaryRegistrationAction = (item: CustomerRegistrationSummary) => {
 };
 
 const statusLabel = (value: string) => statusLabels[value] ?? value;
-const canRequestInvoice = (item: CustomerRegistrationSummary) =>
-  item.amount > 0 && ['paid', 'partially_refunded'].includes(item.orderStatus);
+function startAttendeeEdit(order: CustomerPurchasedOrder) {
+  editingOrderId.value = order.id;
+  attendeeEdit.name = order.attendeeName;
+  attendeeEdit.mobile = order.attendeeMobile;
+}
+
+async function saveAttendee(order: CustomerPurchasedOrder) {
+  attendeeSaving.value = true;
+  errorMessage.value = '';
+  try {
+    const updated = await customer.updatePurchasedOrderAttendee(order.id, {
+      name: attendeeEdit.name,
+      mobile: attendeeEdit.mobile,
+    });
+    purchasedOrders.value = purchasedOrders.value.map((item) =>
+      item.id === updated.id ? updated : item,
+    );
+    editingOrderId.value = '';
+    successMessage.value = '参会人资料已更新，新的认领邀请已发送';
+  } catch (error) {
+    const value = error as { data?: { message?: string } };
+    errorMessage.value = value.data?.message ?? '参会人资料更新失败，请稍后重试';
+  } finally {
+    attendeeSaving.value = false;
+  }
+}
+
+async function resumeOrder(order: CustomerPurchasedOrder) {
+  const token = readOrderAccessToken(order.id);
+  if (token) {
+    await router.push({ path: `/order/${order.id}`, query: { event: order.eventSlug } });
+    return;
+  }
+  const email = customer.session.value?.customer.profile.email;
+  if (!email) {
+    errorMessage.value = '当前浏览器没有订单访问凭证，请先在常用资料中补充邮箱以接收安全支付链接。';
+    return;
+  }
+  try {
+    await api.requestOrderAccessLink(order.orderNo, email);
+    successMessage.value = `安全支付链接已发送至 ${email}`;
+  } catch {
+    errorMessage.value = '安全支付链接发送失败，请稍后重试。';
+  }
+}
+
+function additionalPurchase(order: CustomerPurchasedOrder) {
+  return router.push({
+    path: '/register',
+    query: {
+      event: order.eventSlug,
+      intent: createRegistrationIntent(),
+      purchaseFor: 'other',
+    },
+  });
+}
 
 function validateEmail() {
   const value = profile.email.trim();
@@ -179,6 +245,34 @@ async function loadRegistrations(append = false) {
   }
 }
 
+async function loadPurchasedOrders(append = false) {
+  const result = await customer.purchasedOrders(
+    append ? (nextOrdersCursor.value ?? undefined) : undefined,
+  );
+  purchasedOrders.value = append
+    ? [...purchasedOrders.value, ...result.items]
+    : result.items;
+  nextOrdersCursor.value = result.nextCursor;
+  const missingEventIds = [
+    ...new Set(
+      result.items
+        .map((item) => item.eventId)
+        .filter((eventId) => !purchaseContexts.value[eventId]),
+    ),
+  ];
+  const loadedContexts = await Promise.all(
+    missingEventIds.map((eventId) => customer.purchaseContext(eventId).catch(() => null)),
+  );
+  purchaseContexts.value = {
+    ...purchaseContexts.value,
+    ...Object.fromEntries(
+      loadedContexts
+        .filter((context): context is EventPurchaseContext => Boolean(context))
+        .map((context) => [context.eventId, context]),
+    ),
+  };
+}
+
 async function loadInvoiceSummary() {
   const result = await customer.invoices('all', undefined, 3);
   invoiceHighlights.value = result.items;
@@ -192,7 +286,7 @@ async function initialize() {
     await customer.refresh();
     if (customer.session.value) {
       syncProfile();
-      await Promise.all([loadRegistrations(), loadInvoiceSummary()]);
+      await Promise.all([loadRegistrations(), loadPurchasedOrders(), loadInvoiceSummary()]);
     }
   } catch {
     errorMessage.value = '个人中心暂时无法加载，请稍后重试';
@@ -219,7 +313,7 @@ async function saveProfile() {
       city: profile.city.trim() || null,
     });
     syncProfile();
-    successMessage.value = '个人资料已保存';
+    successMessage.value = '常用资料已保存';
   } catch (error) {
     const value = error as { data?: { message?: string } };
     errorMessage.value = value.data?.message ?? '资料保存失败，请刷新后重试';
@@ -231,6 +325,8 @@ async function saveProfile() {
 async function logout() {
   await customer.logout();
   registrations.value = [];
+  purchasedOrders.value = [];
+  purchaseContexts.value = {};
   invoiceHighlights.value = [];
   invoiceCounts.value = {
     all: 0,
@@ -241,6 +337,7 @@ async function logout() {
     history: 0,
   };
   nextCursor.value = null;
+  nextOrdersCursor.value = null;
 }
 
 onMounted(initialize);
@@ -315,10 +412,12 @@ useHead({ title: '个人中心' });
             </p>
             <nav class="account-nav" aria-label="个人中心模块">
               <a href="#overview"><span>01</span> 总览</a>
-              <a href="#events"><span>02</span> 我的大会</a>
-              <a href="#invoices"><span>03</span> 发票中心</a>
-              <a href="#profile"><span>04</span> 个人资料</a>
-              <a href="#security"><span>05</span> 账户安全</a>
+              <a href="#events"><span>02</span> 我的参会名额</a>
+              <a href="#purchases"><span>03</span> 我购买的订单</a>
+              <a href="#showcases"><span>04</span> 参会名片</a>
+              <a href="#invoices"><span>05</span> 发票中心</a>
+              <a href="#profile"><span>06</span> 常用资料</a>
+              <a href="#security"><span>07</span> 账户安全</a>
             </nav>
             <div class="account-rail__completion">
               <div>
@@ -423,7 +522,7 @@ useHead({ title: '个人中心' });
                 <div>
                   <dt>我的大会</dt>
                   <dd>{{ registrationCountLabel }}</dd>
-                  <small>全部报名</small>
+                  <small>本人名额</small>
                 </div>
                 <div>
                   <dt>有效票券</dt>
@@ -444,9 +543,9 @@ useHead({ title: '个人中心' });
               <div class="account-section__heading">
                 <div>
                   <span class="account-section__index">02 / MY EVENTS</span>
-                  <h2 id="events-title">我的大会</h2>
+                  <h2 id="events-title">我的参会名额</h2>
                 </div>
-                <p>报名、订单、票券和发票跟随每场大会归档。</p>
+                <p>这里仅展示你本人可使用的报名与电子票。</p>
               </div>
 
               <div class="account-surface account-events">
@@ -472,10 +571,6 @@ useHead({ title: '个人中心' });
                           <dd>{{ item.ticketTypeName }}</dd>
                         </div>
                         <div>
-                          <dt>订单</dt>
-                          <dd>{{ statusLabels[item.orderStatus] ?? item.orderStatus }}</dd>
-                        </div>
-                        <div>
                           <dt>电子票</dt>
                           <dd>
                             {{
@@ -486,22 +581,12 @@ useHead({ title: '个人中心' });
                           </dd>
                         </div>
                         <div>
-                          <dt>金额</dt>
-                          <dd>{{ money(item.amount, item.currency) }}</dd>
-                        </div>
-                        <div>
-                          <dt>发票</dt>
-                          <dd>
-                            {{
-                              item.invoiceStatus
-                                ? (statusLabels[item.invoiceStatus] ?? item.invoiceStatus)
-                                : '未申请'
-                            }}
-                          </dd>
-                        </div>
-                        <div>
                           <dt>报名编号</dt>
                           <dd>{{ item.registrationCode }}</dd>
+                        </div>
+                        <div>
+                          <dt>资料权限</dt>
+                          <dd>{{ item.canManageOrder ? '本人购买' : '参会人已认领' }}</dd>
                         </div>
                       </dl>
                       <div class="registration-row__actions">
@@ -514,10 +599,10 @@ useHead({ title: '个人中心' });
                         </NuxtLink>
                         <NuxtLink :to="`/account/registrations/${item.id}`">报名详情</NuxtLink>
                         <NuxtLink
-                          v-if="canRequestInvoice(item)"
-                          :to="`/account/invoices/${item.orderId}`"
+                          v-if="item.ticketStatus === 'valid' || item.ticketStatus === 'used'"
+                          :to="`/account/registrations/${item.id}/showcase?event=${encodeURIComponent(item.eventSlug)}`"
                         >
-                          {{ item.invoiceId ? '查看发票' : '申请发票' }}
+                          编辑参会名片
                         </NuxtLink>
                       </div>
                     </div>
@@ -537,8 +622,162 @@ useHead({ title: '个人中心' });
                   <div>
                     <p class="account-empty__eyebrow">YOUR EVENT ARCHIVE</p>
                     <h3>还没有报名记录</h3>
-                    <p>报名成功后，每场大会会形成一份完整档案，包含订单、电子票和发票进度。</p>
+                    <p>本人报名或认领他人购买的名额后，会在这里显示参会凭证。</p>
                     <NuxtLink to="/">查看正在报名的大会 <span aria-hidden="true">→</span></NuxtLink>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="purchases" class="account-section" aria-labelledby="purchases-title">
+              <div class="account-section__heading">
+                <div>
+                  <span class="account-section__index">03 / PURCHASES</span>
+                  <h2 id="purchases-title">我购买的订单</h2>
+                </div>
+                <p>订单、支付、参会人和发票由购票人统一管理。</p>
+              </div>
+
+              <div class="account-surface account-purchases">
+                <article v-for="orderItem in purchasedOrders" :key="orderItem.id" class="purchase-row">
+                  <div class="purchase-row__heading">
+                    <div>
+                      <span>{{ orderItem.orderNo }}</span>
+                      <h3>{{ orderItem.eventName }}</h3>
+                      <p>
+                        {{ orderItem.ticketTypeName }} ·
+                        {{ orderItem.isProxyPurchase ? '代购参会人' : '本人参会' }}
+                        {{ orderItem.attendeeName }}
+                      </p>
+                    </div>
+                    <div class="purchase-row__amount">
+                      <span class="registration-status" :data-status="orderItem.status">
+                        {{ statusLabel(orderItem.status) }}
+                      </span>
+                      <strong>{{ money(orderItem.amount, orderItem.currency) }}</strong>
+                    </div>
+                  </div>
+                  <dl class="registration-meta purchase-row__meta">
+                    <div><dt>参会手机号</dt><dd>{{ orderItem.attendeeMobile }}</dd></div>
+                    <div><dt>认领状态</dt><dd>{{ orderItem.attendeeClaimed ? '参会人已认领' : '等待参会人认领' }}</dd></div>
+                    <div><dt>支付状态</dt><dd>{{ orderItem.paymentStatus ? statusLabel(orderItem.paymentStatus) : '尚未支付' }}</dd></div>
+                    <div><dt>电子票</dt><dd>{{ orderItem.ticketStatus ? statusLabel(orderItem.ticketStatus) : '暂未生成' }}</dd></div>
+                  </dl>
+
+                  <form
+                    v-if="editingOrderId === orderItem.id"
+                    class="purchase-attendee-edit"
+                    @submit.prevent="saveAttendee(orderItem)"
+                  >
+                    <label>
+                      <span>参会人姓名</span>
+                      <input v-model="attendeeEdit.name" maxlength="120" required />
+                    </label>
+                    <label>
+                      <span>参会手机号</span>
+                      <input v-model="attendeeEdit.mobile" inputmode="tel" required />
+                    </label>
+                    <div>
+                      <button class="registration-primary-action" type="submit" :disabled="attendeeSaving">
+                        {{ attendeeSaving ? '保存中…' : '保存并发送新邀请' }}
+                      </button>
+                      <button type="button" @click="editingOrderId = ''">取消</button>
+                    </div>
+                  </form>
+
+                  <div v-else class="registration-row__actions">
+                    <button
+                      v-if="['pending_payment', 'processing'].includes(orderItem.status)"
+                      class="registration-primary-action"
+                      type="button"
+                      @click="resumeOrder(orderItem)"
+                    >
+                      {{ readOrderAccessToken(orderItem.id) ? '继续支付' : '发送安全支付链接' }}
+                      <span aria-hidden="true">→</span>
+                    </button>
+                    <NuxtLink
+                      v-if="orderItem.invoiceId || ['paid', 'partially_refunded'].includes(orderItem.status)"
+                      :to="`/account/invoices/${orderItem.id}`"
+                    >
+                      {{ orderItem.invoiceId ? '查看发票' : '申请发票' }}
+                    </NuxtLink>
+                    <button
+                      v-if="orderItem.canEditAttendee"
+                      type="button"
+                      @click="startAttendeeEdit(orderItem)"
+                    >
+                      编辑未认领参会人
+                    </button>
+                    <button
+                      v-if="purchaseContexts[orderItem.eventId]?.canPurchaseAdditional"
+                      type="button"
+                      @click="additionalPurchase(orderItem)"
+                    >
+                      继续增加名额（剩余 {{ purchaseContexts[orderItem.eventId]?.remainingSeatCount }}）
+                    </button>
+                  </div>
+                </article>
+
+                <div v-if="!purchasedOrders.length" class="account-empty compact">
+                  <span class="account-empty__count">00</span>
+                  <div>
+                    <p class="account-empty__eyebrow">PURCHASE HISTORY</p>
+                    <h3>还没有购买订单</h3>
+                    <p>本人报名和为他人购票产生的订单会在这里集中管理。</p>
+                  </div>
+                </div>
+                <button
+                  v-if="nextOrdersCursor"
+                  class="registration-more"
+                  type="button"
+                  @click="loadPurchasedOrders(true)"
+                >
+                  加载更多订单
+                </button>
+              </div>
+            </section>
+
+            <section id="showcases" class="account-section" aria-labelledby="showcases-title">
+              <div class="account-section__heading">
+                <div>
+                  <span class="account-section__index">04 / ATTENDEE PROFILES</span>
+                  <h2 id="showcases-title">参会名片</h2>
+                </div>
+                <p>每场大会独立维护，可选择公开字段并下载个人报名海报。</p>
+              </div>
+
+              <div class="account-surface account-showcases">
+                <article
+                  v-for="item in registrations.filter((registration) =>
+                    ['confirmed', 'checked_in'].includes(registration.registrationStatus),
+                  )"
+                  :key="item.id"
+                  class="showcase-entry"
+                >
+                  <div>
+                    <span>ATTENDEE PROFILE</span>
+                    <h3>{{ item.eventName }}</h3>
+                    <p>{{ item.attendeeName }} · {{ item.ticketTypeName }}</p>
+                  </div>
+                  <NuxtLink
+                    :to="`/account/registrations/${item.id}/showcase?event=${encodeURIComponent(item.eventSlug)}`"
+                  >
+                    完善名片与海报 <span aria-hidden="true">→</span>
+                  </NuxtLink>
+                </article>
+                <div
+                  v-if="
+                    !registrations.some((registration) =>
+                      ['confirmed', 'checked_in'].includes(registration.registrationStatus),
+                    )
+                  "
+                  class="account-empty compact"
+                >
+                  <span class="account-empty__count">00</span>
+                  <div>
+                    <p class="account-empty__eyebrow">ATTENDEE PROFILE</p>
+                    <h3>完成报名后即可创建参会名片</h3>
+                    <p>名片可用于大会会员展示、个人介绍页和报名海报。</p>
                   </div>
                 </div>
               </div>
@@ -547,7 +786,7 @@ useHead({ title: '个人中心' });
             <section id="invoices" class="account-section" aria-labelledby="invoices-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">03 / INVOICES</span>
+                  <span class="account-section__index">04 / INVOICES</span>
                   <h2 id="invoices-title">发票中心</h2>
                 </div>
                 <p>申请、审核、下载和历史记录统一汇总。</p>
@@ -607,8 +846,8 @@ useHead({ title: '个人中心' });
             <section id="profile" class="account-section" aria-labelledby="profile-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">04 / PROFILE</span>
-                  <h2 id="profile-title">个人资料</h2>
+                  <span class="account-section__index">05 / COMMON PROFILE</span>
+                  <h2 id="profile-title">常用资料</h2>
                 </div>
                 <p>这些资料可用于下一次报名预填。</p>
               </div>
@@ -616,7 +855,7 @@ useHead({ title: '个人中心' });
               <div class="account-surface account-profile">
                 <div class="account-profile__intro">
                   <span>{{ profileCompletion }}%</span>
-                  <h3>{{ profileCompletion === 100 ? '资料已经完整' : '继续完善参会名片' }}</h3>
+                  <h3>{{ profileCompletion === 100 ? '资料已经完整' : '继续完善常用资料' }}</h3>
                   <p>姓名、公司与职位会用于参会信息，请保持内容准确。</p>
                   <div class="account-progress" aria-hidden="true">
                     <i :style="{ width: `${profileCompletion}%` }"></i>
@@ -681,7 +920,7 @@ useHead({ title: '个人中心' });
                     />
                   </label>
                   <button class="account-primary is-form-action" type="submit" :disabled="saving">
-                    {{ saving ? '正在保存…' : '保存个人资料' }}
+                    {{ saving ? '正在保存…' : '保存常用资料' }}
                   </button>
                 </form>
               </div>
@@ -690,7 +929,7 @@ useHead({ title: '个人中心' });
             <section id="security" class="account-section" aria-labelledby="security-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">05 / SECURITY</span>
+                  <span class="account-section__index">06 / SECURITY</span>
                   <h2 id="security-title">账户与安全</h2>
                 </div>
                 <p>手机号验证保护你的参会凭证与订单信息。</p>
@@ -1190,7 +1429,7 @@ useHead({ title: '个人中心' });
   overflow: hidden;
   border: 1px solid #cedbf1;
   border-top: 3px solid var(--conference-primary);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--account-surface);
   color: var(--account-ink);
 }
@@ -1370,6 +1609,55 @@ useHead({ title: '个人中心' });
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   border-bottom: 1px solid var(--account-line-soft);
+}
+
+.account-showcases {
+  display: grid;
+}
+
+.showcase-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 25px 28px;
+  border-bottom: 1px solid var(--conference-line);
+}
+
+.showcase-entry:last-child {
+  border-bottom: 0;
+}
+
+.showcase-entry > div > span {
+  color: var(--conference-primary);
+  font: 700 10px var(--conference-font-mono);
+  letter-spacing: 0.08em;
+}
+
+.showcase-entry h3 {
+  margin: 6px 0 5px;
+  color: var(--conference-ink);
+  font-size: 17px;
+}
+
+.showcase-entry p {
+  margin: 0;
+  color: var(--conference-ink-muted);
+  font-size: 12px;
+}
+
+.showcase-entry > a {
+  display: inline-flex;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 14px;
+  padding: 0 15px;
+  border: 1px solid #d8e0ec;
+  border-radius: 7px;
+  color: #2f3c53;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .account-invoices__summary > div {
@@ -1592,7 +1880,8 @@ useHead({ title: '个人中心' });
   margin-top: 10px;
 }
 
-.registration-row__actions a {
+.registration-row__actions a,
+.registration-row__actions button {
   display: inline-flex;
   min-height: 40px;
   align-items: center;
@@ -1601,10 +1890,117 @@ useHead({ title: '个人中心' });
   font-size: 11px;
   font-weight: 650;
   text-decoration: none;
+  touch-action: manipulation;
+  transition:
+    color 120ms ease,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .registration-row__actions .registration-primary-action {
   color: var(--conference-primary);
+}
+
+.registration-row__actions a:active,
+.registration-row__actions button:active {
+  transform: scale(0.96);
+}
+
+.account-purchases {
+  display: grid;
+}
+
+.purchase-row {
+  padding: 28px;
+  border-bottom: 1px solid var(--account-line-soft);
+}
+
+.purchase-row:last-of-type {
+  border-bottom: 0;
+}
+
+.purchase-row__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.purchase-row__heading > div:first-child > span {
+  color: #8b919d;
+  font-family: var(--conference-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.purchase-row__heading h3 {
+  margin: 8px 0 0;
+  color: var(--account-ink);
+  font-size: 18px;
+}
+
+.purchase-row__heading p {
+  margin: 7px 0 0;
+  color: var(--account-muted);
+  font-size: 11px;
+}
+
+.purchase-row__amount {
+  display: grid;
+  justify-items: end;
+  gap: 12px;
+}
+
+.purchase-row__amount strong {
+  color: var(--account-ink);
+  font-family: var(--conference-font-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase-attendee-edit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--account-line-soft);
+}
+
+.purchase-attendee-edit label {
+  display: grid;
+  gap: 7px;
+  color: var(--account-muted);
+  font-size: 10px;
+}
+
+.purchase-attendee-edit input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--account-line);
+  border-radius: 7px;
+  color: var(--account-ink);
+}
+
+.purchase-attendee-edit > div {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 18px;
+}
+
+.purchase-attendee-edit button {
+  min-height: 40px;
+  color: var(--account-muted);
+  font-size: 11px;
+  font-weight: 680;
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.purchase-attendee-edit button.registration-primary-action {
+  color: var(--conference-primary);
+}
+
+.purchase-attendee-edit button:active {
+  transform: scale(0.96);
 }
 
 .registration-more {
@@ -1877,6 +2273,7 @@ useHead({ title: '个人中心' });
     background: #fafbfc;
   }
   .registration-row__actions a:hover,
+  .registration-row__actions button:hover,
   .account-empty a:hover {
     color: var(--conference-primary-dark);
   }
@@ -2076,6 +2473,20 @@ useHead({ title: '个人中心' });
     grid-template-columns: 56px minmax(0, 1fr);
     gap: 16px;
     padding: 20px;
+  }
+  .purchase-row {
+    padding: 20px;
+  }
+  .purchase-row__heading {
+    display: grid;
+  }
+  .purchase-row__amount {
+    justify-items: start;
+    grid-template-columns: auto auto;
+    align-items: center;
+  }
+  .purchase-attendee-edit {
+    grid-template-columns: 1fr;
   }
   .registration-row__date {
     width: 54px;

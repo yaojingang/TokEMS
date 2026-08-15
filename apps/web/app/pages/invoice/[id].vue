@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { isCustomerInvoiceEditableStatus, type SubmitInvoiceDetails } from '@conference/contracts';
+import {
+  isCustomerInvoiceEditableStatus,
+  publicEventHomePath,
+  publicEventScopedPath,
+  type SubmitInvoiceDetails,
+} from '@conference/contracts';
 import { watch } from 'vue';
 import {
   activeFlowStep,
@@ -69,8 +74,8 @@ const ticketHref = computed(() => {
   const ticket = api.readTicket(checkout.value?.registration.id ?? '');
   const identifier = ticket?.code ?? checkout.value?.registration.id ?? '';
   return identifier
-    ? `/ticket/${encodeURIComponent(identifier)}?event=${encodeURIComponent(event.value.slug)}`
-    : `/?event=${encodeURIComponent(event.value.slug)}`;
+    ? publicEventScopedPath(`/ticket/${encodeURIComponent(identifier)}`, event.value.slug)
+    : publicEventHomePath(event.value.slug);
 });
 
 useHead(() => ({
