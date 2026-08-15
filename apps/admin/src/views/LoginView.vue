@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { conferenceApi, session } from '../lib/api';
+import { resolveAuthenticatedEntry } from '../router';
 
 const router = useRouter();
 const route = useRoute();
@@ -20,12 +21,7 @@ async function login() {
       await conferenceApi.login(username.value, password.value, organizationSlug || undefined),
     );
     session.setIdentity(await conferenceApi.getMe());
-    const redirect = String(route.query.redirect ?? '');
-    await router.push(
-      redirect.startsWith('/') && !redirect.startsWith('//')
-        ? redirect
-        : { name: session.landingRouteName() },
-    );
+    await router.push(await resolveAuthenticatedEntry(route.query.redirect));
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败';
   } finally {

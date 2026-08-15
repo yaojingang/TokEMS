@@ -1,4 +1,5 @@
 import type {
+  CustomerOrderAccess,
   Order,
   WeChatH5Payment,
   WeChatJsapiPayment,
@@ -142,6 +143,17 @@ export function shouldPollOrderStatus(order: Order | undefined | null): boolean 
   return ['pending_payment', 'processing'].includes(order.status);
 }
 
+export function shouldAutoPrepareWeChatPayment(
+  order: Order | undefined | null,
+  localSimulationAllowed: boolean,
+): boolean {
+  return Boolean(
+    !localSimulationAllowed &&
+      order?.paymentMethod === 'wechat' &&
+      shouldPollOrderStatus(order),
+  );
+}
+
 /**
  * Maps a WeixinJSBridge pay result into a stable UI message.
  *
@@ -163,9 +175,13 @@ export function interpretWeixinPayResult(result: WeixinPayInvokeResult): string 
  * @returns Stable user-facing error string
  */
 export function paymentErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
   const value = error as { data?: { message?: string }; statusMessage?: string };
-  return value?.data?.message || value?.statusMessage || fallback;
+  return (
+    value?.data?.message ||
+    (error instanceof Error ? error.message : '') ||
+    value?.statusMessage ||
+    fallback
+  );
 }
 
 /**
@@ -262,7 +278,7 @@ export async function invokeWeixinJsapiPay(
 type UseOrderPaymentOptions = {
   orderId: string;
   eventSlug?: string;
-  onPaid?: (order: Order) => void | Promise<void>;
+  onPaid?: (order: CustomerOrderAccess) => void | Promise<void>;
 };
 
 /**
@@ -289,7 +305,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
   const attemptId = ref('');
   const outTradeNo = ref('');
   const paymentExpiresAt = ref('');
-  const order = ref<Order>();
+  const order = ref<CustomerOrderAccess>();
   const pageVisible = ref(true);
   const autoPrepareRetries = ref(0);
 
@@ -684,7 +700,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
   /**
    * Bootstraps access token capture, order load, and initial prepare for payable orders.
    */
-  async function start() {
+  async function start(startOptions: { localSimulationAllowed?: boolean } = {}) {
     if (!import.meta.client || started) return;
     started = true;
 
@@ -723,7 +739,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
         return;
       }
 
-      if (shouldPollOrderStatus(latest) && latest.paymentMethod === 'wechat') {
+      if (shouldAutoPrepareWeChatPayment(latest, startOptions.localSimulationAllowed === true)) {
         // Reuse a server-provided native code URL when already present.
         if (channel.value === 'native' && latest.paymentUrl) {
           codeUrl.value = latest.paymentUrl;

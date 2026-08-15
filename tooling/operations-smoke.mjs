@@ -1,5 +1,6 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
+import { createCustomerSession } from './lib/customer-session.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@tokems.local';
@@ -9,6 +10,8 @@ if (!paymentWebhookSecret) {
   throw new Error('PAYMENT_WEBHOOK_SECRET is required for the operations smoke test');
 }
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const mobileSuffix = String(Date.now()).slice(-8);
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -56,13 +59,12 @@ try {
     body: JSON.stringify({ email: adminEmail, password: adminPassword }),
   });
   assert(login.accessToken, 'Admin login did not return an access token');
-  const token = login.accessToken;
-  const headers = authHeaders(token);
+  let token = login.accessToken;
+  let headers = authHeaders(token);
 
   const [
     { body: identity },
     { body: organizationSettings },
-    { body: integrations },
     { body: blueprints },
     { body: templates },
     { body: conferenceTemplates },
@@ -70,7 +72,6 @@ try {
   ] = await Promise.all([
     request('/auth/me', { headers }),
     request('/admin/organization/settings', { headers }),
-    request('/admin/integrations/status', { headers }),
     request('/admin/event-blueprints', { headers }),
     request('/admin/template-packages', { headers }),
     request('/admin/template-options', { headers }),
@@ -78,10 +79,6 @@ try {
   ]);
   assert(identity.membership.status === 'active', 'Current organization identity is inactive');
   assert(organizationSettings.settings.defaultTimezone, 'Organization settings are incomplete');
-  assert(
-    Object.values(integrations).every((item) => typeof item.configured === 'boolean'),
-    'Integration status response is invalid',
-  );
   assert(blueprints.length >= 1, 'No event blueprint is available');
   assert(templates.length >= 2, 'Two site templates are required');
   assert(
@@ -111,6 +108,13 @@ try {
     }),
   });
   assert(updatedMember.id === currentMember.id, 'Organization member update failed');
+  const { body: refreshedLogin } = await request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+  });
+  assert(refreshedLogin.accessToken, 'Admin re-login did not return an access token');
+  token = refreshedLogin.accessToken;
+  headers = authHeaders(token);
 
   const invitedEmail = `invited-${runId}@example.com`;
   const { body: invitationResult } = await request('/admin/organization/invitations', {
@@ -219,7 +223,7 @@ try {
   );
   assert(cancelledInvitation.cancelled === true, 'Invitation cancellation failed');
 
-  const slug = `acceptance-conference-${runId}`;
+  const slug = `accept-${slugRunId}`;
   const eventCreateKey = `event-create-${runId}`;
   const eventCreateInput = {
     name: `系统验收大会 ${runId}`,
@@ -259,7 +263,7 @@ try {
     body: JSON.stringify({
       settings: {
         registration: {
-          accountMode: 'guest_allowed',
+          accountMode: 'mobile_otp_required',
         },
       },
     }),
@@ -571,7 +575,7 @@ try {
     ticketTypeId: activeTicket.id,
     attendee: {
       name: '验收参会人',
-      mobile: '13800138000',
+      mobile: `138${mobileSuffix}`,
       email: `acceptance-${runId}@example.com`,
       company: '大会系统验收实验室',
       title: '质量负责人',
@@ -580,13 +584,24 @@ try {
     invoiceRequired: false,
     marketingConsent: true,
     termsAccepted: true,
+    purchaseFor: 'self',
+    purchaseIntentId: randomUUID(),
     formVersion: publicAfterTicketEdit.registrationForm.version,
     termsVersion: publicAfterTicketEdit.registrationForm.termsVersion,
     formAnswers: { dietary_preference: '素食' },
   };
+  const registrationCustomer = await createCustomerSession({
+    apiBase: baseUrl,
+    mobile: registrationPayload.attendee.mobile,
+    organizationSlug: identity.organization.slug,
+  });
+  const registrationHeaders = {
+    'Idempotency-Key': registrationKey,
+    ...registrationCustomer.headers,
+  };
   await expectStatus('/registrations', 400, {
     method: 'POST',
-    headers: { 'Idempotency-Key': `invalid-form-${runId}` },
+    headers: { ...registrationHeaders, 'Idempotency-Key': `invalid-form-${runId}` },
     body: JSON.stringify({
       ...registrationPayload,
       formAnswers: { dietary_preference: '未发布的选项' },
@@ -594,7 +609,7 @@ try {
   });
   const { body: checkout } = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': registrationKey },
+    headers: registrationHeaders,
     body: JSON.stringify(registrationPayload),
   });
   assert(
@@ -607,13 +622,13 @@ try {
   );
   const { body: cachedCheckout } = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': registrationKey },
+    headers: registrationHeaders,
     body: JSON.stringify(registrationPayload),
   });
   assert(cachedCheckout.order.id === checkout.order.id, 'Registration retry created another order');
   await expectStatus('/registrations', 409, {
     method: 'POST',
-    headers: { 'Idempotency-Key': registrationKey },
+    headers: registrationHeaders,
     body: JSON.stringify({
       ...registrationPayload,
       attendee: { ...registrationPayload.attendee, name: '冲突参会人' },
@@ -651,15 +666,25 @@ try {
   const ticket = callbacks[0].body.ticket;
 
   const secondRegistrationKey = `registration-second-${runId}`;
+  const secondRegistrationMobile = `139${mobileSuffix}`;
+  const secondRegistrationCustomer = await createCustomerSession({
+    apiBase: baseUrl,
+    mobile: secondRegistrationMobile,
+    organizationSlug: identity.organization.slug,
+  });
   const { body: secondCheckout } = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': secondRegistrationKey },
+    headers: {
+      'Idempotency-Key': secondRegistrationKey,
+      ...secondRegistrationCustomer.headers,
+    },
     body: JSON.stringify({
       ...registrationPayload,
+      purchaseIntentId: randomUUID(),
       attendee: {
         ...registrationPayload.attendee,
         name: '第二验收人',
-        mobile: '13800138001',
+        mobile: secondRegistrationMobile,
         email: `acceptance-second-${runId}@example.com`,
       },
     }),
@@ -774,8 +799,13 @@ try {
   }
   assert(deliveryStatus === 'sent', 'Notification worker did not complete delivery');
 
+  await expectStatus(`/admin/orders/${checkout.order.id}/refunds`, 409, {
+    method: 'POST',
+    headers: authHeaders(token, { 'Idempotency-Key': `checked-in-full-refund-${runId}` }),
+    body: JSON.stringify({ amount: checkout.order.amount, reason: '已核销订单全退保护验收' }),
+  });
   const refundKey = `refund-${runId}`;
-  const refundPayload = { amount: checkout.order.amount, reason: '自动化验收全额退款' };
+  const refundPayload = { amount: 1, reason: '自动化验收部分退款' };
   const { body: refund } = await request(`/admin/orders/${checkout.order.id}/refunds`, {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': refundKey }),
@@ -790,7 +820,7 @@ try {
   await expectStatus(`/admin/orders/${checkout.order.id}/refunds`, 409, {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': refundKey }),
-    body: JSON.stringify({ amount: 1, reason: '冲突退款内容' }),
+    body: JSON.stringify({ amount: 2, reason: '冲突退款内容' }),
   });
 
   const { body: csv } = await request(`/admin/events/${eventId}/registrations/export.csv`, {
@@ -808,7 +838,7 @@ try {
     'Export audit event is missing',
   );
 
-  const freeSlug = `free-conference-${runId}`;
+  const freeSlug = `free-${slugRunId}`;
   const { body: freeEvent } = await request('/admin/events', {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': `free-event-create-${runId}` }),
@@ -844,7 +874,7 @@ try {
           paymentMode: 'free',
           currency: 'CNY',
           registrationOpen: true,
-          accountMode: 'guest_allowed',
+          accountMode: 'mobile_otp_required',
         },
       },
     }),
@@ -884,15 +914,24 @@ try {
     freePublicEvent.tickets.every((item) => item.price === 0),
     'Free event release contains a paid ticket',
   );
+  const freeRegistrationMobile = `137${mobileSuffix}`;
+  const freeRegistrationCustomer = await createCustomerSession({
+    apiBase: baseUrl,
+    mobile: freeRegistrationMobile,
+    organizationSlug: identity.organization.slug,
+  });
   const { body: freeCheckout } = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `free-registration-${runId}` },
+    headers: {
+      'Idempotency-Key': `free-registration-${runId}`,
+      ...freeRegistrationCustomer.headers,
+    },
     body: JSON.stringify({
       eventId: freeEvent.id,
       ticketTypeId: freePublicEvent.tickets[0].id,
       attendee: {
         name: '免费报名验收人',
-        mobile: '13900139000',
+        mobile: freeRegistrationMobile,
         email: `free-${runId}@example.com`,
         company: '免费报名验收实验室',
         title: '质量负责人',
@@ -901,6 +940,8 @@ try {
       invoiceRequired: false,
       marketingConsent: true,
       termsAccepted: true,
+      purchaseFor: 'self',
+      purchaseIntentId: randomUUID(),
       formVersion: freePublicEvent.registrationForm.version,
       termsVersion: freePublicEvent.registrationForm.termsVersion,
       formAnswers: {},

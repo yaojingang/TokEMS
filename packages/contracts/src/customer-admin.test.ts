@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CreateCustomerAdminSchema,
   CustomerAdminListQuerySchema,
   CustomerAdminListSchema,
   CustomerAdminSummarySchema,
+  UpdateCustomerAdminSchema,
   resolveCustomerAdminDisplay,
 } from './index.js';
 
@@ -65,5 +67,32 @@ describe('resolveCustomerAdminDisplay', () => {
         totalPages: 1,
       }).success,
     ).toBe(false);
+  });
+
+  it('validates administrator-created customer profiles', () => {
+    expect(
+      CreateCustomerAdminSchema.parse({
+        mobile: ' 13800138000 ',
+        realName: ' 林晓 ',
+        email: 'linxiao@example.com',
+      }),
+    ).toEqual({
+      mobile: '13800138000',
+      realName: '林晓',
+      email: 'linxiao@example.com',
+    });
+    expect(CreateCustomerAdminSchema.safeParse({ mobile: '' }).success).toBe(false);
+    expect(CreateCustomerAdminSchema.safeParse({ mobile: '12345' }).success).toBe(false);
+    expect(
+      CreateCustomerAdminSchema.safeParse({
+        mobile: '13800138000',
+        email: 'invalid-email',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects empty administrator customer updates', () => {
+    expect(UpdateCustomerAdminSchema.safeParse({}).success).toBe(false);
+    expect(UpdateCustomerAdminSchema.safeParse({ status: 'blocked' }).success).toBe(true);
   });
 });

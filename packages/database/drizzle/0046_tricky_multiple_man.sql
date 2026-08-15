@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "attendee_showcases_avatar_asset_unique" ON "attendee_showcase_profiles" USING btree ("avatar_asset_id") WHERE "attendee_showcase_profiles"."avatar_asset_id" is not null;

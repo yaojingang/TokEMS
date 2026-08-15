@@ -6,6 +6,7 @@ const build = {
   sha: 'abcdef1234567890',
   builtAt: '2026-08-01T01:02:03.000Z',
   migration: '0024_latest.sql',
+  migrationHash: 'a'.repeat(64),
 };
 
 test('build version gate accepts service-specific records with one release identity', () => {

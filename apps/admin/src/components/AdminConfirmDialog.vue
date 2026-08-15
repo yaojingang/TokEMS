@@ -10,7 +10,9 @@ const props = withDefaults(
     cancelLabel?: string;
     tone?: 'primary' | 'danger';
     busy?: boolean;
+    confirmDisabled?: boolean;
     error?: string;
+    eventName?: string | undefined;
     details?: Array<{ label: string; value: string }>;
   }>(),
   {
@@ -18,7 +20,9 @@ const props = withDefaults(
     cancelLabel: '返回检查',
     tone: 'primary',
     busy: false,
+    confirmDisabled: false,
     error: '',
+    eventName: '',
     details: () => [],
   },
 );
@@ -83,7 +87,12 @@ onBeforeUnmount(closeDialog);
         <h2 :id="`${dialogId}-title`">{{ title }}</h2>
         <p :id="`${dialogId}-description`">{{ description }}</p>
       </header>
-      <dl v-if="details.length" class="admin-confirm-dialog__details">
+      <slot />
+      <dl v-if="eventName || details.length" class="admin-confirm-dialog__details">
+        <div v-if="eventName">
+          <dt>当前大会</dt>
+          <dd>{{ eventName }}</dd>
+        </div>
         <div v-for="item in details" :key="item.label">
           <dt>{{ item.label }}</dt>
           <dd>{{ item.value }}</dd>
@@ -104,7 +113,7 @@ onBeforeUnmount(closeDialog);
           class="button"
           :class="{ danger: tone === 'danger' }"
           type="button"
-          :disabled="busy"
+          :disabled="busy || confirmDisabled"
           @click="emit('confirm')"
         >
           {{ busy ? '正在处理…' : confirmLabel }}

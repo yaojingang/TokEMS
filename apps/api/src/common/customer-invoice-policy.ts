@@ -9,11 +9,14 @@ export function customerInvoicePaymentEligibility(input: {
   orderStatus: OrderStatus;
   orderAmount: number;
   refundedAmount: number;
+  hasSuccessfulPayment: boolean;
 }) {
   const eligibleAmount = Math.max(input.orderAmount - input.refundedAmount, 0);
-  const paymentEligible = (
-    CUSTOMER_INVOICE_PAYMENT_ELIGIBLE_ORDER_STATUSES as readonly string[]
-  ).includes(input.orderStatus);
+  const paymentEligible =
+    input.hasSuccessfulPayment &&
+    (CUSTOMER_INVOICE_PAYMENT_ELIGIBLE_ORDER_STATUSES as readonly string[]).includes(
+      input.orderStatus,
+    );
   return {
     eligibleAmount,
     paymentEligible,

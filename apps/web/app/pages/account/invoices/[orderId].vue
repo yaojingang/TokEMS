@@ -28,12 +28,9 @@ const errorMessage = ref('');
 const successMessage = ref('');
 const fieldErrors = reactive<Record<string, string>>({});
 const form = reactive({
-  buyerType: 'company' as 'individual' | 'company',
-  title: '',
+  companyName: '',
   taxId: '',
   email: '',
-  mobile: '',
-  content: '会务费',
 });
 
 const statusPresentation = computed(() =>
@@ -81,15 +78,12 @@ function syncForm() {
   const session = customer.session.value;
   if (!session) return;
   form.email = existingInvoice.value?.email ?? session.customer.profile.email ?? '';
-  form.mobile = existingInvoice.value?.mobile ?? session.customer.mobile;
-  form.title =
+  form.companyName =
     existingInvoice.value?.title ??
     session.customer.profile.company ??
     session.customer.profile.realName ??
     '';
-  form.buyerType = existingInvoice.value?.buyerType ?? 'company';
   form.taxId = existingInvoice.value?.taxId ?? '';
-  form.content = existingInvoice.value?.content ?? '会务费';
 }
 
 async function refreshInvoice() {
@@ -130,15 +124,15 @@ async function load() {
 
 function validate() {
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key]);
-  if (form.title.trim().length < 2) fieldErrors.title = '请填写至少2个字的发票抬头';
-  if (form.buyerType === 'company' && form.taxId.trim().length < 8) {
+  if (form.companyName.trim().length < 2) {
+    fieldErrors.companyName = '请填写至少 2 个字的公司名称';
+  }
+  if (form.taxId.trim().length < 8) {
     fieldErrors.taxId = '请填写有效的统一社会信用代码';
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     fieldErrors.email = '请输入有效的接收邮箱';
   }
-  if (form.mobile.trim().length < 7) fieldErrors.mobile = '请输入有效的联系电话';
-  if (form.content.trim().length < 2) fieldErrors.content = '请填写发票内容';
   return Object.keys(fieldErrors).length === 0;
 }
 
@@ -149,12 +143,9 @@ async function submit() {
   successMessage.value = '';
   try {
     existingInvoice.value = await customer.submitInvoice(orderId.value, {
-      buyerType: form.buyerType,
-      title: form.title.trim(),
-      taxId: form.buyerType === 'company' ? form.taxId.trim().toUpperCase() : '',
+      companyName: form.companyName.trim(),
+      taxId: form.taxId.trim().toUpperCase(),
       email: form.email.trim(),
-      mobile: form.mobile.trim(),
-      content: form.content.trim(),
       ...(existingInvoice.value ? { expectedUpdatedAt: existingInvoice.value.updatedAt } : {}),
     });
     editing.value = false;
@@ -317,36 +308,22 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
                   <strong>请按以下说明修改</strong>
                   <span>{{ existingInvoice.rejectionReason }}</span>
                 </p>
-                <fieldset class="invoice-buyer-type">
-                  <legend>购买方类型</legend>
-                  <label :class="{ active: form.buyerType === 'company' }">
-                    <input v-model="form.buyerType" type="radio" value="company" />
-                    <span>企业</span>
-                    <small>需要统一社会信用代码</small>
-                  </label>
-                  <label :class="{ active: form.buyerType === 'individual' }">
-                    <input v-model="form.buyerType" type="radio" value="individual" />
-                    <span>个人</span>
-                    <small>用于个人报销或留存</small>
-                  </label>
-                </fieldset>
-
                 <div class="invoice-form-grid">
                   <label class="is-wide">
-                    <span>发票抬头</span>
+                    <span>公司名称</span>
                     <input
-                      v-model="form.title"
+                      v-model="form.companyName"
                       required
                       maxlength="200"
                       autocomplete="organization"
-                      placeholder="请输入企业全称或个人姓名"
-                      :aria-invalid="Boolean(fieldErrors.title)"
+                      placeholder="请输入营业执照上的公司全称"
+                      :aria-invalid="Boolean(fieldErrors.companyName)"
                     />
-                    <small v-if="fieldErrors.title" class="invoice-field-error">
-                      {{ fieldErrors.title }}
+                    <small v-if="fieldErrors.companyName" class="invoice-field-error">
+                      {{ fieldErrors.companyName }}
                     </small>
                   </label>
-                  <label v-if="form.buyerType === 'company'" class="is-wide">
+                  <label class="is-wide">
                     <span>统一社会信用代码</span>
                     <input
                       v-model="form.taxId"
@@ -361,7 +338,7 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
                       {{ fieldErrors.taxId }}
                     </small>
                   </label>
-                  <label>
+                  <label class="is-wide">
                     <span>接收邮箱</span>
                     <input
                       v-model="form.email"
@@ -374,33 +351,6 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
                     />
                     <small v-if="fieldErrors.email" class="invoice-field-error">
                       {{ fieldErrors.email }}
-                    </small>
-                  </label>
-                  <label>
-                    <span>联系电话</span>
-                    <input
-                      v-model="form.mobile"
-                      required
-                      type="tel"
-                      maxlength="24"
-                      autocomplete="tel"
-                      placeholder="用于开票问题联系"
-                      :aria-invalid="Boolean(fieldErrors.mobile)"
-                    />
-                    <small v-if="fieldErrors.mobile" class="invoice-field-error">
-                      {{ fieldErrors.mobile }}
-                    </small>
-                  </label>
-                  <label class="is-wide">
-                    <span>发票内容</span>
-                    <input
-                      v-model="form.content"
-                      required
-                      maxlength="120"
-                      :aria-invalid="Boolean(fieldErrors.content)"
-                    />
-                    <small v-if="fieldErrors.content" class="invoice-field-error">
-                      {{ fieldErrors.content }}
                     </small>
                   </label>
                 </div>
@@ -435,28 +385,16 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
 
               <dl v-else-if="existingInvoice" class="invoice-details">
                 <div>
-                  <dt>购买方类型</dt>
-                  <dd>{{ existingInvoice.buyerType === 'company' ? '企业' : '个人' }}</dd>
-                </div>
-                <div>
-                  <dt>发票抬头</dt>
+                  <dt>公司名称</dt>
                   <dd>{{ existingInvoice.title ?? '待补充' }}</dd>
                 </div>
-                <div v-if="existingInvoice.buyerType === 'company'">
+                <div>
                   <dt>统一社会信用代码</dt>
                   <dd>{{ existingInvoice.maskedTaxId ?? '待补充' }}</dd>
                 </div>
                 <div>
-                  <dt>发票内容</dt>
-                  <dd>{{ existingInvoice.content ?? '会务费' }}</dd>
-                </div>
-                <div>
                   <dt>接收邮箱</dt>
                   <dd>{{ existingInvoice.email ?? existingInvoice.maskedEmail }}</dd>
-                </div>
-                <div>
-                  <dt>联系电话</dt>
-                  <dd>{{ existingInvoice.maskedMobile }}</dd>
                 </div>
               </dl>
             </section>

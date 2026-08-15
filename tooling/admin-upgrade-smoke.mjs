@@ -40,17 +40,58 @@ async function waitForAutosave(page) {
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await context.newPage();
 try {
+  let eventOptionsRequests = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/admin/event-options')) eventOptionsRequests += 1;
+  });
   await page.goto(`${adminBase}/login`, { waitUntil: 'networkidle' });
   await page.getByLabel('用户名').fill(adminUsername);
   await page.getByLabel('密码').fill(adminPassword);
   await page.getByRole('button', { name: '进入运营台' }).click();
+  await page.waitForURL(
+    (url) => /\/events\/\d+\//.test(url.pathname) || url.pathname.endsWith('/manage/events'),
+  );
+  assert(eventOptionsRequests === 1, `登录入口请求了 ${eventOptionsRequests} 次大会上下文`);
+  const openedChooser = new URL(page.url()).pathname.endsWith('/manage/events');
+  if (openedChooser) {
+    assert(
+      await page.getByRole('heading', { name: '大会管理' }).isVisible(),
+      '多候选入口没有显示大会列表',
+    );
+    await page
+      .getByRole('button', { name: /进入工作台|继续管理/ })
+      .first()
+      .click();
+    await page.waitForURL(/\/events\/\d+\//);
+  }
+  assert(await page.locator('.event-context-switcher').isVisible(), '大会工作台缺少当前大会切换器');
+  assert(
+    await page.getByRole('link', { name: '进入系统管理' }).isVisible(),
+    '大会工作台缺少系统管理入口',
+  );
+  assert(
+    await page.getByRole('link', { name: /访问大会前台/ }).isVisible(),
+    '大会工作台缺少大会前台入口',
+  );
+  assert(
+    (await page.locator('.workspace-label, .admin-command-search, .tool-button').count()) === 0,
+    '大会工作台仍显示已精简的顶部标题、全局搜索或工具按钮',
+  );
+
+  await page.getByRole('link', { name: '进入系统管理' }).click();
   await page.waitForURL(/\/manage\/events/);
+  await page.getByRole('heading', { name: '大会管理' }).waitFor();
+  assert(
+    !(await page.getByRole('link', { name: /访问大会前台/ }).count()),
+    '管理中心不应显示大会前台入口',
+  );
+  assert(!(await page.locator('.admin-topbar').isVisible()), '管理中心仍保留空白顶部工具栏');
 
   await page.getByRole('button', { name: '创建大会' }).click();
   await page.locator('#event-timezone').waitFor();
   assert(
     (await page.locator('#event-timezone').inputValue()) === 'Asia/Shanghai',
-    '大会创建流程没有带入组织默认时区',
+    '大会创建流程没有使用 Asia/Shanghai 初始时区',
   );
   assert(
     await page.getByText('开始与结束时间会按此时区保存和发布。').isVisible(),
@@ -84,6 +125,7 @@ try {
     JSON.stringify(
       {
         ok: true,
+        loginEntry: openedChooser ? 'ambiguous chooser, then explicit event' : 'recent event',
         eventCreationTimezone: 'Asia/Shanghai',
         templateAutosave: 'persisted and restored',
       },

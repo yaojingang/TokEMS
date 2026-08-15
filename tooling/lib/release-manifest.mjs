@@ -55,6 +55,9 @@ export async function buildReleaseManifest({
 }) {
   const sortedFiles = [...new Set(files)].sort();
   const sourceFiles = await Promise.all(sortedFiles.map((path) => hashSourceFile(root, path)));
+  const migration = latestMigration(sortedFiles);
+  const migrationHash =
+    sourceFiles.find((file) => basename(file.path) === migration)?.sha256 ?? 'unknown';
   return {
     schemaVersion: 1,
     build: {
@@ -62,7 +65,8 @@ export async function buildReleaseManifest({
       branch: git.branch,
       dirty: git.dirty,
       builtAt,
-      migration: latestMigration(sortedFiles),
+      migration,
+      migrationHash,
     },
     source: {
       algorithm: 'sha256',

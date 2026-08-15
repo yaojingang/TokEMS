@@ -65,6 +65,8 @@ export const ALIYUN_SMS_TEMPLATE_KEYS = [
   'registrationApproved',
   'registrationRejected',
   'paymentSucceeded',
+  'ticketIssued',
+  'refundSucceeded',
   'waitlistAvailable',
   'invoiceDetailsRequested',
   'invoiceReady',
@@ -92,6 +94,14 @@ export const ALIYUN_SMS_TEMPLATE_META: Record<
   },
   paymentSucceeded: {
     label: '支付成功',
+    variables: ['eventName', 'orderNo', 'amount'],
+  },
+  ticketIssued: {
+    label: '电子票已签发',
+    variables: ['eventName', 'url'],
+  },
+  refundSucceeded: {
+    label: '退款成功',
     variables: ['eventName', 'orderNo', 'amount'],
   },
   waitlistAvailable: {

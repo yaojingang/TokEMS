@@ -2,17 +2,20 @@
 import type { CustomerRegistrationDetail } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { customerRegistrationTicketHref } from '~/utils/purchase-journey';
 
 const route = useRoute();
 const customer = useCustomerSession();
 const detail = ref<CustomerRegistrationDetail | null>(null);
 const loading = ref(true);
 const errorMessage = ref('');
+const rendersChildPage = computed(() => /\/showcase\/?$/u.test(route.path));
 
 const money = (amount: number) =>
   amount === 0 ? '免费' : `¥${(amount / 100).toLocaleString('zh-CN')}`;
 
 async function load() {
+  if (rendersChildPage.value) return;
   loading.value = true;
   try {
     await customer.refresh();
@@ -29,7 +32,9 @@ async function load() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  if (!rendersChildPage.value) void load();
+});
 watch(
   () => customer.session.value?.customer.id,
   (id, previous) => {
@@ -41,7 +46,8 @@ useHead({ title: '报名详情' });
 </script>
 
 <template>
-  <div class="flow-page">
+  <NuxtPage v-if="rendersChildPage" />
+  <div v-else class="flow-page">
     <FlowHeader />
     <main id="main-content" class="detail-shell">
       <NuxtLink class="detail-back" to="/account">← 返回用户中心</NuxtLink>
@@ -72,7 +78,7 @@ useHead({ title: '报名详情' });
             <dt>票种</dt>
             <dd>{{ detail.ticketTypeName }}</dd>
           </div>
-          <div>
+          <div v-if="detail.canManageOrder">
             <dt>订单金额</dt>
             <dd>{{ money(detail.amount) }}</dd>
           </div>
@@ -80,7 +86,7 @@ useHead({ title: '报名详情' });
             <dt>报名状态</dt>
             <dd>{{ detail.registrationStatus }}</dd>
           </div>
-          <div>
+          <div v-if="detail.canManageOrder">
             <dt>订单状态</dt>
             <dd>{{ detail.orderStatus }}</dd>
           </div>
@@ -95,14 +101,25 @@ useHead({ title: '报名详情' });
         </dl>
         <footer>
           <NuxtLink
-            v-if="detail.ticketCode"
+            v-if="['confirmed', 'checked_in'].includes(detail.registrationStatus)"
             class="detail-primary"
-            :to="`/ticket/${detail.ticketCode}`"
+            :to="`/account/registrations/${detail.id}/showcase?event=${encodeURIComponent(detail.eventSlug)}`"
+          >
+            完善参会名片
+          </NuxtLink>
+          <NuxtLink
+            v-if="detail.ticketCode"
+            class="detail-secondary"
+            :to="customerRegistrationTicketHref(detail.ticketCode, detail.eventSlug)"
           >
             查看电子票
           </NuxtLink>
           <NuxtLink
-            v-if="detail.amount > 0 && ['paid', 'partially_refunded'].includes(detail.orderStatus)"
+            v-if="
+              detail.canManageOrder &&
+                detail.amount > 0 &&
+                ['paid', 'partially_refunded'].includes(detail.orderStatus)
+            "
             class="detail-secondary"
             :to="`/account/invoices/${detail.orderId}`"
           >

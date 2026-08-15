@@ -3,16 +3,24 @@ import type {
   ConferenceTemplateDefinition,
   CreateEvent,
   EventBlueprint,
+  EventContextOption,
   EventId,
   EventRelease,
+  EventSlugAvailability,
+  EventSlugUpdateResult,
   EventSummary,
   OrganizationMember,
   RegistrationField,
   RegistrationForm,
   TemplatePackage,
+  UpdateEventSlug,
   UpdateOrganizationMember,
 } from '@conference/contracts';
-import { API_ERROR_CODES, normalizeConferenceTemplateDefinition } from '@conference/contracts';
+import {
+  API_ERROR_CODES,
+  DEMO_IDS,
+  normalizeConferenceTemplateDefinition,
+} from '@conference/contracts';
 import {
   auditLogs,
   checkinLists,
@@ -20,12 +28,14 @@ import {
   conferenceTemplateVersions,
   eventBlueprints,
   eventReleases,
+  eventSlugAliases,
   eventTemplateBindings,
   eventTemplateOverrides,
   events,
   inventoryReservations,
   memberProfiles,
   memberships,
+  organizationHomepageEvents,
   organizations,
   outboxEvents,
   publicUserIds,
@@ -39,7 +49,7 @@ import {
   waitlistEntries,
 } from '@conference/database';
 import { and, asc, count, desc, eq, gt, isNull, max, sum } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
+import { customAlphabet, nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { EventReleaseActivationService } from './event-release-activation.service.js';
@@ -47,6 +57,20 @@ import { requirePublicUserId } from './public-user-id.js';
 import { mergeTemplateDefinition } from './template-definition.js';
 
 type Database = NonNullable<DatabaseService['db']>;
+
+const generateEventShortSlug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 6);
+
+function isConfiguredSuperAdministrator(
+  user: { id: string },
+  member: { role: string; grants: string[]; status: 'active' | 'disabled' },
+) {
+  return (
+    user.id === (process.env.ADMIN_USER_ID ?? DEMO_IDS.adminUser).trim() &&
+    member.status === 'active' &&
+    member.role === 'organization_admin' &&
+    member.grants.includes('*')
+  );
+}
 
 interface BlueprintSnapshot {
   event?: { tagline?: string; description?: string; timezone?: string; locale?: string };
@@ -215,6 +239,7 @@ export class EventOperationsService {
       role: membership.role,
       grants: membership.grants,
       status: membership.status,
+      isSuperAdministrator: isConfiguredSuperAdministrator(user, membership),
       profile: profile
         ? {
             company: profile.company,
@@ -313,6 +338,7 @@ export class EventOperationsService {
       role: result.membership.role,
       grants: result.membership.grants,
       status: result.membership.status,
+      isSuperAdministrator: isConfiguredSuperAdministrator(result.user, result.membership),
       profile: {
         company: result.profile.company,
         title: result.profile.title,
@@ -324,13 +350,20 @@ export class EventOperationsService {
   }
 
   async listEvents(organizationId: string): Promise<EventSummary[]> {
-    const rows = await this.db()
-      .select({ event: events, registrationCount: count(registrations.id) })
-      .from(events)
-      .leftJoin(registrations, eq(registrations.eventId, events.id))
-      .where(eq(events.organizationId, organizationId))
-      .groupBy(events.id)
-      .orderBy(desc(events.createdAt));
+    const [rows, homepage] = await Promise.all([
+      this.db()
+        .select({ event: events, registrationCount: count(registrations.id) })
+        .from(events)
+        .leftJoin(registrations, eq(registrations.eventId, events.id))
+        .where(eq(events.organizationId, organizationId))
+        .groupBy(events.id)
+        .orderBy(desc(events.createdAt)),
+      this.db()
+        .select({ eventId: organizationHomepageEvents.eventId })
+        .from(organizationHomepageEvents)
+        .where(eq(organizationHomepageEvents.organizationId, organizationId))
+        .limit(1),
+    ]);
 
     return Promise.all(
       rows.map(async ({ event, registrationCount }) => {
@@ -370,9 +403,165 @@ export class EventOperationsService {
           templateUpgradeAvailable:
             Boolean(binding?.currentPublishedVersionId) &&
             binding?.versionId !== binding?.currentPublishedVersionId,
+          isHomepageDefault: homepage[0]?.eventId === event.id,
         };
       }),
     );
+  }
+
+  async listEventOptions(organizationId: string): Promise<EventContextOption[]> {
+    const rows = await this.db()
+      .select({ event: events, registrationCount: count(registrations.id) })
+      .from(events)
+      .leftJoin(registrations, eq(registrations.eventId, events.id))
+      .where(eq(events.organizationId, organizationId))
+      .groupBy(events.id)
+      .orderBy(desc(events.createdAt));
+
+    return rows.map(({ event, registrationCount }) => ({
+      id: event.id,
+      slug: event.slug,
+      name: event.name,
+      shortName: event.shortName,
+      status: event.status,
+      startsAt: event.startsAt.toISOString(),
+      endsAt: event.endsAt.toISOString(),
+      city: event.city,
+      registrationCount: Number(registrationCount),
+    }));
+  }
+
+  async eventSlugAvailability(
+    organizationId: string,
+    slug: string,
+    eventId?: EventId,
+  ): Promise<EventSlugAvailability> {
+    const [currentRows, aliasRows] = await Promise.all([
+      this.db()
+        .select({ eventId: events.id })
+        .from(events)
+        .where(and(eq(events.organizationId, organizationId), eq(events.slug, slug)))
+        .limit(1),
+      this.db()
+        .select({ eventId: eventSlugAliases.eventId })
+        .from(eventSlugAliases)
+        .where(
+          and(eq(eventSlugAliases.organizationId, organizationId), eq(eventSlugAliases.slug, slug)),
+        )
+        .limit(1),
+    ]);
+    const currentOwner = currentRows[0]?.eventId;
+    const aliasOwner = aliasRows[0]?.eventId;
+    return {
+      slug,
+      available:
+        (!currentOwner || currentOwner === eventId) && (!aliasOwner || aliasOwner === eventId),
+      current: currentOwner === eventId,
+    };
+  }
+
+  async updateEventSlug(
+    organizationId: string,
+    eventId: EventId,
+    actorId: string,
+    input: UpdateEventSlug,
+  ): Promise<EventSlugUpdateResult> {
+    return this.db().transaction(async (tx) => {
+      const [organization] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .for('update')
+        .limit(1);
+      if (!organization) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '组织不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const [event] = await tx
+        .select({ id: events.id, slug: events.slug })
+        .from(events)
+        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+        .for('update')
+        .limit(1);
+      if (!event) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (event.slug === input.slug) {
+        return {
+          eventId,
+          slug: input.slug,
+          previousSlug: event.slug,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      const [currentOwner] = await tx
+        .select({ eventId: events.id })
+        .from(events)
+        .where(and(eq(events.organizationId, organizationId), eq(events.slug, input.slug)))
+        .limit(1);
+      const [aliasOwner] = await tx
+        .select({ eventId: eventSlugAliases.eventId })
+        .from(eventSlugAliases)
+        .where(
+          and(
+            eq(eventSlugAliases.organizationId, organizationId),
+            eq(eventSlugAliases.slug, input.slug),
+          ),
+        )
+        .limit(1);
+      if (currentOwner || (aliasOwner && aliasOwner.eventId !== eventId)) {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '当前组织已存在相同短地址，请更换后重试',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      if (aliasOwner?.eventId === eventId) {
+        await tx
+          .delete(eventSlugAliases)
+          .where(
+            and(
+              eq(eventSlugAliases.organizationId, organizationId),
+              eq(eventSlugAliases.slug, input.slug),
+            ),
+          );
+      }
+      await tx
+        .insert(eventSlugAliases)
+        .values({ organizationId, eventId, slug: event.slug })
+        .onConflictDoNothing();
+      const now = new Date();
+      await tx
+        .update(events)
+        .set({ slug: input.slug, updatedAt: now })
+        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)));
+      await tx.insert(auditLogs).values({
+        organizationId,
+        eventId,
+        actorId,
+        action: 'event.public_url.update',
+        resourceType: 'event',
+        resourceId: String(eventId),
+        before: { slug: event.slug },
+        after: { slug: input.slug },
+        traceId: crypto.randomUUID(),
+      });
+      return {
+        eventId,
+        slug: input.slug,
+        previousSlug: event.slug,
+        updatedAt: now.toISOString(),
+      };
+    });
   }
 
   async listBlueprints(organizationId: string): Promise<EventBlueprint[]> {
@@ -418,9 +607,10 @@ export class EventOperationsService {
     try {
       return await db.transaction(async (tx) => {
         const [organization] = await tx
-          .select({ settings: organizations.settings })
+          .select({ id: organizations.id })
           .from(organizations)
           .where(eq(organizations.id, organizationId))
+          .for('key share')
           .limit(1);
         if (!organization) {
           throw new DomainError(
@@ -429,17 +619,8 @@ export class EventOperationsService {
             HttpStatus.NOT_FOUND,
           );
         }
-        const organizationSettings = organization.settings as {
-          defaultTimezone?: string;
-          defaultBlueprintId?: string | null;
-          customerAccounts?: {
-            defaultAccountMode?: 'mobile_otp_required' | 'guest_allowed';
-          };
-        };
-        const effectiveTimezone =
-          input.timezone ?? organizationSettings.defaultTimezone ?? 'Asia/Shanghai';
-        const effectiveBlueprintId =
-          input.blueprintId ?? organizationSettings.defaultBlueprintId ?? undefined;
+        const effectiveTimezone = input.timezone ?? 'Asia/Shanghai';
+        const effectiveBlueprintId = input.blueprintId;
         const [selectedTemplate] = await tx
           .select({
             version: conferenceTemplateVersions,
@@ -471,15 +652,42 @@ export class EventOperationsService {
             HttpStatus.NOT_FOUND,
           );
         }
-        const [duplicate] = await tx
-          .select({ id: events.id })
-          .from(events)
-          .where(and(eq(events.organizationId, organizationId), eq(events.slug, input.slug)))
-          .limit(1);
-        if (duplicate) {
+        const slugAvailable = async (candidate: string) => {
+          const [currentRows, aliasRows] = await Promise.all([
+            tx
+              .select({ eventId: events.id })
+              .from(events)
+              .where(and(eq(events.organizationId, organizationId), eq(events.slug, candidate)))
+              .limit(1),
+            tx
+              .select({ eventId: eventSlugAliases.eventId })
+              .from(eventSlugAliases)
+              .where(
+                and(
+                  eq(eventSlugAliases.organizationId, organizationId),
+                  eq(eventSlugAliases.slug, candidate),
+                ),
+              )
+              .limit(1),
+          ]);
+          return !currentRows[0] && !aliasRows[0];
+        };
+        let effectiveSlug = input.slug;
+        for (let attempt = 0; !effectiveSlug && attempt < 10; attempt += 1) {
+          const candidate = `e${generateEventShortSlug()}`;
+          if (await slugAvailable(candidate)) effectiveSlug = candidate;
+        }
+        if (!effectiveSlug) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '暂时无法生成大会短地址，请重试',
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
+        }
+        if (!(await slugAvailable(effectiveSlug))) {
           throw new DomainError(
             API_ERROR_CODES.VALIDATION_ERROR,
-            '当前组织已存在相同路径的大会',
+            '当前组织已存在相同短地址',
             HttpStatus.CONFLICT,
           );
         }
@@ -523,7 +731,7 @@ export class EventOperationsService {
           .insert(events)
           .values({
             organizationId,
-            slug: input.slug,
+            slug: effectiveSlug,
             name: input.name,
             shortName: input.shortName,
             tagline: snapshot.event?.tagline ?? `${input.name}，连接行业洞察与增长实践`,
@@ -545,10 +753,9 @@ export class EventOperationsService {
                 paymentMode: 'ticketed',
                 currency: 'CNY',
                 registrationOpen: true,
-                accountMode:
-                  organizationSettings.customerAccounts?.defaultAccountMode === 'guest_allowed'
-                    ? 'guest_allowed'
-                    : 'mobile_otp_required',
+                accountMode: 'mobile_otp_required',
+                additionalPurchaseEnabled: false,
+                maxActiveSeatsPerPurchaser: 5,
               },
               stats: { seats: 0, speakers: 0, days: 1, attendeeSatisfaction: 0 },
               faqs: templateDefinition.faq.items
@@ -647,6 +854,13 @@ export class EventOperationsService {
         return event!;
       });
     } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '当前组织已存在相同短地址',
+          HttpStatus.CONFLICT,
+        );
+      }
       if (error && typeof error === 'object' && 'code' in error && error.code === '22003') {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -814,11 +1028,18 @@ export class EventOperationsService {
         registrationOpen:
           !('registrationOpen' in eventRegistration) ||
           eventRegistration.registrationOpen !== false,
-        accountMode:
-          'accountMode' in eventRegistration &&
-          eventRegistration.accountMode === 'mobile_otp_required'
-            ? ('mobile_otp_required' as const)
-            : ('guest_allowed' as const),
+        accountMode: 'mobile_otp_required' as const,
+        additionalPurchaseEnabled:
+          'additionalPurchaseEnabled' in eventRegistration &&
+          eventRegistration.additionalPurchaseEnabled === true,
+        maxActiveSeatsPerPurchaser:
+          'maxActiveSeatsPerPurchaser' in eventRegistration &&
+          typeof eventRegistration.maxActiveSeatsPerPurchaser === 'number' &&
+          Number.isInteger(eventRegistration.maxActiveSeatsPerPurchaser) &&
+          eventRegistration.maxActiveSeatsPerPurchaser >= 1 &&
+          eventRegistration.maxActiveSeatsPerPurchaser <= 20
+            ? eventRegistration.maxActiveSeatsPerPurchaser
+            : 5,
       };
       if (registration.paymentMode === 'free' && ticketRows.some((ticket) => ticket.price !== 0)) {
         throw new DomainError(
@@ -1032,6 +1253,8 @@ export class EventOperationsService {
               paymentMode?: 'free' | 'ticketed';
               registrationOpen?: boolean;
               accountMode?: 'mobile_otp_required' | 'guest_allowed';
+              additionalPurchaseEnabled?: boolean;
+              maxActiveSeatsPerPurchaser?: number;
             };
           };
         };
@@ -1061,10 +1284,19 @@ export class EventOperationsService {
               : ('ticketed' as const),
           currency: 'CNY' as const,
           registrationOpen,
-          accountMode:
-            snapshot.event?.settings?.registration?.accountMode === 'guest_allowed'
-              ? ('guest_allowed' as const)
-              : ('mobile_otp_required' as const),
+          accountMode: 'mobile_otp_required' as const,
+          additionalPurchaseEnabled:
+            snapshot.event?.settings?.registration?.additionalPurchaseEnabled === true,
+          maxActiveSeatsPerPurchaser:
+            typeof snapshot.event?.settings?.registration?.maxActiveSeatsPerPurchaser ===
+              'number' &&
+            Number.isInteger(
+              snapshot.event.settings.registration.maxActiveSeatsPerPurchaser,
+            ) &&
+            snapshot.event.settings.registration.maxActiveSeatsPerPurchaser >= 1 &&
+            snapshot.event.settings.registration.maxActiveSeatsPerPurchaser <= 20
+              ? snapshot.event.settings.registration.maxActiveSeatsPerPurchaser
+              : 5,
         },
         currentReleaseId: target.id,
         templateKey: target.templateKey,
@@ -1626,7 +1858,7 @@ export class EventOperationsService {
           current.name === input.name &&
           current.termsVersion === input.termsVersion &&
           current.termsContent === input.termsContent &&
-          JSON.stringify(current.fields) === JSON.stringify(normalizedFields)
+          JSON.stringify(normalizeFields(current.fields)) === JSON.stringify(normalizedFields)
         ) {
           return current;
         }

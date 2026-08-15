@@ -10,6 +10,7 @@ import {
   Module,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -21,7 +22,11 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   API_ERROR_CODES,
+  AttendeeClaimInputSchema,
+  AttendeeAvatarConfirmSchema,
+  AttendeeAvatarUploadSchema,
   ClaimCustomerRegistrationSchema,
+  CreateCustomerAdminSchema,
   CustomerAdminExportQuerySchema,
   CustomerAdminListQuerySchema,
   CustomerCreateInvoiceSchema,
@@ -29,8 +34,11 @@ import {
   CustomerRegistrationListQuerySchema,
   CustomerUpdateInvoiceSchema,
   RequestCustomerOtpSchema,
+  ModerateAttendeeShowcaseSchema,
   UpdateCustomerAdminSchema,
   UpdateCustomerProfileSchema,
+  UpdateAttendeeShowcaseSchema,
+  UpdatePurchasedOrderAttendeeSchema,
   VerifyCustomerOtpSchema,
 } from '@conference/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -43,9 +51,14 @@ import {
 } from '../common/auth.guard.js';
 import { CustomerAccountService } from '../common/customer-account.service.js';
 import { CustomerAuthGuard, type CustomerRequest } from '../common/customer-auth.guard.js';
-import { CUSTOMER_SESSION_COOKIE, CustomerAuthService } from '../common/customer-auth.service.js';
+import {
+  CUSTOMER_SESSION_COOKIE,
+  CUSTOMER_SESSION_LIFETIME_SECONDS,
+  CustomerAuthService,
+} from '../common/customer-auth.service.js';
 import { DomainError } from '../common/domain-error.js';
 import { InvoiceOperationsService } from '../common/invoice-operations.service.js';
+import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
 
 function parse<T>(
   schema: {
@@ -71,7 +84,7 @@ function customerCookieOptions() {
     secure: process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_MODE === 'production',
     sameSite: 'lax' as const,
     path: '/api/v1',
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: CUSTOMER_SESSION_LIFETIME_SECONDS,
   };
 }
 
@@ -145,6 +158,8 @@ class CustomerAccountController {
     private readonly customerAccount: CustomerAccountService,
     @Inject(InvoiceOperationsService)
     private readonly invoices: InvoiceOperationsService,
+    @Inject(AttendeeShowcaseService)
+    private readonly showcases: AttendeeShowcaseService,
   ) {}
 
   @Get('profile')
@@ -164,6 +179,108 @@ class CustomerAccountController {
     return this.customerAccount.registrations(request.customerSession, input.cursor, input.limit);
   }
 
+  @Get('events/:eventId/purchase-context')
+  purchaseContext(
+    @Req() request: CustomerRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+  ) {
+    return this.customerAccount.purchaseContext(request.customerSession, eventId);
+  }
+
+  @Get('orders')
+  orders(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
+    const input = parse(CustomerRegistrationListQuerySchema, query, '订单分页参数校验失败');
+    return this.customerAccount.purchasedOrders(
+      request.customerSession,
+      input.cursor,
+      input.limit,
+    );
+  }
+
+  @Patch('orders/:orderId/attendee')
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
+  updateOrderAttendee(
+    @Req() request: CustomerRequest,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() body: unknown,
+  ) {
+    return this.customerAccount.updatePurchasedOrderAttendee(
+      request.customerSession,
+      orderId,
+      parse(UpdatePurchasedOrderAttendeeSchema, body, '参会人信息校验失败'),
+    );
+  }
+
+  @Get('registrations/:registrationId/showcase')
+  showcase(@Req() request: CustomerRequest, @Param('registrationId') registrationId: string) {
+    return this.showcases.customerShowcase(request.customerSession, registrationId);
+  }
+
+  @Patch('registrations/:registrationId/showcase')
+  updateShowcase(
+    @Req() request: CustomerRequest,
+    @Param('registrationId') registrationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.showcases.updateCustomerShowcase(
+      request.customerSession,
+      registrationId,
+      parse(UpdateAttendeeShowcaseSchema, body, '参会名片信息校验失败'),
+    );
+  }
+
+  @Post('registrations/:registrationId/showcase/avatar-upload')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
+  prepareShowcaseAvatar(
+    @Req() request: CustomerRequest,
+    @Param('registrationId') registrationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.showcases.prepareAvatarUpload(
+      request.customerSession,
+      registrationId,
+      parse(AttendeeAvatarUploadSchema, body, '头像上传信息校验失败'),
+    );
+  }
+
+  @Post('registrations/:registrationId/showcase/avatar-confirm')
+  @Throttle({ default: { limit: 20, ttl: 60 * 60_000 } })
+  confirmShowcaseAvatar(
+    @Req() request: CustomerRequest,
+    @Param('registrationId') registrationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.showcases.confirmAvatar(
+      request.customerSession,
+      registrationId,
+      parse(AttendeeAvatarConfirmSchema, body, '头像确认信息校验失败'),
+    );
+  }
+
+  @Delete('registrations/:registrationId/showcase/avatar')
+  removeShowcaseAvatar(
+    @Req() request: CustomerRequest,
+    @Param('registrationId') registrationId: string,
+  ) {
+    return this.showcases.removeAvatar(request.customerSession, registrationId);
+  }
+
+  @Get('registrations/:registrationId/showcase/avatar')
+  async showcaseAvatar(
+    @Req() request: CustomerRequest,
+    @Param('registrationId') registrationId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const body = await this.showcases.customerAvatarContent(
+      request.customerSession,
+      registrationId,
+    );
+    return reply
+      .header('Cache-Control', 'private, no-store')
+      .header('Content-Type', 'image/webp')
+      .send(body);
+  }
+
   @Get('registrations/:registrationId')
   registration(@Req() request: CustomerRequest, @Param('registrationId') registrationId: string) {
     return this.customerAccount.registration(request.customerSession, registrationId);
@@ -174,6 +291,14 @@ class CustomerAccountController {
     return this.customerAccount.claimRegistration(
       request.customerSession,
       parse(ClaimCustomerRegistrationSchema, body, '历史报名认领信息校验失败'),
+    );
+  }
+
+  @Post('attendee-claims')
+  claimAttendee(@Req() request: CustomerRequest, @Body() body: unknown) {
+    return this.customerAccount.claimAttendee(
+      request.customerSession,
+      parse(AttendeeClaimInputSchema, body, '参会名额认领信息校验失败'),
     );
   }
 
@@ -262,6 +387,16 @@ class CustomerAdminController {
     return this.customerAccount.adminList(
       request.user.organizationId,
       parse(CustomerAdminListQuerySchema, query, '用户筛选条件校验失败'),
+    );
+  }
+
+  @Post()
+  @RequireGrant('customer.manage')
+  create(@Req() request: FastifyRequest & { user: AuthenticatedUser }, @Body() body: unknown) {
+    return this.customerAccount.adminCreate(
+      request.user.organizationId,
+      request.user.sub,
+      parse(CreateCustomerAdminSchema, body, '新增用户信息校验失败'),
     );
   }
 
@@ -364,7 +499,39 @@ class CustomerAdminController {
   }
 }
 
+@ApiTags('admin-attendee-showcases')
+@Controller('admin/events')
+@UseGuards(AuthGuard)
+class AdminAttendeeShowcaseController {
+  constructor(
+    @Inject(AttendeeShowcaseService)
+    private readonly showcases: AttendeeShowcaseService,
+  ) {}
+
+  @Patch(':eventId/member-showcases/:showcaseId/moderation')
+  @RequireGrant('customer.manage')
+  moderate(
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('showcaseId') showcaseId: string,
+    @Body() body: unknown,
+  ) {
+    return this.showcases.moderate(
+      request.user.organizationId,
+      request.user.sub,
+      eventId,
+      showcaseId,
+      parse(ModerateAttendeeShowcaseSchema, body, '名片治理信息校验失败'),
+    );
+  }
+}
+
 @Module({
-  controllers: [CustomerAuthController, CustomerAccountController, CustomerAdminController],
+  controllers: [
+    CustomerAuthController,
+    CustomerAccountController,
+    CustomerAdminController,
+    AdminAttendeeShowcaseController,
+  ],
 })
 export class CustomerModule {}

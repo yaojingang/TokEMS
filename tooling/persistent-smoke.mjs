@@ -1,6 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { createDatabase } from '../packages/database/dist/index.js';
 import { DEMO_EVENT } from '../packages/contracts/dist/index.js';
+import { createCustomerSession } from './lib/customer-session.mjs';
 
 const apiBase = process.env.API_BASE ?? 'http://localhost:8088/api/v1';
 const databaseUrl = process.env.DATABASE_URL;
@@ -30,7 +31,6 @@ const registrationKey = `persistent-registration-${runId}`;
 const paymentExternalId = `persistent-payment-${runId}`;
 const paymentKey = `payment:test-provider:${paymentExternalId}`;
 const attendeeName = `持久化测试-${runId.slice(0, 8)}`;
-const headers = { 'Content-Type': 'application/json', 'Idempotency-Key': registrationKey };
 const registrationBody = {
   eventId: DEMO_EVENT.id,
   ticketTypeId: DEMO_EVENT.tickets[0].id,
@@ -45,10 +45,23 @@ const registrationBody = {
   invoiceRequired: true,
   marketingConsent: true,
   termsAccepted: true,
+  purchaseFor: 'self',
+  purchaseIntentId: runId,
 };
 
 const health = await request('/health');
 assert(health.database?.mode === 'postgresql' && health.database?.ok, '健康检查未连接 PostgreSQL');
+
+const customerSession = await createCustomerSession({
+  apiBase,
+  mobile: registrationBody.attendee.mobile,
+  organizationSlug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+});
+const headers = {
+  'Content-Type': 'application/json',
+  'Idempotency-Key': registrationKey,
+  ...customerSession.headers,
+};
 
 const login = await request('/auth/login', {
   method: 'POST',
@@ -192,12 +205,6 @@ const firstPayment = paymentRetries[0];
 const repeatedPayment = paymentRetries[9];
 assert(firstPayment.order.status === 'paid', '订单未进入已支付状态');
 assert(firstPayment.ticket.code === repeatedPayment.ticket.code, '支付重试签发了不同电子票');
-assert(firstPayment.invoice?.accessToken, '支付成功后未生成发票访问凭证');
-assert(
-  new Set(paymentRetries.map((payment) => payment.invoice?.accessToken)).size ===
-    paymentRetries.length,
-  '支付幂等重试复用了同一明文发票凭证',
-);
 
 const invoiceBuyer = {
   buyerType: 'company',
@@ -207,11 +214,11 @@ const invoiceBuyer = {
   mobile: registrationBody.attendee.mobile,
   content: '会务费',
 };
-const submittedInvoice = await request(`/orders/${firstCheckout.order.id}/invoice-request`, {
+const submittedInvoice = await request(`/customer/orders/${firstCheckout.order.id}/invoice`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${firstPayment.invoice.accessToken}`,
+    ...customerSession.headers,
   },
   body: JSON.stringify(invoiceBuyer),
 });
@@ -222,7 +229,8 @@ const invoiceAdminHeaders = {
   Authorization: `Bearer ${login.accessToken}`,
   'Idempotency-Key': `invoice-approve-${runId}`,
 };
-const approvedInvoice = await request(`/admin/invoices/${firstPayment.invoice.id}/approve`, {
+const invoiceAdminBase = `/admin/events/${DEMO_EVENT.id}/invoices`;
+const approvedInvoice = await request(`${invoiceAdminBase}/${submittedInvoice.id}/approve`, {
   method: 'POST',
   headers: invoiceAdminHeaders,
   body: JSON.stringify({ expectedUpdatedAt: submittedInvoice.updatedAt }),
@@ -231,7 +239,7 @@ assert(approvedInvoice.status === 'issuing', '发票审核通过后未进入开�
 
 const invoiceFile = Buffer.from('%PDF-1.4\n% TokEMS invoice verification\n%%EOF\n');
 const invoiceDigest = createHash('sha256').update(invoiceFile).digest('hex');
-const upload = await request(`/admin/invoices/${firstPayment.invoice.id}/document-uploads`, {
+const upload = await request(`${invoiceAdminBase}/${submittedInvoice.id}/document-uploads`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -252,7 +260,7 @@ const uploadResponse = await fetch(upload.uploadUrl, {
 });
 assert(uploadResponse.ok, `电子发票文件上传失败：${uploadResponse.status}`);
 
-const issuedInvoice = await request(`/admin/invoices/${firstPayment.invoice.id}/documents`, {
+const issuedInvoice = await request(`${invoiceAdminBase}/${submittedInvoice.id}/documents`, {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -271,8 +279,8 @@ const issuedInvoice = await request(`/admin/invoices/${firstPayment.invoice.id}/
 assert(issuedInvoice.status === 'issued', '登记发票文件后未进入已开具');
 assert(issuedInvoice.documents.length === 1, '已开具发票缺少文件记录');
 
-const attendeeInvoice = await request(`/orders/${firstCheckout.order.id}/invoice-request`, {
-  headers: { Authorization: `Bearer ${firstPayment.invoice.accessToken}` },
+const attendeeInvoice = await request(`/customer/orders/${firstCheckout.order.id}/invoice`, {
+  headers: customerSession.headers,
 });
 assert(attendeeInvoice.status === 'issued', '参会人端未读取到已开具状态');
 assert(attendeeInvoice.documents[0]?.downloadUrl, '参会人端缺少安全下载链接');
@@ -283,7 +291,7 @@ assert(
   '下载的发票文件与上传内容不一致',
 );
 
-const invoiceExportResponse = await fetch(`${apiBase}/admin/invoices/export.csv`, {
+const invoiceExportResponse = await fetch(`${apiBase}${invoiceAdminBase}/export.csv`, {
   headers: {
     Authorization: `Bearer ${login.accessToken}`,
     'Idempotency-Key': `invoice-export-${runId}`,
@@ -298,7 +306,7 @@ if (invoiceExportResponse.status === 202) {
   const exportDeadline = Date.now() + 30_000;
   while (Date.now() < exportDeadline) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    exportJob = await request(`/admin/invoices/export-jobs/${exportJob.id}`, {
+    exportJob = await request(`${invoiceAdminBase}/export-jobs/${exportJob.id}`, {
       headers: { Authorization: `Bearer ${login.accessToken}` },
     });
     if (exportJob.status === 'ready' && exportJob.downloadPath) break;
@@ -315,7 +323,7 @@ if (invoiceExportResponse.status === 202) {
 } else {
   invoiceExportCsv = await invoiceExportResponse.text();
 }
-assert(invoiceExportCsv.includes(firstPayment.invoice.requestNo), '发票导出文件缺少本次申请记录');
+assert(invoiceExportCsv.includes(submittedInvoice.requestNo), '发票导出文件缺少本次申请记录');
 
 const ticket = await request(`/tickets/${firstPayment.ticket.code}`);
 assert(ticket.registrationId === firstCheckout.registration.id, '电子票与报名关联不一致');
@@ -351,7 +359,7 @@ const [dashboard, registrations, orders] = await Promise.all([
 ]);
 assert(dashboard.metrics.checkedIn >= 1, '后台指标未反映核销记录');
 assert(registrations.total === 1 && registrations.items.length === 1, '后台报名搜索未找到新参会人');
-assert(orders.length === 1, '后台订单搜索未找到新订单');
+assert(orders.total === 1 && orders.items.length === 1, '后台订单搜索未找到新订单');
 
 const { pool } = createDatabase(databaseUrl);
 try {
@@ -413,7 +421,7 @@ try {
         orderId: firstCheckout.order.id,
         ticketCode: firstPayment.ticket.code,
         invoice: {
-          id: firstPayment.invoice.id,
+          id: submittedInvoice.id,
           status: attendeeInvoice.status,
           downloadVerified: true,
           exportMode: invoiceExportMode,

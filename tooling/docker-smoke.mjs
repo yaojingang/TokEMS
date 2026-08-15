@@ -36,6 +36,8 @@ const endpoints = {
 const adminUsername = environment.ADMIN_USERNAME;
 const adminPassword = environment.ADMIN_PASSWORD;
 const notificationToken = environment.NOTIFICATION_WEBHOOK_TOKEN;
+const publicOrganizationSlug = environment.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+const expectedEventSlug = process.env.DOCKER_EXPECTED_EVENT_SLUG ?? 'tokems26';
 const isProduction = environment.DEPLOYMENT_MODE === 'production';
 const customerSmokeMobile = `139${String(Date.now()).slice(-8)}`;
 const deadline = Date.now() + Number(process.env.DOCKER_VERIFY_TIMEOUT_MS ?? 180_000);
@@ -79,6 +81,7 @@ await waitFor('API 与 PostgreSQL 健康', async () => {
   assert(body.status === 'ok', `API status is ${body.status}`);
   assert(body.database?.mode === 'postgresql', 'API is not using PostgreSQL');
   assert(body.database?.ok === true, 'PostgreSQL ping failed');
+  assert(body.database?.migration?.ok === true, 'PostgreSQL migration hash is not current');
   apiBuild = body.build;
 });
 
@@ -98,7 +101,7 @@ const verifiedBuild = await waitFor('五个运行服务版本一致', async () =
         'worker',
         'node',
         '-e',
-        "console.log(JSON.stringify({service:'worker',sha:process.env.BUILD_SHA,builtAt:process.env.BUILD_TIME,migration:process.env.BUILD_MIGRATION}))",
+        "console.log(JSON.stringify({service:'worker',sha:process.env.BUILD_SHA,builtAt:process.env.BUILD_TIME,migration:process.env.BUILD_MIGRATION,migrationHash:process.env.BUILD_MIGRATION_HASH}))",
       ],
       { encoding: 'utf8', env: environment },
     ).trim(),
@@ -121,13 +124,13 @@ assertBuildSourceState({
 
 if (!isProduction) {
   await waitFor('本地演示大会发布数据可读取', async () => {
-    const { body } = await request(`${endpoints.api}/events/tokems-demo-2026`, {
-      headers: { 'X-Organization-Slug': 'tokems-demo' },
+    const { body } = await request(`${endpoints.api}/homepage`, {
+      headers: { 'X-Organization-Slug': publicOrganizationSlug },
     });
-    assert(body.slug === 'tokems-demo-2026', 'Unexpected event slug');
+    assert(body.slug === expectedEventSlug, 'Unexpected event slug');
     assert(body.status === 'registration_open', 'Event is not open for registration');
     assert(Array.isArray(body.tickets) && body.tickets.length === 1, 'Ticket data is incomplete');
-    assert(body.tickets[0]?.name === '两日通票', 'Unexpected default ticket');
+    assert(body.tickets[0]?.name === '大会通票', 'Unexpected default ticket');
     assert(body.tickets[0]?.price === 39_900, 'Unexpected default ticket price');
     assert(body.tickets[0]?.benefits?.length === 8, 'Default ticket benefits are incomplete');
   });
@@ -156,7 +159,7 @@ if (!isProduction) {
     const mobile = customerSmokeMobile;
     const organizationHeaders = {
       'Content-Type': 'application/json',
-      'X-Organization-Slug': 'tokems-demo',
+      'X-Organization-Slug': publicOrganizationSlug,
     };
     const { body: challenge } = await request(`${endpoints.api}/customer-auth/otp`, {
       method: 'POST',
@@ -185,7 +188,7 @@ if (!isProduction) {
     assert(sessionCookie, 'Customer session cookie is missing');
     const { body: restored } = await request(`${endpoints.api}/customer-auth/session`, {
       headers: {
-        'X-Organization-Slug': 'tokems-demo',
+        'X-Organization-Slug': publicOrganizationSlug,
         Cookie: sessionCookie,
       },
     });
@@ -214,12 +217,11 @@ await waitFor('前后台独立来源的 CORS 均可用', async () => {
   }
 });
 
-const paymentOrigin =
-  process.env.DOCKER_PAYMENT_ORIGIN ?? environment.PAYMENT_PUBLIC_ORIGIN ?? '';
+const paymentOrigin = process.env.DOCKER_PAYMENT_ORIGIN ?? environment.PAYMENT_PUBLIC_ORIGIN ?? '';
 const paymentBasePath = (environment.PAYMENT_PUBLIC_BASE_PATH || '/pay/hui').replace(/\/+$/, '');
 
 if (paymentOrigin) {
-  await waitFor('支付入口 CORS 可用', async () => {
+  await waitFor('支付独立来源无法跨域读取大会会话', async () => {
     const response = await fetch(`${endpoints.api}/auth/login`, {
       method: 'OPTIONS',
       headers: {
@@ -231,8 +233,8 @@ if (paymentOrigin) {
     });
     assert(response.status === 204, `Payment CORS preflight returned ${response.status}`);
     assert(
-      response.headers.get('access-control-allow-origin') === paymentOrigin,
-      `${paymentOrigin} is not allowed by CORS`,
+      response.headers.get('access-control-allow-origin') !== paymentOrigin,
+      `${paymentOrigin} unexpectedly received credentialed CORS access`,
     );
   });
 
@@ -270,7 +272,7 @@ if (paymentOrigin) {
 
 await waitFor('Nuxt 大会前台可访问', async () => {
   const { body } = await request(endpoints.web);
-  assert(body.includes('TokEMS Demo'), 'Web page did not render the conference shell');
+  assert(body.includes('中国第二届GEO大会'), 'Web page did not render the conference shell');
   assert(
     body.includes('customer-account-action'),
     'Web page did not render the customer account entry',

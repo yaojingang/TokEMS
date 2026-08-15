@@ -33,7 +33,7 @@ TokEMS 沿着大会从内容发布到现场核验的完整流程设计。公开�
 
 | 公开站页面 | 管理端视图 | API Controllers | API Operations | 数据库表 | 数据库迁移 | 测试文件 |
 | ---------: | ---------: | --------------: | -------------: | -------: | ---------: | -------: |
-|         10 |         34 |              23 |            175 |       60 |         39 |       42 |
+|         13 |         31 |              25 |            207 |       66 |         51 |      116 |
 
 ### 端到端业务链路
 
@@ -191,6 +191,8 @@ TokEMS 的产品定位面向全球大会运营团队。`v0.1.0` 的界面语言�
 
 - [系统架构与设计决策](docs/architecture.md)
 - [后台管理信息架构](docs/admin-architecture.md)
+- [后台默认大会入口与工作区升级计划](docs/admin-event-workspace-upgrade-plan.md)
+- [报名详情统一运营工作台最终方案](docs/admin-registration-detail-unified-operations-plan-final.md)
 - [REST API 摘要](docs/api.md)
 - [普通用户系统](docs/user-system.md)
 - [运行、迁移与发布](docs/operations.md)

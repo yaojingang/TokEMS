@@ -51,6 +51,7 @@ const validSecrets = composeConfig({
   AI_API_URL: 'https://ai.example.com/v1/chat/completions',
   AI_API_KEY: 'ai-key-for-config-test',
   AI_MODEL: 'tokems-copywriter',
+  ADMIN_USER_ID: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
 });
 if (validSecrets.status !== 0) {
   throw new Error(`Production Compose rejected valid secrets: ${validSecrets.stderr}`);
@@ -159,6 +160,7 @@ for (const [name, value] of Object.entries({
   AI_API_URL: 'https://ai.example.com/v1/chat/completions',
   AI_API_KEY: 'ai-key-for-config-test',
   AI_MODEL: 'tokems-copywriter',
+  ADMIN_USER_ID: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
 })) {
   if (configuration.services.api.environment[name] !== value) {
     throw new Error(`Production ${name} is not forwarded to the API container`);
@@ -177,6 +179,7 @@ const productionWrapper = localComposeEnvironment({
   NOTIFICATION_WEBHOOK_TOKEN: 'wrapper-notification-webhook-token-for-config-test',
   NOTIFICATION_WEBHOOK_URL: 'https://notifications.example.com/hooks/tokems',
   ADMIN_USERNAME: 'production-admin',
+  ADMIN_USER_ID: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   ADMIN_PASSWORD: 'production-admin-password-at-least-16',
   ALLOW_INSECURE_LOCAL_AUTH: 'true',
   CUSTOMER_OTP_MODE: 'fake',
@@ -202,6 +205,7 @@ for (const removedKey of ['CUSTOMER_OTP_DEV_RESPONSE', 'NUXT_PUBLIC_SIMPLE_AUTH'
 }
 if (
   productionWrapper.ADMIN_USERNAME !== 'production-admin' ||
+  productionWrapper.ADMIN_USER_ID !== 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' ||
   productionWrapper.ADMIN_PASSWORD !== 'production-admin-password-at-least-16'
 ) {
   throw new Error('Docker deployment wrapper replaced production administrator credentials');

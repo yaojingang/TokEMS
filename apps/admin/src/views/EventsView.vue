@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import type { ConferenceTemplateOption, EventId, EventSummary } from '@conference/contracts';
+import {
+  EventShortSlugSchema,
+  isPublicEventStatus,
+  type ConferenceTemplateOption,
+  type EventId,
+  type EventSummary,
+} from '@conference/contracts';
 import { useRouter } from 'vue-router';
-import { conferenceApi, session } from '../lib/api';
+import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import { conferenceApi, publicEventHomeUrl, session } from '../lib/api';
 import { dateTime, statusClass, statusLabel } from '../lib/format';
 import { localDateTimeToIso } from '../lib/timezone';
 
@@ -17,11 +24,42 @@ const errorMessage = ref('');
 const successMessage = ref('');
 const showCreateForm = ref(false);
 const showQuickTemplate = ref(false);
+const homepageCandidate = ref<EventSummary>();
+const homepagePending = ref(false);
+const homepageError = ref('');
+const copiedEventId = ref<EventId>();
+const slugCandidate = ref<EventSummary>();
+const slugDraft = ref('');
+const slugPending = ref(false);
+const slugAvailabilityPending = ref(false);
+const slugAvailability = ref<boolean>();
+const slugUpdateError = ref('');
 const currentStep = ref(1);
 const tagFilter = ref('');
 const canCreateEvent = computed(() => session.canAll(['event.manage', 'org.template.use']));
 const canCreateTemplate = computed(
   () => session.can('org.template.manage') && session.can('org.template.publish'),
+);
+const canManageHomepage = computed(() => session.can('org.settings.manage'));
+const canManageEventUrl = computed(() => session.can('event.manage'));
+const hasHomepageDefault = computed(() => rows.value.some((item) => item.isHomepageDefault));
+const slugValidation = computed(() =>
+  form.slug ? EventShortSlugSchema.safeParse(form.slug) : undefined,
+);
+const slugError = computed(() => {
+  if (!slugValidation.value || slugValidation.value.success) return '';
+  return slugValidation.value.error.issues[0]?.message ?? '大会路径不可用';
+});
+const createEventPublicUrl = computed(() =>
+  slugValidation.value?.success ? publicEventHomeUrl(slugValidation.value.data) : '',
+);
+const slugEditValidation = computed(() => EventShortSlugSchema.safeParse(slugDraft.value));
+const slugEditError = computed(() => {
+  if (!slugCandidate.value || slugEditValidation.value.success) return '';
+  return slugEditValidation.value.error.issues[0]?.message ?? '大会短地址不可用';
+});
+const slugEditPublicUrl = computed(() =>
+  slugEditValidation.value.success ? publicEventHomeUrl(slugEditValidation.value.data) : '',
 );
 const availableTags = computed(() => [...new Set(templates.value.flatMap((item) => item.tags))]);
 const filteredTemplates = computed(() =>
@@ -54,7 +92,7 @@ function basicInformationValid() {
     return Boolean(
       form.name.trim().length >= 2 &&
       form.shortName.trim().length >= 2 &&
-      /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug) &&
+      (!form.slug || EventShortSlugSchema.safeParse(form.slug).success) &&
       form.startsAt &&
       form.endsAt &&
       form.timezone.trim() &&
@@ -67,6 +105,137 @@ function basicInformationValid() {
   } catch {
     return false;
   }
+}
+
+function eventPublicUrl(item: EventSummary) {
+  return publicEventHomeUrl(item.slug) ?? '';
+}
+
+function homepageEligible(item: EventSummary) {
+  return isPublicEventStatus(item.status) && Boolean(item.currentReleaseId);
+}
+
+function homepageDisabledReason(item: EventSummary) {
+  if (!isPublicEventStatus(item.status)) return '大会需处于预发布、报名开放、进行中或已结束状态';
+  if (!item.currentReleaseId) return '大会需先完成一次发布';
+  return '';
+}
+
+function requestHomepageChange(item: EventSummary) {
+  homepageCandidate.value = item;
+  homepageError.value = '';
+}
+
+function requestSlugChange(item: EventSummary) {
+  slugCandidate.value = item;
+  slugDraft.value = item.slug;
+  slugAvailability.value = undefined;
+  slugUpdateError.value = '';
+}
+
+function cancelSlugChange() {
+  if (slugPending.value) return;
+  slugCandidate.value = undefined;
+  slugDraft.value = '';
+  slugAvailability.value = undefined;
+  slugUpdateError.value = '';
+}
+
+async function checkSlugAvailability() {
+  const candidate = slugCandidate.value;
+  if (!candidate || !slugEditValidation.value.success) {
+    slugAvailability.value = undefined;
+    return false;
+  }
+  const checkedSlug = slugEditValidation.value.data;
+  slugAvailabilityPending.value = true;
+  slugUpdateError.value = '';
+  try {
+    const result = await conferenceApi.getEventSlugAvailability(checkedSlug, candidate.id);
+    if (slugDraft.value === checkedSlug) slugAvailability.value = result.available;
+    return result.available;
+  } catch (error) {
+    if (slugDraft.value === checkedSlug) {
+      slugUpdateError.value = error instanceof Error ? error.message : '短地址检查失败';
+      slugAvailability.value = undefined;
+    }
+    return false;
+  } finally {
+    slugAvailabilityPending.value = false;
+  }
+}
+
+async function confirmSlugChange() {
+  const candidate = slugCandidate.value;
+  if (!candidate || !slugEditValidation.value.success) return;
+  const nextSlug = slugEditValidation.value.data;
+  if (nextSlug === candidate.slug) {
+    cancelSlugChange();
+    return;
+  }
+  if (!(await checkSlugAvailability())) return;
+  slugPending.value = true;
+  slugUpdateError.value = '';
+  try {
+    const result = await conferenceApi.updateEventSlug(candidate.id, nextSlug);
+    const updated = { ...candidate, slug: result.slug };
+    rows.value = rows.value.map((item) => (item.id === candidate.id ? updated : item));
+    if (session.activeEventId.value === candidate.id) session.rememberEvent(updated);
+    successMessage.value = `大会短地址已更新为 ${eventPublicUrl(updated)}，原地址将自动跳转。`;
+    slugCandidate.value = undefined;
+    slugDraft.value = '';
+    slugAvailability.value = undefined;
+  } catch (error) {
+    slugUpdateError.value = error instanceof Error ? error.message : '大会短地址更新失败';
+  } finally {
+    slugPending.value = false;
+  }
+}
+
+async function confirmHomepageChange() {
+  const candidate = homepageCandidate.value;
+  if (!candidate) return;
+  homepagePending.value = true;
+  homepageError.value = '';
+  try {
+    await conferenceApi.setOrganizationHomepageEvent(candidate.id);
+    rows.value = rows.value.map((item) => ({
+      ...item,
+      isHomepageDefault: item.id === candidate.id,
+    }));
+    successMessage.value = `${candidate.name} 已设为首页默认大会，访问前台首页将展示该大会。`;
+    homepageCandidate.value = undefined;
+  } catch (error) {
+    homepageError.value = error instanceof Error ? error.message : '首页默认大会设置失败';
+  } finally {
+    homepagePending.value = false;
+  }
+}
+
+async function copyEventUrl(item: EventSummary) {
+  errorMessage.value = '';
+  const url = eventPublicUrl(item);
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    const input = document.createElement('textarea');
+    input.value = url;
+    input.setAttribute('readonly', '');
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    input.select();
+    const copied = document.execCommand('copy');
+    input.remove();
+    if (!copied) {
+      errorMessage.value = '复制失败，请手动选择前台地址。';
+      return;
+    }
+  }
+  copiedEventId.value = item.id;
+  window.setTimeout(() => {
+    if (copiedEventId.value === item.id) copiedEventId.value = undefined;
+  }, 1800);
 }
 
 async function load() {
@@ -87,23 +256,10 @@ async function openCreateForm() {
   errorMessage.value = '';
   preparingForm.value = true;
   try {
-    const [templateOptions, organization] = await Promise.all([
-      conferenceApi.getTemplateOptions(),
-      session.canAny(['org.settings.read', 'org.member.manage'])
-        ? conferenceApi.getOrganizationSettings()
-        : Promise.resolve(undefined),
-    ]);
+    const templateOptions = await conferenceApi.getTemplateOptions();
     templates.value = templateOptions;
-    if (organization) {
-      form.timezone = organization.settings.defaultTimezone;
-      const preferred = templateOptions.find(
-        (item) => item.id === organization.settings.defaultTemplateId,
-      );
-      form.templateVersionId =
-        preferred?.currentPublishedVersionId ?? templateOptions[0]?.currentPublishedVersionId ?? '';
-    } else {
-      form.templateVersionId = templateOptions[0]?.currentPublishedVersionId ?? '';
-    }
+    form.timezone = 'Asia/Shanghai';
+    form.templateVersionId = templateOptions[0]?.currentPublishedVersionId ?? '';
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '创建大会配置读取失败';
   } finally {
@@ -191,7 +347,7 @@ async function createEvent() {
     const created = (await conferenceApi.createEvent({
       name: form.name.trim(),
       shortName: form.shortName.trim(),
-      slug: form.slug,
+      ...(form.slug.trim() ? { slug: form.slug.trim() } : {}),
       startsAt: localDateTimeToIso(form.startsAt, form.timezone),
       endsAt: localDateTimeToIso(form.endsAt, form.timezone),
       timezone: form.timezone,
@@ -211,7 +367,7 @@ async function createEvent() {
 }
 
 function activate(item: EventSummary, routeName?: string) {
-  session.setActiveEvent(item.id, item.slug);
+  session.rememberEvent(item);
   void router.push({
     name: routeName ?? session.eventLandingRouteName(),
     params: { eventId: item.id },
@@ -230,6 +386,10 @@ onMounted(() => void load());
     </div>
     <span class="status-badge">{{ rows.length }} EVENTS</span>
   </header>
+  <div v-if="session.entryNotice.value" class="admin-context-notice" role="status">
+    <span>{{ session.entryNotice.value }}</span>
+    <button type="button" aria-label="关闭提示" @click="session.entryNotice.value = ''">×</button>
+  </div>
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
   <p v-if="successMessage" class="admin-success" role="status">{{ successMessage }}</p>
 
@@ -245,41 +405,91 @@ onMounted(() => void load());
         </button>
       </header>
       <div v-if="loading" class="admin-loading">正在读取大会列表…</div>
-      <ul v-else-if="rows.length" class="operations-list event-management-list">
-        <li v-for="item in rows" :key="item.id">
-          <div>
-            <strong>{{ item.name }}</strong>
-            <small>
-              {{ item.city }} · {{ dateTime(item.startsAt) }} · {{ item.registrationCount }} 人报名
-            </small>
-            <small class="event-template-line">
-              模板：{{ item.templateName ?? '历史兼容模板' }}
-              <template v-if="item.templateVersion"> · V{{ item.templateVersion }}</template>
-              <b v-if="item.templateUpgradeAvailable" class="inline-warning">可升级</b>
-            </small>
-          </div>
-          <div class="row-actions">
-            <span class="status-badge event-status-slot" :class="statusClass(item.status)">
-              {{ statusLabel(item.status) }}
-            </span>
-            <button
-              v-if="session.can('event.site.read')"
-              class="button secondary compact event-template-action"
-              type="button"
-              @click="activate(item, 'event-settings-site')"
+      <template v-else-if="rows.length">
+        <p v-if="!hasHomepageDefault" class="event-homepage-warning" role="status">
+          当前组织还没有首页默认大会。设置后，访问前台根地址会直接展示所选大会。
+        </p>
+        <ul class="operations-list event-management-list">
+          <li v-for="item in rows" :key="item.id">
+            <div class="event-management-copy">
+              <div class="event-management-title">
+                <strong>{{ item.name }}</strong>
+                <span class="status-badge" :class="statusClass(item.status)">
+                  {{ statusLabel(item.status) }}
+                </span>
+                <span v-if="item.isHomepageDefault" class="event-homepage-badge">首页默认</span>
+              </div>
+              <small>
+                {{ item.city }} · {{ dateTime(item.startsAt) }} ·
+                {{ item.registrationCount }} 人报名
+              </small>
+              <small class="event-template-line">
+                模板：{{ item.templateName ?? '历史兼容模板' }}
+                <template v-if="item.templateVersion"> · V{{ item.templateVersion }}</template>
+                <b v-if="item.templateUpgradeAvailable" class="inline-warning">可升级</b>
+              </small>
+              <div class="event-public-url">
+                <code>{{ eventPublicUrl(item) }}</code>
+                <button type="button" @click="copyEventUrl(item)">
+                  {{ copiedEventId === item.id ? '已复制' : '复制' }}
+                </button>
+                <a
+                  v-if="isPublicEventStatus(item.status)"
+                  :href="eventPublicUrl(item)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  打开 ↗
+                </a>
+                <span v-else class="event-public-state">尚未公开</span>
+                <button v-if="canManageEventUrl" type="button" @click="requestSlugChange(item)">
+                  修改短地址
+                </button>
+              </div>
+            </div>
+            <div
+              class="row-actions"
+              :class="{ 'has-homepage-action': canManageHomepage && !item.isHomepageDefault }"
             >
-              设置模板
-            </button>
-            <button
-              class="button secondary compact event-workspace-action"
-              type="button"
-              @click="activate(item)"
-            >
-              {{ item.id === session.activeEventId.value ? '继续管理' : '进入工作台' }}
-            </button>
-          </div>
-        </li>
-      </ul>
+              <button
+                v-if="canManageHomepage && !item.isHomepageDefault"
+                class="button secondary compact event-default-action"
+                type="button"
+                :disabled="!homepageEligible(item)"
+                :title="homepageDisabledReason(item)"
+                :aria-describedby="
+                  !homepageEligible(item) ? `homepage-disabled-reason-${item.id}` : undefined
+                "
+                @click="requestHomepageChange(item)"
+              >
+                设为首页
+              </button>
+              <span
+                v-if="canManageHomepage && !item.isHomepageDefault && !homepageEligible(item)"
+                :id="`homepage-disabled-reason-${item.id}`"
+                class="sr-only"
+              >
+                {{ homepageDisabledReason(item) }}
+              </span>
+              <button
+                v-if="session.can('event.site.read')"
+                class="button secondary compact event-template-action"
+                type="button"
+                @click="activate(item, 'event-settings-general')"
+              >
+                设置模板
+              </button>
+              <button
+                class="button compact event-workspace-action"
+                type="button"
+                @click="activate(item)"
+              >
+                {{ item.id === session.activeEventId.value ? '继续管理' : '进入工作台' }}
+              </button>
+            </div>
+          </li>
+        </ul>
+      </template>
       <div v-else class="admin-empty">当前组织还没有大会。创建大会时需要选择一个已发布模板。</div>
     </section>
 
@@ -320,10 +530,15 @@ onMounted(() => void load());
             <input
               id="event-slug"
               v-model="form.slug"
-              required
+              minlength="3"
+              maxlength="24"
               pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-              placeholder="tokems-demo-2027"
+              placeholder="例如 geo26；留空自动生成"
+              :aria-invalid="Boolean(slugError)"
             />
+            <small v-if="slugError" class="form-field-error">{{ slugError }}</small>
+            <small v-else-if="createEventPublicUrl">独立前台地址：{{ createEventPublicUrl }}</small>
+            <small v-else>留空后系统会生成 7 位以内的一级短地址，创建后仍可修改。</small>
           </div>
           <div class="form-field">
             <label for="event-start">开始时间</label>
@@ -523,4 +738,66 @@ onMounted(() => void load());
       </form>
     </section>
   </div>
+
+  <AdminConfirmDialog
+    :open="Boolean(homepageCandidate)"
+    title="确认切换首页默认大会？"
+    description="切换后，组织前台根地址会立即展示所选大会；每场大会原有的独立地址保持可访问。"
+    confirm-label="确认设为首页"
+    :busy="homepagePending"
+    :error="homepageError"
+    :details="
+      homepageCandidate
+        ? [
+          { label: '默认大会', value: homepageCandidate.name },
+          { label: '独立地址', value: eventPublicUrl(homepageCandidate) },
+        ]
+        : []
+    "
+    @cancel="homepageCandidate = undefined"
+    @confirm="confirmHomepageChange"
+  />
+
+  <AdminConfirmDialog
+    :open="Boolean(slugCandidate)"
+    title="修改大会短地址"
+    description="保存后，新地址立即成为规范地址；旧地址会使用 308 永久跳转并继续兼容历史链接。"
+    confirm-label="保存短地址"
+    :busy="slugPending"
+    :confirm-disabled="
+      Boolean(slugEditError) || slugAvailability === false || slugAvailabilityPending
+    "
+    :error="slugUpdateError"
+    :details="
+      slugCandidate
+        ? [
+          { label: '原地址', value: eventPublicUrl(slugCandidate) },
+          { label: '新地址', value: slugEditPublicUrl || '请输入有效短地址' },
+        ]
+        : []
+    "
+    @cancel="cancelSlugChange"
+    @confirm="confirmSlugChange"
+  >
+    <label class="event-slug-editor">
+      <span>一级短地址</span>
+      <span class="event-slug-editor__control">
+        <b>/</b>
+        <input
+          v-model.trim="slugDraft"
+          maxlength="24"
+          pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+          autocomplete="off"
+          spellcheck="false"
+          @input="slugAvailability = undefined"
+          @blur="checkSlugAvailability"
+        />
+      </span>
+      <small v-if="slugEditError" class="form-field-error">{{ slugEditError }}</small>
+      <small v-else-if="slugAvailabilityPending">正在检查地址…</small>
+      <small v-else-if="slugAvailability === true" class="event-slug-available">该短地址可用</small>
+      <small v-else-if="slugAvailability === false" class="form-field-error">该短地址已被占用</small>
+      <small v-else>3–24 位小写字母、数字或连字符，推荐 4–12 位。</small>
+    </label>
+  </AdminConfirmDialog>
 </template>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +24,10 @@ test('release manifest hashes every supplied source file and records build ident
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.build.sha, 'abc1234');
   assert.equal(manifest.build.migration, '0002_latest.sql');
+  assert.equal(
+    manifest.build.migrationHash,
+    createHash('sha256').update('-- latest\n').digest('hex'),
+  );
   assert.deepEqual(manifest.images, { api: 'sha256:1234' });
   assert.deepEqual(manifest.tests, { check: 'passed' });
   assert.equal(manifest.source.files.length, 2);

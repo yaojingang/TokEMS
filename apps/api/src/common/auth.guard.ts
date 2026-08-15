@@ -11,9 +11,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import type { OrganizationRole } from '@conference/contracts';
-import { memberships } from '@conference/database';
+import { memberProfiles, memberships, users } from '@conference/database';
 import { and, eq } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
+import { staffCredentialRevision, staffCredentialVersion } from './staff-account.js';
 
 const REQUIRED_GRANTS = 'conference.required_grants';
 const REQUIRED_ALL_GRANTS = 'conference.required_all_grants';
@@ -24,10 +25,14 @@ export const RequireAllGrants = (...grants: string[]) => SetMetadata(REQUIRED_AL
 export interface AuthenticatedUser {
   sub: string;
   email: string;
+  username?: string | null;
   name: string;
   role: OrganizationRole;
   organizationId: string;
   grants: string[];
+  credentialVersion?: string;
+  membershipId?: string;
+  membershipVersion?: string;
 }
 
 export function grantAllows(grants: string[], required: string) {
@@ -74,11 +79,32 @@ export class AuthGuard implements CanActivate {
     }
     let user: AuthenticatedUser = { ...claims, grants: claims.grants ?? [] };
     if (this.database.db) {
+      if (!claims.membershipId || !claims.membershipVersion) {
+        throw new UnauthorizedException('登录状态已失效，请重新登录');
+      }
       const [membership] = await this.database.db
-        .select({ role: memberships.role, grants: memberships.grants, status: memberships.status })
+        .select({
+          id: memberships.id,
+          role: memberships.role,
+          grants: memberships.grants,
+          status: memberships.status,
+          updatedAt: memberships.updatedAt,
+          email: users.email,
+          passwordHash: users.passwordHash,
+          preferences: memberProfiles.preferences,
+        })
         .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .leftJoin(
+          memberProfiles,
+          and(
+            eq(memberProfiles.organizationId, memberships.organizationId),
+            eq(memberProfiles.userId, memberships.userId),
+          ),
+        )
         .where(
           and(
+            eq(memberships.id, claims.membershipId),
             eq(memberships.userId, claims.sub),
             eq(memberships.organizationId, claims.organizationId),
             eq(memberships.status, 'active'),
@@ -86,6 +112,14 @@ export class AuthGuard implements CanActivate {
         )
         .limit(1);
       if (!membership) throw new UnauthorizedException('组织成员身份已失效');
+      if (
+        !claims.credentialVersion ||
+        claims.credentialVersion !==
+          staffCredentialVersion(membership, staffCredentialRevision(membership.preferences)) ||
+        claims.membershipVersion !== membership.updatedAt.toISOString()
+      ) {
+        throw new UnauthorizedException('登录凭据已更新，请重新登录');
+      }
       user = { ...claims, role: membership.role, grants: membership.grants };
     }
     const required =

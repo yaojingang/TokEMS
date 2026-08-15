@@ -1,4 +1,4 @@
-const buildKeys = ['sha', 'builtAt', 'migration'];
+const buildKeys = ['sha', 'builtAt', 'migration', 'migrationHash'];
 
 export function assertBuildSourceState({ expectedSha, actualSha, status }) {
   if (actualSha !== expectedSha) {

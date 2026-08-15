@@ -1,13 +1,17 @@
 import { computed, ref } from 'vue';
 import {
   type AccountProfile,
-  DEMO_EVENT,
-  DEMO_IDS,
   type AcceptOrganizationInvitation,
   type AiGenerate,
   type AiRun,
   type AdminDashboard,
+  type AdminDashboardQuery,
+  type AdminOrderList,
+  type AdminOrderListQuery,
+  type AdminOrderRow,
+  type AdminPreferences,
   type AdminRegistrationDetail,
+  type AdminRegistrationOperationsDetail,
   type AdminRegistrationList,
   type AdminRegistrationListQuery,
   type AdminRegistrationRow,
@@ -20,6 +24,10 @@ import {
   type ConferenceTemplateSummary,
   type ConferenceTemplateVersion,
   type CreateConferenceTemplate,
+  type CreateCustomerAdmin,
+  type CreateCustomerAdminResult,
+  type CreateOrganizationAdministrator,
+  type CreateRegistrationNote,
   type CreateOrganizationInvitation,
   type CreateOrganizationInvitationResult,
   type CreateEvent,
@@ -31,22 +39,27 @@ import {
   type CustomerInvoiceList,
   type CustomerRegistrationList,
   type EventBlueprint,
+  type EventContextOption,
   type EventExperience,
   type EventId,
   type EventRelease,
+  type EventSlugAvailability,
+  type EventSlugUpdateResult,
   type EventSummary,
   type EventTemplateBinding,
-  type IntegrationStatus,
   type HtmlTemplateBindingManifest,
   type HtmlTemplateBindingProposal,
   type InvoiceAction,
+  type InvoiceBatchPreflight,
+  type InvoiceBatchPreflightResult,
   type InvoiceListQuery,
   type InvoiceRequest,
   type LoginResult,
   type MembershipStatus,
+  type ModerateAttendeeShowcase,
   type NotificationTemplate,
   type OfflineCheckInSync,
-  type Order,
+  type OrganizationHomepageEvent,
   type OrganizationInvitation,
   type OrganizationMember,
   type OrganizationSettingsResult,
@@ -62,26 +75,42 @@ import {
   type TemplateSurface,
   type TestAliyunSmsConfiguration,
   type UpdateAccountProfile,
+  type UpdateAdminRegistrationAttendee,
   type UpdateAliyunSmsConfiguration,
   type UpdateCustomerAdmin,
   type UpdateEvent,
   type UpdateEventTemplateBinding,
+  type UpdateOrganizationAdministrator,
   type UpdateOrganizationMember,
   type UpdateOrganizationSettings,
   type UpdateWeChatPayConfiguration,
   type WaitlistEntry,
   type WeChatPayConfiguration,
   type WeChatPayConnectionTest,
+  publicEventHomePath,
+  publicEventScopedPath,
 } from '@conference/contracts';
+import { adminOrderExportTable } from './order-export';
+import {
+  clearLegacyEventPreference,
+  createEventOptionsLoader,
+  createLatestPreferenceWriter,
+  eventLandingRouteName,
+  hasGrant,
+  managementLandingRouteName,
+  mergeEventContextOption,
+  readRecentEventId,
+  recentEventStorageKey,
+  writeRecentEventId,
+} from './admin-entry.js';
 import { routeEventId } from './route-scope.js';
 
-export type { AdminRegistrationDetail, AdminRegistrationRow };
-
-export interface AdminOrderRow extends Order {
-  attendeeName: string;
-  attendeeCompany: string;
-  ticketTypeName: string;
-}
+export type {
+  AdminOrderRow,
+  AdminRegistrationDetail,
+  AdminRegistrationOperationsDetail,
+  AdminRegistrationRow,
+};
 
 export interface CheckInResult {
   result: 'accepted' | 'duplicate' | 'invalid' | 'forbidden' | 'manual_review';
@@ -195,12 +224,30 @@ const user = ref<LoginResult['user'] | undefined>(
     LoginResult['user'] | undefined,
 );
 const identity = ref<AuthMe>();
-const storedEventId = routeEventId(
-  `/events/${storage?.getItem('conference.admin.eventId') ?? ''}`,
-  '/',
-);
-const activeEventId = ref<EventId>(storedEventId ?? DEMO_IDS.event);
-const activeEventSlug = ref(storage?.getItem('conference.admin.eventSlug') ?? DEMO_EVENT.slug);
+const activeEvent = ref<EventContextOption>();
+const eventOptions = ref<EventContextOption[]>([]);
+const entryNotice = ref('');
+const recentEventRevision = ref(0);
+let explicitEventRouteId: EventId | undefined;
+const activeEventId = computed(() => activeEvent.value?.id);
+const activeEventSlug = computed(() => activeEvent.value?.slug);
+
+function eventPreferenceScope() {
+  const currentIdentity = identity.value;
+  if (!currentIdentity) return undefined;
+  return {
+    organizationId: currentIdentity.organization.id,
+    publicUserId: currentIdentity.user.id,
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    const scope = eventPreferenceScope();
+    if (scope && event.key === recentEventStorageKey(scope)) recentEventRevision.value += 1;
+  });
+}
+
 function defaultPublicWebURL() {
   if (import.meta.env.DEV) return 'http://localhost:3000';
   const url = new URL(window.location.origin);
@@ -214,9 +261,19 @@ export const session = {
   user,
   identity,
   authenticated: computed(() => Boolean(token.value)),
+  activeEvent,
   activeEventId,
   activeEventSlug,
+  eventOptions,
+  entryNotice,
+  recentEventRevision,
   set(result: LoginResult) {
+    identity.value = undefined;
+    activeEvent.value = undefined;
+    eventOptions.value = [];
+    eventOptionsLoader.invalidate();
+    adminPreferenceWriter.reset();
+    explicitEventRouteId = undefined;
     token.value = result.accessToken;
     user.value = result.user;
     storage?.setItem('conference.admin.token', result.accessToken);
@@ -224,12 +281,14 @@ export const session = {
   },
   setIdentity(value: AuthMe) {
     identity.value = value;
+    clearLegacyEventPreference(storage);
   },
   syncAccountProfile(value: AccountProfile) {
     if (user.value) {
       user.value = {
         ...user.value,
         email: value.user.email,
+        username: value.user.username,
         name: value.user.name,
         role: value.membership.role,
       };
@@ -241,6 +300,7 @@ export const session = {
         user: {
           id: value.user.id,
           email: value.user.email,
+          username: value.user.username,
           name: value.user.name,
         },
         membership: {
@@ -253,13 +313,7 @@ export const session = {
     }
   },
   can(required: string) {
-    const grants = identity.value?.membership.grants ?? [];
-    return grants.some(
-      (grant) =>
-        grant === '*' ||
-        grant === required ||
-        (grant.endsWith('.*') && required.startsWith(`${grant.slice(0, -2)}.`)),
-    );
+    return hasGrant(identity.value?.membership.grants ?? [], required);
   },
   canAny(required: string[]) {
     return required.some((grant) => this.can(grant));
@@ -267,46 +321,86 @@ export const session = {
   canAll(required: string[]) {
     return required.every((grant) => this.can(grant));
   },
+  managementLandingRouteName() {
+    return managementLandingRouteName(identity.value?.membership.grants ?? []);
+  },
   landingRouteName() {
-    if (this.can('event.read')) return 'manage-events';
-    if (this.can('customer.read')) return 'manage-users';
-    if (this.can('org.invoice.read')) return 'manage-invoices';
-    if (this.can('org.template.read')) return 'manage-templates';
-    if (this.canAny(['org.settings.read', 'org.member.read'])) return 'manage-settings';
-    return 'forbidden';
+    return this.managementLandingRouteName();
   },
   eventLandingRouteName() {
-    if (this.can('event.dashboard.read')) return 'event-overview';
-    if (this.can('event.manage')) return 'event-settings-general';
-    if (this.can('event.site.read')) return 'event-settings-site';
-    if (
-      this.canAny(['event.registration.manage', 'event.inventory.read', 'event.inventory.manage'])
-    ) {
-      return 'event-settings-registration';
+    return eventLandingRouteName(identity.value?.membership.grants ?? []);
+  },
+  recentEventId() {
+    void recentEventRevision.value;
+    const scope = eventPreferenceScope();
+    return scope ? readRecentEventId(storage, scope) : undefined;
+  },
+  forgetRecentEvent() {
+    const scope = eventPreferenceScope();
+    if (scope) {
+      writeRecentEventId(storage, scope, undefined);
+      recentEventRevision.value += 1;
     }
-    if (this.can('event.content.manage')) return 'event-content';
-    if (this.can('event.ai.read')) return 'event-ai';
-    if (this.can('event.registration.read')) return 'event-registrations';
-    if (this.can('event.order.read')) return 'event-orders';
-    if (this.can('event.notification.read')) return 'event-notifications';
-    if (this.canAny(['event.checkin.execute', 'event.checkin.manage'])) return 'event-check-in';
-    if (this.can('event.audit.read')) return 'event-activity';
-    return 'forbidden';
+  },
+  clearServerRecentEvent() {
+    adminPreferenceWriter.schedule(null);
+  },
+  setRecentEventId(eventId: EventId | undefined) {
+    const scope = eventPreferenceScope();
+    if (scope) {
+      writeRecentEventId(storage, scope, eventId);
+      recentEventRevision.value += 1;
+    }
+  },
+  async loadEventOptions() {
+    const events = await eventOptionsLoader.load();
+    eventOptions.value = events;
+    return events;
+  },
+  invalidateEventOptions() {
+    eventOptionsLoader.invalidate();
+    eventOptions.value = [];
   },
   clear() {
     token.value = '';
     user.value = undefined;
     identity.value = undefined;
+    activeEvent.value = undefined;
+    eventOptions.value = [];
+    eventOptionsLoader.invalidate();
+    adminPreferenceWriter.reset();
+    explicitEventRouteId = undefined;
+    entryNotice.value = '';
     storage?.removeItem('conference.admin.token');
     storage?.removeItem('conference.admin.user');
   },
-  setActiveEvent(eventId: EventId, eventSlug?: string) {
-    activeEventId.value = eventId;
-    storage?.setItem('conference.admin.eventId', String(eventId));
-    if (eventSlug) {
-      activeEventSlug.value = eventSlug;
-      storage?.setItem('conference.admin.eventSlug', eventSlug);
+  setRuntimeEvent(event: EventContextOption | undefined) {
+    activeEvent.value = event;
+  },
+  refreshRuntimeEvent(event: PublicEvent) {
+    const current = activeEvent.value;
+    if (!current || current.id !== event.id) return;
+    activeEvent.value = mergeEventContextOption(current, event);
+    if (event.status === 'archived' && this.recentEventId() === event.id) {
+      this.forgetRecentEvent();
+      this.clearServerRecentEvent();
+      entryNotice.value = '当前大会已归档，已从最近大会中移除。';
     }
+  },
+  markExplicitEventRoute(eventId: EventId) {
+    explicitEventRouteId = eventId;
+  },
+  consumeExplicitEventRoute(eventId: EventId) {
+    const shouldRemember = explicitEventRouteId === eventId;
+    explicitEventRouteId = undefined;
+    return shouldRemember;
+  },
+  rememberEvent(event: EventContextOption) {
+    activeEvent.value = event;
+    if (event.status === 'archived') return;
+    entryNotice.value = '';
+    this.setRecentEventId(event.id);
+    adminPreferenceWriter.schedule(event.id);
   },
 };
 
@@ -320,10 +414,26 @@ function eventScope(eventId?: EventId): EventId {
   return currentEventId;
 }
 
-export function publicEventUrl(path = '/') {
-  const url = new URL(path, publicWebURL);
-  url.searchParams.set('event', activeEventSlug.value);
-  return url.toString();
+export function publicHomepageUrl() {
+  return new URL('/', publicWebURL).toString();
+}
+
+export function publicEventHomeUrl(eventSlug: string): string;
+export function publicEventHomeUrl(eventSlug?: string): string | undefined;
+export function publicEventHomeUrl(eventSlug = activeEventSlug.value): string | undefined {
+  if (!eventSlug) return undefined;
+  return new URL(publicEventHomePath(eventSlug), publicWebURL).toString();
+}
+
+export function publicEventUrl(path = '/', eventSlug = activeEventSlug.value) {
+  if (!eventSlug) return undefined;
+  if (path === '/') return publicEventHomeUrl(eventSlug);
+  if (path.startsWith('/#')) {
+    const url = new URL(publicEventHomePath(eventSlug), publicWebURL);
+    url.hash = path.slice(2);
+    return url.toString();
+  }
+  return new URL(publicEventScopedPath(path, eventSlug), publicWebURL).toString();
 }
 
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<unknown>>) {
@@ -362,6 +472,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body;
 }
 
+const eventOptionsLoader = createEventOptionsLoader(() =>
+  request<EventContextOption[]>('/admin/event-options'),
+);
+const adminPreferenceWriter = createLatestPreferenceWriter(async (lastEventId) => {
+  const currentIdentity = identity.value;
+  const preferences = await request<AdminPreferences>('/auth/preferences/admin', {
+    method: 'PATCH',
+    body: JSON.stringify({ lastEventId }),
+  });
+  if (identity.value === currentIdentity && currentIdentity) {
+    identity.value = { ...currentIdentity, adminPreferences: preferences };
+  }
+});
+
 export const conferenceApi = {
   login(username: string, password: string, organizationSlug?: string) {
     return request<LoginResult>('/auth/login', {
@@ -382,6 +506,12 @@ export const conferenceApi = {
   getMe() {
     return request<AuthMe>('/auth/me');
   },
+  updateAdminPreferences(lastEventId: EventId | null) {
+    return request<AdminPreferences>('/auth/preferences/admin', {
+      method: 'PATCH',
+      body: JSON.stringify({ lastEventId }),
+    });
+  },
   getAccountProfile() {
     return request<AccountProfile>('/auth/profile');
   },
@@ -391,27 +521,37 @@ export const conferenceApi = {
       body: JSON.stringify(input),
     });
   },
-  getDashboard(eventId?: EventId) {
-    return request<AdminDashboard>(`/admin/dashboard?eventId=${eventScope(eventId)}`);
+  getDashboard(filters: AdminDashboardQuery = {}, eventId?: EventId) {
+    const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
+    if (filters.days) query.set('days', String(filters.days));
+    if (filters.from) query.set('from', filters.from);
+    if (filters.to) query.set('to', filters.to);
+    return request<AdminDashboard>(`/admin/dashboard?${query}`);
   },
   async getEvent(slug?: string, eventId?: EventId) {
     if (!slug) {
       return request<PublicEvent>(`/admin/events/${eventScope(eventId)}`);
     }
+    const organizationSlug = session.identity.value?.organization.slug;
     return request<PublicEvent>(`/events/${slug}`, {
-      headers: { 'X-Organization-Slug': 'tokems-demo' },
+      ...(organizationSlug ? { headers: { 'X-Organization-Slug': organizationSlug } } : {}),
     });
   },
-  updateEvent(patch: UpdateEvent, eventId?: EventId) {
-    return request<PublicEvent>(`/admin/events/${eventScope(eventId)}`, {
+  async updateEvent(patch: UpdateEvent, eventId?: EventId) {
+    const event = await request<PublicEvent>(`/admin/events/${eventScope(eventId)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
+    session.refreshRuntimeEvent(event);
+    session.invalidateEventOptions();
+    return event;
   },
   getRegistrations(filters: Partial<AdminRegistrationListQuery> = {}, eventId?: EventId) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.q) query.set('q', filters.q);
     if (filters.status) query.set('status', filters.status);
+    if (filters.businessStatus) query.set('businessStatus', filters.businessStatus);
+    if (filters.invoiceStatus) query.set('invoiceStatus', filters.invoiceStatus);
     if (filters.page) query.set('page', String(filters.page));
     if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
     return request<AdminRegistrationList>(`/admin/registrations?${query}`);
@@ -419,6 +559,27 @@ export const conferenceApi = {
   getRegistration(registrationId: string, eventId?: EventId) {
     return request<AdminRegistrationDetail>(
       `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}`,
+    );
+  },
+  getRegistrationOperations(registrationId: string, eventId?: EventId) {
+    return request<AdminRegistrationOperationsDetail>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/operations-detail`,
+    );
+  },
+  updateRegistrationAttendee(
+    registrationId: string,
+    input: UpdateAdminRegistrationAttendee,
+    eventId?: EventId,
+  ) {
+    return request<{ attendee: UpdateAdminRegistrationAttendee['attendee']; updatedAt: string }>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/attendee`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  addRegistrationNote(registrationId: string, input: CreateRegistrationNote, eventId?: EventId) {
+    return request<AdminRegistrationOperationsDetail['notes'][number]>(
+      `/admin/events/${eventScope(eventId)}/registrations/${encodeURIComponent(registrationId)}/notes`,
+      { method: 'POST', body: JSON.stringify(input) },
     );
   },
   getWaitlist(eventId?: EventId) {
@@ -434,11 +595,12 @@ export const conferenceApi = {
       },
     );
   },
-  getOrders(filters: { q?: string; status?: string } = {}, eventId?: EventId) {
+  getOrders(filters: Partial<AdminOrderListQuery> = {}, eventId?: EventId) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.q) query.set('q', filters.q);
     if (filters.status) query.set('status', filters.status);
-    return request<AdminOrderRow[]>(`/admin/orders?${query}`);
+    if (filters.page) query.set('page', String(filters.page));
+    return request<AdminOrderList>(`/admin/orders?${query}`);
   },
   checkIn(payload: Omit<CheckInRequest, 'eventId' | 'checkInListId'>, eventId?: EventId) {
     return request<CheckInResult>('/checkins', {
@@ -489,6 +651,12 @@ export const conferenceApi = {
   getCustomer(userId: number) {
     return request<CustomerAdminDetail>(`/admin/customers/${userId}`);
   },
+  createCustomer(input: CreateCustomerAdmin) {
+    return request<CreateCustomerAdminResult>('/admin/customers', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   getCustomerRegistrations(userId: number, cursor?: string, limit = 50) {
     const query = new URLSearchParams({ limit: String(limit) });
     if (cursor) query.set('cursor', cursor);
@@ -510,6 +678,15 @@ export const conferenceApi = {
       method: 'DELETE',
     });
   },
+  moderateAttendeeShowcase(eventId: EventId, showcaseId: string, input: ModerateAttendeeShowcase) {
+    return request<{ updated: true }>(
+      `/admin/events/${eventId}/member-showcases/${showcaseId}/moderation`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    );
+  },
   updateMember(membershipId: string, input: UpdateOrganizationMember) {
     return request<OrganizationMember>(`/admin/organization/members/${membershipId}`, {
       method: 'PATCH',
@@ -530,6 +707,23 @@ export const conferenceApi = {
   getInvitations() {
     return request<OrganizationInvitation[]>('/admin/organization/invitations');
   },
+  createAdministrator(input: CreateOrganizationAdministrator) {
+    return request<OrganizationMember>('/admin/organization/administrators', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  updateAdministratorCredentials(membershipId: string, input: UpdateOrganizationAdministrator) {
+    return request<OrganizationMember>(`/admin/organization/administrators/${membershipId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  deleteAdministrator(membershipId: string) {
+    return request<{ deleted: boolean }>(`/admin/organization/administrators/${membershipId}`, {
+      method: 'DELETE',
+    });
+  },
   createInvitation(input: CreateOrganizationInvitation) {
     return request<CreateOrganizationInvitationResult>('/admin/organization/invitations', {
       method: 'POST',
@@ -549,9 +743,6 @@ export const conferenceApi = {
       method: 'PATCH',
       body: JSON.stringify(input),
     });
-  },
-  getIntegrationStatus() {
-    return request<IntegrationStatus>('/admin/integrations/status');
   },
   getWeChatPayConfiguration() {
     return request<WeChatPayConfiguration>('/admin/integrations/wechat-pay');
@@ -586,12 +777,36 @@ export const conferenceApi = {
   getEvents() {
     return request<EventSummary[]>('/admin/events');
   },
-  createEvent(input: CreateEvent) {
-    return request('/admin/events', {
+  getEventOptions() {
+    return session.loadEventOptions();
+  },
+  setOrganizationHomepageEvent(eventId: EventId) {
+    return request<OrganizationHomepageEvent>('/admin/organization/homepage-event', {
+      method: 'PUT',
+      body: JSON.stringify({ eventId }),
+    });
+  },
+  getEventSlugAvailability(slug: string, eventId?: EventId) {
+    const query = new URLSearchParams({ slug });
+    if (eventId) query.set('eventId', String(eventId));
+    return request<EventSlugAvailability>(`/admin/event-slugs/availability?${query.toString()}`);
+  },
+  async updateEventSlug(eventId: EventId, slug: string) {
+    const result = await request<EventSlugUpdateResult>(`/admin/events/${eventId}/public-url`, {
+      method: 'PATCH',
+      body: JSON.stringify({ slug }),
+    });
+    session.invalidateEventOptions();
+    return result;
+  },
+  async createEvent(input: CreateEvent) {
+    const event = await request('/admin/events', {
       method: 'POST',
       headers: { 'Idempotency-Key': `event-create-${crypto.randomUUID()}` },
       body: JSON.stringify(input),
     });
+    session.invalidateEventOptions();
+    return event;
   },
   getBlueprints() {
     return request<EventBlueprint[]>('/admin/event-blueprints');
@@ -1063,38 +1278,47 @@ export const conferenceApi = {
   getRefunds(eventId?: EventId) {
     return request<Refund[]>(`/admin/refunds?eventId=${eventScope(eventId)}`);
   },
-  getInvoices(filters: InvoiceListQuery = {}) {
+  getInvoices(filters: InvoiceListQuery = {}, eventId?: EventId) {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value) query.set(key, String(value));
     });
     return request<{ items: InvoiceRequest[]; nextCursor: string | null }>(
-      `/admin/invoices?${query}`,
+      `/admin/events/${eventScope(eventId)}/invoices?${query}`,
     );
   },
-  getInvoice(invoiceId: string) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}`);
+  getInvoice(invoiceId: string, eventId?: EventId) {
+    return request<InvoiceRequest>(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}`);
   },
-  getInvoicePendingCount() {
-    return request<{ count: number }>('/admin/invoices/pending-count');
+  getInvoicePendingCount(eventId?: EventId) {
+    return request<{ count: number }>(
+      `/admin/events/${eventScope(eventId)}/invoices/pending-count`,
+    );
   },
-  approveInvoice(invoiceId: string, expectedUpdatedAt: string) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/approve`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-approve-${crypto.randomUUID()}` },
-      body: JSON.stringify({ expectedUpdatedAt }),
-    });
+  approveInvoice(invoiceId: string, expectedUpdatedAt: string, eventId?: EventId) {
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/approve`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-approve-${crypto.randomUUID()}` },
+        body: JSON.stringify({ expectedUpdatedAt }),
+      },
+    );
   },
   invoiceAction(
     invoiceId: string,
     action: 'reject' | 'retry' | 'issue-failed' | 'cancel',
     input: InvoiceAction,
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/${action}`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-${action}-${crypto.randomUUID()}` },
-      body: JSON.stringify(input),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/${action}`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-${action}-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   addInvoiceDocument(
     invoiceId: string,
@@ -1109,12 +1333,16 @@ export const conferenceApi = {
       contentDigest: string;
       replacesDocumentId?: string;
     },
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/documents`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-document-${crypto.randomUUID()}` },
-      body: JSON.stringify(input),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-document-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   prepareInvoiceDocumentUpload(
     invoiceId: string,
@@ -1123,7 +1351,9 @@ export const conferenceApi = {
       mediaType: 'application/pdf' | 'application/ofd';
       size: number;
       contentDigest: string;
+      replaceDocumentId?: string;
     },
+    eventId?: EventId,
   ) {
     return request<{
       uploadUrl: string;
@@ -1131,33 +1361,76 @@ export const conferenceApi = {
       headers: Record<string, string>;
       storageKey: string;
       expiresAt: string;
-    }>(`/admin/invoices/${invoiceId}/document-uploads`, {
+    }>(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/document-uploads`, {
       method: 'POST',
       headers: { 'Idempotency-Key': `invoice-upload-${crypto.randomUUID()}` },
       body: JSON.stringify(input),
     });
+  },
+  replaceInvoiceDocumentFile(
+    invoiceId: string,
+    documentId: string,
+    input: {
+      storageKey: string;
+      mediaType: 'application/pdf' | 'application/ofd';
+      size: number;
+      contentDigest: string;
+      reason: string;
+      expectedUpdatedAt: string;
+    },
+    eventId?: EventId,
+  ) {
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/replace-file`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-replace-file-${crypto.randomUUID()}` },
+        body: JSON.stringify(input),
+      },
+    );
   },
   voidInvoiceDocument(
     invoiceId: string,
     documentId: string,
     reason: string,
     expectedUpdatedAt: string,
+    eventId?: EventId,
   ) {
-    return request<InvoiceRequest>(`/admin/invoices/${invoiceId}/documents/${documentId}/void`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-void-${crypto.randomUUID()}` },
-      body: JSON.stringify({ reason, expectedUpdatedAt }),
-    });
+    return request<InvoiceRequest>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/void`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-void-${crypto.randomUUID()}` },
+        body: JSON.stringify({ reason, expectedUpdatedAt }),
+      },
+    );
   },
-  sendInvoice(invoiceId: string) {
-    return request<{ queued: boolean }>(`/admin/invoices/${invoiceId}/send`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': `invoice-send-${crypto.randomUUID()}` },
-    });
+  sendInvoice(invoiceId: string, eventId?: EventId) {
+    return request<{ queued: boolean }>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/send`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-send-${crypto.randomUUID()}` },
+      },
+    );
   },
-  async downloadInvoiceDocument(invoiceId: string, documentId: string, fileName: string) {
+  requestInvoiceDetailsReminder(invoiceId: string, eventId?: EventId) {
+    return request<{ queued: boolean; alreadyQueued: boolean }>(
+      `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/details-reminder`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `invoice-details-reminder-${crypto.randomUUID()}` },
+      },
+    );
+  },
+  async downloadInvoiceDocument(
+    invoiceId: string,
+    documentId: string,
+    fileName: string,
+    eventId?: EventId,
+  ) {
     const response = await fetch(
-      `${baseURL}/admin/invoices/${invoiceId}/documents/${documentId}/download`,
+      `${baseURL}/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/documents/${documentId}/download`,
       { headers: { Authorization: `Bearer ${session.token.value}` } },
     );
     if (!response.ok) throw new Error('下载电子发票失败');
@@ -1169,17 +1442,21 @@ export const conferenceApi = {
     anchor.click();
     URL.revokeObjectURL(url);
   },
-  async exportInvoices(filters: InvoiceListQuery = {}) {
+  async exportInvoices(filters: InvoiceListQuery = {}, eventId?: EventId) {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value) query.set(key, String(value));
     });
-    const response = await fetch(`${baseURL}/admin/invoices/export.csv?${query}`, {
-      headers: {
-        Authorization: `Bearer ${session.token.value}`,
-        'Idempotency-Key': `invoice-export-${crypto.randomUUID()}`,
+    const scopedEventId = eventScope(eventId);
+    const response = await fetch(
+      `${baseURL}/admin/events/${scopedEventId}/invoices/export.csv?${query}`,
+      {
+        headers: {
+          Authorization: `Bearer ${session.token.value}`,
+          'Idempotency-Key': `invoice-export-${crypto.randomUUID()}`,
+        },
       },
-    });
+    );
     if (!response.ok) throw new Error('导出发票申请失败');
     let downloadResponse = response;
     let exportedRowCount = Number(response.headers.get('x-export-row-count') ?? 0);
@@ -1195,16 +1472,21 @@ export const conferenceApi = {
       let retried = false;
       for (let attempt = 0; attempt < 120; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1_000));
-        job = await request<typeof job>(`/admin/invoices/export-jobs/${job.id}`);
+        job = await request<typeof job>(
+          `/admin/events/${scopedEventId}/invoices/export-jobs/${job.id}`,
+        );
         if (job.status === 'ready' && job.downloadPath) break;
         if (job.status === 'failed' && !retried) {
           retried = true;
-          job = await request<typeof job>(`/admin/invoices/export-jobs/${job.id}/retry`, {
-            method: 'POST',
-            headers: {
-              'Idempotency-Key': `invoice-export-retry-${crypto.randomUUID()}`,
+          job = await request<typeof job>(
+            `/admin/events/${scopedEventId}/invoices/export-jobs/${job.id}/retry`,
+            {
+              method: 'POST',
+              headers: {
+                'Idempotency-Key': `invoice-export-retry-${crypto.randomUUID()}`,
+              },
             },
-          });
+          );
         } else if (job.status === 'failed' || job.status === 'expired') {
           throw new Error(job.error || '导出任务失败，请重新发起');
         }
@@ -1219,10 +1501,16 @@ export const conferenceApi = {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `invoice-requests-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `invoice-requests-${scopedEventId}-${new Date().toISOString().slice(0, 10)}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
     return exportedRowCount;
+  },
+  preflightInvoiceBatch(input: InvoiceBatchPreflight, eventId?: EventId) {
+    return request<InvoiceBatchPreflightResult>(
+      `/admin/events/${eventScope(eventId)}/invoices/batch-imports/preflight`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
   },
   getInventory(eventId?: EventId) {
     return request<
@@ -1247,7 +1535,7 @@ export const conferenceApi = {
   queueNotification(input: QueueNotification) {
     return request('/admin/notifications/queue', {
       method: 'POST',
-      body: JSON.stringify({ ...input, eventId: input.eventId ?? activeEventId.value }),
+      body: JSON.stringify({ ...input, eventId: input.eventId ?? eventScope() }),
     });
   },
   getAiRuns(eventId?: EventId) {
@@ -1309,20 +1597,11 @@ export const conferenceApi = {
     URL.revokeObjectURL(url);
   },
   exportOrders(rows: AdminOrderRow[]) {
+    const table = adminOrderExportTable(rows);
     downloadCsv(
-      `orders-${activeEventSlug.value}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['订单号', '参会人', '公司', '票种', '状态', '金额（分）', '币种', '支付方式', '创建时间'],
-      rows.map((row) => [
-        row.orderNo,
-        row.attendeeName,
-        row.attendeeCompany,
-        row.ticketTypeName,
-        row.status,
-        row.amount,
-        row.currency,
-        row.paymentMethod,
-        row.createdAt,
-      ]),
+      `orders-${activeEventSlug.value ?? activeEventId.value ?? 'event'}-${new Date().toISOString().slice(0, 10)}.csv`,
+      table.headers,
+      table.rows,
     );
   },
 };

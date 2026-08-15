@@ -20,16 +20,18 @@ import {
   events,
   notificationDeliveries,
   notificationTemplates,
+  orders,
   outboxEvents,
   publicUserIds,
   registrations,
   users,
 } from '@conference/database';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { ConferenceRepository } from './conference.repository.js';
 import { requirePublicUserId } from './public-user-id.js';
+import { buildRegistrationExportCsv } from './registration-export-csv.js';
 
 type Database = NonNullable<DatabaseService['db']>;
 
@@ -337,6 +339,7 @@ export class EngagementOperationsService {
           and(
             eq(registrations.id, input.registrationId),
             eq(registrations.organizationId, organizationId),
+            isNull(registrations.supersededAt),
           ),
         )
         .limit(1);
@@ -637,59 +640,27 @@ export class EngagementOperationsService {
     const db = this.db();
     const actorPublicId = await requirePublicUserId(db, 'staff', actorId);
     const rows = await db
-      .select()
+      .select({ registration: registrations, order: orders })
       .from(registrations)
+      .leftJoin(orders, eq(orders.registrationId, registrations.id))
       .where(
-        and(eq(registrations.organizationId, organizationId), eq(registrations.eventId, eventId)),
+        and(
+          eq(registrations.organizationId, organizationId),
+          eq(registrations.eventId, eventId),
+          isNull(registrations.supersededAt),
+        ),
       )
       .orderBy(asc(registrations.createdAt));
     const exportedAt = new Date().toISOString();
-    const escape = (value: unknown) => {
-      const raw = String(value ?? '');
-      const safe = /^(?:\uFEFF)?[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
-      return `"${safe.replaceAll('"', '""')}"`;
-    };
-    const lines = [
-      `# 大会报名数据导出`,
-      `# 大会,${escape(event.name)}`,
-      `# 导出用户 ID,${escape(actorPublicId)}`,
-      `# 导出时间,${escape(exportedAt)}`,
-      `# 数据范围,${escape(`${organizationId}/${eventId}`)}`,
-      [
-        '报名编号',
-        '状态',
-        '姓名',
-        '手机',
-        '邮箱',
-        '公司',
-        '职位',
-        '城市',
-        '表单版本',
-        '条款版本',
-        '表单回答 JSON',
-        '报名时间',
-      ]
-        .map(escape)
-        .join(','),
-      ...rows.map((row) =>
-        [
-          row.registrationCode,
-          row.status,
-          row.attendee.name,
-          row.attendee.mobile,
-          row.attendee.email,
-          row.attendee.company,
-          row.attendee.title,
-          row.attendee.city,
-          row.formVersion,
-          row.termsVersion,
-          JSON.stringify(row.formAnswers),
-          row.createdAt.toISOString(),
-        ]
-          .map(escape)
-          .join(','),
-      ),
-    ];
+    const csv = buildRegistrationExportCsv(
+      {
+        eventName: event.name,
+        actorPublicId,
+        exportedAt,
+        scope: `${organizationId}/${eventId}`,
+      },
+      rows,
+    );
     await this.audit(
       organizationId,
       eventId,
@@ -704,7 +675,7 @@ export class EngagementOperationsService {
     );
     return {
       filename: `registrations-${event.slug}-${exportedAt.slice(0, 10)}.csv`,
-      csv: `\uFEFF${lines.join('\n')}`,
+      csv,
     };
   }
 

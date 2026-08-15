@@ -5,6 +5,7 @@ export const BuildInfoSchema = z.object({
   sha: z.union([z.string().regex(/^[a-f0-9]{7,64}$/u), z.literal('unknown')]),
   builtAt: z.union([z.iso.datetime(), z.literal('unknown')]),
   migration: z.union([z.string().regex(/^\d{4}_[A-Za-z0-9_-]+\.sql$/u), z.literal('unknown')]),
+  migrationHash: z.union([z.string().regex(/^[a-f0-9]{64}$/u), z.literal('unknown')]),
 });
 
 export type BuildInfo = z.infer<typeof BuildInfoSchema>;
@@ -16,12 +17,16 @@ export function resolveBuildInfo(
   const shaCandidate = environment.BUILD_SHA?.trim().toLowerCase() ?? '';
   const builtAtCandidate = environment.BUILD_TIME?.trim() ?? '';
   const migrationCandidate = environment.BUILD_MIGRATION?.trim() ?? '';
+  const migrationHashCandidate = environment.BUILD_MIGRATION_HASH?.trim().toLowerCase() ?? '';
   const candidate = {
     service,
     sha: /^[a-f0-9]{7,64}$/u.test(shaCandidate) ? shaCandidate : 'unknown',
     builtAt: z.iso.datetime().safeParse(builtAtCandidate).success ? builtAtCandidate : 'unknown',
     migration: /^\d{4}_[A-Za-z0-9_-]+\.sql$/u.test(migrationCandidate)
       ? migrationCandidate
+      : 'unknown',
+    migrationHash: /^[a-f0-9]{64}$/u.test(migrationHashCandidate)
+      ? migrationHashCandidate
       : 'unknown',
   };
   return BuildInfoSchema.parse(candidate);
@@ -46,6 +51,79 @@ export const EventStatusSchema = z.enum([
   'ended',
   'archived',
 ]);
+
+export const PUBLIC_EVENT_STATUSES = [
+  'prepublished',
+  'registration_open',
+  'in_progress',
+  'ended',
+] as const satisfies ReadonlyArray<z.infer<typeof EventStatusSchema>>;
+
+const publicEventStatusSet = new Set<z.infer<typeof EventStatusSchema>>(PUBLIC_EVENT_STATUSES);
+
+export function isPublicEventStatus(status: z.infer<typeof EventStatusSchema>) {
+  return publicEventStatusSet.has(status);
+}
+
+export const RESERVED_PUBLIC_EVENT_SLUGS = [
+  'account',
+  'admin',
+  'api',
+  'assets',
+  'faq',
+  'healthz',
+  'invoice',
+  'order',
+  'pay',
+  'register',
+  'ticket',
+] as const;
+
+const reservedPublicEventSlugSet = new Set<string>(RESERVED_PUBLIC_EVENT_SLUGS);
+
+const EventSlugBaseSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, '大会路径只能包含小写字母、数字和连字符');
+
+export const EventSlugSchema = EventSlugBaseSchema.max(100).refine(
+  (slug) => !reservedPublicEventSlugSet.has(slug),
+  '该路径由系统保留，请更换大会路径',
+);
+
+export const EventShortSlugSchema = EventSlugBaseSchema.max(
+  24,
+  '大会短地址不能超过 24 个字符',
+).refine((slug) => !reservedPublicEventSlugSet.has(slug), '该路径由系统保留，请更换大会路径');
+
+export function publicEventHomePath(slug: string) {
+  return `/${encodeURIComponent(EventSlugSchema.parse(slug))}`;
+}
+
+export function publicEventSlugFromPathSegment(segment: string) {
+  try {
+    const parsed = EventSlugSchema.safeParse(decodeURIComponent(segment));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function publicEventScopedPath(
+  pathname: string,
+  slug: string,
+  parameters: Record<string, string | number | boolean | null | undefined> = {},
+) {
+  if (!pathname.startsWith('/') || pathname.includes('?') || pathname.includes('#')) {
+    throw new Error('公开大会业务路径必须是以 / 开头且不含查询参数或片段的站内路径');
+  }
+  const query = new URLSearchParams({ event: EventSlugSchema.parse(slug) });
+  Object.entries(parameters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) query.set(key, String(value));
+  });
+  return `${pathname}?${query.toString()}`;
+}
 
 export const RegistrationStatusSchema = z.enum([
   'draft',
@@ -78,7 +156,8 @@ export const OrganizationRoleSchema = z.enum([
 
 export const MembershipStatusSchema = z.enum(['active', 'disabled']);
 export const EventPaymentModeSchema = z.enum(['free', 'ticketed']);
-export const CustomerAccountModeSchema = z.enum(['mobile_otp_required', 'guest_allowed']);
+export const CustomerAccountModeSchema = z.enum(['mobile_otp_required']);
+const StoredOrganizationAccountModeSchema = z.enum(['mobile_otp_required', 'guest_allowed']);
 export const CustomerStatusSchema = z.enum(['active', 'blocked', 'closed']);
 export const TemplateSurfaceSchema = z.enum(['home', 'faq', 'registration_flow']);
 export const TemplateFlowPresetSchema = z.enum(['standard', 'quick', 'free']);
@@ -93,12 +172,42 @@ export const InvoiceRequestStatusSchema = z.enum([
   'voided',
   'cancelled',
 ]);
+export const RegistrationBusinessStatusSchema = z.enum([
+  'pending_review',
+  'pending_payment',
+  'payment_processing',
+  'payment_failed',
+  'paid',
+  'partially_refunded',
+  'refunded',
+  'closed',
+  'confirmed',
+]);
+export const RegistrationLatestPaymentStatusSchema = z.enum([
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'refunded',
+  'preparing',
+  'query_pending',
+  'close_pending',
+  'closed',
+  'unknown',
+]);
+export const RegistrationInvoiceSummaryStatusSchema = z.enum([
+  'not_eligible',
+  'eligible',
+  ...InvoiceRequestStatusSchema.options,
+]);
 
 export const EventRegistrationSettingsSchema = z.object({
   paymentMode: EventPaymentModeSchema.default('ticketed'),
   currency: z.literal('CNY').default('CNY'),
   registrationOpen: z.boolean().default(true),
   accountMode: CustomerAccountModeSchema.default('mobile_otp_required'),
+  additionalPurchaseEnabled: z.boolean().default(false),
+  maxActiveSeatsPerPurchaser: z.number().int().min(1).max(20).default(5),
 });
 
 export const EventSettingsSchema = z.object({
@@ -111,6 +220,8 @@ export const EventSettingsSchema = z.object({
     currency: 'CNY',
     registrationOpen: true,
     accountMode: 'mobile_otp_required',
+    additionalPurchaseEnabled: false,
+    maxActiveSeatsPerPurchaser: 5,
   }),
   stats: z
     .object({
@@ -187,7 +298,7 @@ export const OrganizationSettingsSchema = z.object({
   defaultTemplateId: z.string().nullable().default(null),
   customerAccounts: z
     .object({
-      defaultAccountMode: CustomerAccountModeSchema.default('mobile_otp_required'),
+      defaultAccountMode: StoredOrganizationAccountModeSchema.default('mobile_otp_required'),
       termsUrl: OptionalHttpsUrlSchema.default(''),
       termsVersion: z.string().trim().max(40).default(''),
       privacyUrl: OptionalHttpsUrlSchema.default(''),
@@ -231,6 +342,7 @@ export const TemplateHomeBlockSchema = z.object({
     'value',
     'agenda',
     'speakers',
+    'members',
     'tickets',
     'faq-summary',
     'organizer',
@@ -266,6 +378,7 @@ export const TemplateFlowStepSchema = z.object({
     'attendee-form',
     'review-payment',
     'success-ticket',
+    'member-profile',
     'waitlist',
     'manual-review',
     'invoice-details',
@@ -692,7 +805,18 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '顶部导航',
           enabled: true,
           variant: 'minimal',
-          content: {},
+          content: {
+            logoMark: 'G',
+            brandLabel: 'GEO大会',
+            brandMeta: '2026 · 第二届',
+            whyLabel: '为什么',
+            editionLabel: '第二届',
+            agendaLabel: '议程',
+            speakersLabel: '嘉宾',
+            ticketsLabel: '门票',
+            faqLabel: 'FAQ',
+            actionLabel: '立即报名',
+          },
         },
         {
           nodeKey: 'home.hero',
@@ -702,11 +826,34 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'editorial',
           content: {
             eyebrow: 'ANNUAL CONFERENCE',
-            titlePrefix: '2026 全球',
-            titleEvent: '大会运营峰会',
-            slogan: '让每一次相聚都顺利发生',
+            titlePrefix: '第二届中国',
+            titleEvent: 'GEO & AI 营销大会',
+            slogan: '让好的品牌被 AI 正确推荐',
+            descriptionLead: '当十亿用户开始向 AI 提问，',
+            descriptionStrong: '「被引用、被理解、被推荐」',
+            descriptionTail: '就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。',
             primaryAction: '立即报名 ¥399',
             secondaryAction: '查看两日议程',
+            note: '第一届全部售罄',
+            answerTitle: 'AI Answer Preview',
+            answerPrompt: '帮我推荐几个适合企业增长负责人的 GEO 大会',
+            answerLabel: 'AI · 正在生成回答',
+            answerIntroduction:
+              '如果你想系统理解 AI 搜索、品牌引用与内容资产建设，优先关注这些信息密度高、案例真实的活动：',
+            answerRank1Title: 'GEO大会 2026',
+            answerRank1Body: '深圳两日主会场 + 工作坊',
+            answerRank1Badge: '推荐',
+            answerRank2Title: '行业白皮书首发',
+            answerRank2Body: '平台引用机制与效果基准',
+            answerRank2Badge: '可信源',
+            answerRank3Title: '40+ 实战嘉宾',
+            answerRank3Body: '品牌方、服务商、平台视角',
+            answerRank3Badge: '案例',
+            answerStatusTitle: '目标不是曝光，是进入 AI 的候选答案',
+            answerStatusBody: '让品牌资料、案例和可信来源被模型正确理解。',
+            priceMetricLabel: '两日通票',
+            topicsMetricLabel: '干货主题',
+            openingMetricSuffix: '开幕',
           },
         },
         {
@@ -715,7 +862,22 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '大会数据',
           enabled: true,
           variant: 'inline',
-          content: {},
+          content: {
+            daysLabel: '密集分享 + 实战工作坊',
+            speakersLabel: '一线专家与操盘手',
+            sessionsValue: '30',
+            sessionsLabel: '主题分享与实战议程',
+            benefitsLabel: '参会权益打包带走',
+            marquee1: 'GENERATIVE ENGINE OPTIMIZATION',
+            marquee2: '被 AI 看见',
+            marquee3: '被 AI 理解',
+            marquee4: '被 AI 推荐',
+            marquee5: 'AI SEARCH',
+            marquee6: '品牌占位',
+            marquee7: 'AGENT 营销',
+            marquee8: '出海 GEO',
+            marquee9: '内容资产',
+          },
         },
         {
           nodeKey: 'home.value',
@@ -723,7 +885,87 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '大会价值',
           enabled: true,
           variant: 'three-column',
-          content: {},
+          content: {
+            kicker: 'THE SHIFT',
+            title: 'AI 正在改写「被发现」的规则',
+            subtitle:
+              '搜索框正在让位给对话框。当用户开始问 AI「推荐一个……」，你的品牌是否有资格出现在那条回答里',
+            item1Title: '决策入口正在迁移',
+            item1Body:
+              '越来越多用户跳过搜索结果页，直接向 ChatGPT、DeepSeek、豆包、Kimi 要答案。AI 给出的三个推荐，就是用户的全部候选名单。',
+            item2Title: '你的品牌可能正在被 AI 忽略',
+            item2Body:
+              'AI 回答中没有你，意味着你在新入口完全缺席；AI 引用了错误信息，比缺席更危险。',
+            item3Title: 'SEO 经验还在，但规则已经变了',
+            item3Body:
+              '排名逻辑正在向「引用逻辑」迁移：AI 不看第几名，它看谁可信、谁结构清晰、谁被反复印证。',
+            item4Title: '窗口期红利只属于先行动的人',
+            item4Body:
+              '第一届大会之后，先做 GEO 的企业已经在 AI 回答中建立了占位。窗口仍在，但正在收窄。',
+            item5Title: '单点技巧不够，需要一套体系',
+            item5Body: '从内容资产、知识库、结构化数据到效果监测——GEO 是一条完整的工程链路。',
+            mockTitle: 'AI 回答示意',
+            mockPrompt: '帮我推荐几个适合 B2B 企业的营销服务商',
+            mockLabel: 'AI · 正在生成回答',
+            mockIntroduction: '根据公开资料与行业最佳实践，为你推荐：',
+            mockRank1Title: '品牌 A',
+            mockRank1Body: '全链路营销自动化，多家上市公司案例…',
+            mockRank2Title: '品牌 B',
+            mockRank2Body: '数据驱动增长平台，多行业报告引用…',
+            mockRank3Title: '品牌 C',
+            mockRank3Body: '垂直行业口碑领先，知识库结构完善…',
+            mockMissingTitle: '你的品牌',
+            mockMissingBody: '未被引用，未出现在回答中',
+            mockFoot: '如果你的品牌不在 AI 的回答里，你正在把一个全新的获客入口整体让给竞争对手。',
+          },
+        },
+        {
+          nodeKey: 'home.upgrade',
+          type: 'value',
+          label: '第二届升级',
+          enabled: true,
+          variant: 'three-column',
+          content: {
+            kicker: 'SECOND EDITION',
+            titleLine1: '第一届回答「GEO 是什么」',
+            titleLine2: '第二届回答「GEO 怎么赢」',
+            subtitle:
+              '首届北京大会全场售罄之后，我们用一年时间收集了数百条参会者反馈。第二届，在每一个维度上全面升级',
+            item1Old: '1 天',
+            item1New: '2 天',
+            item1Title: '从听讲到上手',
+            item1Body:
+              'Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。',
+            item2Old: '20+ 专家',
+            item2New: '40+ 专家',
+            item2Title: '从布道者到操盘手',
+            item2Body:
+              '新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。',
+            item3OldVenue: '北京单会场',
+            item3NewVenue: '深圳多会场',
+            item3Title: '从聚会到行业大会',
+            item3Body:
+              '移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。',
+            item4Old: '方法分享',
+            item4New: '行业基准',
+            item4Title: '首发《中国GEO行业白皮书》',
+            item4Body:
+              '联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。',
+            item5Old: '案例讲述',
+            item5New: '数据复盘',
+            item5Title: '真实账号 · 真实数据',
+            item5Body:
+              '多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。',
+            item6Old: '国内视角',
+            item6New: '全球视野',
+            item6Title: '出海 GEO 专场',
+            item6Body:
+              'ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。',
+            quote:
+              '过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。',
+            attributionNames: '姚金刚 · 乔向阳',
+            attributionRole: 'GEO大会发起人',
+          },
         },
         {
           nodeKey: 'home.agenda',
@@ -731,7 +973,28 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '大会议程',
           enabled: true,
           variant: 'timeline',
-          content: {},
+          content: {
+            kicker: 'AGENDA',
+            title: '两天，三十余场密集输出',
+            subtitle: 'Day 1 建立战略与方法论框架，Day 2 分会场实战深潜——从认知到动手，一气呵成',
+            day1Subtitle: '战略与方法论主会场',
+            day2Subtitle: '实战工作坊 + 出海专场',
+            day1MorningTag: '上午场',
+            day1MorningTitle: 'GEO 战略 · 趋势与全景',
+            day1MorningRange: '09:00 – 12:10',
+            day1AfternoonTag: '下午场',
+            day1AfternoonTitle: 'GEO 实战 · 企业与数据',
+            day1AfternoonRange: '13:30 – 18:00',
+            day2WorkshopTag: 'A 会场',
+            day2WorkshopTitle: '实战工作坊 · 带电脑上手',
+            day2WorkshopRange: '09:00 – 12:30',
+            day2GlobalTag: 'B 会场',
+            day2GlobalTitle: '出海 GEO 专场',
+            day2GlobalRange: '09:00 – 12:30',
+            day2ClosingTag: '主会场',
+            day2ClosingTitle: '前沿与未来 · 闭幕',
+            day2ClosingRange: '14:00 – 17:30',
+          },
         },
         {
           nodeKey: 'home.speakers',
@@ -739,7 +1002,26 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '演讲嘉宾',
           enabled: true,
           variant: 'editorial-grid',
-          content: {},
+          content: {
+            kicker: 'SPEAKERS',
+            title: '汇聚 40+ 国内外一线专家',
+            subtitle:
+              '围绕 AI 营销、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例',
+            moreLabel: '嘉宾阵容持续更新中 · 最终议程以现场为准',
+          },
+        },
+        {
+          nodeKey: 'home.members',
+          type: 'members',
+          label: '报名会员',
+          enabled: true,
+          variant: 'editorial-grid',
+          content: {
+            kicker: 'ATTENDEES',
+            title: '和同行者，在大会前先认识',
+            subtitle: '已报名并主动公开参会名片的会员，将按报名顺序在这里出现',
+            emptyText: '报名会员正在陆续完善参会名片',
+          },
         },
         {
           nodeKey: 'home.organizer',
@@ -747,7 +1029,22 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '主办方',
           enabled: true,
           variant: 'compact',
-          content: {},
+          content: {
+            kicker: 'INITIATORS',
+            title: '两位深耕行业多年的实战者',
+            subtitle:
+              '从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来',
+            host1Name: '姚金刚',
+            host1Role: 'GEO大会发起人 · 《AI营销：从SEO到GEO》作者',
+            host1Bio:
+              '深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。',
+            host1Goal: '目标：让每一位参会者都清楚「下周一回去该做什么」。',
+            host2Name: '乔向阳',
+            host2Role: 'GEO大会发起人 · 企业数字增长专家',
+            host2Summary:
+              '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。',
+            host2Goal: '目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。',
+          },
         },
         {
           nodeKey: 'home.tickets',
@@ -755,7 +1052,32 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '参会票种',
           enabled: true,
           variant: 'single-pass',
-          content: {},
+          content: {
+            kicker: 'TICKETS',
+            title: '一张门票，八项权益',
+            subtitlePrefix: '统一票价',
+            subtitleSuffix: '，两天议程、实战工作坊与会后学习资料均已包含',
+            priceLabel: '统一票价',
+            description: '一张票，全程参与两天大会',
+            actionLabel: '立即报名 ¥399',
+            note: '八项参会权益已全部包含',
+            benefitsEyebrow: '8 项权益，全部包含',
+            benefitsTitle: '从现场参与到会后复训，一张票覆盖完整学习周期',
+            benefit1Detail: '主会场与双分会场任意进出',
+            benefit2Detail: '完成企业 90 天行动计划',
+            benefit3Detail: '完整版现场首发',
+            benefit4Detail: '含 27 套 GEO 提示词合集',
+            benefit5Detail: '会前预习与会后复训',
+            benefit6Detail: '会后 3 个工作日发放',
+            benefit7Detail: '全年案例拆解与工具更新',
+            benefit8Detail: '含 1 次线上复盘直播 QA',
+            assurance1Title: '7 天安心退款',
+            assurance1Body: '购票后 7 天内可无理由退款',
+            assurance2Title: '参会人可转让',
+            assurance2Body: '开幕 3 天前可免费更换参会人',
+            assurance3Title: '支持开具发票',
+            assurance3Body: '可申请增值税普通发票或专用发票',
+          },
         },
         {
           nodeKey: 'home.faq-summary',
@@ -763,7 +1085,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '常见问题',
           enabled: true,
           variant: 'accordion',
-          content: {},
+          content: { kicker: 'FAQ' },
         },
         {
           nodeKey: 'home.registration-cta',
@@ -771,7 +1093,13 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '报名行动区',
           enabled: true,
           variant: 'band',
-          content: { actionLabel: '选择参会票' },
+          content: {
+            kicker: 'SEE YOU IN SHENZHEN',
+            titleLine1: '下一次用户问 AI 的时候',
+            titleLine2: '答案里应该有你',
+            actionLabel: '立即报名 ¥399',
+            assurance: '7 天无理由退款 · 支持转让 · 支持开票',
+          },
         },
         {
           nodeKey: 'home.footer',
@@ -779,7 +1107,11 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           label: '页脚',
           enabled: true,
           variant: 'simple',
-          content: {},
+          content: {
+            organizer: 'GEO大会组委会',
+            eventLabel: '中国第二届GEO主题大会',
+            support: '合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员',
+          },
         },
       ],
     },
@@ -794,25 +1126,25 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
         {
           nodeKey: 'faq.platform',
           category: '大会介绍',
-          question: '这场示例大会会展示哪些能力？',
+          question: 'GEO 到底是什么，和 SEO 有什么关系？',
           answer:
-            '示例大会覆盖官网发布、报名、支付、候补、发票、电子票、通知、现场核销和运营复盘，帮助团队理解 TokEMS 的完整业务链路。',
+            'GEO（Generative Engine Optimization）的目标是让你的品牌被 AI（ChatGPT、DeepSeek、豆包、Kimi 等）在回答用户问题时引用和推荐。它与 SEO 共享部分底层逻辑，但优化对象从「搜索引擎排名」变成了「AI 的引用与推荐」。',
           enabled: true,
         },
         {
           nodeKey: 'faq.beginner',
           category: '大会介绍',
-          question: '我没有大会运营经验，能听懂吗？',
+          question: '我完全不懂 AI，能听懂吗？',
           answer:
-            '可以。Day 1 面向主办方、运营负责人和技术团队讲解核心流程，Day 2 工作坊会带领参与者完成一条从报名到核销的演练。',
+            '完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。',
           enabled: true,
         },
         {
           nodeKey: 'faq.returning',
           category: '大会介绍',
-          question: '哪些人适合参加？',
+          question: '参加过第一届，第二届还有必要来吗？',
           answer:
-            '活动主办方、会议运营团队、票务和现场服务团队、活动技术服务商，以及关注自托管活动基础设施的开发者都可以从议程中找到对应内容。',
+            '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
           enabled: true,
         },
         {
@@ -820,7 +1152,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           category: '参会准备',
           question: '工作坊需要什么准备？',
           answer:
-            '建议携带笔记本电脑。会前会发送本地演示环境和练习清单，工作坊将使用虚构数据完成配置、报名与核销流程。',
+            '建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。',
           enabled: true,
         },
         {
@@ -828,7 +1160,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           category: '参会权益',
           question: '资料包包含什么，多久发放？',
           answer:
-            '包含嘉宾演示文档、运营检查清单、通知模板、现场核销手册和《大会运营实践手册 2026》电子版。会后 3 个工作日内通过大会通知渠道发放。',
+            '包含 40+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国GEO行业白皮书 2026》电子完整版。会后 3 个工作日内通过大会社群发放。',
           enabled: true,
         },
         {
@@ -892,6 +1224,14 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'ticket',
           enabled: true,
         },
+        {
+          nodeKey: 'flow.member-profile',
+          type: 'member-profile',
+          title: '完善个人信息',
+          helpText: '完善参会名片，可选择在大会首页展示并生成个人报名海报。',
+          variant: 'showcase',
+          enabled: true,
+        },
       ],
     },
     initialization: {
@@ -905,7 +1245,27 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
         invoices: 'EXCLUDE',
         checkins: 'EXCLUDE',
       },
-      ticketTypes: [],
+      ticketTypes: [
+        {
+          code: 'CONFERENCE_PASS',
+          name: '大会通票',
+          description: '11月21–22日 · 深圳，一张票全程参与两天大会',
+          price: 39900,
+          currency: 'CNY',
+          capacity: 500,
+          recommended: true,
+          benefits: [
+            '两日大会全通票',
+            'Day 2 实战工作坊席位',
+            '《中国GEO行业白皮书 2026》',
+            'GEO 签名书籍 1 本',
+            '1 套 GEO 线上课程',
+            '40+ 嘉宾干货资料包',
+            'GEO 会员社群',
+            '会后 7 天回放',
+          ],
+        },
+      ],
       registrationFields: [],
       termsContent: '提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。',
     },
@@ -951,15 +1311,72 @@ export const SessionSchema = z.object({
 export const RegistrationFieldSchema = z.object({
   key: z
     .string()
-    .min(1)
-    .max(80)
-    .regex(/^[a-z][a-z0-9_]*$/),
-  label: z.string().min(1).max(120),
+    .min(1, '字段键不能为空')
+    .max(80, '字段键不能超过 80 个字符')
+    .regex(/^[a-z][a-z0-9_]*$/, '字段键只能使用小写字母、数字和下划线，并以字母开头'),
+  label: z.string().min(1, '需要填写显示名称').max(120, '显示名称不能超过 120 个字符'),
   type: z.enum(['text', 'email', 'tel', 'select']),
   required: z.boolean(),
-  placeholder: z.string().max(160).optional(),
-  options: z.array(z.string().max(120)).optional(),
+  placeholder: z.string().max(160, '占位提示不能超过 160 个字符').optional(),
+  options: z.array(z.string().max(120, '单个可选值不能超过 120 个字符')).optional(),
 });
+
+export const CORE_REGISTRATION_FIELDS = [
+  { key: 'name', label: '姓名', type: 'text' },
+  { key: 'mobile', label: '手机号码', type: 'tel' },
+  { key: 'email', label: '电子邮箱', type: 'email' },
+] as const;
+
+export const RegistrationFormPublishSchema = z
+  .object({
+    name: z.string().trim().min(1, '请填写表单名称').max(120, '表单名称不能超过 120 个字符'),
+    fields: z
+      .array(RegistrationFieldSchema)
+      .min(1, '报名表至少需要一个字段')
+      .max(60, '报名表最多可以配置 60 个字段'),
+    termsVersion: z.string().min(1, '请填写条款版本').max(32, '条款版本不能超过 32 个字符'),
+    termsContent: z
+      .string()
+      .min(10, '条款正文至少需要 10 个字符')
+      .max(30_000, '条款正文不能超过 30000 个字符'),
+  })
+  .superRefine((input, context) => {
+    const keys = new Set<string>();
+    input.fields.forEach((field, index) => {
+      if (keys.has(field.key)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'key'],
+          message: '字段键必须唯一',
+        });
+      }
+      keys.add(field.key);
+      if (field.type === 'select' && !field.options?.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'options'],
+          message: '选项字段至少需要一个可选值',
+        });
+      }
+      if (field.options && new Set(field.options).size !== field.options.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'options'],
+          message: '同一字段的选项必须唯一',
+        });
+      }
+    });
+    for (const coreField of CORE_REGISTRATION_FIELDS) {
+      const field = input.fields.find((item) => item.key === coreField.key);
+      if (!field || field.type !== coreField.type || !field.required) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields'],
+          message: `${coreField.label}是系统核心字段，需保留键名 ${coreField.key}、${coreField.type} 类型并设为必填`,
+        });
+      }
+    }
+  });
 
 export const RegistrationFormSchema = z.object({
   id: z.string(),
@@ -1032,25 +1449,44 @@ export const PublicEventSchema = z.object({
     .optional(),
 });
 
-export const CreateRegistrationSchema = z.object({
-  eventId: EventIdSchema,
-  ticketTypeId: z.string().min(1),
-  attendee: z.object({
-    name: z.string().trim().max(80).default(''),
-    mobile: z.string().trim().min(7).max(24),
-    email: z.union([z.email(), z.literal('')]).default(''),
-    company: z.string().trim().max(120).default(''),
-    title: z.string().trim().max(80).default(''),
-    city: z.string().trim().max(60).default(''),
-  }),
-  invoiceRequired: z.boolean().default(false),
-  marketingConsent: z.boolean().default(false),
-  termsAccepted: z.literal(true),
-  formVersion: z.number().int().positive().default(1),
-  termsVersion: z.string().min(1).max(32).default('2026-07-16'),
-  formAnswers: RegistrationAnswersSchema.optional(),
-  waitlistOfferToken: z.string().min(32).max(200).optional(),
-});
+export const REGISTRATION_PREFERENCE_DEFAULTS = {
+  invoiceRequired: false,
+  marketingConsent: false,
+  termsAccepted: false,
+} as const;
+
+export const CreateRegistrationSchema = z
+  .object({
+    eventId: EventIdSchema,
+    ticketTypeId: z.string().min(1),
+    attendee: z.object({
+      name: z.string().trim().max(80).default(''),
+      mobile: z.string().trim().min(7).max(24),
+      email: z.union([z.email(), z.literal('')]).default(''),
+      company: z.string().trim().max(120).default(''),
+      title: z.string().trim().max(80).default(''),
+      city: z.string().trim().max(60).default(''),
+    }),
+    invoiceRequired: z.boolean().default(REGISTRATION_PREFERENCE_DEFAULTS.invoiceRequired),
+    marketingConsent: z.boolean().default(REGISTRATION_PREFERENCE_DEFAULTS.marketingConsent),
+    termsAccepted: z.literal(true),
+    purchaseFor: z.enum(['self', 'other']).default('self'),
+    purchaseIntentId: z.uuid().default(() => globalThis.crypto.randomUUID()),
+    proxyAuthorizationAccepted: z.boolean().default(false),
+    formVersion: z.number().int().positive().default(1),
+    termsVersion: z.string().min(1).max(32).default('2026-07-16'),
+    formAnswers: RegistrationAnswersSchema.optional(),
+    waitlistOfferToken: z.string().min(32).max(200).optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.purchaseFor === 'other' && !input.proxyAuthorizationAccepted) {
+      context.addIssue({
+        code: 'custom',
+        path: ['proxyAuthorizationAccepted'],
+        message: '代他人购票需要确认已获得参会人授权',
+      });
+    }
+  });
 
 export const WaitlistJoinSchema = z
   .object({
@@ -1104,6 +1540,10 @@ export const OrderSchema = z.object({
   createdAt: z.string(),
 });
 
+export const CustomerOrderAccessSchema = OrderSchema.extend({
+  isProxyPurchase: z.boolean(),
+});
+
 export const PaymentCallbackSchema = z.object({
   orderId: z.string().min(1),
   externalId: z.string().trim().min(6).max(120),
@@ -1126,6 +1566,7 @@ export const TicketSchema = z.object({
 });
 
 export const RegistrationCheckoutSchema = z.object({
+  isProxyPurchase: z.boolean(),
   registration: RegistrationSchema,
   order: OrderSchema,
   orderAccessToken: z.string().min(32).max(500).optional(),
@@ -1161,6 +1602,9 @@ export const AdminDashboardSchema = z.object({
   metrics: z.object({
     registrations: z.number().int(),
     paidOrders: z.number().int(),
+    paidSeats: z.number().int(),
+    confirmedAttendees: z.number().int(),
+    purchasers: z.number().int(),
     revenue: z.number().int(),
     checkedIn: z.number().int(),
     conversionRate: z.number(),
@@ -1172,9 +1616,68 @@ export const AdminDashboardSchema = z.object({
   ),
 });
 
+const AdminDashboardDateSchema = z.iso
+  .date()
+  .refine((value) => value >= '0001-01-01', '趋势日期必须晚于公元 1 年 1 月 1 日');
+
+export const AdminDashboardQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(366).optional(),
+    from: AdminDashboardDateSchema.optional(),
+    to: AdminDashboardDateSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.days && (value.from || value.to)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['days'],
+        message: '预设天数与自定义日期区间不能同时使用',
+      });
+      return;
+    }
+    if (Boolean(value.from) !== Boolean(value.to)) {
+      context.addIssue({
+        code: 'custom',
+        path: value.from ? ['to'] : ['from'],
+        message: '自定义趋势需要同时提供开始和结束日期',
+      });
+      return;
+    }
+    if (!value.from || !value.to) return;
+    const from = Date.parse(`${value.from}T00:00:00.000Z`);
+    const to = Date.parse(`${value.to}T00:00:00.000Z`);
+    if (from > to) {
+      context.addIssue({
+        code: 'custom',
+        path: ['to'],
+        message: '结束日期不能早于开始日期',
+      });
+      return;
+    }
+    if ((to - from) / 86_400_000 + 1 > 366) {
+      context.addIssue({
+        code: 'custom',
+        path: ['to'],
+        message: '单次趋势查询最多支持 366 天',
+      });
+    }
+  });
+
+export const StaffUsernameSchema = z
+  .string()
+  .trim()
+  .min(3, '用户名至少需要 3 个字符')
+  .max(32, '用户名最多 32 个字符')
+  .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, '用户名需以字母开头，只能包含字母、数字、下划线和短横线')
+  .transform((value) => value.toLowerCase());
+
 const LoginCredentialsSchema = z.object({
   username: z.string().trim().min(1).max(255),
-  password: z.string().min(1).max(255),
+  password: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((value) => new TextEncoder().encode(value).length <= 72, '密码最多 72 个 UTF-8 字节'),
   organizationSlug: z
     .string()
     .trim()
@@ -1194,16 +1697,24 @@ export const LoginResultSchema = z.object({
   accessToken: z.string(),
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
     role: OrganizationRoleSchema,
   }),
 });
 
+export const AdminPreferencesSchema = z.object({
+  lastEventId: EventIdSchema.nullable(),
+});
+
+export const UpdateAdminPreferencesSchema = AdminPreferencesSchema.strict();
+
 export const AuthMeSchema = z.object({
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
   }),
   organization: z.object({
@@ -1217,13 +1728,228 @@ export const AuthMeSchema = z.object({
     role: OrganizationRoleSchema,
     grants: z.array(z.string()),
     status: MembershipStatusSchema,
+    isSuperAdministrator: z.boolean().default(false),
   }),
+  adminPreferences: AdminPreferencesSchema.default({ lastEventId: null }),
 });
 
 export const MainlandMobileSchema = z
   .string()
   .trim()
   .regex(/^(?:\+?86)?1[3-9]\d{9}$/, '请输入有效的中国大陆手机号');
+
+export const ATTENDEE_INDUSTRY_OPTIONS = [
+  { code: 'ai', label: 'AI / 大模型 / Agent' },
+  { code: 'brand-marketing-geo', label: '品牌 / 市场 / GEO' },
+  { code: 'internet-software-it', label: '互联网 / 软件 / IT' },
+  { code: 'ecommerce-retail-consumer', label: '电商 / 零售 / 消费品牌' },
+  { code: 'enterprise-service-consulting', label: '企业服务 / 咨询' },
+  { code: 'advertising-media-content', label: '广告 / 媒体 / 内容' },
+  { code: 'education-training', label: '教育 / 培训' },
+  { code: 'finance-investment', label: '金融 / 投资' },
+  { code: 'healthcare', label: '医疗 / 健康' },
+  { code: 'manufacturing-supply-chain', label: '制造 / 供应链' },
+  { code: 'real-estate-construction', label: '房地产 / 建筑' },
+  { code: 'government-association-public', label: '政府 / 协会 / 公共服务' },
+  { code: 'other', label: '其他' },
+] as const;
+
+export const AttendeeIndustryCodeSchema = z.enum(
+  ATTENDEE_INDUSTRY_OPTIONS.map((item) => item.code) as [
+    (typeof ATTENDEE_INDUSTRY_OPTIONS)[number]['code'],
+    ...(typeof ATTENDEE_INDUSTRY_OPTIONS)[number]['code'][],
+  ],
+);
+
+export const AttendeeShowcaseVisibleFieldsSchema = z.object({
+  avatar: z.boolean().default(true),
+  displayName: z.boolean().default(true),
+  company: z.boolean().default(true),
+  title: z.boolean().default(true),
+  industry: z.boolean().default(true),
+  businessIntro: z.boolean().default(true),
+  businessUrl: z.boolean().default(true),
+  contactPhone: z.boolean().default(false),
+  contactEmail: z.boolean().default(false),
+  wechatId: z.boolean().default(false),
+});
+
+export const DEFAULT_ATTENDEE_SHOWCASE_VISIBLE_FIELDS = AttendeeShowcaseVisibleFieldsSchema.parse(
+  {},
+);
+
+export const ATTENDEE_SHOWCASE_CONSENT_VERSION = 'attendee-showcase-2026-08-15' as const;
+
+const NullableTrimmedText = (max: number) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z.string().trim().max(max).nullable(),
+  );
+
+function normalizeOptionalHttpUrl(value: unknown) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^[a-z][a-z\d+.-]*:/iu.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+export const UpdateAttendeeShowcaseSchema = z
+  .object({
+    version: z.number().int().nonnegative(),
+    displayName: NullableTrimmedText(120),
+    company: NullableTrimmedText(160),
+    title: NullableTrimmedText(100),
+    industryCode: AttendeeIndustryCodeSchema.nullable(),
+    businessIntro: NullableTrimmedText(2000),
+    businessUrl: z.preprocess(
+      normalizeOptionalHttpUrl,
+      z
+        .url()
+        .refine((value) => /^https?:\/\//i.test(value), '网址仅支持 HTTP 或 HTTPS')
+        .nullable(),
+    ),
+    contactPhone: NullableTrimmedText(40),
+    contactEmail: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+      z.email().nullable(),
+    ),
+    wechatId: NullableTrimmedText(80),
+    isPublic: z.boolean(),
+    visibleFields: AttendeeShowcaseVisibleFieldsSchema,
+    consentVersion: z.literal(ATTENDEE_SHOWCASE_CONSENT_VERSION),
+  })
+  .superRefine((value, context) => {
+    if (!value.isPublic) return;
+    if (!value.displayName) {
+      context.addIssue({ code: 'custom', path: ['displayName'], message: '公开名片需要填写姓名' });
+    }
+    if (!value.industryCode) {
+      context.addIssue({ code: 'custom', path: ['industryCode'], message: '公开名片需要选择行业' });
+    }
+  });
+
+export const AttendeeShowcaseCompletionSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  completedFields: z.number().int().nonnegative(),
+  totalFields: z.number().int().positive(),
+});
+
+export const AttendeeShowcaseProfileSchema = z.object({
+  id: z.string().uuid().nullable(),
+  registrationId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  ticketCode: z.string().nullable(),
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  displayName: z.string().nullable(),
+  company: z.string().nullable(),
+  title: z.string().nullable(),
+  industryCode: AttendeeIndustryCodeSchema.nullable(),
+  businessIntro: z.string().nullable(),
+  businessUrl: z.string().nullable(),
+  contactPhone: z.string().nullable(),
+  contactEmail: z.string().nullable(),
+  wechatId: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  avatarStatus: z.enum(['none', 'processing', 'ready', 'failed']),
+  isPublic: z.boolean(),
+  effectivePublic: z.boolean(),
+  publicSlug: z.string().nullable(),
+  publicPreviewUrl: z.string().nullable(),
+  visibleFields: AttendeeShowcaseVisibleFieldsSchema,
+  consentVersion: z.string().nullable(),
+  consentAt: z.string().nullable(),
+  adminHidden: z.boolean(),
+  adminHiddenReason: z.string().nullable(),
+  qualified: z.boolean(),
+  qualificationReason: z.string().nullable(),
+  qualifiedAt: z.string().nullable(),
+  sequence: z.number().int().positive().nullable(),
+  completion: AttendeeShowcaseCompletionSchema,
+  invoiceAvailable: z.boolean(),
+  paymentRequired: z.boolean(),
+  version: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+});
+
+export const AttendeeAvatarUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+
+export const AttendeeAvatarUploadResultSchema = z.object({
+  uploadToken: z.string().uuid(),
+  uploadUrl: z.string(),
+  headers: z.record(z.string(), z.string()),
+  expiresAt: z.string(),
+});
+
+export const AttendeeAvatarConfirmSchema = z.object({
+  uploadToken: z.string().uuid(),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+
+export const PublicEventMemberListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().max(10_000).default(1),
+  industry: AttendeeIndustryCodeSchema.optional(),
+});
+
+export const PublicEventMemberItemSchema = z.object({
+  publicSlug: z.string(),
+  sequence: z.number().int().positive(),
+  displayName: z.string().optional(),
+  company: z.string().optional(),
+  title: z.string().optional(),
+  industryCode: AttendeeIndustryCodeSchema.optional(),
+  industryLabel: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  initials: z.string().optional(),
+});
+
+export const PublicEventMemberListSchema = z.object({
+  items: z.array(PublicEventMemberItemSchema),
+  total: z.number().int().nonnegative(),
+  overallTotal: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.literal(40),
+  totalPages: z.number().int().positive(),
+  categoryMode: z.boolean(),
+  industries: z.array(
+    z.object({
+      code: AttendeeIndustryCodeSchema,
+      label: z.string(),
+      count: z.number().int().positive(),
+    }),
+  ),
+});
+
+export const PublicEventMemberDetailSchema = PublicEventMemberItemSchema.extend({
+  eventName: z.string(),
+  eventSlug: z.string(),
+  businessIntro: z.string().optional(),
+  businessUrl: z.string().optional(),
+  contactPhone: z.string().optional(),
+  contactEmail: z.string().optional(),
+  wechatId: z.string().optional(),
+});
+
+export const ModerateAttendeeShowcaseSchema = z.object({
+  hidden: z.boolean(),
+  reason: z.string().trim().max(500).nullable().optional(),
+});
+
+export const AdminAttendeeShowcaseSchema = AttendeeShowcaseProfileSchema.extend({
+  customerUserId: z.number().int().min(101),
+  moderationUpdatedAt: z.string().nullable(),
+});
 
 export const CustomerProfileSchema = z.object({
   nickname: z.string().nullable(),
@@ -1262,11 +1988,30 @@ export const AdminRegistrationCustomerSchema = z.object({
 
 export const AdminRegistrationRowSchema = RegistrationSchema.extend({
   order: OrderSchema.optional(),
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
+  isProxyPurchase: z.boolean(),
   formVersion: z.number().int().positive().optional(),
   termsVersion: z.string().optional(),
+  businessStatus: RegistrationBusinessStatusSchema,
+  latestPaymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
+  paidAmount: z.number().int().nonnegative(),
+  refundedAmount: z.number().int().nonnegative(),
+  invoiceSummary: z.object({
+    status: RegistrationInvoiceSummaryStatusSchema,
+    requestNo: z.string().nullable(),
+  }),
+  lastBusinessAt: z.string(),
 });
 
-const AdminRegistrationDetailBaseSchema = AdminRegistrationRowSchema.extend({
+const AdminRegistrationDetailBaseSchema = AdminRegistrationRowSchema.omit({
+  businessStatus: true,
+  latestPaymentStatus: true,
+  paidAmount: true,
+  refundedAmount: true,
+  invoiceSummary: true,
+  lastBusinessAt: true,
+}).extend({
   updatedAt: z.string(),
   invoiceRequired: z.boolean(),
   marketingConsent: z.boolean(),
@@ -1298,8 +2043,34 @@ export const AdminRegistrationListSchema = z.object({
 export const AdminRegistrationListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
   status: RegistrationStatusSchema.optional(),
+  businessStatus: RegistrationBusinessStatusSchema.optional(),
+  invoiceStatus: RegistrationInvoiceSummaryStatusSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
+});
+
+export const AdminOrderRowSchema = OrderSchema.extend({
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
+  attendeeName: z.string(),
+  attendeeMobile: z.string(),
+  attendeeCompany: z.string(),
+  ticketTypeName: z.string(),
+  isProxyPurchase: z.boolean(),
+  fullRefundBlockedReason: z.string().nullable(),
+});
+
+export const AdminOrderListSchema = z.object({
+  items: z.array(AdminOrderRowSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.literal(20),
+});
+
+export const AdminOrderListQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  status: OrderStatusSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
 });
 
 export const RequestCustomerOtpSchema = z.object({
@@ -1346,7 +2117,33 @@ export const UpdateCustomerProfileSchema = z.object({
   city: z.string().trim().max(80).nullable(),
 });
 
-export const CustomerRegistrationSummarySchema = z.object({
+export const EventPurchaseContextSchema = z.object({
+  eventId: EventIdSchema,
+  additionalPurchaseEnabled: z.boolean(),
+  maxActiveSeatsPerPurchaser: z.number().int().min(1).max(20),
+  activeSeatCount: z.number().int().nonnegative(),
+  remainingSeatCount: z.number().int().nonnegative(),
+  canPurchaseAdditional: z.boolean(),
+  myAttendance: z
+    .object({
+      registrationId: z.string().uuid(),
+      registrationStatus: RegistrationStatusSchema,
+      ticketCode: z.string().nullable(),
+      ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
+    })
+    .nullable(),
+  myPurchases: z.object({
+    paidCount: z.number().int().nonnegative(),
+    pendingCount: z.number().int().nonnegative(),
+    activeSeatCount: z.number().int().nonnegative(),
+  }),
+  resumePaymentOrderId: z.string().uuid().nullable(),
+  recommendedActions: z.array(
+    z.enum(['resume_payment', 'view_ticket', 'buy_more', 'register_self']),
+  ),
+});
+
+const CustomerRegistrationSummaryCommonSchema = z.object({
   id: z.string(),
   eventId: EventIdSchema,
   eventName: z.string(),
@@ -1357,9 +2154,94 @@ export const CustomerRegistrationSummarySchema = z.object({
   registrationStatus: RegistrationStatusSchema,
   attendeeName: z.string(),
   ticketTypeName: z.string(),
+  ticketCode: z.string().nullable(),
+  ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
+  createdAt: z.string(),
+});
+
+const CustomerManagedRegistrationSummarySchema = CustomerRegistrationSummaryCommonSchema.extend({
+  canManageOrder: z.literal(true),
   orderId: z.string(),
   orderNo: z.string(),
   orderStatus: OrderStatusSchema,
+  amount: z.number().int().nonnegative(),
+  currency: z.string(),
+  invoiceId: z.string().nullable(),
+  invoiceStatus: InvoiceRequestStatusSchema.nullable(),
+});
+
+const CustomerAttendeeRegistrationSummarySchema = CustomerRegistrationSummaryCommonSchema.extend({
+  canManageOrder: z.literal(false),
+  orderId: z.null(),
+  orderNo: z.null(),
+  orderStatus: z.null(),
+  amount: z.null(),
+  currency: z.null(),
+  invoiceId: z.null(),
+  invoiceStatus: z.null(),
+});
+
+const normalizeLegacyRegistrationOrderAccess = (value: unknown) => {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !Object.hasOwn(value, 'canManageOrder')
+  ) {
+    return { ...value, canManageOrder: true };
+  }
+  return value;
+};
+
+export const CustomerRegistrationSummarySchema = z.preprocess(
+  normalizeLegacyRegistrationOrderAccess,
+  z.discriminatedUnion('canManageOrder', [
+    CustomerManagedRegistrationSummarySchema,
+    CustomerAttendeeRegistrationSummarySchema,
+  ]),
+);
+
+const CustomerRegistrationAttendeeSchema = z.object({
+  name: z.string(),
+  mobile: z.string(),
+  email: z.string(),
+  company: z.string(),
+  title: z.string(),
+  city: z.string(),
+});
+
+export const CustomerRegistrationDetailSchema = z.preprocess(
+  normalizeLegacyRegistrationOrderAccess,
+  z.discriminatedUnion('canManageOrder', [
+    CustomerManagedRegistrationSummarySchema.extend({
+      attendee: CustomerRegistrationAttendeeSchema,
+    }),
+    CustomerAttendeeRegistrationSummarySchema.extend({
+      attendee: CustomerRegistrationAttendeeSchema,
+    }),
+  ]),
+);
+
+export const CustomerRegistrationListSchema = z.object({
+  items: z.array(CustomerRegistrationSummarySchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const CustomerPurchasedOrderSchema = z.object({
+  id: z.string(),
+  orderNo: z.string(),
+  registrationId: z.string(),
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  attendeeName: z.string(),
+  attendeeMobile: z.string(),
+  isProxyPurchase: z.boolean(),
+  attendeeClaimed: z.boolean(),
+  canEditAttendee: z.boolean(),
+  ticketTypeName: z.string(),
+  status: OrderStatusSchema,
+  paymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
   amount: z.number().int().nonnegative(),
   currency: z.string(),
   ticketCode: z.string().nullable(),
@@ -1369,20 +2251,31 @@ export const CustomerRegistrationSummarySchema = z.object({
   createdAt: z.string(),
 });
 
-export const CustomerRegistrationDetailSchema = CustomerRegistrationSummarySchema.extend({
-  attendee: z.object({
-    name: z.string(),
-    mobile: z.string(),
-    email: z.string(),
-    company: z.string(),
-    title: z.string(),
-    city: z.string(),
-  }),
+export const CustomerPurchasedOrderListSchema = z.object({
+  items: z.array(CustomerPurchasedOrderSchema),
+  nextCursor: z.string().nullable(),
 });
 
-export const CustomerRegistrationListSchema = z.object({
-  items: z.array(CustomerRegistrationSummarySchema),
-  nextCursor: z.string().nullable(),
+export const AttendeeClaimInputSchema = z.object({
+  registrationId: z.string().uuid(),
+  claimToken: z.string().min(32).max(500),
+});
+
+export const UpdatePurchasedOrderAttendeeSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    mobile: MainlandMobileSchema.optional(),
+    email: z.union([z.email(), z.literal('')]).optional(),
+    company: z.string().trim().max(160).optional(),
+    title: z.string().trim().max(100).optional(),
+    city: z.string().trim().max(80).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, '至少修改一个参会人字段');
+
+export const AttendeeClaimResultSchema = z.object({
+  claimed: z.literal(true),
+  claimedAt: z.string(),
+  registration: CustomerRegistrationSummarySchema,
 });
 
 export const ClaimCustomerRegistrationSchema = z.object({
@@ -1472,6 +2365,8 @@ export const CustomerAdminSummarySchema = z.object({
   eventCount: z.number().int().nonnegative(),
   activeEventCount: z.number().int().nonnegative(),
   invoiceCount: z.number().int().nonnegative(),
+  showcaseCount: z.number().int().nonnegative(),
+  publicShowcaseCount: z.number().int().nonnegative(),
   latestEventName: z.string().nullable(),
   latestRegistration: CustomerAdminLatestRegistrationSchema.nullable(),
   lastRegistrationAt: z.string().nullable(),
@@ -1693,20 +2588,41 @@ export const CustomerAdminDetailSchema = z.object({
   registrationNextCursor: z.string().nullable(),
   invoices: z.array(CustomerInvoiceSummarySchema),
   invoiceNextCursor: z.string().nullable(),
+  showcases: z.array(AdminAttendeeShowcaseSchema),
 });
 
 export const DeleteCustomerAdminResultSchema = z.object({
   deleted: z.literal(true),
   detachedRegistrations: z.number().int().nonnegative(),
   detachedWaitlistEntries: z.number().int().nonnegative(),
+  detachedPurchaserOrders: z.number().int().nonnegative().optional(),
 });
 
-export const UpdateCustomerAdminSchema = z.object({
-  profile: UpdateCustomerProfileSchema.optional(),
-  status: CustomerStatusSchema.optional(),
-  internalNote: z.string().trim().max(2000).optional(),
-  tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
+export const CreateCustomerAdminSchema = z.object({
+  mobile: MainlandMobileSchema,
+  nickname: z.string().trim().max(80).nullable().optional(),
+  realName: z.string().trim().max(120).nullable().optional(),
+  email: z.email().nullable().optional(),
+  company: z.string().trim().max(160).nullable().optional(),
+  title: z.string().trim().max(100).nullable().optional(),
+  city: z.string().trim().max(80).nullable().optional(),
 });
+
+export const CreateCustomerAdminResultSchema = z.object({
+  customerId: CustomerIdentitySchema.shape.id,
+});
+
+export const UpdateCustomerAdminSchema = z
+  .object({
+    profile: UpdateCustomerProfileSchema.optional(),
+    status: CustomerStatusSchema.optional(),
+    internalNote: z.string().trim().max(2000).optional(),
+    tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
+  })
+  .strict()
+  .refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: '至少提交一个用户字段',
+  });
 
 export const CustomerAdminListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -1729,12 +2645,14 @@ export const CustomerRegistrationListQuerySchema = z.object({
 export const OrganizationMemberSchema = z.object({
   id: z.string(),
   userId: z.number().int().min(101),
-  email: z.email(),
+  email: z.email().nullable(),
+  username: StaffUsernameSchema.nullable().optional(),
   name: z.string(),
   mobile: z.string().nullable(),
   role: OrganizationRoleSchema,
   grants: z.array(z.string()),
   status: MembershipStatusSchema,
+  isSuperAdministrator: z.boolean().default(false),
   profile: z
     .object({
       company: z.string().nullable(),
@@ -1749,7 +2667,8 @@ export const OrganizationMemberSchema = z.object({
 export const AccountProfileSchema = z.object({
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
     mobile: z.string().nullable(),
   }),
@@ -1813,6 +2732,26 @@ export const CreateOrganizationInvitationSchema = z.object({
   grants: z.array(GrantSchema).max(100),
 });
 
+const StaffPasswordSchema = z
+  .string()
+  .min(8, '密码至少需要 8 个字符')
+  .max(200)
+  .refine((value) => new TextEncoder().encode(value).length <= 72, '密码最多 72 个 UTF-8 字节');
+
+export const CreateOrganizationAdministratorSchema = z.object({
+  username: StaffUsernameSchema,
+  password: StaffPasswordSchema,
+});
+
+export const UpdateOrganizationAdministratorSchema = z
+  .object({
+    username: StaffUsernameSchema.optional(),
+    password: StaffPasswordSchema.optional(),
+  })
+  .refine((value) => Boolean(value.username || value.password), {
+    message: '用户名或密码至少需要修改一项',
+  });
+
 export const OrganizationInvitationSchema = z.object({
   id: z.string(),
   email: z.email(),
@@ -1833,7 +2772,7 @@ export const CreateOrganizationInvitationResultSchema = z.object({
 export const AcceptOrganizationInvitationSchema = z.object({
   token: z.string().min(32).max(200),
   name: z.string().trim().min(1).max(120),
-  password: z.string().min(8).max(200),
+  password: StaffPasswordSchema,
 });
 
 export const OrganizationSettingsResultSchema = z.object({
@@ -2118,9 +3057,9 @@ export const PublicSiteConfigurationSchema = z.object({
   }),
 });
 
-export const EventSummarySchema = z.object({
+export const EventContextOptionSchema = z.object({
   id: EventIdSchema,
-  slug: z.string(),
+  slug: EventSlugSchema,
   name: z.string(),
   shortName: z.string(),
   status: EventStatusSchema,
@@ -2128,26 +3067,68 @@ export const EventSummarySchema = z.object({
   endsAt: z.string(),
   city: z.string(),
   registrationCount: z.number().int().nonnegative(),
+});
+
+export const EventSummarySchema = EventContextOptionSchema.extend({
   currentReleaseId: z.string().nullable(),
   templateKey: z.string().nullable(),
   templateName: z.string().nullable().default(null),
   templateVersion: z.number().int().positive().nullable().default(null),
   templateUpgradeAvailable: z.boolean().default(false),
+  isHomepageDefault: z.boolean().default(false),
 });
+
+export const SetOrganizationHomepageEventSchema = z.object({
+  eventId: EventIdSchema,
+});
+
+export const OrganizationHomepageEventSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: EventIdSchema,
+  slug: EventSlugSchema,
+  name: z.string(),
+  updatedAt: z.string(),
+});
+
+export const EventSlugAvailabilitySchema = z.object({
+  slug: EventShortSlugSchema,
+  available: z.boolean(),
+  current: z.boolean().default(false),
+});
+
+export const UpdateEventSlugSchema = z.object({
+  slug: EventShortSlugSchema,
+});
+
+export const EventSlugUpdateResultSchema = z.object({
+  eventId: EventIdSchema,
+  slug: EventShortSlugSchema,
+  previousSlug: EventSlugSchema,
+  updatedAt: z.string(),
+});
+
+const EventTimezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .refine((value) => {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: value }).format();
+      return true;
+    } catch {
+      return false;
+    }
+  }, '请输入有效的 IANA 时区');
 
 export const CreateEventSchema = z
   .object({
     name: z.string().trim().min(2).max(180),
     shortName: z.string().trim().min(2).max(80),
-    slug: z
-      .string()
-      .trim()
-      .min(3)
-      .max(100)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    slug: EventShortSlugSchema.optional(),
     startsAt: z.iso.datetime(),
     endsAt: z.iso.datetime(),
-    timezone: z.string().min(1).optional(),
+    timezone: EventTimezoneSchema.optional(),
     venue: z.string().trim().min(1).max(160),
     city: z.string().trim().min(1).max(80),
     address: z.string().trim().min(1).max(240),
@@ -2167,7 +3148,7 @@ export const UpdateEventSchema = z
     description: z.string().trim().min(10).max(20_000).optional(),
     startsAt: z.iso.datetime().optional(),
     endsAt: z.iso.datetime().optional(),
-    timezone: z.string().trim().min(1).max(80).optional(),
+    timezone: EventTimezoneSchema.optional(),
     venue: z.string().trim().min(1).max(160).optional(),
     city: z.string().trim().min(1).max(80).optional(),
     address: z.string().trim().min(1).max(240).optional(),
@@ -2427,11 +3408,29 @@ export const InvoiceBuyerSchema = z
     }
   });
 
-export const CustomerCreateInvoiceSchema = InvoiceBuyerSchema.strict();
+export const CustomerInvoiceBuyerSchema = z
+  .object({
+    companyName: z.string().trim().min(2).max(200),
+    taxId: z.string().trim().min(8).max(40),
+    email: z.email().max(255),
+  })
+  .strict();
 
-export const CustomerUpdateInvoiceSchema = InvoiceBuyerSchema.extend({
-  expectedUpdatedAt: z.iso.datetime(),
-}).strict();
+const CustomerLegacyInvoiceBuyerSchema = InvoiceBuyerSchema.strict();
+
+export const CustomerCreateInvoiceSchema = z.union([
+  CustomerInvoiceBuyerSchema,
+  CustomerLegacyInvoiceBuyerSchema,
+]);
+
+export const CustomerUpdateInvoiceSchema = z.union([
+  CustomerInvoiceBuyerSchema.extend({
+    expectedUpdatedAt: z.iso.datetime(),
+  }).strict(),
+  CustomerLegacyInvoiceBuyerSchema.extend({
+    expectedUpdatedAt: z.iso.datetime(),
+  }).strict(),
+]);
 
 export const CustomerSubmitInvoiceSchema = z.union([
   CustomerUpdateInvoiceSchema,
@@ -2440,6 +3439,84 @@ export const CustomerSubmitInvoiceSchema = z.union([
 
 export const SubmitInvoiceDetailsSchema = InvoiceBuyerSchema.extend({
   accessToken: z.string().min(32).max(500),
+});
+
+export const InvoiceBatchManifestItemSchema = z
+  .object({
+    requestNo: z.string().trim().min(6).max(48),
+    invoiceNumber: z.string().trim().min(1).max(80),
+    invoiceCode: z.string().trim().max(80).default(''),
+    uploadFile: z
+      .string()
+      .trim()
+      .min(11)
+      .max(300)
+      .regex(/^files\/[A-Za-z0-9._-]+\.(?:pdf|ofd)$/i, '文件必须位于 files/ 目录'),
+    mediaType: z.enum(['application/pdf', 'application/ofd']),
+    size: z
+      .number()
+      .int()
+      .positive()
+      .max(20 * 1024 * 1024),
+    contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+  })
+  .strict();
+
+export const InvoiceBatchPreflightSchema = z
+  .object({ items: z.array(InvoiceBatchManifestItemSchema).min(1).max(1000) })
+  .strict()
+  .superRefine((value, context) => {
+    const requestNos = new Set<string>();
+    const uploadFiles = new Set<string>();
+    const contentDigests = new Set<string>();
+    value.items.forEach((item, index) => {
+      if (requestNos.has(item.requestNo)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'requestNo'],
+          message: '同一批次的申请单号不能重复',
+        });
+      }
+      if (uploadFiles.has(item.uploadFile)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'uploadFile'],
+          message: '同一批次的文件路径不能重复',
+        });
+      }
+      if (contentDigests.has(item.contentDigest.toLowerCase())) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'contentDigest'],
+          message: '同一批次的文件内容不能重复',
+        });
+      }
+      const extension = item.uploadFile.toLowerCase().endsWith('.ofd') ? 'ofd' : 'pdf';
+      const expectedMediaType = extension === 'ofd' ? 'application/ofd' : 'application/pdf';
+      if (item.mediaType !== expectedMediaType) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'mediaType'],
+          message: '文件扩展名与媒体类型不一致',
+        });
+      }
+      requestNos.add(item.requestNo);
+      uploadFiles.add(item.uploadFile);
+      contentDigests.add(item.contentDigest.toLowerCase());
+    });
+  });
+
+export const InvoiceBatchPreflightResultSchema = z.object({
+  items: z.array(
+    z.object({
+      requestNo: z.string(),
+      invoiceId: z.string().nullable(),
+      status: z.enum(['ready', 'error']),
+      message: z.string(),
+    }),
+  ),
+  readyCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
 });
 
 export const RequestOrderAccessLinkSchema = z.object({
@@ -2505,6 +3582,163 @@ export const InvoiceRequestSchema = z.object({
   updatedAt: z.string(),
   documents: z.array(InvoiceDocumentSchema).default([]),
   logs: z.array(InvoiceStateLogSchema).default([]),
+});
+
+export const AdminRegistrationOperationsRegistrationSchema = RegistrationSchema.extend({
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
+  isProxyPurchase: z.boolean(),
+  formVersion: z.number().int().positive().optional(),
+  termsVersion: z.string().optional(),
+  updatedAt: z.string(),
+  invoiceRequired: z.boolean(),
+  marketingConsent: z.boolean(),
+  consentSnapshot: z.record(z.string(), z.unknown()),
+});
+
+export const AdminRegistrationOperationsCustomerSchema = z.discriminatedUnion('access', [
+  z.object({ access: z.literal('unlinked') }).strict(),
+  z.object({ access: z.literal('restricted') }).strict(),
+  z
+    .object({
+      access: z.literal('included'),
+      customer: AdminRegistrationCustomerSchema,
+    })
+    .strict(),
+]);
+
+export const AdminRegistrationOperationsTicketSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  status: z.enum(['valid', 'used', 'cancelled']),
+  issuedAt: z.string(),
+});
+
+export const AdminRegistrationOperationsCheckinSchema = z.object({
+  id: z.string(),
+  result: z.enum(['accepted', 'duplicate', 'invalid', 'forbidden', 'manual_review']),
+  listName: z.string(),
+  deviceName: z.string(),
+  operatorName: z.string().nullable(),
+  checkedInAt: z.string(),
+});
+
+export const AdminRegistrationOperationsPaymentSchema = z.object({
+  id: z.string(),
+  provider: z.string(),
+  channel: z.enum(['native', 'jsapi', 'h5', 'free', 'mock']).nullable(),
+  outTradeNo: z.string().nullable(),
+  externalId: z.string().nullable(),
+  status: z.enum([
+    'pending',
+    'processing',
+    'succeeded',
+    'failed',
+    'refunded',
+    'preparing',
+    'query_pending',
+    'close_pending',
+    'closed',
+    'unknown',
+  ]),
+  amount: z.number().int().nonnegative(),
+  currency: z.string().length(3),
+  preparedAt: z.string().nullable(),
+  succeededAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  lastQueriedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const AdminRegistrationOperationsRefundSchema = RefundSchema.extend({
+  updatedAt: z.string().optional(),
+});
+
+const AdminRegistrationOperationsCommerceIncludedSchema = z
+  .object({
+    access: z.literal('included'),
+    order: OrderSchema.nullable(),
+    successfulPayment: AdminRegistrationOperationsPaymentSchema.nullable(),
+    paymentAttempts: z.array(AdminRegistrationOperationsPaymentSchema).max(10),
+    refunds: z.array(AdminRegistrationOperationsRefundSchema),
+    totals: z.object({
+      paidAmount: z.number().int().nonnegative(),
+      succeededRefundAmount: z.number().int().nonnegative(),
+      processingRefundAmount: z.number().int().nonnegative(),
+      refundableAmount: z.number().int().nonnegative(),
+    }),
+  })
+  .strict();
+
+export const AdminRegistrationOperationsCommerceSchema = z.discriminatedUnion('access', [
+  z.object({ access: z.literal('restricted') }).strict(),
+  AdminRegistrationOperationsCommerceIncludedSchema,
+]);
+
+export const AdminRegistrationOperationsInvoiceRequestSchema = InvoiceRequestSchema.omit({
+  documents: true,
+  logs: true,
+}).extend({
+  documents: z.array(InvoiceDocumentSchema.omit({ storageKey: true, contentDigest: true })).max(20),
+  logs: z.array(InvoiceStateLogSchema).max(50),
+});
+
+export const AdminRegistrationOperationsInvoiceSchema = z.discriminatedUnion('access', [
+  z.object({ access: z.literal('restricted') }).strict(),
+  z
+    .object({
+      access: z.literal('included'),
+      request: AdminRegistrationOperationsInvoiceRequestSchema.nullable(),
+    })
+    .strict(),
+]);
+
+export const RegistrationNoteSchema = z.object({
+  id: z.string(),
+  body: z.string().max(2000),
+  authorName: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const UpdateAdminRegistrationAttendeeSchema = z
+  .object({
+    attendee: z
+      .object({
+        name: z.string().trim().min(1).max(80),
+        mobile: z.string().trim().min(7).max(24),
+        email: z.union([z.email(), z.literal('')]),
+        company: z.string().trim().max(120),
+        title: z.string().trim().max(80),
+        city: z.string().trim().max(60),
+      })
+      .strict(),
+    reason: z.string().trim().min(2).max(500),
+  })
+  .strict();
+
+export const CreateRegistrationNoteSchema = z
+  .object({ body: z.string().trim().min(1).max(2000) })
+  .strict();
+
+export const AdminRegistrationCapabilitySchema = z.object({
+  allowed: z.boolean(),
+  reasonCode: z.string().optional(),
+});
+
+export const AdminRegistrationOperationsDetailSchema = z.object({
+  snapshotAt: z.string(),
+  traceId: z.string(),
+  registration: AdminRegistrationOperationsRegistrationSchema,
+  customer: AdminRegistrationOperationsCustomerSchema,
+  fulfillment: z.object({
+    ticket: AdminRegistrationOperationsTicketSchema.nullable(),
+    checkins: z.array(AdminRegistrationOperationsCheckinSchema),
+  }),
+  commerce: AdminRegistrationOperationsCommerceSchema,
+  invoice: AdminRegistrationOperationsInvoiceSchema,
+  notes: z.array(RegistrationNoteSchema),
+  capabilities: z.record(z.string(), AdminRegistrationCapabilitySchema),
 });
 
 export const CustomerInvoiceDetailSchema = InvoiceRequestSchema.omit({
@@ -2676,11 +3910,13 @@ export type TicketType = z.infer<typeof TicketTypeSchema>;
 export type Speaker = z.infer<typeof SpeakerSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type RegistrationField = z.infer<typeof RegistrationFieldSchema>;
+export type RegistrationFormPublish = z.infer<typeof RegistrationFormPublishSchema>;
 export type RegistrationForm = z.infer<typeof RegistrationFormSchema>;
 export type PublicEvent = z.infer<typeof PublicEventSchema>;
 export type CreateRegistration = z.infer<typeof CreateRegistrationSchema>;
 export type Registration = z.infer<typeof RegistrationSchema>;
 export type Order = z.infer<typeof OrderSchema>;
+export type CustomerOrderAccess = z.infer<typeof CustomerOrderAccessSchema>;
 export type PaymentCallback = z.infer<typeof PaymentCallbackSchema>;
 export type Ticket = z.infer<typeof TicketSchema>;
 export type RegistrationCheckout = z.infer<typeof RegistrationCheckoutSchema>;
@@ -2689,24 +3925,67 @@ export type WaitlistJoin = z.infer<typeof WaitlistJoinSchema>;
 export type WaitlistEntry = z.infer<typeof WaitlistEntrySchema>;
 export type CheckInRequest = z.infer<typeof CheckInRequestSchema>;
 export type AdminDashboard = z.infer<typeof AdminDashboardSchema>;
+export type AdminDashboardQuery = z.infer<typeof AdminDashboardQuerySchema>;
 export type Login = z.infer<typeof LoginSchema>;
 export type LoginResult = z.infer<typeof LoginResultSchema>;
+export type AdminPreferences = z.infer<typeof AdminPreferencesSchema>;
+export type UpdateAdminPreferences = z.infer<typeof UpdateAdminPreferencesSchema>;
 export type AuthMe = z.infer<typeof AuthMeSchema>;
 export type CustomerProfile = z.infer<typeof CustomerProfileSchema>;
+export type AttendeeIndustryCode = z.infer<typeof AttendeeIndustryCodeSchema>;
+export type AttendeeShowcaseVisibleFields = z.infer<typeof AttendeeShowcaseVisibleFieldsSchema>;
+export type UpdateAttendeeShowcase = z.infer<typeof UpdateAttendeeShowcaseSchema>;
+export type AttendeeShowcaseProfile = z.infer<typeof AttendeeShowcaseProfileSchema>;
+export type AttendeeAvatarUpload = z.infer<typeof AttendeeAvatarUploadSchema>;
+export type AttendeeAvatarUploadResult = z.infer<typeof AttendeeAvatarUploadResultSchema>;
+export type AttendeeAvatarConfirm = z.infer<typeof AttendeeAvatarConfirmSchema>;
+export type PublicEventMemberListQuery = z.infer<typeof PublicEventMemberListQuerySchema>;
+export type PublicEventMemberItem = z.infer<typeof PublicEventMemberItemSchema>;
+export type PublicEventMemberList = z.infer<typeof PublicEventMemberListSchema>;
+export type PublicEventMemberDetail = z.infer<typeof PublicEventMemberDetailSchema>;
+export type ModerateAttendeeShowcase = z.infer<typeof ModerateAttendeeShowcaseSchema>;
+export type AdminAttendeeShowcase = z.infer<typeof AdminAttendeeShowcaseSchema>;
 export type CustomerIdentity = z.infer<typeof CustomerIdentitySchema>;
 export type AdminRegistrationCustomer = z.infer<typeof AdminRegistrationCustomerSchema>;
 export type AdminRegistrationRow = z.infer<typeof AdminRegistrationRowSchema>;
+export type RegistrationBusinessStatus = z.infer<typeof RegistrationBusinessStatusSchema>;
+export type RegistrationInvoiceSummaryStatus = z.infer<
+  typeof RegistrationInvoiceSummaryStatusSchema
+>;
 export type AdminRegistrationDetail = z.infer<typeof AdminRegistrationDetailSchema>;
+export type AdminRegistrationOperationsDetail = z.infer<
+  typeof AdminRegistrationOperationsDetailSchema
+>;
+export type UpdateAdminRegistrationAttendee = z.infer<typeof UpdateAdminRegistrationAttendeeSchema>;
+export type CreateRegistrationNote = z.infer<typeof CreateRegistrationNoteSchema>;
+export type AdminRegistrationOperationsPayment = z.infer<
+  typeof AdminRegistrationOperationsPaymentSchema
+>;
+export type AdminRegistrationOperationsCheckin = z.infer<
+  typeof AdminRegistrationOperationsCheckinSchema
+>;
+export type RegistrationNote = z.infer<typeof RegistrationNoteSchema>;
 export type AdminRegistrationList = z.infer<typeof AdminRegistrationListSchema>;
 export type AdminRegistrationListQuery = z.infer<typeof AdminRegistrationListQuerySchema>;
+export type AdminOrderRow = z.infer<typeof AdminOrderRowSchema>;
+export type AdminOrderList = z.infer<typeof AdminOrderListSchema>;
+export type AdminOrderListQuery = z.infer<typeof AdminOrderListQuerySchema>;
 export type RequestCustomerOtp = z.infer<typeof RequestCustomerOtpSchema>;
 export type RequestCustomerOtpResult = z.infer<typeof RequestCustomerOtpResultSchema>;
 export type VerifyCustomerOtp = z.infer<typeof VerifyCustomerOtpSchema>;
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>;
 export type UpdateCustomerProfile = z.infer<typeof UpdateCustomerProfileSchema>;
+export type EventPurchaseContext = z.infer<typeof EventPurchaseContextSchema>;
 export type CustomerRegistrationSummary = z.infer<typeof CustomerRegistrationSummarySchema>;
 export type CustomerRegistrationDetail = z.infer<typeof CustomerRegistrationDetailSchema>;
 export type CustomerRegistrationList = z.infer<typeof CustomerRegistrationListSchema>;
+export type CustomerPurchasedOrder = z.infer<typeof CustomerPurchasedOrderSchema>;
+export type CustomerPurchasedOrderList = z.infer<typeof CustomerPurchasedOrderListSchema>;
+export type AttendeeClaimInput = z.infer<typeof AttendeeClaimInputSchema>;
+export type AttendeeClaimResult = z.infer<typeof AttendeeClaimResultSchema>;
+export type UpdatePurchasedOrderAttendee = z.infer<
+  typeof UpdatePurchasedOrderAttendeeSchema
+>;
 export type ClaimCustomerRegistration = z.infer<typeof ClaimCustomerRegistrationSchema>;
 export type CustomerAdminDisplayNameSource = z.infer<typeof CustomerAdminDisplayNameSourceSchema>;
 export type CustomerAdminDisplayCompanySource = z.infer<
@@ -2726,6 +4005,8 @@ export type CustomerInvoiceCenterListQuery = z.infer<typeof CustomerInvoiceCente
 export type CustomerInvoiceOrderContext = z.infer<typeof CustomerInvoiceOrderContextSchema>;
 export type CustomerAdminDetail = z.infer<typeof CustomerAdminDetailSchema>;
 export type DeleteCustomerAdminResult = z.infer<typeof DeleteCustomerAdminResultSchema>;
+export type CreateCustomerAdmin = z.infer<typeof CreateCustomerAdminSchema>;
+export type CreateCustomerAdminResult = z.infer<typeof CreateCustomerAdminResultSchema>;
 export type UpdateCustomerAdmin = z.infer<typeof UpdateCustomerAdminSchema>;
 export type CustomerAdminListQuery = z.infer<typeof CustomerAdminListQuerySchema>;
 export type CustomerAdminExportQuery = z.infer<typeof CustomerAdminExportQuerySchema>;
@@ -2735,6 +4016,8 @@ export type AccountProfile = z.infer<typeof AccountProfileSchema>;
 export type UpdateAccountProfile = z.infer<typeof UpdateAccountProfileSchema>;
 export type UpdateOrganizationMember = z.infer<typeof UpdateOrganizationMemberSchema>;
 export type UpdateMembershipStatus = z.infer<typeof UpdateMembershipStatusSchema>;
+export type CreateOrganizationAdministrator = z.infer<typeof CreateOrganizationAdministratorSchema>;
+export type UpdateOrganizationAdministrator = z.infer<typeof UpdateOrganizationAdministratorSchema>;
 export type CreateOrganizationInvitation = z.infer<typeof CreateOrganizationInvitationSchema>;
 export type OrganizationInvitation = z.infer<typeof OrganizationInvitationSchema>;
 export type CreateOrganizationInvitationResult = z.infer<
@@ -2763,9 +4046,15 @@ export type UpdateAliyunSmsConfiguration = z.infer<typeof UpdateAliyunSmsConfigu
 export type TestAliyunSmsConfiguration = z.infer<typeof TestAliyunSmsConfigurationSchema>;
 export type AliyunSmsConnectionTest = z.infer<typeof AliyunSmsConnectionTestSchema>;
 export type PublicSiteConfiguration = z.infer<typeof PublicSiteConfigurationSchema>;
+export type EventContextOption = z.infer<typeof EventContextOptionSchema>;
 export type EventSummary = z.infer<typeof EventSummarySchema>;
 export type CreateEvent = z.infer<typeof CreateEventSchema>;
 export type UpdateEvent = z.infer<typeof UpdateEventSchema>;
+export type EventSlugAvailability = z.infer<typeof EventSlugAvailabilitySchema>;
+export type UpdateEventSlug = z.infer<typeof UpdateEventSlugSchema>;
+export type EventSlugUpdateResult = z.infer<typeof EventSlugUpdateResultSchema>;
+export type SetOrganizationHomepageEvent = z.infer<typeof SetOrganizationHomepageEventSchema>;
+export type OrganizationHomepageEvent = z.infer<typeof OrganizationHomepageEventSchema>;
 export type EventBlueprint = z.infer<typeof EventBlueprintSchema>;
 export type TemplatePackage = z.infer<typeof TemplatePackageSchema>;
 export type ConferenceTemplateSummary = z.infer<typeof ConferenceTemplateSummarySchema>;
@@ -2785,6 +4074,9 @@ export type PublishEvent = z.infer<typeof PublishEventSchema>;
 export type RefundRequest = z.infer<typeof RefundRequestSchema>;
 export type Refund = z.infer<typeof RefundSchema>;
 export type InvoiceBuyer = z.infer<typeof InvoiceBuyerSchema>;
+export type InvoiceBatchManifestItem = z.infer<typeof InvoiceBatchManifestItemSchema>;
+export type InvoiceBatchPreflight = z.infer<typeof InvoiceBatchPreflightSchema>;
+export type InvoiceBatchPreflightResult = z.infer<typeof InvoiceBatchPreflightResultSchema>;
 export type CustomerCreateInvoice = z.infer<typeof CustomerCreateInvoiceSchema>;
 export type CustomerUpdateInvoice = z.infer<typeof CustomerUpdateInvoiceSchema>;
 export type CustomerSubmitInvoice = z.infer<typeof CustomerSubmitInvoiceSchema>;
@@ -2813,6 +4105,7 @@ export const API_ERROR_CODES = {
   NOT_FOUND: 'NOT_FOUND',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   INVENTORY_UNAVAILABLE: 'INVENTORY_UNAVAILABLE',
+  REGISTRATION_IDENTITY_CONFLICT: 'REGISTRATION_IDENTITY_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   DUPLICATE_CHECKIN: 'DUPLICATE_CHECKIN',
 } as const;
@@ -2823,7 +4116,7 @@ export const DEMO_IDS = {
   adminUser: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   template: {
     root: '18181818-1818-4181-8181-181818181818',
-    version: '19191919-1919-4191-8191-191919191919',
+    version: '29292929-2929-4292-8292-292929292929',
   },
   tickets: {
     earlyBird: '33333333-3333-4333-8333-333333333331',
@@ -2841,15 +4134,17 @@ export const DEMO_EVENT_EXPERIENCE: NonNullable<PublicEvent['experience']> = {
   template: {
     id: DEMO_IDS.template.root,
     versionId: DEMO_IDS.template.version,
-    version: 1,
+    version: 2,
   },
   presentation: { kind: 'structured' },
   home: {
     ...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home,
+    blocks: [...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home.blocks],
     seo: {
       ...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home.seo,
-      title: 'TokEMS Demo Conference 2026 · 官方报名',
-      description: '两天密集分享，40+ 大会运营实践者，覆盖官网、报名、票务、通知、发票与现场核销。',
+      title: '中国第二届GEO大会 · 深圳 2026',
+      description:
+        '中国第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。',
     },
   },
   faq: DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.faq,
@@ -2859,12 +4154,13 @@ export const DEMO_EVENT_EXPERIENCE: NonNullable<PublicEvent['experience']> = {
 export const DEMO_EVENT: PublicEvent = {
   id: DEMO_IDS.event,
   organizationId: DEMO_IDS.organization,
-  slug: 'tokems-demo-2026',
-  name: 'TokEMS Demo Conference 2026',
-  shortName: 'TokEMS Demo 2026',
+  slug: 'tokems26',
+  name: '第二届中国 GEO & AI 营销大会',
+  shortName: 'GEO大会 2026',
   status: 'registration_open',
-  tagline: '让每一次相聚都顺利发生',
-  description: '两天密集分享，40+ 大会运营实践者，覆盖官网、报名、票务、通知、发票与现场核销。',
+  tagline: '让好的品牌被 AI 正确推荐',
+  description:
+    '当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。',
   startsAt: '2026-11-21T01:00:00.000Z',
   endsAt: '2026-11-22T09:30:00.000Z',
   timezone: 'Asia/Shanghai',
@@ -2875,7 +4171,9 @@ export const DEMO_EVENT: PublicEvent = {
     paymentMode: 'ticketed',
     currency: 'CNY',
     registrationOpen: true,
-    accountMode: 'guest_allowed',
+    accountMode: 'mobile_otp_required',
+    additionalPurchaseEnabled: false,
+    maxActiveSeatsPerPurchaser: 5,
   },
   stats: {
     seats: 500,
@@ -2886,19 +4184,19 @@ export const DEMO_EVENT: PublicEvent = {
   tickets: [
     {
       id: DEMO_IDS.tickets.earlyBird,
-      name: '两日通票',
-      description: '统一票价，一张票全程参与两天大会',
+      name: '大会通票',
+      description: '11月21–22日 · 深圳，一张票全程参与两天大会',
       price: 39900,
       currency: 'CNY',
       remaining: 500,
       benefits: [
         '两日大会全通票',
         'Day 2 实战工作坊席位',
-        '《大会运营实践手册 2026》',
-        '大会运营实战手册 1 本',
-        '1 套大会运营线上课程',
+        '《中国GEO行业白皮书 2026》',
+        'GEO 签名书籍 1 本',
+        '1 套 GEO 线上课程',
         '40+ 嘉宾干货资料包',
-        '大会运营者社群',
+        'GEO 会员社群',
         '会后 7 天回放',
       ],
       recommended: true,
@@ -2907,70 +4205,70 @@ export const DEMO_EVENT: PublicEvent = {
   speakers: [
     {
       id: '55555555-5555-4555-8555-555555555551',
-      name: 'Alex Chen',
-      role: '大型活动运营作者 · 大会发起人',
-      topic: '把大会运营流程变成可复用的系统能力',
-      initials: 'AC',
+      name: '姚金刚',
+      role: '《AI营销：从SEO到GEO》作者 · 大会发起人',
+      topic: '如何在 AI 世界占领消费者心智',
+      initials: '姚',
       accentFrom: '#7a5cd6',
       accentTo: '#3a2d6b',
-      tags: ['运营体系', '活动科技'],
+      tags: ['品牌心智', 'GEO方法论'],
     },
     {
       id: '55555555-5555-4555-8555-555555555552',
-      name: 'Maya Lee',
+      name: '乔向阳',
       role: '大会发起人 · 企业数字增长专家',
-      topic: '大会运营的下一程：行业全景',
-      initials: 'ML',
+      topic: '中国 GEO 的第二年：行业全景',
+      initials: '乔',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['行业趋势', '数字增长'],
     },
     {
       id: '55555555-5555-4555-8555-555555555553',
-      name: 'Jordan Kim',
-      role: 'Demo Labs 创始人',
-      topic: '2027 全球大会运营新趋势',
-      initials: 'JK',
+      name: '阎志涛',
+      role: 'QuickCreator 创始人',
+      topic: '2027 出海 GEO 新趋势',
+      initials: '阎',
       accentFrom: '#059669',
       accentTo: '#064e3b',
-      tags: ['全球活动', '内容运营'],
+      tags: ['出海GEO', '内容营销'],
     },
     {
       id: '55555555-5555-4555-8555-555555555554',
-      name: 'Priya Shah',
-      role: 'Example Works 全球活动负责人',
-      topic: '跨时区活动的数据与协作设计',
-      initials: 'PS',
+      name: '张凯',
+      role: '移山科技海外GEO负责人',
+      topic: 'AI 在引用谁：百万级引用样本逆向研究',
+      initials: '张',
       accentFrom: '#d97706',
       accentTo: '#78350f',
       tags: ['数据研究', 'AEO'],
     },
     {
       id: '55555555-5555-4555-8555-555555555555',
-      name: 'Noah Williams',
+      name: '向阳乔木',
       role: 'AI 自媒体 · 摇滚乐爱好者',
       topic: 'AI 产品推广三部曲 · 2026 版',
-      initials: 'NW',
+      initials: '乔',
       accentFrom: '#db2777',
       accentTo: '#701a75',
       tags: ['产品营销', '冷启动'],
     },
     {
       id: '55555555-5555-4555-8555-555555555556',
-      name: 'Sofia Garcia',
+      name: '歸藏',
       role: '自媒体 · AI产品经理 · 设计师',
-      topic: '产品视角下的大会运营策略',
-      initials: 'SG',
+      topic: 'AI 产品视角下的 GEO 策略',
+      initials: '藏',
       accentFrom: '#0891b2',
       accentTo: '#164e63',
       tags: ['产品思维', '设计策略'],
     },
     {
       id: '55555555-5555-4555-8555-555555555557',
-      name: 'Ethan Brown',
-      role: 'Open Events Lab 创始人 & CEO',
+      name: 'AGENT橘（冯雷）',
+      role: 'ListenHub 创始人 & CEO',
       topic: 'AI Agent 时代的内容分发',
-      initials: 'EB',
+      initials: '橘',
       accentFrom: '#65a30d',
       accentTo: '#365314',
       tags: ['AI Agent', '内容分发'],
@@ -2978,7 +4276,7 @@ export const DEMO_EVENT: PublicEvent = {
     {
       id: '55555555-5555-4555-8555-555555555558',
       name: 'AJ',
-      role: 'Community Stack 创始人',
+      role: 'WaytoAGI 创始人',
       topic: 'AGI 时代的品牌建设',
       initials: 'AJ',
       accentFrom: '#9333ea',
@@ -2987,50 +4285,50 @@ export const DEMO_EVENT: PublicEvent = {
     },
     {
       id: '55555555-5555-4555-8555-555555555559',
-      name: 'Leo Wilson',
+      name: 'Yangyi',
       role: '海外营销增长黑客 · AI产品经理',
-      topic: '海外市场大会增长策略',
-      initials: 'LW',
+      topic: '海外市场 GEO 增长策略',
+      initials: 'Y',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['海外增长', '增长黑客'],
     },
     {
       id: '55555555-5555-4555-8555-555555555560',
-      name: 'Emma Davis',
-      role: 'Data Studio 合伙人',
-      topic: '数据底座驱动大会运营：从监控到增长',
-      initials: 'ED',
+      name: '拔刀流',
+      role: 'AIDSO 爱搜AI 合伙人',
+      topic: '数据底座驱动 GEO：从监控到增长',
+      initials: '刀',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['数据驱动', '引用监测'],
     },
     {
       id: '55555555-5555-4555-8555-555555555561',
-      name: 'Kai Morgan',
-      role: 'Knowledge Works创始人',
-      topic: '活动内容如何保持一致、及时和可信',
-      initials: 'KM',
+      name: '阿邝',
+      role: '克莱普斯创始人',
+      topic: '企业如何被 AI 看见、理解、推荐',
+      initials: '邝',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['知识库工程', '可信度'],
     },
     {
       id: '55555555-5555-4555-8555-555555555562',
-      name: 'Mina Park',
-      role: 'Community Lab 主理人',
-      topic: '社区运营与大会运营的协同',
-      initials: 'MP',
+      name: '大聪明',
+      role: '赛博禅心 & AGIBar 主理人',
+      topic: '社区运营与 GEO 的化学反应',
+      initials: '聪',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['社群运营', 'AGI Bar'],
     },
     {
       id: '55555555-5555-4555-8555-555555555563',
-      name: 'Oliver Smith',
-      role: 'Demo Studio创始人',
-      topic: '企业大会运营实战经验分享',
-      initials: 'OS',
+      name: '大尤',
+      role: '一招科技创始人',
+      topic: '企业 GEO 实战经验分享',
+      initials: '尤',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
       tags: ['企业实战', '落地经验'],
@@ -3039,7 +4337,7 @@ export const DEMO_EVENT: PublicEvent = {
       id: '55555555-5555-4555-8555-555555555564',
       name: '大模型平台嘉宾',
       role: '国内头部 AI 平台 · 敬请期待',
-      topic: '活动平台如何保障高峰期体验',
+      topic: 'AI 搜索如何选择答案',
       initials: 'AI',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
@@ -3049,7 +4347,7 @@ export const DEMO_EVENT: PublicEvent = {
       id: '55555555-5555-4555-8555-555555555565',
       name: '上市企业 CMO',
       role: '标杆品牌方 · 敬请期待',
-      topic: '12 个月大会运营投入产出全复盘',
+      topic: '12 个月 GEO 投入产出全复盘',
       initials: 'CMO',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
@@ -3080,9 +4378,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '09:00',
       endsAt: '09:20',
-      title: '开幕致辞：大会运营的下一程',
+      title: '开幕致辞：中国 GEO 的第二年',
       summary: '从概念元年到落地元年，行业全景与本届大会导览',
-      speaker: 'Alex Chen · Maya Lee',
+      speaker: '姚金刚 · 乔向阳',
       kind: 'talk',
     },
     {
@@ -3090,9 +4388,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '09:20',
       endsAt: '10:00',
-      title: '《大会运营实践手册 2026》首发',
-      summary: '年度行业数据、交付流程与运营基准集中发布',
-      speaker: '实践手册联合编委会',
+      title: '《中国GEO行业白皮书 2026》重磅首发',
+      summary: '年度行业数据、平台引用机制研究、效果基准线全公开',
+      speaker: '白皮书联合编委会',
       kind: 'talk',
     },
     {
@@ -3100,9 +4398,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '10:00',
       endsAt: '10:40',
-      title: '跨时区活动的数据与协作设计',
-      summary: '多语言内容、权限边界和全球团队交付实践',
-      speaker: 'Priya Shah\nExample Works',
+      title: 'AI 在引用谁：百万级引用样本的逆向研究',
+      summary: '跨平台引用规律、可信源画像与占位策略',
+      speaker: '张凯\n移山科技',
       kind: 'talk',
     },
     {
@@ -3110,9 +4408,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '10:40',
       endsAt: '11:20',
-      title: '把大会运营流程变成可复用的系统能力',
-      summary: '从一次性交付到流程资产：主办方的大会运营设计',
-      speaker: 'Alex Chen',
+      title: '如何在 AI 世界占领消费者心智',
+      summary: '从搜索排名到答案占位：品牌方的 GEO 顶层设计',
+      speaker: '姚金刚',
       kind: 'talk',
     },
     {
@@ -3120,8 +4418,8 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '11:20',
       endsAt: '12:10',
-      title: '活动平台视角：如何保障高峰期体验',
-      summary: '平台嘉宾分享容量规划、可观测性与应急恢复策略',
+      title: '大模型平台视角：AI 搜索如何选择答案',
+      summary: '平台嘉宾分享检索增强、引用排序与内容生态政策',
       speaker: '大模型平台嘉宾\n敬请期待',
       kind: 'talk',
     },
@@ -3138,8 +4436,8 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '13:30',
       endsAt: '14:10',
-      title: '12 个月大会运营投入产出全复盘',
-      summary: '企业真实账本：预算、人力、转化率与到场率曲线',
+      title: '12 个月 GEO 投入产出全复盘',
+      summary: '上市企业真实账本：预算、人力、内容量与引用率曲线',
       speaker: '标杆企业 CMO',
       kind: 'talk',
     },
@@ -3148,9 +4446,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '14:10',
       endsAt: '14:50',
-      title: '数据底座驱动大会运营：从监控到增长',
-      summary: '运营指标、归因模型与增长闭环实战方法论',
-      speaker: 'Emma Davis\nData Studio',
+      title: '数据底座驱动 GEO：从监控到增长',
+      summary: '引用监测体系、归因模型与增长闭环实战方法论',
+      speaker: '拔刀流\nAIDSO爱搜AI',
       kind: 'talk',
     },
     {
@@ -3158,9 +4456,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '14:50',
       endsAt: '15:30',
-      title: '活动内容如何保持一致、及时和可信',
-      summary: '共享内容、结构化数据与发布快照的三步实践',
-      speaker: 'Kai Morgan\nKnowledge Works',
+      title: '企业如何被 AI 看见、被 AI 理解、被 AI 推荐',
+      summary: '知识库工程、结构化内容与可信度建设三步走',
+      speaker: '阿邝\n克莱普斯',
       kind: 'talk',
     },
     {
@@ -3170,7 +4468,7 @@ export const DEMO_EVENT: PublicEvent = {
       endsAt: '16:10',
       title: 'AI 产品推广三部曲 · 2026 版',
       summary: '从冷启动到口碑飞轮：AI 时代产品营销完整路径',
-      speaker: 'Noah Williams',
+      speaker: '向阳乔木',
       kind: 'talk',
     },
     {
@@ -3178,7 +4476,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '16:10',
       endsAt: '17:00',
-      title: '大会运营效果之辩：什么是真增长，什么是伪指标',
+      title: 'GEO 效果之辩：什么是真增长，什么是伪指标',
       summary: '品牌方、服务商、数据方三方同台交锋',
       speaker: '多位嘉宾联合',
       kind: 'workshop',
@@ -3190,7 +4488,7 @@ export const DEMO_EVENT: PublicEvent = {
       endsAt: '18:00',
       title: 'AI 圆桌：Agent 时代的内容分发与品牌建设',
       summary: '当 Agent 替用户做决策，品牌该和谁对话',
-      speaker: 'Sofia Garcia · AJ · Ethan · Mina Park',
+      speaker: '歸藏 · AJ · 橘子 · 大聪明',
       kind: 'workshop',
     },
     {
@@ -3224,8 +4522,8 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '10:00',
       endsAt: '11:10',
-      title: '工作坊 ②：大会内容发布流水线',
-      summary: '从议程、嘉宾到 FAQ：结构化内容与发布快照演练',
+      title: '工作坊 ②：GEO 内容资产生产线',
+      summary: 'FAQ、对比页到权威背书：高引用率内容的结构与提示词模板',
       speaker: '导师团带练',
       kind: 'talk',
     },
@@ -3234,7 +4532,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '11:10',
       endsAt: '12:30',
-      title: '工作坊 ③：90 天大会运营行动计划',
+      title: '工作坊 ③：90 天 GEO 行动计划',
       summary: '现场产出你企业的执行排期、指标体系与汇报模板',
       speaker: '导师团带练',
       kind: 'talk',
@@ -3244,9 +4542,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '09:00',
       endsAt: '09:50',
-      title: '2027 全球大会运营新趋势',
-      summary: '跨语言体验、跨时区协作与区域支付的机会地图',
-      speaker: 'Jordan Kim\nDemo Labs',
+      title: '2027 出海 GEO 新趋势',
+      summary: 'ChatGPT、Gemini、Perplexity 引用机制差异与机会地图',
+      speaker: '阎志涛\nQuickCreator',
       kind: 'talk',
     },
     {
@@ -3254,9 +4552,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '09:50',
       endsAt: '10:40',
-      title: '海外市场大会增长策略',
-      summary: '从内容本地化到合作伙伴：国际活动获客实战手册',
-      speaker: 'Leo Wilson',
+      title: '海外市场 GEO 增长策略',
+      summary: '从 Reddit 到行业媒体：海外可信源建设实战手册',
+      speaker: 'Yangyi',
       kind: 'talk',
     },
     {
@@ -3274,7 +4572,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '11:30',
       endsAt: '12:30',
-      title: '全球圆桌：跨区域活动的增长与交付',
+      title: '出海圆桌：AI 搜索时代的全球化获客',
       speaker: '多位嘉宾联合',
       kind: 'workshop',
     },
@@ -3293,7 +4591,7 @@ export const DEMO_EVENT: PublicEvent = {
       endsAt: '14:50',
       title: 'AI Agent 时代的内容分发',
       summary: '当 Agent 成为新的「用户」，内容该为谁而写',
-      speaker: 'Ethan Brown\nOpen Events Lab',
+      speaker: 'AGENT橘（冯雷）\nListenHub',
       kind: 'talk',
     },
     {
@@ -3303,7 +4601,7 @@ export const DEMO_EVENT: PublicEvent = {
       endsAt: '15:40',
       title: 'AGI 时代的品牌建设',
       summary: '从流量思维到资产思维：品牌在模型记忆中的长期主义',
-      speaker: 'AJ\nCommunity Stack',
+      speaker: 'AJ\nWaytoAGI',
       kind: 'talk',
     },
     {
@@ -3311,7 +4609,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '15:40',
       endsAt: '16:30',
-      title: '大会运营服务标准与行业协作倡议',
+      title: 'GEO 服务标准与行业自律倡议',
       summary: '联合发布服务规范，让甲方敢买、乙方敢承诺',
       speaker: '行业联合发起方',
       kind: 'talk',
@@ -3321,7 +4619,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '16:30',
       endsAt: '17:20',
-      title: '终场圆桌：大会运营的下一个十二个月',
+      title: '终场圆桌：GEO 的下一个十二个月',
       summary: '核心嘉宾压轴预判，现场开放提问',
       speaker: '核心嘉宾全员',
       kind: 'workshop',
@@ -3338,29 +4636,29 @@ export const DEMO_EVENT: PublicEvent = {
   ],
   faqs: [
     {
-      question: '这场示例大会会展示哪些能力？',
+      question: 'GEO 到底是什么，和 SEO 有什么关系？',
       answer:
-        '示例大会覆盖官网发布、报名、支付、候补、发票、电子票、通知、现场核销和运营复盘，帮助团队理解 TokEMS 的完整业务链路。',
+        'GEO（Generative Engine Optimization）的目标是让你的品牌被 AI（ChatGPT、DeepSeek、豆包、Kimi 等）在回答用户问题时引用和推荐。它与 SEO 共享部分底层逻辑，但优化对象从「搜索引擎排名」变成了「AI 的引用与推荐」。',
     },
     {
-      question: '我没有大会运营经验，能听懂吗？',
+      question: '我完全不懂 AI，能听懂吗？',
       answer:
-        '可以。Day 1 面向主办方、运营负责人和技术团队讲解核心流程，Day 2 工作坊会带领参与者完成一条从报名到核销的演练。',
+        '完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。',
     },
     {
-      question: '哪些人适合参加？',
+      question: '参加过第一届，第二届还有必要来吗？',
       answer:
-        '活动主办方、会议运营团队、票务和现场服务团队、活动技术服务商，以及关注自托管活动基础设施的开发者都可以从议程中找到对应内容。',
+        '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
     },
     {
       question: '工作坊需要什么准备？',
       answer:
-        '建议携带笔记本电脑。会前会发送本地演示环境和练习清单，工作坊将使用虚构数据完成配置、报名与核销流程。',
+        '建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。',
     },
     {
       question: '资料包包含什么，多久发放？',
       answer:
-        '包含嘉宾演示文档、运营检查清单、通知模板、现场核销手册和《大会运营实践手册 2026》电子版。会后 3 个工作日内通过大会通知渠道发放。',
+        '包含 40+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国GEO行业白皮书 2026》电子完整版。会后 3 个工作日内通过大会社群发放。',
     },
     {
       question: '能退票吗？转让规则是什么？',

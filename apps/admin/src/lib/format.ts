@@ -23,6 +23,8 @@ const statusLabels: Record<string, string> = {
   archived: '已归档',
   pending_review: '待审核',
   pending_payment: '待支付',
+  payment_processing: '支付中',
+  payment_failed: '支付失败',
   processing: '处理中',
   confirmed: '已确认',
   paid: '已支付',
@@ -44,6 +46,21 @@ const statusLabels: Record<string, string> = {
   succeeded: '已完成',
   queued: '等待处理',
   active: '已启用',
+  valid: '有效',
+  used: '已使用',
+  awaiting_details: '待提交资料',
+  issuing: '开票中',
+  issue_failed: '开票失败',
+  issued: '已开具',
+  eligible: '可申请',
+  not_eligible: '不可开票',
+  adjustment_required: '待调整',
+  voided: '已作废',
+  not_sent: '未发送',
+  preparing: '准备中',
+  query_pending: '查询中',
+  close_pending: '关闭中',
+  unknown: '状态未知',
 };
 
 export function statusLabel(status: string) {
@@ -51,8 +68,8 @@ export function statusLabel(status: string) {
 }
 
 export function statusClass(status: string) {
-  if (['pending_review', 'processing', 'prepublished'].includes(status)) return 'pending';
-  if (['cancelled', 'closed', 'refunded', 'rejected', 'failed'].includes(status)) return 'issue';
+  if (['pending_review', 'processing', 'payment_processing', 'prepublished', 'queued'].includes(status)) return 'pending';
+  if (['cancelled', 'closed', 'refunded', 'rejected', 'failed', 'payment_failed'].includes(status)) return 'issue';
   if (['pending_payment', 'draft', 'configuring'].includes(status)) return 'draft';
   if (['ended', 'archived'].includes(status)) return 'muted';
   return '';

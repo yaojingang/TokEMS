@@ -111,6 +111,11 @@ const currentNodes = computed(() => {
 const selectedHomeBlock = computed(() =>
   structuredHome.value?.blocks.find((item) => item.nodeKey === selectedNodeKey.value),
 );
+const selectedHomeCopyFields = computed(() =>
+  Object.entries(selectedHomeBlock.value?.content ?? {}).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  ),
+);
 const selectedFaqItem = computed(() =>
   definition.value?.faq.items.find((item) => item.nodeKey === selectedNodeKey.value),
 );
@@ -186,7 +191,9 @@ async function load() {
       description: detail.summary.description,
       tags: detail.summary.tags.join('、'),
     });
-    definition.value = normalizeConferenceTemplateDefinition(structuredClone(detail.draft.definition));
+    definition.value = normalizeConferenceTemplateDefinition(
+      structuredClone(detail.draft.definition),
+    );
     revision.value = detail.draft.revision;
     versions.value = detail.versions;
     usages.value = detail.usages;
@@ -327,6 +334,71 @@ watch(activeSection, () => {
 
 function selectNode(nodeKey: string) {
   selectedNodeKey.value = nodeKey;
+}
+
+const homeCopyLabels: Record<string, string> = {
+  logoMark: 'Logo 字标',
+  brandLabel: '品牌名称',
+  brandMeta: '品牌补充说明',
+  kicker: '英文眉题',
+  eyebrow: '首屏眉题',
+  title: '区块标题',
+  titleLine1: '标题第一行',
+  titleLine2: '标题第二行',
+  titlePrefix: '主标题前半段',
+  titleEvent: '大会名称标题',
+  slogan: '大会主张',
+  subtitle: '区块导语',
+  description: '说明文案',
+  descriptionLead: '首屏导语开头',
+  descriptionStrong: '首屏重点文案',
+  descriptionTail: '首屏导语结尾',
+  primaryAction: '主按钮文案',
+  secondaryAction: '辅助按钮文案',
+  actionLabel: '行动按钮文案',
+  note: '补充说明',
+  quote: '引用文案',
+  attributionNames: '引用署名',
+  attributionRole: '署名身份',
+  moreLabel: '嘉宾尾注',
+  organizer: '组委会名称',
+  eventLabel: '大会版权名称',
+  support: '联系说明',
+};
+
+function homeCopyLabel(key: string) {
+  if (homeCopyLabels[key]) return homeCopyLabels[key];
+  const repeated = key.match(/^(item|host|benefit|assurance|answerRank|mockRank)(\d+)(.*)$/);
+  if (repeated) {
+    const group = {
+      item: '内容组',
+      host: '发起人',
+      benefit: '权益',
+      assurance: '保障项',
+      answerRank: '首屏推荐项',
+      mockRank: '回答示例项',
+    }[repeated[1]!];
+    const suffix =
+      {
+        Old: '原值',
+        New: '新值',
+        Title: '标题',
+        Body: '正文',
+        Role: '身份',
+        Bio: '介绍',
+        Goal: '目标',
+        Detail: '补充说明',
+        Badge: '标签',
+        Name: '姓名',
+      }[repeated[3]!] ?? repeated[3];
+    return [group, repeated[2], suffix].filter(Boolean).join(' ');
+  }
+  return key.replaceAll(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+function setSelectedHomeCopy(key: string, value: string) {
+  if (!selectedHomeBlock.value) return;
+  selectedHomeBlock.value.content[key] = value;
 }
 
 function addTemplateFaq() {
@@ -696,11 +768,7 @@ onBeforeUnmount(() => {
             <textarea v-model="structuredHome.seo.description" rows="5" :disabled="!canManage" />
           </div>
           <label class="setting-toggle">
-            <input
-              v-model="structuredHome.seo.indexable"
-              type="checkbox"
-              :disabled="!canManage"
-            />
+            <input v-model="structuredHome.seo.indexable" type="checkbox" :disabled="!canManage" />
             <span><strong>允许搜索引擎收录</strong><small>草稿预览始终禁止收录</small></span>
           </label>
         </div>
@@ -728,32 +796,16 @@ onBeforeUnmount(() => {
               <option value="timeline">时间线</option>
             </select>
           </div>
-          <template v-if="selectedHomeBlock.type === 'hero'">
-            <div class="form-field">
-              <label>主按钮文案</label>
-              <input
-                :value="String(selectedHomeBlock.content.primaryAction ?? '')"
-                :disabled="!canManage"
-                @input="
-                  selectedHomeBlock.content.primaryAction = (
-                    $event.target as HTMLInputElement
-                  ).value
-                "
-              />
-            </div>
-            <div class="form-field">
-              <label>辅助按钮文案</label>
-              <input
-                :value="String(selectedHomeBlock.content.secondaryAction ?? '')"
-                :disabled="!canManage"
-                @input="
-                  selectedHomeBlock.content.secondaryAction = (
-                    $event.target as HTMLInputElement
-                  ).value
-                "
-              />
-            </div>
-          </template>
+          <div v-for="[key, value] in selectedHomeCopyFields" :key="key" class="form-field">
+            <label :for="'home-copy-' + key">{{ homeCopyLabel(key) }}</label>
+            <textarea
+              :id="'home-copy-' + key"
+              :value="value"
+              rows="3"
+              :disabled="!canManage"
+              @input="setSelectedHomeCopy(key, ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
         </div>
       </template>
 
