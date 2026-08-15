@@ -221,7 +221,7 @@ const paymentOrigin = process.env.DOCKER_PAYMENT_ORIGIN ?? environment.PAYMENT_P
 const paymentBasePath = (environment.PAYMENT_PUBLIC_BASE_PATH || '/pay/hui').replace(/\/+$/, '');
 
 if (paymentOrigin) {
-  await waitFor('支付入口 CORS 可用', async () => {
+  await waitFor('支付独立来源无法跨域读取大会会话', async () => {
     const response = await fetch(`${endpoints.api}/auth/login`, {
       method: 'OPTIONS',
       headers: {
@@ -233,8 +233,8 @@ if (paymentOrigin) {
     });
     assert(response.status === 204, `Payment CORS preflight returned ${response.status}`);
     assert(
-      response.headers.get('access-control-allow-origin') === paymentOrigin,
-      `${paymentOrigin} is not allowed by CORS`,
+      response.headers.get('access-control-allow-origin') !== paymentOrigin,
+      `${paymentOrigin} unexpectedly received credentialed CORS access`,
     );
   });
 
