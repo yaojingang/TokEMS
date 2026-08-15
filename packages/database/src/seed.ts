@@ -328,12 +328,12 @@ try {
           locale: 'zh-CN',
           templateKey: 'editorial-blue',
           templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
-          currentReleaseId: RELEASE_ID,
         },
       })
       .onConflictDoUpdate({
         target: events.id,
         set: {
+          slug: DEMO_EVENT.slug,
           name: DEMO_EVENT.name,
           shortName: DEMO_EVENT.shortName,
           tagline: DEMO_EVENT.tagline,
@@ -352,7 +352,6 @@ try {
             locale: 'zh-CN',
             templateKey: 'editorial-blue',
             templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
-            currentReleaseId: RELEASE_ID,
           },
           updatedAt: new Date(),
         },
@@ -387,17 +386,6 @@ try {
           updatedAt: new Date(),
         },
       });
-
-    await tx.execute(sql`
-      update ${events}
-      set settings = settings || ${JSON.stringify({
-        templateKey: 'editorial-blue',
-        templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
-        currentReleaseId: RELEASE_ID,
-      })}::jsonb
-      where id = ${DEMO_IDS.event}
-        and not (settings ? 'currentReleaseId')
-    `);
 
     await tx
       .insert(templatePackages)
@@ -1092,7 +1080,24 @@ try {
       })
       .onConflictDoNothing();
 
-    await tx
+    const releaseSnapshot = {
+      event: {
+        name: DEMO_EVENT.name,
+        tagline: DEMO_EVENT.tagline,
+        description: DEMO_EVENT.description,
+      },
+      tickets: DEMO_EVENT.tickets,
+      speakers: DEMO_EVENT.speakers,
+      sessions: DEMO_EVENT.sessions,
+      faqs: DEMO_EVENT.faqs,
+      registrationForm: {
+        version: 1,
+        termsVersion: '2026-07-16',
+        fields: registrationFields,
+      },
+      experience: DEMO_EVENT_EXPERIENCE,
+    };
+    const [seededRelease] = await tx
       .insert(eventReleases)
       .values({
         id: RELEASE_ID,
@@ -1101,25 +1106,13 @@ try {
         templateKey: 'editorial-blue',
         templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
         status: 'published',
-        snapshot: {
-          event: {
-            name: DEMO_EVENT.name,
-            tagline: DEMO_EVENT.tagline,
-            description: DEMO_EVENT.description,
-          },
-          tickets: DEMO_EVENT.tickets,
-          speakers: DEMO_EVENT.speakers,
-          sessions: DEMO_EVENT.sessions,
-          faqs: DEMO_EVENT.faqs,
-          registrationForm: { version: 1, termsVersion: '2026-07-16', fields: registrationFields },
-          experience: DEMO_EVENT_EXPERIENCE,
-        },
+        snapshot: releaseSnapshot,
         artifactKey: `releases/${DEMO_IDS.event}/v2/index.json`,
         createdBy: adminUserId,
         publishedAt: new Date('2026-07-16T09:00:00+08:00'),
       })
       .onConflictDoUpdate({
-        target: eventReleases.id,
+        target: [eventReleases.eventId, eventReleases.version],
         set: {
           version: 2,
           templateKey: 'editorial-blue',
@@ -1128,25 +1121,19 @@ try {
           artifactKey: `releases/${DEMO_IDS.event}/v2/index.json`,
           createdBy: adminUserId,
           publishedAt: new Date('2026-07-16T09:00:00+08:00'),
-          snapshot: {
-            event: {
-              name: DEMO_EVENT.name,
-              tagline: DEMO_EVENT.tagline,
-              description: DEMO_EVENT.description,
-            },
-            tickets: DEMO_EVENT.tickets,
-            speakers: DEMO_EVENT.speakers,
-            sessions: DEMO_EVENT.sessions,
-            faqs: DEMO_EVENT.faqs,
-            registrationForm: {
-              version: 1,
-              termsVersion: '2026-07-16',
-              fields: registrationFields,
-            },
-            experience: DEMO_EVENT_EXPERIENCE,
-          },
+          snapshot: releaseSnapshot,
         },
-      });
+      })
+      .returning({ id: eventReleases.id });
+
+    if (!seededRelease) {
+      throw new Error('Demo event release could not be seeded');
+    }
+    await tx.execute(sql`
+      update ${events}
+      set settings = settings || jsonb_build_object('currentReleaseId', ${seededRelease.id}::text)
+      where id = ${DEMO_IDS.event}
+    `);
 
     await tx
       .insert(notificationTemplates)
