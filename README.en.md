@@ -33,7 +33,7 @@ These numbers come from [`docs/generated/project-inventory.json`](docs/generated
 
 | Public pages | Admin views | API controllers | API operations | Database tables | Migrations | Test files |
 | -----------: | ----------: | --------------: | -------------: | --------------: | ---------: | ---------: |
-|           13 |          31 |              25 |            207 |              66 |         49 |        113 |
+|           13 |          31 |              25 |            207 |              66 |         51 |        116 |
 
 ### End-to-end workflow
 

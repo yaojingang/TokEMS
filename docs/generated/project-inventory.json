@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 13,
   "adminViews": 31,
-  "migrations": 49,
-  "latestMigration": "0048_registration_purchase_attempts.sql",
+  "migrations": 51,
+  "latestMigration": "0050_flimsy_thunderbolt_ross.sql",
   "databaseTables": 66,
   "apiControllers": 25,
   "apiOperations": 207,
-  "testFiles": 114
+  "testFiles": 116
 }

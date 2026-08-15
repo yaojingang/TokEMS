@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Restricted proxy-purchased ticket codes, QR payloads, checkout responses, and order-token retrieval to the attendee identity.
 - Added stricter tenant and ownership checks, encrypted notification payload secrets, persistent purchase-attempt throttling, transaction retries, and a production-safe local payment simulation allowlist.
+- Bound generated order and invoice access tokens to their notification delivery so retries reuse one sealed capability and terminal failures revoke it.
 - Revoked customer sessions on account blocking and pinned the transitive `nanoid` dependency to a patched release.
 
 ### Planned

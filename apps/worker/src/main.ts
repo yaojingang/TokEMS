@@ -100,6 +100,12 @@ import {
   invoiceNotificationIsCurrent,
   type InvoiceDocumentIdentity,
 } from './invoice-notification-policy.js';
+import {
+  notificationAccessTokenDeliveryKey,
+  notificationAccessTokenFailureDisposition,
+  planNotificationAccessToken,
+  type PersistedNotificationAccessToken,
+} from './notification-access-token-policy.js';
 import { processHtmlTemplateImportScan } from './html-template-import.worker.js';
 import { notificationPayloadEncryptionSecret } from './notification-payload-secret.js';
 import { routeRegistrationNotification } from './registration-notification-router.js';
@@ -112,6 +118,7 @@ import {
 
 const queueName = 'conference-domain-events';
 const htmlImportQueueName = 'conference-html-template-imports';
+const notificationClaimLeaseMs = 25_000;
 const pollInterval = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 2_000);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 5);
 const htmlImportConcurrency = Number(process.env.HTML_TEMPLATE_WORKER_CONCURRENCY ?? 2);
@@ -218,6 +225,183 @@ function sealNotificationSecret(value: string) {
 
 function openNotificationSecret(value: string) {
   return openSecret(value, notificationPayloadSecret());
+}
+
+function notificationAccessTokenExpiry(requestedExpiresAt: string) {
+  const requestedExpiry = new Date(requestedExpiresAt);
+  const maximumExpiry = Date.now() + 31 * 24 * 60 * 60_000;
+  return Number.isFinite(requestedExpiry.getTime()) &&
+    requestedExpiry.getTime() > Date.now() &&
+    requestedExpiry.getTime() <= maximumExpiry
+    ? requestedExpiry
+    : new Date(Date.now() + 10 * 60_000);
+}
+
+function persistedNotificationAccessToken(
+  delivery: Pick<
+    typeof notificationDeliveries.$inferSelect,
+    'accessTokenId' | 'accessTokenExpiresAt' | 'sealedAccessToken'
+  >,
+): PersistedNotificationAccessToken | null {
+  if (!delivery.accessTokenId && !delivery.sealedAccessToken && !delivery.accessTokenExpiresAt) {
+    return null;
+  }
+  return {
+    tokenId: delivery.accessTokenId,
+    sealedToken: delivery.sealedAccessToken,
+    expiresAt: delivery.accessTokenExpiresAt,
+  };
+}
+
+async function markNotificationDeliveryFailed(
+  db: ConferenceDatabase,
+  deliveryId: string,
+  error: string,
+  options: { allowedStatuses?: string[]; requireNoUncertainAttempt?: boolean } = {},
+) {
+  return db.transaction(async (tx) => {
+    const [failedDelivery] = await tx
+      .update(notificationDeliveries)
+      .set({
+        status: 'failed',
+        error: error.slice(0, 1000),
+        sealedAccessToken: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(notificationDeliveries.id, deliveryId),
+          ...(options.requireNoUncertainAttempt
+            ? [isNull(notificationDeliveries.uncertainAt)]
+            : []),
+          inArray(
+            notificationDeliveries.status,
+            options.allowedStatuses ?? [
+              'queued',
+              'retrying',
+              'claimed',
+              'sending',
+              'unknown',
+              'accepted',
+            ],
+          ),
+        ),
+      )
+      .returning({ accessTokenId: notificationDeliveries.accessTokenId });
+    if (failedDelivery?.accessTokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, failedDelivery.accessTokenId));
+    }
+    return Boolean(failedDelivery);
+  });
+}
+
+async function revokeTerminalNotificationAccessToken(db: ConferenceDatabase, deliveryId: string) {
+  await db.transaction(async (tx) => {
+    const [delivery] = await tx
+      .select({
+        status: notificationDeliveries.status,
+        accessTokenId: notificationDeliveries.accessTokenId,
+      })
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId))
+      .for('update')
+      .limit(1);
+    if (
+      delivery?.accessTokenId &&
+      (delivery.status === 'failed' || delivery.status === 'cancelled')
+    ) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, delivery.accessTokenId));
+      await tx
+        .update(notificationDeliveries)
+        .set({ sealedAccessToken: null, updatedAt: new Date() })
+        .where(eq(notificationDeliveries.id, deliveryId));
+    }
+  });
+}
+
+async function finalizeNotificationAccessTokenFailure(
+  db: ConferenceDatabase,
+  job: Job<Record<string, unknown>>,
+  error: Error,
+) {
+  const finalAttempt = job.attemptsMade >= Number(job.opts.attempts ?? 1);
+  if (!finalAttempt) return false;
+  const payload =
+    job.data.payload && typeof job.data.payload === 'object'
+      ? (job.data.payload as Record<string, unknown>)
+      : {};
+  const deliveryKey = notificationAccessTokenDeliveryKey({
+    eventType: job.data.eventType,
+    correlationId: job.data.correlationId,
+    payload,
+  });
+  if (!deliveryKey) return false;
+  const deliveryId = deterministicUuid(deliveryKey);
+  const [deliveryHistory] = await db
+    .select({ uncertainAt: notificationDeliveries.uncertainAt })
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.id, deliveryId))
+    .limit(1);
+  const disposition = notificationAccessTokenFailureDisposition(
+    error,
+    Boolean(deliveryHistory?.uncertainAt),
+  );
+  const finalized =
+    disposition === 'failed'
+      ? await markNotificationDeliveryFailed(
+          db,
+          deliveryId,
+          `通知投递重试已耗尽：${error.message || 'provider request failed'}`,
+          {
+            allowedStatuses: ['queued', 'retrying', 'claimed'],
+            requireNoUncertainAttempt: true,
+          },
+        )
+      : Boolean(
+          (
+            await db
+              .update(notificationDeliveries)
+              .set({
+                status: 'uncertain',
+                error:
+                  `通知投递重试已耗尽，提供方结果未知：${error.message || 'provider request failed'}`.slice(
+                    0,
+                    1000,
+                  ),
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(notificationDeliveries.id, deliveryId),
+                  inArray(notificationDeliveries.status, ['queued', 'retrying', 'claimed']),
+                ),
+              )
+              .returning({ id: notificationDeliveries.id })
+          )[0],
+        );
+  const invoiceId = String(payload.invoiceId ?? '');
+  let finalizedForInvoice = finalized;
+  if (invoiceId && !finalizedForInvoice) {
+    const [delivery] = await db
+      .select({ status: notificationDeliveries.status })
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId))
+      .limit(1);
+    finalizedForInvoice = delivery?.status === disposition;
+  }
+  if (invoiceId && finalizedForInvoice) {
+    await db
+      .update(invoiceRequests)
+      .set({ deliveryStatus: 'failed', updatedAt: new Date() })
+      .where(eq(invoiceRequests.id, invoiceId));
+  }
+  return true;
 }
 
 function objectStorageUrl(
@@ -1457,6 +1641,7 @@ async function queryAliyunSmsDelivery(
         .set({
           status: 'delivered',
           error: null,
+          sealedAccessToken: null,
           sentAt: now,
           updatedAt: now,
         })
@@ -1467,23 +1652,15 @@ async function queryAliyunSmsDelivery(
           ),
         );
     } else if (result.status === 'failed') {
-      await db
-        .update(notificationDeliveries)
-        .set({
-          status: 'failed',
-          error: [result.errorCode, result.errorMessage].filter(Boolean).join(' · ').slice(0, 1000),
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(notificationDeliveries.id, delivery.id),
-            inArray(notificationDeliveries.status, ['accepted', 'sending', 'unknown']),
-          ),
-        );
+      await markNotificationDeliveryFailed(
+        db,
+        delivery.id,
+        [result.errorCode, result.errorMessage].filter(Boolean).join(' · '),
+      );
     } else {
       await db
         .update(notificationDeliveries)
-        .set({ status: 'accepted', error: null, updatedAt: now })
+        .set({ status: 'accepted', error: null, sealedAccessToken: null, updatedAt: now })
         .where(
           and(
             eq(notificationDeliveries.id, delivery.id),
@@ -1494,23 +1671,24 @@ async function queryAliyunSmsDelivery(
     return true;
   }
   const now = new Date();
-  await db
-    .update(notificationDeliveries)
-    .set({
-      status:
-        delivery.createdAt < new Date(Date.now() - 30 * 24 * 60 * 60_000) ? 'failed' : 'unknown',
-      error:
-        delivery.createdAt < new Date(Date.now() - 30 * 24 * 60 * 60_000)
-          ? '阿里云短信回执超过 30 天查询期限'
-          : '等待阿里云短信回执',
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(notificationDeliveries.id, delivery.id),
-        inArray(notificationDeliveries.status, ['accepted', 'sending', 'unknown']),
-      ),
-    );
+  if (delivery.createdAt < new Date(Date.now() - 30 * 24 * 60 * 60_000)) {
+    await markNotificationDeliveryFailed(db, delivery.id, '阿里云短信回执超过 30 天查询期限');
+  } else {
+    await db
+      .update(notificationDeliveries)
+      .set({
+        status: 'unknown',
+        error: '等待阿里云短信回执',
+        uncertainAt: sql`coalesce(${notificationDeliveries.uncertainAt}, now())`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(notificationDeliveries.id, delivery.id),
+          inArray(notificationDeliveries.status, ['accepted', 'sending', 'unknown']),
+        ),
+      );
+  }
   return false;
 }
 
@@ -1536,10 +1714,7 @@ async function deliverAliyunSms(
               ? `短信场景 ${context.templateKey} 尚未验证`
               : '';
   if (blockedReason) {
-    await db
-      .update(notificationDeliveries)
-      .set({ status: 'failed', error: blockedReason, updatedAt: new Date() })
-      .where(eq(notificationDeliveries.id, delivery.id));
+    await markNotificationDeliveryFailed(db, delivery.id, blockedReason);
     return true;
   }
   const client = account.client!;
@@ -1587,10 +1762,7 @@ async function deliverAliyunSms(
     });
     if (!result.accepted) {
       const message = `${result.code} · ${result.message}`.slice(0, 1000);
-      await db
-        .update(notificationDeliveries)
-        .set({ status: 'failed', error: message, updatedAt: new Date() })
-        .where(eq(notificationDeliveries.id, delivery.id));
+      await markNotificationDeliveryFailed(db, delivery.id, message);
       return true;
     }
     await db
@@ -1599,29 +1771,34 @@ async function deliverAliyunSms(
         status: 'accepted',
         providerMessageId: result.bizId || null,
         error: null,
+        sealedAccessToken: null,
         updatedAt: new Date(),
       })
-      .where(eq(notificationDeliveries.id, delivery.id));
+      .where(
+        and(
+          eq(notificationDeliveries.id, delivery.id),
+          eq(notificationDeliveries.status, 'sending'),
+        ),
+      );
     return true;
   } catch (error) {
-    const [current] = await db
-      .select({ status: notificationDeliveries.status })
-      .from(notificationDeliveries)
-      .where(eq(notificationDeliveries.id, delivery.id))
-      .limit(1);
-    if (current?.status === 'sending') {
-      await db
-        .update(notificationDeliveries)
-        .set({
-          status: 'unknown',
-          error: (error instanceof Error ? error.message : 'Aliyun SMS request failed').slice(
-            0,
-            1000,
-          ),
-          updatedAt: new Date(),
-        })
-        .where(eq(notificationDeliveries.id, delivery.id));
-    }
+    await db
+      .update(notificationDeliveries)
+      .set({
+        status: 'unknown',
+        error: (error instanceof Error ? error.message : 'Aliyun SMS request failed').slice(
+          0,
+          1000,
+        ),
+        uncertainAt: sql`coalesce(${notificationDeliveries.uncertainAt}, now())`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(notificationDeliveries.id, delivery.id),
+          eq(notificationDeliveries.status, 'sending'),
+        ),
+      );
     throw error;
   }
 }
@@ -1643,14 +1820,7 @@ async function deliverNotification(
   if (delivery.channel === 'sms') {
     if (smsContext && (await deliverAliyunSms(db, delivery, smsContext))) return;
     if (!smsContext && (await aliyunSmsAccount(db, delivery.organizationId))) {
-      await db
-        .update(notificationDeliveries)
-        .set({
-          status: 'failed',
-          error: '该短信任务尚未映射组织级阿里云模板',
-          updatedAt: new Date(),
-        })
-        .where(eq(notificationDeliveries.id, delivery.id));
+      await markNotificationDeliveryFailed(db, delivery.id, '该短信任务尚未映射组织级阿里云模板');
       return;
     }
   }
@@ -1680,11 +1850,17 @@ async function deliverNotification(
       if (!response.ok) throw new Error(`notification provider returned ${response.status}`);
       providerMessageId = response.headers.get('x-message-id') ?? `webhook:${delivery.id}`;
     } catch (error) {
+      const providerError =
+        error instanceof Error ? error : new Error('notification provider request failed');
+      const uncertain = notificationAccessTokenFailureDisposition(providerError) === 'uncertain';
       await db
         .update(notificationDeliveries)
         .set({
           status: 'retrying',
-          error: error instanceof Error ? error.message.slice(0, 1000) : 'provider request failed',
+          error: providerError.message.slice(0, 1000),
+          ...(uncertain
+            ? { uncertainAt: sql`coalesce(${notificationDeliveries.uncertainAt}, now())` }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(notificationDeliveries.id, delivery.id));
@@ -1699,6 +1875,7 @@ async function deliverNotification(
       status: 'sent',
       providerMessageId,
       error: null,
+      sealedAccessToken: null,
       sentAt: new Date(),
       updatedAt: new Date(),
     })
@@ -1846,26 +2023,8 @@ async function deliverOrderAccessNotification(
     console.info(`[notification] order removed before delivery id=${orderId}`);
     return;
   }
-  let accessToken = String(payload.orderAccessToken ?? payload.accessToken ?? '');
-  let expiresAt = String(payload.expiresAt ?? '');
-  if (!accessToken) {
-    accessToken = randomBytes(32).toString('base64url');
-    const requestedExpiry = new Date(expiresAt);
-    const maximumExpiry = Date.now() + 31 * 24 * 60 * 60_000;
-    const expiry =
-      Number.isFinite(requestedExpiry.getTime()) &&
-      requestedExpiry.getTime() > Date.now() &&
-      requestedExpiry.getTime() <= maximumExpiry
-        ? requestedExpiry
-        : new Date(Date.now() + 10 * 60_000);
-    expiresAt = expiry.toISOString();
-    await db.insert(orderAccessTokens).values({
-      orderId,
-      tokenHash: createHash('sha256').update(accessToken).digest('hex'),
-      scopes: ['order:read'],
-      expiresAt: expiry,
-    });
-  }
+  const payloadAccessToken = String(payload.orderAccessToken ?? payload.accessToken ?? '');
+  const requestedExpiresAt = String(payload.expiresAt ?? '');
   const recipient = financialNotificationRecipient(
     scope.order,
     { email: scope.attendee.email, mobile: scope.attendeeMobileE164 },
@@ -1873,36 +2032,182 @@ async function deliverOrderAccessNotification(
   );
   if (!recipient) throw new Error(`${eventType} purchaser recipient is unavailable`);
   const channel = recipient.includes('@') ? 'email' : 'sms';
-  const accessUrl = paymentOrderAccessUrl(orderId, scope.event.slug, accessToken);
   const renewal = eventType === 'OrderAccessLinkRequested';
-  const body = renewal
-    ? `新的订单访问链接有效至 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })}：${accessUrl}`
-    : `报名已提交。请通过安全链接查看审核或支付状态：${accessUrl}`;
   const deliveryId = deterministicUuid(`order-access-notification:${correlationId}`);
-  const [delivery] = await db
-    .insert(notificationDeliveries)
-    .values({
-      id: deliveryId,
-      organizationId: scope.order.organizationId,
-      eventId: scope.order.eventId,
-      registrationId: scope.order.registrationId,
-      channel,
-      recipient,
-      subject: renewal ? `${scope.event.name} 订单访问链接` : `${scope.event.name} 报名已提交`,
-      body: '安全访问链接在发送时生成，正文不保存在运营数据库中。',
-    })
-    .onConflictDoNothing()
-    .returning();
-  await deliverNotification(db, delivery?.id ?? deliveryId, jobId, body, {
-    templateKey: 'registrationSubmitted',
-    parameters: {
-      eventName: scope.event.name,
-      url: accessUrl,
-      expiresAt: new Date(expiresAt).toLocaleString('zh-CN', {
-        timeZone: scope.event.timezone,
-      }),
-    },
+  const prepared = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`notification-access-token:${deliveryId}`}, 0))`,
+    );
+    await tx
+      .insert(notificationDeliveries)
+      .values({
+        id: deliveryId,
+        organizationId: scope.order.organizationId,
+        eventId: scope.order.eventId,
+        registrationId: scope.order.registrationId,
+        channel,
+        recipient,
+        subject: renewal ? `${scope.event.name} 订单访问链接` : `${scope.event.name} 报名已提交`,
+        body: '安全访问链接在发送时生成，正文不保存在运营数据库中。',
+      })
+      .onConflictDoNothing();
+    const [currentDelivery] = await tx
+      .select()
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId))
+      .for('update')
+      .limit(1);
+    if (!currentDelivery) throw new Error(`Notification delivery ${deliveryId} does not exist`);
+    const persistedToken = persistedNotificationAccessToken(currentDelivery);
+    const plan = planNotificationAccessToken({
+      deliveryStatus: currentDelivery.status,
+      hasPayloadToken: Boolean(payloadAccessToken),
+      persistedToken,
+    });
+    if (plan === 'revoke-and-skip' && persistedToken?.tokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
+      return null;
+    }
+    if (plan === 'expire-and-skip' && persistedToken?.tokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
+      await tx
+        .update(notificationDeliveries)
+        .set({
+          status: 'failed',
+          error: '订单访问令牌已在投递结果确认前过期',
+          sealedAccessToken: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(notificationDeliveries.id, deliveryId));
+      return null;
+    }
+    if (plan === 'skip') return null;
+    const [claim] = await tx
+      .update(notificationDeliveries)
+      .set({ status: 'claimed', error: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(notificationDeliveries.id, deliveryId),
+          or(
+            inArray(notificationDeliveries.status, ['queued', 'retrying']),
+            and(
+              eq(notificationDeliveries.status, 'claimed'),
+              lt(notificationDeliveries.updatedAt, new Date(Date.now() - notificationClaimLeaseMs)),
+            ),
+          ),
+        ),
+      )
+      .returning({ id: notificationDeliveries.id });
+    if (!claim) return null;
+    if (plan === 'replace' && persistedToken?.tokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
+    }
+    if (plan === 'use-payload') {
+      const [linkedToken] = await tx
+        .select({
+          expiresAt: orderAccessTokens.expiresAt,
+        })
+        .from(orderAccessTokens)
+        .where(
+          and(
+            eq(orderAccessTokens.orderId, orderId),
+            eq(
+              orderAccessTokens.tokenHash,
+              createHash('sha256').update(payloadAccessToken).digest('hex'),
+            ),
+            isNull(orderAccessTokens.revokedAt),
+            gt(orderAccessTokens.expiresAt, new Date()),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!linkedToken) {
+        await tx
+          .update(notificationDeliveries)
+          .set({
+            status: 'failed',
+            error: '事件携带的订单访问令牌无效或已经过期',
+            sealedAccessToken: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(notificationDeliveries.id, deliveryId));
+        return null;
+      }
+      return { accessToken: payloadAccessToken, expiresAt: linkedToken.expiresAt };
+    }
+    if (plan === 'reuse' && persistedToken?.sealedToken && persistedToken.expiresAt) {
+      return {
+        accessToken: openNotificationSecret(persistedToken.sealedToken),
+        expiresAt: persistedToken.expiresAt,
+      };
+    }
+    const accessToken = randomBytes(32).toString('base64url');
+    const expiresAt = notificationAccessTokenExpiry(requestedExpiresAt);
+    const [generatedToken] = await tx
+      .insert(orderAccessTokens)
+      .values({
+        orderId,
+        tokenHash: createHash('sha256').update(accessToken).digest('hex'),
+        scopes: ['order:read'],
+        expiresAt,
+      })
+      .returning({ id: orderAccessTokens.id });
+    if (!generatedToken) throw new Error('generated notification access token was not returned');
+    await tx
+      .update(notificationDeliveries)
+      .set({
+        accessTokenId: generatedToken.id,
+        sealedAccessToken: sealNotificationSecret(accessToken),
+        accessTokenExpiresAt: expiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(notificationDeliveries.id, deliveryId));
+    return { accessToken, expiresAt };
   });
+  if (!prepared) return;
+  const accessUrl = paymentOrderAccessUrl(orderId, scope.event.slug, prepared.accessToken);
+  const expiresAtLabel = prepared.expiresAt.toLocaleString('zh-CN', {
+    timeZone: scope.event.timezone,
+  });
+  const body = renewal
+    ? `新的订单访问链接有效至 ${expiresAtLabel}：${accessUrl}`
+    : `报名已提交。请通过安全链接查看审核或支付状态：${accessUrl}`;
+  try {
+    await deliverNotification(db, deliveryId, jobId, body, {
+      templateKey: 'registrationSubmitted',
+      parameters: {
+        eventName: scope.event.name,
+        url: accessUrl,
+        expiresAt: expiresAtLabel,
+      },
+    });
+    await revokeTerminalNotificationAccessToken(db, deliveryId);
+  } catch (error) {
+    await db
+      .update(notificationDeliveries)
+      .set({
+        status: 'retrying',
+        error: error instanceof Error ? error.message.slice(0, 1000) : 'provider request failed',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(notificationDeliveries.id, deliveryId),
+          eq(notificationDeliveries.status, 'claimed'),
+        ),
+      );
+    await revokeTerminalNotificationAccessToken(db, deliveryId);
+    throw error;
+  }
 }
 
 async function deliverAttendeeClaimInvitation(
@@ -2011,72 +2316,9 @@ async function deliverInvoiceAccessNotification(
         issuedAt: String(payload.issuedAt ?? ''),
       }
     : null;
-  if (issued) {
-    const [activeDocument] = await db
-      .select({
-        documentId: invoiceDocuments.id,
-        storageKey: invoiceDocuments.storageKey,
-        contentDigest: invoiceDocuments.contentDigest,
-        issuedAt: invoiceDocuments.issuedAt,
-      })
-      .from(invoiceDocuments)
-      .where(
-        and(eq(invoiceDocuments.invoiceRequestId, invoiceId), isNull(invoiceDocuments.voidedAt)),
-      )
-      .orderBy(desc(invoiceDocuments.issuedAt))
-      .limit(1);
-    if (
-      !invoiceNotificationIsCurrent({
-        eventType,
-        invoiceStatus: scope.invoice.status,
-        payloadDocumentIdentity,
-        activeDocumentIdentity: activeDocument
-          ? { ...activeDocument, issuedAt: activeDocument.issuedAt.toISOString() }
-          : null,
-      })
-    ) {
-      console.info(
-        `[notification] stale invoice delivery ignored invoice=${invoiceId} document=${payloadDocumentIdentity?.documentId ?? ''}`,
-      );
-      return;
-    }
-  } else if (
-    !invoiceNotificationIsCurrent({
-      eventType,
-      invoiceStatus: scope.invoice.status,
-      payloadDocumentIdentity: null,
-      activeDocumentIdentity: null,
-    })
-  ) {
-    console.info(`[notification] stale invoice details request ignored invoice=${invoiceId}`);
-    return;
-  }
 
-  let accessToken = String(payload.accessToken ?? '');
-  let expiresAt = String(payload.expiresAt ?? '');
-  let generatedAccessTokenId: string | null = null;
-  if (!accessToken) {
-    accessToken = randomBytes(32).toString('base64url');
-    const requestedExpiry = new Date(expiresAt);
-    const maximumExpiry = Date.now() + 31 * 24 * 60 * 60_000;
-    const expiry =
-      Number.isFinite(requestedExpiry.getTime()) &&
-      requestedExpiry.getTime() > Date.now() &&
-      requestedExpiry.getTime() <= maximumExpiry
-        ? requestedExpiry
-        : new Date(Date.now() + 10 * 60_000);
-    expiresAt = expiry.toISOString();
-    const [generatedToken] = await db
-      .insert(orderAccessTokens)
-      .values({
-        orderId: scope.invoice.orderId,
-        tokenHash: createHash('sha256').update(accessToken).digest('hex'),
-        scopes: ['order:read', 'invoice:read', 'invoice:write'],
-        expiresAt: expiry,
-      })
-      .returning({ id: orderAccessTokens.id });
-    generatedAccessTokenId = generatedToken?.id ?? null;
-  }
+  const payloadAccessToken = String(payload.accessToken ?? '');
+  const requestedExpiresAt = String(payload.expiresAt ?? '');
   const recipient = financialNotificationRecipient(
     scope.order,
     { email: scope.attendee.email, mobile: scope.attendeeMobileE164 },
@@ -2084,17 +2326,8 @@ async function deliverInvoiceAccessNotification(
   );
   if (!recipient) throw new Error(`${eventType} purchaser recipient is unavailable`);
   const channel = recipient.includes('@') ? 'email' : 'sms';
-  const siteUrl = conferenceSiteUrl();
-  const accessUrl = `${siteUrl}${publicEventScopedPath(
-    `/invoice/${encodeURIComponent(invoiceId)}`,
-    scope.event.slug,
-    { order: scope.invoice.orderId },
-  )}#token=${encodeURIComponent(accessToken)}`;
-  const body = issued
-    ? `你的电子发票已经开具。请在 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })} 前通过安全链接查看和下载：${accessUrl}`
-    : `请在 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })} 前通过安全链接补充或查看发票信息：${accessUrl}`;
   const deliveryId = deterministicUuid(`invoice-notification:${correlationId}`);
-  const [delivery] = await db
+  await db
     .insert(notificationDeliveries)
     .values({
       id: deliveryId,
@@ -2106,9 +2339,8 @@ async function deliverInvoiceAccessNotification(
       subject: issued ? `${scope.event.name} 电子发票已开具` : `${scope.event.name} 请补充发票信息`,
       body: '安全访问链接在发送时生成，正文不保存在运营数据库中。',
     })
-    .onConflictDoNothing()
-    .returning();
-  const claimedForDelivery = await db.transaction(async (tx) => {
+    .onConflictDoNothing();
+  const prepared = await db.transaction(async (tx) => {
     const [currentInvoice] = await tx
       .select({ status: invoiceRequests.status })
       .from(invoiceRequests)
@@ -2144,53 +2376,203 @@ async function deliverInvoiceAccessNotification(
           ? { ...activeDocument, issuedAt: activeDocument.issuedAt.toISOString() }
           : null,
       });
+    const [currentDelivery] = await tx
+      .select()
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId))
+      .for('update')
+      .limit(1);
+    if (!currentDelivery) throw new Error(`Notification delivery ${deliveryId} does not exist`);
+    const persistedToken = persistedNotificationAccessToken(currentDelivery);
     if (!current) {
-      if (generatedAccessTokenId) {
+      if (persistedToken?.tokenId) {
         await tx
           .update(orderAccessTokens)
           .set({ revokedAt: new Date() })
-          .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+          .where(eq(orderAccessTokens.id, persistedToken.tokenId));
       }
       await tx
         .update(notificationDeliveries)
         .set({
           status: 'cancelled',
           error: '发票状态或文件版本已变化，通知已取消',
+          sealedAccessToken: null,
           updatedAt: new Date(),
         })
         .where(
           and(
-            eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
-            inArray(notificationDeliveries.status, ['queued', 'retrying', 'claimed']),
+            eq(notificationDeliveries.id, deliveryId),
+            inArray(notificationDeliveries.status, [
+              'queued',
+              'retrying',
+              'claimed',
+              'sending',
+              'unknown',
+              'accepted',
+            ]),
           ),
         );
-      return false;
+      return null;
+    }
+    const plan = planNotificationAccessToken({
+      deliveryStatus: currentDelivery.status,
+      hasPayloadToken: Boolean(payloadAccessToken),
+      persistedToken,
+    });
+    if (plan === 'revoke-and-skip' && persistedToken?.tokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
+      return null;
+    }
+    if (plan === 'expire-and-skip' && persistedToken?.tokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
+      await tx
+        .update(notificationDeliveries)
+        .set({
+          status: 'failed',
+          error: '发票访问令牌已在投递结果确认前过期',
+          sealedAccessToken: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(notificationDeliveries.id, deliveryId));
+      return null;
+    }
+    if (plan === 'skip') {
+      return { kind: 'already-delivered' as const };
     }
     const [claim] = await tx
       .update(notificationDeliveries)
       .set({ status: 'claimed', error: null, updatedAt: new Date() })
       .where(
         and(
-          eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+          eq(notificationDeliveries.id, deliveryId),
           or(
             inArray(notificationDeliveries.status, ['queued', 'retrying']),
             and(
               eq(notificationDeliveries.status, 'claimed'),
-              lt(notificationDeliveries.updatedAt, new Date(Date.now() - 5 * 60_000)),
+              lt(notificationDeliveries.updatedAt, new Date(Date.now() - notificationClaimLeaseMs)),
             ),
           ),
         ),
       )
       .returning({ id: notificationDeliveries.id });
-    if (!claim && generatedAccessTokenId) {
+    if (!claim) return null;
+    if (plan === 'replace' && persistedToken?.tokenId) {
       await tx
         .update(orderAccessTokens)
         .set({ revokedAt: new Date() })
-        .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+        .where(eq(orderAccessTokens.id, persistedToken.tokenId));
     }
-    return Boolean(claim);
+    if (plan === 'use-payload') {
+      const [linkedToken] = await tx
+        .select({
+          expiresAt: orderAccessTokens.expiresAt,
+        })
+        .from(orderAccessTokens)
+        .where(
+          and(
+            eq(orderAccessTokens.orderId, scope.invoice.orderId),
+            eq(
+              orderAccessTokens.tokenHash,
+              createHash('sha256').update(payloadAccessToken).digest('hex'),
+            ),
+            isNull(orderAccessTokens.revokedAt),
+            gt(orderAccessTokens.expiresAt, new Date()),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!linkedToken) {
+        await tx
+          .update(notificationDeliveries)
+          .set({
+            status: 'failed',
+            error: '事件携带的发票访问令牌无效或已经过期',
+            sealedAccessToken: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(notificationDeliveries.id, deliveryId));
+        return null;
+      }
+      return {
+        kind: 'deliver' as const,
+        accessToken: payloadAccessToken,
+        expiresAt: linkedToken.expiresAt,
+      };
+    }
+    if (plan === 'reuse' && persistedToken?.sealedToken && persistedToken.expiresAt) {
+      return {
+        kind: 'deliver' as const,
+        accessToken: openNotificationSecret(persistedToken.sealedToken),
+        expiresAt: persistedToken.expiresAt,
+      };
+    }
+    const accessToken = randomBytes(32).toString('base64url');
+    const expiresAt = notificationAccessTokenExpiry(requestedExpiresAt);
+    const [generatedToken] = await tx
+      .insert(orderAccessTokens)
+      .values({
+        orderId: scope.invoice.orderId,
+        tokenHash: createHash('sha256').update(accessToken).digest('hex'),
+        scopes: ['order:read', 'invoice:read', 'invoice:write'],
+        expiresAt,
+      })
+      .returning({ id: orderAccessTokens.id });
+    if (!generatedToken) throw new Error('generated notification access token was not returned');
+    await tx
+      .update(notificationDeliveries)
+      .set({
+        accessTokenId: generatedToken.id,
+        sealedAccessToken: sealNotificationSecret(accessToken),
+        accessTokenExpiresAt: expiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(notificationDeliveries.id, deliveryId));
+    return { kind: 'deliver' as const, accessToken, expiresAt };
   });
-  if (!claimedForDelivery) return;
+  if (!prepared) return;
+  const currentInvoiceDeliveryWhere = issued
+    ? and(
+        eq(invoiceRequests.id, invoiceId),
+        eq(invoiceRequests.status, 'issued'),
+        sql`exists (
+          select 1 from ${invoiceDocuments} active_invoice_document
+          where active_invoice_document.invoice_request_id = ${invoiceRequests.id}
+            and active_invoice_document.id = ${String(payload.documentId ?? '')}
+            and active_invoice_document.storage_key = ${String(payload.storageKey ?? '')}
+            and active_invoice_document.content_digest = ${String(payload.contentDigest ?? '')}
+            and active_invoice_document.issued_at = ${new Date(String(payload.issuedAt ?? ''))}
+            and active_invoice_document.voided_at is null
+        )`,
+      )
+    : and(
+        eq(invoiceRequests.id, invoiceId),
+        inArray(invoiceRequests.status, ['awaiting_details', 'rejected']),
+      );
+  if (prepared.kind === 'already-delivered') {
+    await db
+      .update(invoiceRequests)
+      .set({ deliveryStatus: 'sent', lastSentAt: new Date(), updatedAt: new Date() })
+      .where(currentInvoiceDeliveryWhere);
+    return;
+  }
+  const siteUrl = conferenceSiteUrl();
+  const accessUrl = `${siteUrl}${publicEventScopedPath(
+    `/invoice/${encodeURIComponent(invoiceId)}`,
+    scope.event.slug,
+    { order: scope.invoice.orderId },
+  )}#token=${encodeURIComponent(prepared.accessToken)}`;
+  const expiresAtLabel = prepared.expiresAt.toLocaleString('zh-CN', {
+    timeZone: scope.event.timezone,
+  });
+  const body = issued
+    ? `你的电子发票已经开具。请在 ${expiresAtLabel} 前通过安全链接查看和下载：${accessUrl}`
+    : `请在 ${expiresAtLabel} 前通过安全链接补充或查看发票信息：${accessUrl}`;
   try {
     const deliveredCurrentVersion = await deliverWhileInvoiceCurrent({
       withCurrentVersionLease: (run) =>
@@ -2233,34 +2615,36 @@ async function deliverInvoiceAccessNotification(
           );
         }),
       cancelStale: async () => {
-        if (generatedAccessTokenId) {
-          await db
-            .update(orderAccessTokens)
-            .set({ revokedAt: new Date() })
-            .where(eq(orderAccessTokens.id, generatedAccessTokenId));
-        }
-        await db
-          .update(notificationDeliveries)
-          .set({
-            status: 'cancelled',
-            error: '发票在发送前已经退款、取消或替换文件，通知已取消',
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
-              eq(notificationDeliveries.status, 'claimed'),
-            ),
-          );
+        await db.transaction(async (tx) => {
+          const [cancelledDelivery] = await tx
+            .update(notificationDeliveries)
+            .set({
+              status: 'cancelled',
+              error: '发票在发送前已经退款、取消或替换文件，通知已取消',
+              sealedAccessToken: null,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(notificationDeliveries.id, deliveryId),
+                eq(notificationDeliveries.status, 'claimed'),
+              ),
+            )
+            .returning({ accessTokenId: notificationDeliveries.accessTokenId });
+          if (cancelledDelivery?.accessTokenId) {
+            await tx
+              .update(orderAccessTokens)
+              .set({ revokedAt: new Date() })
+              .where(eq(orderAccessTokens.id, cancelledDelivery.accessTokenId));
+          }
+        });
       },
       deliver: () =>
-        deliverNotification(db, delivery?.id ?? deliveryId, jobId, body, {
+        deliverNotification(db, deliveryId, jobId, body, {
           templateKey: issued ? 'invoiceReady' : 'invoiceDetailsRequested',
           parameters: {
             eventName: scope.event.name,
-            expiresAt: new Date(expiresAt).toLocaleString('zh-CN', {
-              timeZone: scope.event.timezone,
-            }),
+            expiresAt: expiresAtLabel,
             url: accessUrl,
           },
         }),
@@ -2269,7 +2653,7 @@ async function deliverInvoiceAccessNotification(
     const [deliveryResult] = await db
       .select({ status: notificationDeliveries.status, error: notificationDeliveries.error })
       .from(notificationDeliveries)
-      .where(eq(notificationDeliveries.id, delivery?.id ?? deliveryId))
+      .where(eq(notificationDeliveries.id, deliveryId))
       .limit(1);
     if (deliveryResult?.status === 'failed') {
       throw new Error(deliveryResult.error ?? 'Invoice notification delivery failed');
@@ -2277,41 +2661,8 @@ async function deliverInvoiceAccessNotification(
     await db
       .update(invoiceRequests)
       .set({ deliveryStatus: 'sent', lastSentAt: new Date(), updatedAt: new Date() })
-      .where(
-        issued
-          ? and(
-              eq(invoiceRequests.id, invoiceId),
-              eq(invoiceRequests.status, 'issued'),
-              sql`exists (
-                select 1 from ${invoiceDocuments} active_invoice_document
-                where active_invoice_document.invoice_request_id = ${invoiceRequests.id}
-                  and active_invoice_document.id = ${String(payload.documentId ?? '')}
-                  and active_invoice_document.storage_key = ${String(payload.storageKey ?? '')}
-                  and active_invoice_document.content_digest = ${String(payload.contentDigest ?? '')}
-                  and active_invoice_document.issued_at = ${new Date(String(payload.issuedAt ?? ''))}
-                  and active_invoice_document.voided_at is null
-              )`,
-            )
-          : and(
-              eq(invoiceRequests.id, invoiceId),
-              inArray(invoiceRequests.status, ['awaiting_details', 'rejected']),
-            ),
-      );
+      .where(currentInvoiceDeliveryWhere);
   } catch (error) {
-    const [deliveryState] = await db
-      .select({ status: notificationDeliveries.status })
-      .from(notificationDeliveries)
-      .where(eq(notificationDeliveries.id, delivery?.id ?? deliveryId))
-      .limit(1);
-    if (
-      generatedAccessTokenId &&
-      !['sent', 'delivered', 'accepted'].includes(deliveryState?.status ?? '')
-    ) {
-      await db
-        .update(orderAccessTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(orderAccessTokens.id, generatedAccessTokenId));
-    }
     await db
       .update(notificationDeliveries)
       .set({
@@ -2321,10 +2672,11 @@ async function deliverInvoiceAccessNotification(
       })
       .where(
         and(
-          eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+          eq(notificationDeliveries.id, deliveryId),
           eq(notificationDeliveries.status, 'claimed'),
         ),
       );
+    await revokeTerminalNotificationAccessToken(db, deliveryId);
     await db
       .update(invoiceRequests)
       .set({ deliveryStatus: 'failed', updatedAt: new Date() })
@@ -3375,8 +3727,11 @@ async function start() {
   worker.on('failed', (job, error) => {
     console.error(`[worker] failed job=${job?.id}`, error);
     if (job) {
-      void redriveDurableFailure(job).catch((redriveError) =>
-        console.error(`[worker] durable redrive failed job=${job.id}`, redriveError),
+      void (async () => {
+        await finalizeNotificationAccessTokenFailure(db, job, error);
+        await redriveDurableFailure(job);
+      })().catch((finalizeError) =>
+        console.error(`[worker] failed-job finalization failed job=${job.id}`, finalizeError),
       );
     }
   });
@@ -3399,6 +3754,11 @@ async function start() {
       if (!failedJobs.length) break;
       let retained = 0;
       for (const job of failedJobs) {
+        await finalizeNotificationAccessTokenFailure(
+          db,
+          job,
+          new Error(job.failedReason || 'provider request failed'),
+        );
         if (!(await redriveDurableFailure(job))) retained += 1;
       }
       start += retained;

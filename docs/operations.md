@@ -11,7 +11,7 @@ pnpm docker:deploy
 
 1. 使用根目录多阶段 `Dockerfile` 构建 API、Worker、Nuxt、Admin 和本地通知接收器镜像。
 2. 启动 PostgreSQL、Redis、MinIO、Mailpit 与通知接收器并等待健康检查。
-3. 运行一次性 `db-init`，执行 49 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
+3. 运行一次性 `db-init`，执行 51 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
 4. 运行一次性 `minio-init`，创建私有 `conference-assets` 桶。
 5. 按依赖顺序启动 API、Worker、Web 和 Admin。
 6. 启动 Gateway，在同一 IP 和端口上按主机名代理前台、后台和 API。
@@ -153,7 +153,7 @@ pnpm dev
 
 ## 迁移策略
 
-`packages/database/drizzle/` 包含 49 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
+`packages/database/drizzle/` 包含 51 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
 
 ```bash
 # 修改 packages/database/src/schema.ts 后生成迁移

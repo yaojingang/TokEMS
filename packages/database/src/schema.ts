@@ -1925,6 +1925,12 @@ export const notificationDeliveries = pgTable(
     status: varchar('status', { length: 32 }).notNull().default('queued'),
     providerMessageId: varchar('provider_message_id', { length: 160 }),
     error: text('error'),
+    accessTokenId: uuid('access_token_id').references(() => orderAccessTokens.id, {
+      onDelete: 'set null',
+    }),
+    sealedAccessToken: text('sealed_access_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    uncertainAt: timestamp('uncertain_at', { withTimezone: true }),
     scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull().defaultNow(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     ...timestamps,

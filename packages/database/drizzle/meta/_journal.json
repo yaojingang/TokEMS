@@ -344,6 +344,20 @@
       "when": 1786782752422,
       "tag": "0048_registration_purchase_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786833532726,
+      "tag": "0049_far_ken_ellis",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786834745635,
+      "tag": "0050_flimsy_thunderbolt_ross",
+      "breakpoints": true
     }
   ]
 }

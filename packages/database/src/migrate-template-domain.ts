@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   ConferenceTemplateDefinitionSchema,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
@@ -16,7 +16,6 @@ import {
   invoiceRequests,
   invoiceStateLogs,
   orders,
-  orderAccessTokens,
   organizations,
   outboxEvents,
   refunds,
@@ -375,14 +374,7 @@ if (apply) {
         reason: '历史开票意向迁移生成',
         metadata: { source: 'migration' },
       });
-      const accessToken = randomBytes(32).toString('base64url');
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60_000);
-      await tx.insert(orderAccessTokens).values({
-        orderId: order.id,
-        tokenHash: createHash('sha256').update(accessToken).digest('hex'),
-        scopes: ['order:read', 'invoice:read', 'invoice:write'],
-        expiresAt,
-      });
       await tx.insert(outboxEvents).values({
         organizationId: order.organizationId,
         eventId: order.eventId,
@@ -392,7 +384,6 @@ if (apply) {
           invoiceId: invoice.id,
           orderId: order.id,
           recipient: registration.attendee.email,
-          accessToken,
           expiresAt: expiresAt.toISOString(),
         },
       });
