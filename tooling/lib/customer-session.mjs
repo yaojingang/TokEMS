@@ -1,7 +1,8 @@
-export async function createCustomerSession({ apiBase, mobile, organizationSlug }) {
+export async function createCustomerSession({ apiBase, mobile, organizationSlug, forwardedFor }) {
   const organizationHeaders = {
     'Content-Type': 'application/json',
     'X-Organization-Slug': organizationSlug,
+    ...(forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {}),
   };
   const challengeResponse = await fetch(`${apiBase}/customer-auth/otp`, {
     method: 'POST',
@@ -48,6 +49,7 @@ export async function createCustomerSession({ apiBase, mobile, organizationSlug 
       Cookie: cookie,
       'X-Csrf-Token': session.csrfToken,
       'X-Organization-Slug': organizationSlug,
+      ...(forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {}),
     },
   };
 }
