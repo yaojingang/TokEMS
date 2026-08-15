@@ -22,6 +22,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   AiGenerateSchema,
   API_ERROR_CODES,
+  CreateOrganizationAdministratorSchema,
   CreateOrganizationInvitationSchema,
   CreateEventSchema,
   EventShortSlugSchema,
@@ -29,12 +30,13 @@ import {
   PublishEventSchema,
   QueueNotificationSchema,
   RefundRequestSchema,
-  RegistrationFieldSchema,
+  RegistrationFormPublishSchema,
   SetOrganizationHomepageEventSchema,
   TestAliyunSmsConfigurationSchema,
   UpdateAliyunSmsConfigurationSchema,
   UpdateMembershipStatusSchema,
   UpdateEventSlugSchema,
+  UpdateOrganizationAdministratorSchema,
   UpdateOrganizationMemberSchema,
   UpdateOrganizationSettingsSchema,
   UpdateWeChatPayConfigurationSchema,
@@ -121,60 +123,6 @@ const SessionPatchSchema = z
     message: '议程结束时间必须晚于开始时间',
   });
 
-const requiredRegistrationFields = new Map([
-  ['name', 'text'],
-  ['mobile', 'tel'],
-  ['email', 'email'],
-  ['company', 'text'],
-  ['title', 'text'],
-  ['city', 'text'],
-]);
-
-const FormPublishSchema = z
-  .object({
-    name: z.string().trim().min(1).max(120),
-    fields: z.array(RegistrationFieldSchema).min(1).max(60),
-    termsVersion: z.string().min(1).max(32),
-    termsContent: z.string().min(10).max(30_000),
-  })
-  .superRefine((input, context) => {
-    const keys = new Set<string>();
-    input.fields.forEach((field, index) => {
-      if (keys.has(field.key)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['fields', index, 'key'],
-          message: '字段键必须唯一',
-        });
-      }
-      keys.add(field.key);
-      if (field.type === 'select' && !field.options?.length) {
-        context.addIssue({
-          code: 'custom',
-          path: ['fields', index, 'options'],
-          message: '选项字段至少需要一个可选值',
-        });
-      }
-      if (field.options && new Set(field.options).size !== field.options.length) {
-        context.addIssue({
-          code: 'custom',
-          path: ['fields', index, 'options'],
-          message: '同一字段的选项必须唯一',
-        });
-      }
-    });
-    for (const [key, type] of requiredRegistrationFields) {
-      const field = input.fields.find((item) => item.key === key);
-      if (!field || field.type !== type || !field.required) {
-        context.addIssue({
-          code: 'custom',
-          path: ['fields'],
-          message: `必须保留必填核心字段 ${key}，类型为 ${type}`,
-        });
-      }
-    }
-  });
-
 const DeviceInputSchema = z.object({
   deviceCode: z
     .string()
@@ -208,7 +156,7 @@ const TicketTypeInputSchema = z.object({
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('admin')
-class OrganizationEventsController {
+export class OrganizationEventsController {
   constructor(
     @Inject(EventOperationsService) private readonly operations: EventOperationsService,
     @Inject(OrganizationAdminService)
@@ -273,6 +221,47 @@ class OrganizationEventsController {
     return this.organizationAdmin.listInvitations(request.user.organizationId);
   }
 
+  @Post('organization/administrators')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @RequireGrant('*')
+  createAdministrator(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.organizationAdmin.createAdministrator(
+      request.user.organizationId,
+      request.user.sub,
+      parse(CreateOrganizationAdministratorSchema, body),
+    );
+  }
+
+  @Patch('organization/administrators/:membershipId')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @RequireGrant('*')
+  updateAdministratorCredentials(
+    @Param('membershipId') membershipId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.organizationAdmin.updateAdministratorCredentials(
+      request.user.organizationId,
+      membershipId,
+      request.user.sub,
+      parse(UpdateOrganizationAdministratorSchema, body),
+    );
+  }
+
+  @Delete('organization/administrators/:membershipId')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @RequireGrant('*')
+  removeAdministrator(
+    @Param('membershipId') membershipId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.organizationAdmin.removeAdministrator(
+      request.user.organizationId,
+      membershipId,
+      request.user.sub,
+    );
+  }
+
   @Post('organization/invitations')
   @RequireGrant('org.member.manage')
   createInvitation(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
@@ -297,7 +286,7 @@ class OrganizationEventsController {
   }
 
   @Get('organization/settings')
-  @RequireGrant('org.settings.read', 'org.member.manage')
+  @RequireGrant('org.settings.read')
   organizationSettings(@Req() request: AuthenticatedRequest) {
     return this.organizationAdmin.getSettings(request.user.organizationId);
   }
@@ -330,7 +319,7 @@ class OrganizationEventsController {
   }
 
   @Get('integrations/wechat-pay')
-  @RequireGrant('org.settings.read', 'org.member.manage')
+  @RequireGrant('org.settings.read')
   weChatPayConfiguration(@Req() request: AuthenticatedRequest) {
     return this.weChatPay.getConfiguration(request.user.organizationId);
   }
@@ -352,7 +341,7 @@ class OrganizationEventsController {
   }
 
   @Get('integrations/aliyun-sms')
-  @RequireGrant('org.settings.read', 'org.member.manage')
+  @RequireGrant('org.settings.read')
   aliyunSmsConfiguration(@Req() request: AuthenticatedRequest) {
     return this.aliyunSms.getConfiguration(request.user.organizationId);
   }
@@ -703,7 +692,7 @@ class ContentFormsController {
       request.user.organizationId,
       eventId,
       request.user.sub,
-      parse(FormPublishSchema, body),
+      parse(RegistrationFormPublishSchema, body),
     );
   }
 }

@@ -49,8 +49,9 @@ describe('DEMO_EVENT', () => {
     const event = PublicEventSchema.parse(DEMO_EVENT);
 
     expect(event.experience).toEqual(DEMO_EVENT_EXPERIENCE);
-    expect(event.experience?.template.versionId).toBe('19191919-1919-4191-8191-191919191919');
+    expect(event.experience?.template.versionId).toBe('29292929-2929-4292-8292-292929292929');
     expect(event.experience?.home.blocks.map((block) => block.nodeKey)).toContain('home.hero');
+    expect(event.experience?.home.blocks.map((block) => block.nodeKey)).toContain('home.members');
   });
 
   it('keeps the GEO 2026 public copy in the system default template', () => {

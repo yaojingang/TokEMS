@@ -5,6 +5,7 @@ export const BuildInfoSchema = z.object({
   sha: z.union([z.string().regex(/^[a-f0-9]{7,64}$/u), z.literal('unknown')]),
   builtAt: z.union([z.iso.datetime(), z.literal('unknown')]),
   migration: z.union([z.string().regex(/^\d{4}_[A-Za-z0-9_-]+\.sql$/u), z.literal('unknown')]),
+  migrationHash: z.union([z.string().regex(/^[a-f0-9]{64}$/u), z.literal('unknown')]),
 });
 
 export type BuildInfo = z.infer<typeof BuildInfoSchema>;
@@ -16,12 +17,16 @@ export function resolveBuildInfo(
   const shaCandidate = environment.BUILD_SHA?.trim().toLowerCase() ?? '';
   const builtAtCandidate = environment.BUILD_TIME?.trim() ?? '';
   const migrationCandidate = environment.BUILD_MIGRATION?.trim() ?? '';
+  const migrationHashCandidate = environment.BUILD_MIGRATION_HASH?.trim().toLowerCase() ?? '';
   const candidate = {
     service,
     sha: /^[a-f0-9]{7,64}$/u.test(shaCandidate) ? shaCandidate : 'unknown',
     builtAt: z.iso.datetime().safeParse(builtAtCandidate).success ? builtAtCandidate : 'unknown',
     migration: /^\d{4}_[A-Za-z0-9_-]+\.sql$/u.test(migrationCandidate)
       ? migrationCandidate
+      : 'unknown',
+    migrationHash: /^[a-f0-9]{64}$/u.test(migrationHashCandidate)
+      ? migrationHashCandidate
       : 'unknown',
   };
   return BuildInfoSchema.parse(candidate);
@@ -151,7 +156,8 @@ export const OrganizationRoleSchema = z.enum([
 
 export const MembershipStatusSchema = z.enum(['active', 'disabled']);
 export const EventPaymentModeSchema = z.enum(['free', 'ticketed']);
-export const CustomerAccountModeSchema = z.enum(['mobile_otp_required', 'guest_allowed']);
+export const CustomerAccountModeSchema = z.enum(['mobile_otp_required']);
+const StoredOrganizationAccountModeSchema = z.enum(['mobile_otp_required', 'guest_allowed']);
 export const CustomerStatusSchema = z.enum(['active', 'blocked', 'closed']);
 export const TemplateSurfaceSchema = z.enum(['home', 'faq', 'registration_flow']);
 export const TemplateFlowPresetSchema = z.enum(['standard', 'quick', 'free']);
@@ -166,12 +172,42 @@ export const InvoiceRequestStatusSchema = z.enum([
   'voided',
   'cancelled',
 ]);
+export const RegistrationBusinessStatusSchema = z.enum([
+  'pending_review',
+  'pending_payment',
+  'payment_processing',
+  'payment_failed',
+  'paid',
+  'partially_refunded',
+  'refunded',
+  'closed',
+  'confirmed',
+]);
+export const RegistrationLatestPaymentStatusSchema = z.enum([
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'refunded',
+  'preparing',
+  'query_pending',
+  'close_pending',
+  'closed',
+  'unknown',
+]);
+export const RegistrationInvoiceSummaryStatusSchema = z.enum([
+  'not_eligible',
+  'eligible',
+  ...InvoiceRequestStatusSchema.options,
+]);
 
 export const EventRegistrationSettingsSchema = z.object({
   paymentMode: EventPaymentModeSchema.default('ticketed'),
   currency: z.literal('CNY').default('CNY'),
   registrationOpen: z.boolean().default(true),
   accountMode: CustomerAccountModeSchema.default('mobile_otp_required'),
+  additionalPurchaseEnabled: z.boolean().default(false),
+  maxActiveSeatsPerPurchaser: z.number().int().min(1).max(20).default(5),
 });
 
 export const EventSettingsSchema = z.object({
@@ -184,6 +220,8 @@ export const EventSettingsSchema = z.object({
     currency: 'CNY',
     registrationOpen: true,
     accountMode: 'mobile_otp_required',
+    additionalPurchaseEnabled: false,
+    maxActiveSeatsPerPurchaser: 5,
   }),
   stats: z
     .object({
@@ -260,7 +298,7 @@ export const OrganizationSettingsSchema = z.object({
   defaultTemplateId: z.string().nullable().default(null),
   customerAccounts: z
     .object({
-      defaultAccountMode: CustomerAccountModeSchema.default('mobile_otp_required'),
+      defaultAccountMode: StoredOrganizationAccountModeSchema.default('mobile_otp_required'),
       termsUrl: OptionalHttpsUrlSchema.default(''),
       termsVersion: z.string().trim().max(40).default(''),
       privacyUrl: OptionalHttpsUrlSchema.default(''),
@@ -304,6 +342,7 @@ export const TemplateHomeBlockSchema = z.object({
     'value',
     'agenda',
     'speakers',
+    'members',
     'tickets',
     'faq-summary',
     'organizer',
@@ -339,6 +378,7 @@ export const TemplateFlowStepSchema = z.object({
     'attendee-form',
     'review-payment',
     'success-ticket',
+    'member-profile',
     'waitlist',
     'manual-review',
     'invoice-details',
@@ -812,7 +852,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             answerStatusTitle: '目标不是曝光，是进入 AI 的候选答案',
             answerStatusBody: '让品牌资料、案例和可信来源被模型正确理解。',
             priceMetricLabel: '两日通票',
-            seatsMetricLabel: '限量席位',
+            topicsMetricLabel: '干货主题',
             openingMetricSuffix: '开幕',
           },
         },
@@ -825,7 +865,8 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           content: {
             daysLabel: '密集分享 + 实战工作坊',
             speakersLabel: '一线专家与操盘手',
-            seatsLabel: '创始人 / 高管 / 增长负责人',
+            sessionsValue: '30',
+            sessionsLabel: '主题分享与实战议程',
             benefitsLabel: '参会权益打包带走',
             marquee1: 'GENERATIVE ENGINE OPTIMIZATION',
             marquee2: '被 AI 看见',
@@ -900,8 +941,8 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             item2Title: '从布道者到操盘手',
             item2Body:
               '新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。',
-            item3Old: '300 席',
-            item3New: '500 席',
+            item3OldVenue: '北京单会场',
+            item3NewVenue: '深圳多会场',
             item3Title: '从聚会到行业大会',
             item3Body:
               '移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。',
@@ -970,6 +1011,19 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           },
         },
         {
+          nodeKey: 'home.members',
+          type: 'members',
+          label: '报名会员',
+          enabled: true,
+          variant: 'editorial-grid',
+          content: {
+            kicker: 'ATTENDEES',
+            title: '和同行者，在大会前先认识',
+            subtitle: '已报名并主动公开参会名片的会员，将按报名顺序在这里出现',
+            emptyText: '报名会员正在陆续完善参会名片',
+          },
+        },
+        {
           nodeKey: 'home.organizer',
           type: 'organizer',
           label: '主办方',
@@ -987,8 +1041,8 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             host1Goal: '目标：让每一位参会者都清楚「下周一回去该做什么」。',
             host2Name: '乔向阳',
             host2Role: 'GEO大会发起人 · 企业数字增长专家',
-            host2Bio:
-              '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量。从第一届的 300 人到第二届的 500 人，持续推动中国 GEO 从聚会走向行业共同体。',
+            host2Summary:
+              '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。',
             host2Goal: '目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。',
           },
         },
@@ -1003,7 +1057,6 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             title: '一张门票，八项权益',
             subtitlePrefix: '统一票价',
             subtitleSuffix: '，两天议程、实战工作坊与会后学习资料均已包含',
-            badgeSuffix: '限量 500 席',
             priceLabel: '统一票价',
             description: '一张票，全程参与两天大会',
             actionLabel: '立即报名 ¥399',
@@ -1171,6 +1224,14 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'ticket',
           enabled: true,
         },
+        {
+          nodeKey: 'flow.member-profile',
+          type: 'member-profile',
+          title: '完善个人信息',
+          helpText: '完善参会名片，可选择在大会首页展示并生成个人报名海报。',
+          variant: 'showcase',
+          enabled: true,
+        },
       ],
     },
     initialization: {
@@ -1250,15 +1311,72 @@ export const SessionSchema = z.object({
 export const RegistrationFieldSchema = z.object({
   key: z
     .string()
-    .min(1)
-    .max(80)
-    .regex(/^[a-z][a-z0-9_]*$/),
-  label: z.string().min(1).max(120),
+    .min(1, '字段键不能为空')
+    .max(80, '字段键不能超过 80 个字符')
+    .regex(/^[a-z][a-z0-9_]*$/, '字段键只能使用小写字母、数字和下划线，并以字母开头'),
+  label: z.string().min(1, '需要填写显示名称').max(120, '显示名称不能超过 120 个字符'),
   type: z.enum(['text', 'email', 'tel', 'select']),
   required: z.boolean(),
-  placeholder: z.string().max(160).optional(),
-  options: z.array(z.string().max(120)).optional(),
+  placeholder: z.string().max(160, '占位提示不能超过 160 个字符').optional(),
+  options: z.array(z.string().max(120, '单个可选值不能超过 120 个字符')).optional(),
 });
+
+export const CORE_REGISTRATION_FIELDS = [
+  { key: 'name', label: '姓名', type: 'text' },
+  { key: 'mobile', label: '手机号码', type: 'tel' },
+  { key: 'email', label: '电子邮箱', type: 'email' },
+] as const;
+
+export const RegistrationFormPublishSchema = z
+  .object({
+    name: z.string().trim().min(1, '请填写表单名称').max(120, '表单名称不能超过 120 个字符'),
+    fields: z
+      .array(RegistrationFieldSchema)
+      .min(1, '报名表至少需要一个字段')
+      .max(60, '报名表最多可以配置 60 个字段'),
+    termsVersion: z.string().min(1, '请填写条款版本').max(32, '条款版本不能超过 32 个字符'),
+    termsContent: z
+      .string()
+      .min(10, '条款正文至少需要 10 个字符')
+      .max(30_000, '条款正文不能超过 30000 个字符'),
+  })
+  .superRefine((input, context) => {
+    const keys = new Set<string>();
+    input.fields.forEach((field, index) => {
+      if (keys.has(field.key)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'key'],
+          message: '字段键必须唯一',
+        });
+      }
+      keys.add(field.key);
+      if (field.type === 'select' && !field.options?.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'options'],
+          message: '选项字段至少需要一个可选值',
+        });
+      }
+      if (field.options && new Set(field.options).size !== field.options.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields', index, 'options'],
+          message: '同一字段的选项必须唯一',
+        });
+      }
+    });
+    for (const coreField of CORE_REGISTRATION_FIELDS) {
+      const field = input.fields.find((item) => item.key === coreField.key);
+      if (!field || field.type !== coreField.type || !field.required) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields'],
+          message: `${coreField.label}是系统核心字段，需保留键名 ${coreField.key}、${coreField.type} 类型并设为必填`,
+        });
+      }
+    }
+  });
 
 export const RegistrationFormSchema = z.object({
   id: z.string(),
@@ -1331,25 +1449,44 @@ export const PublicEventSchema = z.object({
     .optional(),
 });
 
-export const CreateRegistrationSchema = z.object({
-  eventId: EventIdSchema,
-  ticketTypeId: z.string().min(1),
-  attendee: z.object({
-    name: z.string().trim().max(80).default(''),
-    mobile: z.string().trim().min(7).max(24),
-    email: z.union([z.email(), z.literal('')]).default(''),
-    company: z.string().trim().max(120).default(''),
-    title: z.string().trim().max(80).default(''),
-    city: z.string().trim().max(60).default(''),
-  }),
-  invoiceRequired: z.boolean().default(false),
-  marketingConsent: z.boolean().default(false),
-  termsAccepted: z.literal(true),
-  formVersion: z.number().int().positive().default(1),
-  termsVersion: z.string().min(1).max(32).default('2026-07-16'),
-  formAnswers: RegistrationAnswersSchema.optional(),
-  waitlistOfferToken: z.string().min(32).max(200).optional(),
-});
+export const REGISTRATION_PREFERENCE_DEFAULTS = {
+  invoiceRequired: false,
+  marketingConsent: false,
+  termsAccepted: false,
+} as const;
+
+export const CreateRegistrationSchema = z
+  .object({
+    eventId: EventIdSchema,
+    ticketTypeId: z.string().min(1),
+    attendee: z.object({
+      name: z.string().trim().max(80).default(''),
+      mobile: z.string().trim().min(7).max(24),
+      email: z.union([z.email(), z.literal('')]).default(''),
+      company: z.string().trim().max(120).default(''),
+      title: z.string().trim().max(80).default(''),
+      city: z.string().trim().max(60).default(''),
+    }),
+    invoiceRequired: z.boolean().default(REGISTRATION_PREFERENCE_DEFAULTS.invoiceRequired),
+    marketingConsent: z.boolean().default(REGISTRATION_PREFERENCE_DEFAULTS.marketingConsent),
+    termsAccepted: z.literal(true),
+    purchaseFor: z.enum(['self', 'other']).default('self'),
+    purchaseIntentId: z.uuid().default(() => globalThis.crypto.randomUUID()),
+    proxyAuthorizationAccepted: z.boolean().default(false),
+    formVersion: z.number().int().positive().default(1),
+    termsVersion: z.string().min(1).max(32).default('2026-07-16'),
+    formAnswers: RegistrationAnswersSchema.optional(),
+    waitlistOfferToken: z.string().min(32).max(200).optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.purchaseFor === 'other' && !input.proxyAuthorizationAccepted) {
+      context.addIssue({
+        code: 'custom',
+        path: ['proxyAuthorizationAccepted'],
+        message: '代他人购票需要确认已获得参会人授权',
+      });
+    }
+  });
 
 export const WaitlistJoinSchema = z
   .object({
@@ -1403,6 +1540,10 @@ export const OrderSchema = z.object({
   createdAt: z.string(),
 });
 
+export const CustomerOrderAccessSchema = OrderSchema.extend({
+  isProxyPurchase: z.boolean(),
+});
+
 export const PaymentCallbackSchema = z.object({
   orderId: z.string().min(1),
   externalId: z.string().trim().min(6).max(120),
@@ -1425,6 +1566,7 @@ export const TicketSchema = z.object({
 });
 
 export const RegistrationCheckoutSchema = z.object({
+  isProxyPurchase: z.boolean(),
   registration: RegistrationSchema,
   order: OrderSchema,
   orderAccessToken: z.string().min(32).max(500).optional(),
@@ -1460,6 +1602,9 @@ export const AdminDashboardSchema = z.object({
   metrics: z.object({
     registrations: z.number().int(),
     paidOrders: z.number().int(),
+    paidSeats: z.number().int(),
+    confirmedAttendees: z.number().int(),
+    purchasers: z.number().int(),
     revenue: z.number().int(),
     checkedIn: z.number().int(),
     conversionRate: z.number(),
@@ -1518,9 +1663,21 @@ export const AdminDashboardQuerySchema = z
     }
   });
 
+export const StaffUsernameSchema = z
+  .string()
+  .trim()
+  .min(3, '用户名至少需要 3 个字符')
+  .max(32, '用户名最多 32 个字符')
+  .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, '用户名需以字母开头，只能包含字母、数字、下划线和短横线')
+  .transform((value) => value.toLowerCase());
+
 const LoginCredentialsSchema = z.object({
   username: z.string().trim().min(1).max(255),
-  password: z.string().min(1).max(255),
+  password: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((value) => new TextEncoder().encode(value).length <= 72, '密码最多 72 个 UTF-8 字节'),
   organizationSlug: z
     .string()
     .trim()
@@ -1540,7 +1697,8 @@ export const LoginResultSchema = z.object({
   accessToken: z.string(),
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
     role: OrganizationRoleSchema,
   }),
@@ -1555,7 +1713,8 @@ export const UpdateAdminPreferencesSchema = AdminPreferencesSchema.strict();
 export const AuthMeSchema = z.object({
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
   }),
   organization: z.object({
@@ -1569,6 +1728,7 @@ export const AuthMeSchema = z.object({
     role: OrganizationRoleSchema,
     grants: z.array(z.string()),
     status: MembershipStatusSchema,
+    isSuperAdministrator: z.boolean().default(false),
   }),
   adminPreferences: AdminPreferencesSchema.default({ lastEventId: null }),
 });
@@ -1577,6 +1737,219 @@ export const MainlandMobileSchema = z
   .string()
   .trim()
   .regex(/^(?:\+?86)?1[3-9]\d{9}$/, '请输入有效的中国大陆手机号');
+
+export const ATTENDEE_INDUSTRY_OPTIONS = [
+  { code: 'ai', label: 'AI / 大模型 / Agent' },
+  { code: 'brand-marketing-geo', label: '品牌 / 市场 / GEO' },
+  { code: 'internet-software-it', label: '互联网 / 软件 / IT' },
+  { code: 'ecommerce-retail-consumer', label: '电商 / 零售 / 消费品牌' },
+  { code: 'enterprise-service-consulting', label: '企业服务 / 咨询' },
+  { code: 'advertising-media-content', label: '广告 / 媒体 / 内容' },
+  { code: 'education-training', label: '教育 / 培训' },
+  { code: 'finance-investment', label: '金融 / 投资' },
+  { code: 'healthcare', label: '医疗 / 健康' },
+  { code: 'manufacturing-supply-chain', label: '制造 / 供应链' },
+  { code: 'real-estate-construction', label: '房地产 / 建筑' },
+  { code: 'government-association-public', label: '政府 / 协会 / 公共服务' },
+  { code: 'other', label: '其他' },
+] as const;
+
+export const AttendeeIndustryCodeSchema = z.enum(
+  ATTENDEE_INDUSTRY_OPTIONS.map((item) => item.code) as [
+    (typeof ATTENDEE_INDUSTRY_OPTIONS)[number]['code'],
+    ...(typeof ATTENDEE_INDUSTRY_OPTIONS)[number]['code'][],
+  ],
+);
+
+export const AttendeeShowcaseVisibleFieldsSchema = z.object({
+  avatar: z.boolean().default(true),
+  displayName: z.boolean().default(true),
+  company: z.boolean().default(true),
+  title: z.boolean().default(true),
+  industry: z.boolean().default(true),
+  businessIntro: z.boolean().default(true),
+  businessUrl: z.boolean().default(true),
+  contactPhone: z.boolean().default(false),
+  contactEmail: z.boolean().default(false),
+  wechatId: z.boolean().default(false),
+});
+
+export const DEFAULT_ATTENDEE_SHOWCASE_VISIBLE_FIELDS = AttendeeShowcaseVisibleFieldsSchema.parse(
+  {},
+);
+
+export const ATTENDEE_SHOWCASE_CONSENT_VERSION = 'attendee-showcase-2026-08-15' as const;
+
+const NullableTrimmedText = (max: number) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z.string().trim().max(max).nullable(),
+  );
+
+function normalizeOptionalHttpUrl(value: unknown) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^[a-z][a-z\d+.-]*:/iu.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+export const UpdateAttendeeShowcaseSchema = z
+  .object({
+    version: z.number().int().nonnegative(),
+    displayName: NullableTrimmedText(120),
+    company: NullableTrimmedText(160),
+    title: NullableTrimmedText(100),
+    industryCode: AttendeeIndustryCodeSchema.nullable(),
+    businessIntro: NullableTrimmedText(2000),
+    businessUrl: z.preprocess(
+      normalizeOptionalHttpUrl,
+      z
+        .url()
+        .refine((value) => /^https?:\/\//i.test(value), '网址仅支持 HTTP 或 HTTPS')
+        .nullable(),
+    ),
+    contactPhone: NullableTrimmedText(40),
+    contactEmail: z.preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+      z.email().nullable(),
+    ),
+    wechatId: NullableTrimmedText(80),
+    isPublic: z.boolean(),
+    visibleFields: AttendeeShowcaseVisibleFieldsSchema,
+    consentVersion: z.literal(ATTENDEE_SHOWCASE_CONSENT_VERSION),
+  })
+  .superRefine((value, context) => {
+    if (!value.isPublic) return;
+    if (!value.displayName) {
+      context.addIssue({ code: 'custom', path: ['displayName'], message: '公开名片需要填写姓名' });
+    }
+    if (!value.industryCode) {
+      context.addIssue({ code: 'custom', path: ['industryCode'], message: '公开名片需要选择行业' });
+    }
+  });
+
+export const AttendeeShowcaseCompletionSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  completedFields: z.number().int().nonnegative(),
+  totalFields: z.number().int().positive(),
+});
+
+export const AttendeeShowcaseProfileSchema = z.object({
+  id: z.string().uuid().nullable(),
+  registrationId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  ticketCode: z.string().nullable(),
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  displayName: z.string().nullable(),
+  company: z.string().nullable(),
+  title: z.string().nullable(),
+  industryCode: AttendeeIndustryCodeSchema.nullable(),
+  businessIntro: z.string().nullable(),
+  businessUrl: z.string().nullable(),
+  contactPhone: z.string().nullable(),
+  contactEmail: z.string().nullable(),
+  wechatId: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  avatarStatus: z.enum(['none', 'processing', 'ready', 'failed']),
+  isPublic: z.boolean(),
+  effectivePublic: z.boolean(),
+  publicSlug: z.string().nullable(),
+  publicPreviewUrl: z.string().nullable(),
+  visibleFields: AttendeeShowcaseVisibleFieldsSchema,
+  consentVersion: z.string().nullable(),
+  consentAt: z.string().nullable(),
+  adminHidden: z.boolean(),
+  adminHiddenReason: z.string().nullable(),
+  qualified: z.boolean(),
+  qualificationReason: z.string().nullable(),
+  qualifiedAt: z.string().nullable(),
+  sequence: z.number().int().positive().nullable(),
+  completion: AttendeeShowcaseCompletionSchema,
+  invoiceAvailable: z.boolean(),
+  paymentRequired: z.boolean(),
+  version: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+});
+
+export const AttendeeAvatarUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+
+export const AttendeeAvatarUploadResultSchema = z.object({
+  uploadToken: z.string().uuid(),
+  uploadUrl: z.string(),
+  headers: z.record(z.string(), z.string()),
+  expiresAt: z.string(),
+});
+
+export const AttendeeAvatarConfirmSchema = z.object({
+  uploadToken: z.string().uuid(),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+
+export const PublicEventMemberListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().max(10_000).default(1),
+  industry: AttendeeIndustryCodeSchema.optional(),
+});
+
+export const PublicEventMemberItemSchema = z.object({
+  publicSlug: z.string(),
+  sequence: z.number().int().positive(),
+  displayName: z.string().optional(),
+  company: z.string().optional(),
+  title: z.string().optional(),
+  industryCode: AttendeeIndustryCodeSchema.optional(),
+  industryLabel: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  initials: z.string().optional(),
+});
+
+export const PublicEventMemberListSchema = z.object({
+  items: z.array(PublicEventMemberItemSchema),
+  total: z.number().int().nonnegative(),
+  overallTotal: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.literal(40),
+  totalPages: z.number().int().positive(),
+  categoryMode: z.boolean(),
+  industries: z.array(
+    z.object({
+      code: AttendeeIndustryCodeSchema,
+      label: z.string(),
+      count: z.number().int().positive(),
+    }),
+  ),
+});
+
+export const PublicEventMemberDetailSchema = PublicEventMemberItemSchema.extend({
+  eventName: z.string(),
+  eventSlug: z.string(),
+  businessIntro: z.string().optional(),
+  businessUrl: z.string().optional(),
+  contactPhone: z.string().optional(),
+  contactEmail: z.string().optional(),
+  wechatId: z.string().optional(),
+});
+
+export const ModerateAttendeeShowcaseSchema = z.object({
+  hidden: z.boolean(),
+  reason: z.string().trim().max(500).nullable().optional(),
+});
+
+export const AdminAttendeeShowcaseSchema = AttendeeShowcaseProfileSchema.extend({
+  customerUserId: z.number().int().min(101),
+  moderationUpdatedAt: z.string().nullable(),
+});
 
 export const CustomerProfileSchema = z.object({
   nickname: z.string().nullable(),
@@ -1615,11 +1988,30 @@ export const AdminRegistrationCustomerSchema = z.object({
 
 export const AdminRegistrationRowSchema = RegistrationSchema.extend({
   order: OrderSchema.optional(),
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
+  isProxyPurchase: z.boolean(),
   formVersion: z.number().int().positive().optional(),
   termsVersion: z.string().optional(),
+  businessStatus: RegistrationBusinessStatusSchema,
+  latestPaymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
+  paidAmount: z.number().int().nonnegative(),
+  refundedAmount: z.number().int().nonnegative(),
+  invoiceSummary: z.object({
+    status: RegistrationInvoiceSummaryStatusSchema,
+    requestNo: z.string().nullable(),
+  }),
+  lastBusinessAt: z.string(),
 });
 
-const AdminRegistrationDetailBaseSchema = AdminRegistrationRowSchema.extend({
+const AdminRegistrationDetailBaseSchema = AdminRegistrationRowSchema.omit({
+  businessStatus: true,
+  latestPaymentStatus: true,
+  paidAmount: true,
+  refundedAmount: true,
+  invoiceSummary: true,
+  lastBusinessAt: true,
+}).extend({
   updatedAt: z.string(),
   invoiceRequired: z.boolean(),
   marketingConsent: z.boolean(),
@@ -1651,15 +2043,21 @@ export const AdminRegistrationListSchema = z.object({
 export const AdminRegistrationListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
   status: RegistrationStatusSchema.optional(),
+  businessStatus: RegistrationBusinessStatusSchema.optional(),
+  invoiceStatus: RegistrationInvoiceSummaryStatusSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 export const AdminOrderRowSchema = OrderSchema.extend({
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
   attendeeName: z.string(),
   attendeeMobile: z.string(),
   attendeeCompany: z.string(),
   ticketTypeName: z.string(),
+  isProxyPurchase: z.boolean(),
+  fullRefundBlockedReason: z.string().nullable(),
 });
 
 export const AdminOrderListSchema = z.object({
@@ -1719,7 +2117,33 @@ export const UpdateCustomerProfileSchema = z.object({
   city: z.string().trim().max(80).nullable(),
 });
 
-export const CustomerRegistrationSummarySchema = z.object({
+export const EventPurchaseContextSchema = z.object({
+  eventId: EventIdSchema,
+  additionalPurchaseEnabled: z.boolean(),
+  maxActiveSeatsPerPurchaser: z.number().int().min(1).max(20),
+  activeSeatCount: z.number().int().nonnegative(),
+  remainingSeatCount: z.number().int().nonnegative(),
+  canPurchaseAdditional: z.boolean(),
+  myAttendance: z
+    .object({
+      registrationId: z.string().uuid(),
+      registrationStatus: RegistrationStatusSchema,
+      ticketCode: z.string().nullable(),
+      ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
+    })
+    .nullable(),
+  myPurchases: z.object({
+    paidCount: z.number().int().nonnegative(),
+    pendingCount: z.number().int().nonnegative(),
+    activeSeatCount: z.number().int().nonnegative(),
+  }),
+  resumePaymentOrderId: z.string().uuid().nullable(),
+  recommendedActions: z.array(
+    z.enum(['resume_payment', 'view_ticket', 'buy_more', 'register_self']),
+  ),
+});
+
+const CustomerRegistrationSummaryCommonSchema = z.object({
   id: z.string(),
   eventId: EventIdSchema,
   eventName: z.string(),
@@ -1730,9 +2154,94 @@ export const CustomerRegistrationSummarySchema = z.object({
   registrationStatus: RegistrationStatusSchema,
   attendeeName: z.string(),
   ticketTypeName: z.string(),
+  ticketCode: z.string().nullable(),
+  ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
+  createdAt: z.string(),
+});
+
+const CustomerManagedRegistrationSummarySchema = CustomerRegistrationSummaryCommonSchema.extend({
+  canManageOrder: z.literal(true),
   orderId: z.string(),
   orderNo: z.string(),
   orderStatus: OrderStatusSchema,
+  amount: z.number().int().nonnegative(),
+  currency: z.string(),
+  invoiceId: z.string().nullable(),
+  invoiceStatus: InvoiceRequestStatusSchema.nullable(),
+});
+
+const CustomerAttendeeRegistrationSummarySchema = CustomerRegistrationSummaryCommonSchema.extend({
+  canManageOrder: z.literal(false),
+  orderId: z.null(),
+  orderNo: z.null(),
+  orderStatus: z.null(),
+  amount: z.null(),
+  currency: z.null(),
+  invoiceId: z.null(),
+  invoiceStatus: z.null(),
+});
+
+const normalizeLegacyRegistrationOrderAccess = (value: unknown) => {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !Object.hasOwn(value, 'canManageOrder')
+  ) {
+    return { ...value, canManageOrder: true };
+  }
+  return value;
+};
+
+export const CustomerRegistrationSummarySchema = z.preprocess(
+  normalizeLegacyRegistrationOrderAccess,
+  z.discriminatedUnion('canManageOrder', [
+    CustomerManagedRegistrationSummarySchema,
+    CustomerAttendeeRegistrationSummarySchema,
+  ]),
+);
+
+const CustomerRegistrationAttendeeSchema = z.object({
+  name: z.string(),
+  mobile: z.string(),
+  email: z.string(),
+  company: z.string(),
+  title: z.string(),
+  city: z.string(),
+});
+
+export const CustomerRegistrationDetailSchema = z.preprocess(
+  normalizeLegacyRegistrationOrderAccess,
+  z.discriminatedUnion('canManageOrder', [
+    CustomerManagedRegistrationSummarySchema.extend({
+      attendee: CustomerRegistrationAttendeeSchema,
+    }),
+    CustomerAttendeeRegistrationSummarySchema.extend({
+      attendee: CustomerRegistrationAttendeeSchema,
+    }),
+  ]),
+);
+
+export const CustomerRegistrationListSchema = z.object({
+  items: z.array(CustomerRegistrationSummarySchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const CustomerPurchasedOrderSchema = z.object({
+  id: z.string(),
+  orderNo: z.string(),
+  registrationId: z.string(),
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  attendeeName: z.string(),
+  attendeeMobile: z.string(),
+  isProxyPurchase: z.boolean(),
+  attendeeClaimed: z.boolean(),
+  canEditAttendee: z.boolean(),
+  ticketTypeName: z.string(),
+  status: OrderStatusSchema,
+  paymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
   amount: z.number().int().nonnegative(),
   currency: z.string(),
   ticketCode: z.string().nullable(),
@@ -1742,20 +2251,31 @@ export const CustomerRegistrationSummarySchema = z.object({
   createdAt: z.string(),
 });
 
-export const CustomerRegistrationDetailSchema = CustomerRegistrationSummarySchema.extend({
-  attendee: z.object({
-    name: z.string(),
-    mobile: z.string(),
-    email: z.string(),
-    company: z.string(),
-    title: z.string(),
-    city: z.string(),
-  }),
+export const CustomerPurchasedOrderListSchema = z.object({
+  items: z.array(CustomerPurchasedOrderSchema),
+  nextCursor: z.string().nullable(),
 });
 
-export const CustomerRegistrationListSchema = z.object({
-  items: z.array(CustomerRegistrationSummarySchema),
-  nextCursor: z.string().nullable(),
+export const AttendeeClaimInputSchema = z.object({
+  registrationId: z.string().uuid(),
+  claimToken: z.string().min(32).max(500),
+});
+
+export const UpdatePurchasedOrderAttendeeSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    mobile: MainlandMobileSchema.optional(),
+    email: z.union([z.email(), z.literal('')]).optional(),
+    company: z.string().trim().max(160).optional(),
+    title: z.string().trim().max(100).optional(),
+    city: z.string().trim().max(80).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, '至少修改一个参会人字段');
+
+export const AttendeeClaimResultSchema = z.object({
+  claimed: z.literal(true),
+  claimedAt: z.string(),
+  registration: CustomerRegistrationSummarySchema,
 });
 
 export const ClaimCustomerRegistrationSchema = z.object({
@@ -1845,6 +2365,8 @@ export const CustomerAdminSummarySchema = z.object({
   eventCount: z.number().int().nonnegative(),
   activeEventCount: z.number().int().nonnegative(),
   invoiceCount: z.number().int().nonnegative(),
+  showcaseCount: z.number().int().nonnegative(),
+  publicShowcaseCount: z.number().int().nonnegative(),
   latestEventName: z.string().nullable(),
   latestRegistration: CustomerAdminLatestRegistrationSchema.nullable(),
   lastRegistrationAt: z.string().nullable(),
@@ -2066,12 +2588,14 @@ export const CustomerAdminDetailSchema = z.object({
   registrationNextCursor: z.string().nullable(),
   invoices: z.array(CustomerInvoiceSummarySchema),
   invoiceNextCursor: z.string().nullable(),
+  showcases: z.array(AdminAttendeeShowcaseSchema),
 });
 
 export const DeleteCustomerAdminResultSchema = z.object({
   deleted: z.literal(true),
   detachedRegistrations: z.number().int().nonnegative(),
   detachedWaitlistEntries: z.number().int().nonnegative(),
+  detachedPurchaserOrders: z.number().int().nonnegative().optional(),
 });
 
 export const CreateCustomerAdminSchema = z.object({
@@ -2088,12 +2612,17 @@ export const CreateCustomerAdminResultSchema = z.object({
   customerId: CustomerIdentitySchema.shape.id,
 });
 
-export const UpdateCustomerAdminSchema = z.object({
-  profile: UpdateCustomerProfileSchema.optional(),
-  status: CustomerStatusSchema.optional(),
-  internalNote: z.string().trim().max(2000).optional(),
-  tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
-});
+export const UpdateCustomerAdminSchema = z
+  .object({
+    profile: UpdateCustomerProfileSchema.optional(),
+    status: CustomerStatusSchema.optional(),
+    internalNote: z.string().trim().max(2000).optional(),
+    tags: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
+  })
+  .strict()
+  .refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: '至少提交一个用户字段',
+  });
 
 export const CustomerAdminListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -2116,12 +2645,14 @@ export const CustomerRegistrationListQuerySchema = z.object({
 export const OrganizationMemberSchema = z.object({
   id: z.string(),
   userId: z.number().int().min(101),
-  email: z.email(),
+  email: z.email().nullable(),
+  username: StaffUsernameSchema.nullable().optional(),
   name: z.string(),
   mobile: z.string().nullable(),
   role: OrganizationRoleSchema,
   grants: z.array(z.string()),
   status: MembershipStatusSchema,
+  isSuperAdministrator: z.boolean().default(false),
   profile: z
     .object({
       company: z.string().nullable(),
@@ -2136,7 +2667,8 @@ export const OrganizationMemberSchema = z.object({
 export const AccountProfileSchema = z.object({
   user: z.object({
     id: z.number().int().min(101),
-    email: z.email(),
+    email: z.email().nullable(),
+    username: StaffUsernameSchema.nullable().optional(),
     name: z.string(),
     mobile: z.string().nullable(),
   }),
@@ -2200,6 +2732,26 @@ export const CreateOrganizationInvitationSchema = z.object({
   grants: z.array(GrantSchema).max(100),
 });
 
+const StaffPasswordSchema = z
+  .string()
+  .min(8, '密码至少需要 8 个字符')
+  .max(200)
+  .refine((value) => new TextEncoder().encode(value).length <= 72, '密码最多 72 个 UTF-8 字节');
+
+export const CreateOrganizationAdministratorSchema = z.object({
+  username: StaffUsernameSchema,
+  password: StaffPasswordSchema,
+});
+
+export const UpdateOrganizationAdministratorSchema = z
+  .object({
+    username: StaffUsernameSchema.optional(),
+    password: StaffPasswordSchema.optional(),
+  })
+  .refine((value) => Boolean(value.username || value.password), {
+    message: '用户名或密码至少需要修改一项',
+  });
+
 export const OrganizationInvitationSchema = z.object({
   id: z.string(),
   email: z.email(),
@@ -2220,7 +2772,7 @@ export const CreateOrganizationInvitationResultSchema = z.object({
 export const AcceptOrganizationInvitationSchema = z.object({
   token: z.string().min(32).max(200),
   name: z.string().trim().min(1).max(120),
-  password: z.string().min(8).max(200),
+  password: StaffPasswordSchema,
 });
 
 export const OrganizationSettingsResultSchema = z.object({
@@ -2856,11 +3408,29 @@ export const InvoiceBuyerSchema = z
     }
   });
 
-export const CustomerCreateInvoiceSchema = InvoiceBuyerSchema.strict();
+export const CustomerInvoiceBuyerSchema = z
+  .object({
+    companyName: z.string().trim().min(2).max(200),
+    taxId: z.string().trim().min(8).max(40),
+    email: z.email().max(255),
+  })
+  .strict();
 
-export const CustomerUpdateInvoiceSchema = InvoiceBuyerSchema.extend({
-  expectedUpdatedAt: z.iso.datetime(),
-}).strict();
+const CustomerLegacyInvoiceBuyerSchema = InvoiceBuyerSchema.strict();
+
+export const CustomerCreateInvoiceSchema = z.union([
+  CustomerInvoiceBuyerSchema,
+  CustomerLegacyInvoiceBuyerSchema,
+]);
+
+export const CustomerUpdateInvoiceSchema = z.union([
+  CustomerInvoiceBuyerSchema.extend({
+    expectedUpdatedAt: z.iso.datetime(),
+  }).strict(),
+  CustomerLegacyInvoiceBuyerSchema.extend({
+    expectedUpdatedAt: z.iso.datetime(),
+  }).strict(),
+]);
 
 export const CustomerSubmitInvoiceSchema = z.union([
   CustomerUpdateInvoiceSchema,
@@ -2869,6 +3439,84 @@ export const CustomerSubmitInvoiceSchema = z.union([
 
 export const SubmitInvoiceDetailsSchema = InvoiceBuyerSchema.extend({
   accessToken: z.string().min(32).max(500),
+});
+
+export const InvoiceBatchManifestItemSchema = z
+  .object({
+    requestNo: z.string().trim().min(6).max(48),
+    invoiceNumber: z.string().trim().min(1).max(80),
+    invoiceCode: z.string().trim().max(80).default(''),
+    uploadFile: z
+      .string()
+      .trim()
+      .min(11)
+      .max(300)
+      .regex(/^files\/[A-Za-z0-9._-]+\.(?:pdf|ofd)$/i, '文件必须位于 files/ 目录'),
+    mediaType: z.enum(['application/pdf', 'application/ofd']),
+    size: z
+      .number()
+      .int()
+      .positive()
+      .max(20 * 1024 * 1024),
+    contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+  })
+  .strict();
+
+export const InvoiceBatchPreflightSchema = z
+  .object({ items: z.array(InvoiceBatchManifestItemSchema).min(1).max(1000) })
+  .strict()
+  .superRefine((value, context) => {
+    const requestNos = new Set<string>();
+    const uploadFiles = new Set<string>();
+    const contentDigests = new Set<string>();
+    value.items.forEach((item, index) => {
+      if (requestNos.has(item.requestNo)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'requestNo'],
+          message: '同一批次的申请单号不能重复',
+        });
+      }
+      if (uploadFiles.has(item.uploadFile)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'uploadFile'],
+          message: '同一批次的文件路径不能重复',
+        });
+      }
+      if (contentDigests.has(item.contentDigest.toLowerCase())) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'contentDigest'],
+          message: '同一批次的文件内容不能重复',
+        });
+      }
+      const extension = item.uploadFile.toLowerCase().endsWith('.ofd') ? 'ofd' : 'pdf';
+      const expectedMediaType = extension === 'ofd' ? 'application/ofd' : 'application/pdf';
+      if (item.mediaType !== expectedMediaType) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'mediaType'],
+          message: '文件扩展名与媒体类型不一致',
+        });
+      }
+      requestNos.add(item.requestNo);
+      uploadFiles.add(item.uploadFile);
+      contentDigests.add(item.contentDigest.toLowerCase());
+    });
+  });
+
+export const InvoiceBatchPreflightResultSchema = z.object({
+  items: z.array(
+    z.object({
+      requestNo: z.string(),
+      invoiceId: z.string().nullable(),
+      status: z.enum(['ready', 'error']),
+      message: z.string(),
+    }),
+  ),
+  readyCount: z.number().int().nonnegative(),
+  errorCount: z.number().int().nonnegative(),
 });
 
 export const RequestOrderAccessLinkSchema = z.object({
@@ -2937,6 +3585,9 @@ export const InvoiceRequestSchema = z.object({
 });
 
 export const AdminRegistrationOperationsRegistrationSchema = RegistrationSchema.extend({
+  purchaserName: z.string(),
+  purchaserMobile: z.string(),
+  isProxyPurchase: z.boolean(),
   formVersion: z.number().int().positive().optional(),
   termsVersion: z.string().optional(),
   updatedAt: z.string(),
@@ -3259,11 +3910,13 @@ export type TicketType = z.infer<typeof TicketTypeSchema>;
 export type Speaker = z.infer<typeof SpeakerSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type RegistrationField = z.infer<typeof RegistrationFieldSchema>;
+export type RegistrationFormPublish = z.infer<typeof RegistrationFormPublishSchema>;
 export type RegistrationForm = z.infer<typeof RegistrationFormSchema>;
 export type PublicEvent = z.infer<typeof PublicEventSchema>;
 export type CreateRegistration = z.infer<typeof CreateRegistrationSchema>;
 export type Registration = z.infer<typeof RegistrationSchema>;
 export type Order = z.infer<typeof OrderSchema>;
+export type CustomerOrderAccess = z.infer<typeof CustomerOrderAccessSchema>;
 export type PaymentCallback = z.infer<typeof PaymentCallbackSchema>;
 export type Ticket = z.infer<typeof TicketSchema>;
 export type RegistrationCheckout = z.infer<typeof RegistrationCheckoutSchema>;
@@ -3279,9 +3932,26 @@ export type AdminPreferences = z.infer<typeof AdminPreferencesSchema>;
 export type UpdateAdminPreferences = z.infer<typeof UpdateAdminPreferencesSchema>;
 export type AuthMe = z.infer<typeof AuthMeSchema>;
 export type CustomerProfile = z.infer<typeof CustomerProfileSchema>;
+export type AttendeeIndustryCode = z.infer<typeof AttendeeIndustryCodeSchema>;
+export type AttendeeShowcaseVisibleFields = z.infer<typeof AttendeeShowcaseVisibleFieldsSchema>;
+export type UpdateAttendeeShowcase = z.infer<typeof UpdateAttendeeShowcaseSchema>;
+export type AttendeeShowcaseProfile = z.infer<typeof AttendeeShowcaseProfileSchema>;
+export type AttendeeAvatarUpload = z.infer<typeof AttendeeAvatarUploadSchema>;
+export type AttendeeAvatarUploadResult = z.infer<typeof AttendeeAvatarUploadResultSchema>;
+export type AttendeeAvatarConfirm = z.infer<typeof AttendeeAvatarConfirmSchema>;
+export type PublicEventMemberListQuery = z.infer<typeof PublicEventMemberListQuerySchema>;
+export type PublicEventMemberItem = z.infer<typeof PublicEventMemberItemSchema>;
+export type PublicEventMemberList = z.infer<typeof PublicEventMemberListSchema>;
+export type PublicEventMemberDetail = z.infer<typeof PublicEventMemberDetailSchema>;
+export type ModerateAttendeeShowcase = z.infer<typeof ModerateAttendeeShowcaseSchema>;
+export type AdminAttendeeShowcase = z.infer<typeof AdminAttendeeShowcaseSchema>;
 export type CustomerIdentity = z.infer<typeof CustomerIdentitySchema>;
 export type AdminRegistrationCustomer = z.infer<typeof AdminRegistrationCustomerSchema>;
 export type AdminRegistrationRow = z.infer<typeof AdminRegistrationRowSchema>;
+export type RegistrationBusinessStatus = z.infer<typeof RegistrationBusinessStatusSchema>;
+export type RegistrationInvoiceSummaryStatus = z.infer<
+  typeof RegistrationInvoiceSummaryStatusSchema
+>;
 export type AdminRegistrationDetail = z.infer<typeof AdminRegistrationDetailSchema>;
 export type AdminRegistrationOperationsDetail = z.infer<
   typeof AdminRegistrationOperationsDetailSchema
@@ -3305,9 +3975,17 @@ export type RequestCustomerOtpResult = z.infer<typeof RequestCustomerOtpResultSc
 export type VerifyCustomerOtp = z.infer<typeof VerifyCustomerOtpSchema>;
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>;
 export type UpdateCustomerProfile = z.infer<typeof UpdateCustomerProfileSchema>;
+export type EventPurchaseContext = z.infer<typeof EventPurchaseContextSchema>;
 export type CustomerRegistrationSummary = z.infer<typeof CustomerRegistrationSummarySchema>;
 export type CustomerRegistrationDetail = z.infer<typeof CustomerRegistrationDetailSchema>;
 export type CustomerRegistrationList = z.infer<typeof CustomerRegistrationListSchema>;
+export type CustomerPurchasedOrder = z.infer<typeof CustomerPurchasedOrderSchema>;
+export type CustomerPurchasedOrderList = z.infer<typeof CustomerPurchasedOrderListSchema>;
+export type AttendeeClaimInput = z.infer<typeof AttendeeClaimInputSchema>;
+export type AttendeeClaimResult = z.infer<typeof AttendeeClaimResultSchema>;
+export type UpdatePurchasedOrderAttendee = z.infer<
+  typeof UpdatePurchasedOrderAttendeeSchema
+>;
 export type ClaimCustomerRegistration = z.infer<typeof ClaimCustomerRegistrationSchema>;
 export type CustomerAdminDisplayNameSource = z.infer<typeof CustomerAdminDisplayNameSourceSchema>;
 export type CustomerAdminDisplayCompanySource = z.infer<
@@ -3338,6 +4016,8 @@ export type AccountProfile = z.infer<typeof AccountProfileSchema>;
 export type UpdateAccountProfile = z.infer<typeof UpdateAccountProfileSchema>;
 export type UpdateOrganizationMember = z.infer<typeof UpdateOrganizationMemberSchema>;
 export type UpdateMembershipStatus = z.infer<typeof UpdateMembershipStatusSchema>;
+export type CreateOrganizationAdministrator = z.infer<typeof CreateOrganizationAdministratorSchema>;
+export type UpdateOrganizationAdministrator = z.infer<typeof UpdateOrganizationAdministratorSchema>;
 export type CreateOrganizationInvitation = z.infer<typeof CreateOrganizationInvitationSchema>;
 export type OrganizationInvitation = z.infer<typeof OrganizationInvitationSchema>;
 export type CreateOrganizationInvitationResult = z.infer<
@@ -3394,6 +4074,9 @@ export type PublishEvent = z.infer<typeof PublishEventSchema>;
 export type RefundRequest = z.infer<typeof RefundRequestSchema>;
 export type Refund = z.infer<typeof RefundSchema>;
 export type InvoiceBuyer = z.infer<typeof InvoiceBuyerSchema>;
+export type InvoiceBatchManifestItem = z.infer<typeof InvoiceBatchManifestItemSchema>;
+export type InvoiceBatchPreflight = z.infer<typeof InvoiceBatchPreflightSchema>;
+export type InvoiceBatchPreflightResult = z.infer<typeof InvoiceBatchPreflightResultSchema>;
 export type CustomerCreateInvoice = z.infer<typeof CustomerCreateInvoiceSchema>;
 export type CustomerUpdateInvoice = z.infer<typeof CustomerUpdateInvoiceSchema>;
 export type CustomerSubmitInvoice = z.infer<typeof CustomerSubmitInvoiceSchema>;
@@ -3422,6 +4105,7 @@ export const API_ERROR_CODES = {
   NOT_FOUND: 'NOT_FOUND',
   IDEMPOTENCY_CONFLICT: 'IDEMPOTENCY_CONFLICT',
   INVENTORY_UNAVAILABLE: 'INVENTORY_UNAVAILABLE',
+  REGISTRATION_IDENTITY_CONFLICT: 'REGISTRATION_IDENTITY_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   DUPLICATE_CHECKIN: 'DUPLICATE_CHECKIN',
 } as const;
@@ -3432,7 +4116,7 @@ export const DEMO_IDS = {
   adminUser: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   template: {
     root: '18181818-1818-4181-8181-181818181818',
-    version: '19191919-1919-4191-8191-191919191919',
+    version: '29292929-2929-4292-8292-292929292929',
   },
   tickets: {
     earlyBird: '33333333-3333-4333-8333-333333333331',
@@ -3450,11 +4134,12 @@ export const DEMO_EVENT_EXPERIENCE: NonNullable<PublicEvent['experience']> = {
   template: {
     id: DEMO_IDS.template.root,
     versionId: DEMO_IDS.template.version,
-    version: 1,
+    version: 2,
   },
   presentation: { kind: 'structured' },
   home: {
     ...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home,
+    blocks: [...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home.blocks],
     seo: {
       ...LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.home.seo,
       title: '中国第二届GEO大会 · 深圳 2026',
@@ -3486,7 +4171,9 @@ export const DEMO_EVENT: PublicEvent = {
     paymentMode: 'ticketed',
     currency: 'CNY',
     registrationOpen: true,
-    accountMode: 'guest_allowed',
+    accountMode: 'mobile_otp_required',
+    additionalPurchaseEnabled: false,
+    maxActiveSeatsPerPurchaser: 5,
   },
   stats: {
     seats: 500,

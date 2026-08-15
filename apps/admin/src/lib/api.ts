@@ -26,6 +26,7 @@ import {
   type CreateConferenceTemplate,
   type CreateCustomerAdmin,
   type CreateCustomerAdminResult,
+  type CreateOrganizationAdministrator,
   type CreateRegistrationNote,
   type CreateOrganizationInvitation,
   type CreateOrganizationInvitationResult,
@@ -46,14 +47,16 @@ import {
   type EventSlugUpdateResult,
   type EventSummary,
   type EventTemplateBinding,
-  type IntegrationStatus,
   type HtmlTemplateBindingManifest,
   type HtmlTemplateBindingProposal,
   type InvoiceAction,
+  type InvoiceBatchPreflight,
+  type InvoiceBatchPreflightResult,
   type InvoiceListQuery,
   type InvoiceRequest,
   type LoginResult,
   type MembershipStatus,
+  type ModerateAttendeeShowcase,
   type NotificationTemplate,
   type OfflineCheckInSync,
   type OrganizationHomepageEvent,
@@ -77,6 +80,7 @@ import {
   type UpdateCustomerAdmin,
   type UpdateEvent,
   type UpdateEventTemplateBinding,
+  type UpdateOrganizationAdministrator,
   type UpdateOrganizationMember,
   type UpdateOrganizationSettings,
   type UpdateWeChatPayConfiguration,
@@ -86,6 +90,7 @@ import {
   publicEventHomePath,
   publicEventScopedPath,
 } from '@conference/contracts';
+import { adminOrderExportTable } from './order-export';
 import {
   clearLegacyEventPreference,
   createEventOptionsLoader,
@@ -283,6 +288,7 @@ export const session = {
       user.value = {
         ...user.value,
         email: value.user.email,
+        username: value.user.username,
         name: value.user.name,
         role: value.membership.role,
       };
@@ -294,6 +300,7 @@ export const session = {
         user: {
           id: value.user.id,
           email: value.user.email,
+          username: value.user.username,
           name: value.user.name,
         },
         membership: {
@@ -543,6 +550,8 @@ export const conferenceApi = {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.q) query.set('q', filters.q);
     if (filters.status) query.set('status', filters.status);
+    if (filters.businessStatus) query.set('businessStatus', filters.businessStatus);
+    if (filters.invoiceStatus) query.set('invoiceStatus', filters.invoiceStatus);
     if (filters.page) query.set('page', String(filters.page));
     if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
     return request<AdminRegistrationList>(`/admin/registrations?${query}`);
@@ -669,6 +678,15 @@ export const conferenceApi = {
       method: 'DELETE',
     });
   },
+  moderateAttendeeShowcase(eventId: EventId, showcaseId: string, input: ModerateAttendeeShowcase) {
+    return request<{ updated: true }>(
+      `/admin/events/${eventId}/member-showcases/${showcaseId}/moderation`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+    );
+  },
   updateMember(membershipId: string, input: UpdateOrganizationMember) {
     return request<OrganizationMember>(`/admin/organization/members/${membershipId}`, {
       method: 'PATCH',
@@ -689,6 +707,23 @@ export const conferenceApi = {
   getInvitations() {
     return request<OrganizationInvitation[]>('/admin/organization/invitations');
   },
+  createAdministrator(input: CreateOrganizationAdministrator) {
+    return request<OrganizationMember>('/admin/organization/administrators', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  updateAdministratorCredentials(membershipId: string, input: UpdateOrganizationAdministrator) {
+    return request<OrganizationMember>(`/admin/organization/administrators/${membershipId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  deleteAdministrator(membershipId: string) {
+    return request<{ deleted: boolean }>(`/admin/organization/administrators/${membershipId}`, {
+      method: 'DELETE',
+    });
+  },
   createInvitation(input: CreateOrganizationInvitation) {
     return request<CreateOrganizationInvitationResult>('/admin/organization/invitations', {
       method: 'POST',
@@ -708,9 +743,6 @@ export const conferenceApi = {
       method: 'PATCH',
       body: JSON.stringify(input),
     });
-  },
-  getIntegrationStatus() {
-    return request<IntegrationStatus>('/admin/integrations/status');
   },
   getWeChatPayConfiguration() {
     return request<WeChatPayConfiguration>('/admin/integrations/wechat-pay');
@@ -1474,6 +1506,12 @@ export const conferenceApi = {
     URL.revokeObjectURL(url);
     return exportedRowCount;
   },
+  preflightInvoiceBatch(input: InvoiceBatchPreflight, eventId?: EventId) {
+    return request<InvoiceBatchPreflightResult>(
+      `/admin/events/${eventScope(eventId)}/invoices/batch-imports/preflight`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
+  },
   getInventory(eventId?: EventId) {
     return request<
       Array<{
@@ -1559,20 +1597,11 @@ export const conferenceApi = {
     URL.revokeObjectURL(url);
   },
   exportOrders(rows: AdminOrderRow[]) {
+    const table = adminOrderExportTable(rows);
     downloadCsv(
       `orders-${activeEventSlug.value ?? activeEventId.value ?? 'event'}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['订单号', '参会人', '公司', '票种', '状态', '金额（分）', '币种', '支付方式', '创建时间'],
-      rows.map((row) => [
-        row.orderNo,
-        row.attendeeName,
-        row.attendeeCompany,
-        row.ticketTypeName,
-        row.status,
-        row.amount,
-        row.currency,
-        row.paymentMethod,
-        row.createdAt,
-      ]),
+      table.headers,
+      table.rows,
     );
   },
 };

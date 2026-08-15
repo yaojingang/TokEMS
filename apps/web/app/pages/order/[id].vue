@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { watch } from 'vue';
+import { navigateTo } from '#imports';
 import { publicEventHomePath, publicEventScopedPath, type Ticket } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import {
   activeFlowStep,
   enabledFlowSteps,
+  hasEnabledEventFlowStep,
   resolveEventExperience,
 } from '~/composables/useEventExperience';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { useOrderPayment } from '~/composables/useOrderPayment';
+import {
+  createRegistrationIntent,
+  resolveCheckoutSuccessDestination,
+} from '~/utils/purchase-journey';
 
 const route = useRoute();
-const router = useRouter();
 const api = useConferenceApi();
 const customer = useCustomerSession();
 
@@ -24,14 +29,31 @@ const remainingSeconds = ref(15 * 60);
 const issuedTicket = ref<Ticket>();
 const claimPending = ref(false);
 const claimMessage = ref('');
-const localSimulation = import.meta.dev;
+const localSimulationAllowed = ref(false);
 const paymentSurface = computed(() => api.isPaymentSurface());
 let countdown: ReturnType<typeof setInterval> | undefined;
+
+const memberProfileEnabled = computed(() => hasEnabledEventFlowStep(event.value, 'member-profile'));
+
+async function goToCompletion(registrationId: string, ticket?: Ticket) {
+  const eventSlug = event.value.slug || String(route.query.event ?? '');
+  const path = resolveCheckoutSuccessDestination({
+    isProxyPurchase: isProxyPurchase.value,
+    eventSlug,
+    registrationId,
+    ticketCode: ticket?.code,
+    memberProfileEnabled: memberProfileEnabled.value,
+  });
+  if (!path) return;
+  const destination = api.resolveConferenceUrl(path);
+  await navigateTo(destination, { external: /^https?:\/\//i.test(destination) });
+}
 
 const payment = useOrderPayment({
   orderId,
   eventSlug: String(route.query.event ?? ''),
   async onPaid(latest) {
+    if (latest.isProxyPurchase) return;
     if (!payment.accessToken.value) return;
     const ticket = await api
       .getOrderTicket(latest.id, payment.accessToken.value)
@@ -40,6 +62,7 @@ const payment = useOrderPayment({
       api.saveTicket(ticket);
       issuedTicket.value = ticket;
     }
+    await goToCompletion(latest.registrationId, ticket);
   },
 });
 
@@ -64,6 +87,9 @@ const {
   switchChannel,
   retry: retryPayment,
 } = payment;
+const isProxyPurchase = computed(
+  () => checkout.value?.isProxyPurchase ?? order.value?.isProxyPurchase ?? false,
+);
 
 /**
  * Formats fen amounts as CNY for display.
@@ -119,6 +145,9 @@ const awaitingReview = computed(
 const canPay = computed(() => paymentCanPay.value && remainingSeconds.value > 0);
 const stateTitle = computed(() => {
   if (awaitingReview.value) return '报名已提交，等待大会审核';
+  if (isProxyPurchase.value && order.value?.status === 'paid') return '代购订单已完成';
+  if (isProxyPurchase.value && order.value?.status === 'partially_refunded')
+    return '代购订单已完成部分退款';
   if (isFreeOrder.value && order.value?.status === 'paid') return '报名已确认，电子票已签发';
   if (order.value?.status === 'paid') return '订单已支付，电子票已签发';
   if (order.value?.status === 'partially_refunded') return '订单已完成部分退款';
@@ -129,6 +158,8 @@ const stateTitle = computed(() => {
 const stateLead = computed(() => {
   if (awaitingReview.value)
     return '运营人员将在后台核对报名信息。审核结果会发送到报名邮箱，通过后即可继续支付或领取免费电子票。';
+  if (isProxyPurchase.value && ['paid', 'partially_refunded'].includes(order.value?.status ?? ''))
+    return '参会名额已生成，认领邀请已发送给参会人。你可在个人中心继续管理订单或增加名额。';
   if (isFreeOrder.value && order.value?.status === 'paid')
     return '免费报名已经完成，可随时打开电子票并在现场出示二维码签到。';
   if (order.value?.status === 'paid') return '可随时打开电子票，并在现场出示二维码完成签到。';
@@ -166,6 +197,13 @@ const ticketHref = computed(() => {
   return publicEventScopedPath(`/ticket/${encodeURIComponent(ticket.code)}`, event.value.slug);
 });
 
+const showcaseHref = computed(() =>
+  publicEventScopedPath(
+    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration.id ?? '')}/showcase`,
+    event.value.slug,
+  ),
+);
+
 const registerHref = computed(() => {
   const path = publicEventScopedPath('/register', event.value.slug);
   return api.resolveConferenceUrl(path);
@@ -179,6 +217,15 @@ const accountClaimHref = computed(() => {
   const path = publicEventScopedPath('/account', event.value.slug);
   return api.resolveConferenceUrl(path);
 });
+
+async function continueForOther() {
+  const path = publicEventScopedPath('/register', event.value.slug, {
+    intent: createRegistrationIntent(),
+    purchaseFor: 'other',
+  });
+  const destination = api.resolveConferenceUrl(path);
+  await navigateTo(destination, { external: /^https?:\/\//i.test(destination) });
+}
 
 const flowSteps = computed(() =>
   enabledFlowSteps(event.value, {
@@ -213,15 +260,29 @@ useHead(() => ({
 onMounted(async () => {
   try {
     checkout.value = api.readCheckout();
-    issuedTicket.value = checkout.value?.ticket;
+    issuedTicket.value = checkout.value?.isProxyPurchase ? undefined : checkout.value?.ticket;
     if (!paymentSurface.value) {
       await customer.refresh().catch(() => null);
     }
     const eventSlug = String(route.query.event ?? '');
     if (eventSlug) event.value = await api.getEvent(eventSlug);
-    await startPayment();
+    await startPayment({ localSimulationAllowed: true });
     if (
       orderAccessToken.value &&
+      order.value &&
+      ['pending_payment', 'processing'].includes(order.value.status)
+    ) {
+      localSimulationAllowed.value = await api
+        .localPaymentSimulationCapability(order.value.id, orderAccessToken.value)
+        .then((result) => result.allowed)
+        .catch(() => false);
+      if (!localSimulationAllowed.value) {
+        await preparePayment({ userInitiated: false });
+      }
+    }
+    if (
+      orderAccessToken.value &&
+      !isProxyPurchase.value &&
       ['paid', 'partially_refunded'].includes(order.value?.status ?? '') &&
       !issuedTicket.value
     ) {
@@ -285,20 +346,20 @@ async function confirmPaymentSimulation() {
   pending.value = true;
   pageError.value = '';
   try {
-    const result = await api.confirmPayment(order.value, order.value.registrationId);
-    api.saveTicket(result.ticket);
-    if (result.invoice) {
-      api.saveInvoiceAccess(result.invoice);
-      await router.push({
-        path: `/invoice/${result.invoice.id}`,
-        query: { event: event.value.slug },
-      });
-      return;
+    if (!orderAccessToken.value) throw new Error('订单访问凭证缺失，请重新进入支付页面');
+    const result = await api.confirmPayment(
+      order.value,
+      order.value.registrationId,
+      orderAccessToken.value,
+    );
+    if (!isProxyPurchase.value && result.ticket) {
+      api.saveTicket(result.ticket);
+      issuedTicket.value = result.ticket;
     }
-    await router.push({
-      path: `/ticket/${result.ticket.code}`,
-      query: { event: event.value.slug },
-    });
+    if (result.invoice) api.saveInvoiceAccess(result.invoice);
+    if (!isProxyPurchase.value && result.ticket) {
+      await goToCompletion(result.order.registrationId, result.ticket);
+    }
   } catch (error) {
     pageError.value = error instanceof Error ? error.message : '支付确认失败，请稍后重试。';
   } finally {
@@ -368,7 +429,7 @@ function switchChannelLabel(channel: string) {
             <strong>{{ isFreeOrder ? '免费' : money(order.amount) }}</strong>
           </div>
           <p v-if="displayError && !canPay" class="form-error" role="alert">{{ displayError }}</p>
-          <div v-if="orderAccessToken && !paymentSurface" class="order-account-link">
+          <div v-if="orderAccessToken && !paymentSurface && !isProxyPurchase" class="order-account-link">
             <p v-if="claimMessage" class="form-success" role="status">{{ claimMessage }}</p>
             <button
               class="flow-action is-secondary"
@@ -394,13 +455,47 @@ function switchChannelLabel(channel: string) {
             <p>审核期间无需付款，请留意报名邮箱中的结果通知。</p>
             <a class="flow-action is-secondary is-full" :href="conferenceHomeHref">返回大会首页</a>
           </template>
+          <template
+            v-else-if="
+              isProxyPurchase && ['paid', 'partially_refunded'].includes(order.status)
+            "
+          >
+            <p>认领邀请已发送给参会人。电子票与参会名片将在对方认领后归入其账户。</p>
+            <a class="flow-action is-full" :href="`${accountClaimHref}#purchases`">
+              管理购买订单
+            </a>
+            <button
+              v-if="event.registration.additionalPurchaseEnabled"
+              class="flow-action is-secondary is-full"
+              type="button"
+              @click="continueForOther"
+            >
+              继续为他人购票
+            </button>
+          </template>
           <template v-else-if="isFreeOrder && order.status === 'paid'">
-            <p>席位已确认，电子票可立即用于现场签到。</p>
-            <NuxtLink class="flow-action is-full" :to="ticketHref">查看电子票</NuxtLink>
+            <p v-if="memberProfileEnabled">
+              席位已确认。完善参会名片后，可生成个人海报并选择加入大会主页展示。
+            </p>
+            <p v-else>席位已确认，可继续查看电子票与参会安排。</p>
+            <NuxtLink v-if="memberProfileEnabled" class="flow-action is-full" :to="showcaseHref">
+              完善个人信息
+            </NuxtLink>
+            <NuxtLink class="flow-action is-secondary is-full" :to="ticketHref">
+              {{ memberProfileEnabled ? '稍后完善，先看电子票' : '查看电子票' }}
+            </NuxtLink>
+            <button
+              v-if="event.registration.additionalPurchaseEnabled"
+              class="flow-action is-secondary is-full"
+              type="button"
+              @click="continueForOther"
+            >
+              继续为他人购票
+            </button>
           </template>
           <template v-else-if="order.status === 'pending_payment' || order.status === 'processing'">
             <div
-              v-if="paymentPreparing || paymentPhase === 'authorizing'"
+              v-if="!localSimulationAllowed && (paymentPreparing || paymentPhase === 'authorizing')"
               class="payment-status-note"
               role="status"
               :aria-label="paymentPhase === 'authorizing' ? '正在获取微信授权' : '正在准备支付'"
@@ -408,7 +503,7 @@ function switchChannelLabel(channel: string) {
               {{ paymentPhase === 'authorizing' ? '正在获取微信授权…' : '正在准备支付…' }}
             </div>
             <QRCode
-              v-else-if="paymentChannel === 'native' && paymentCodeUrl"
+              v-else-if="!localSimulationAllowed && paymentChannel === 'native' && paymentCodeUrl"
               class="payment-qr"
               :value="paymentCodeUrl"
               :size="144"
@@ -417,18 +512,28 @@ function switchChannelLabel(channel: string) {
               aria-label="微信支付二维码"
             />
 
-            <p>{{ paymentHint }}</p>
+            <p>
+              {{
+                localSimulationAllowed
+                  ? '姚金刚的本机测试账户已授权，可直接确认模拟支付。'
+                  : paymentHint
+              }}
+            </p>
             <p>
               请在
               <strong style="color: var(--conference-red)">{{ remainingText }}</strong> 内完成支付
             </p>
 
-            <p v-if="paymentError" class="form-error payment-prepare-error" role="alert">
+            <p
+              v-if="!localSimulationAllowed && paymentError"
+              class="form-error payment-prepare-error"
+              role="alert"
+            >
               {{ paymentError }}
             </p>
 
             <button
-              v-if="paymentChannel === 'jsapi' && paymentJsapiParams"
+              v-if="!localSimulationAllowed && paymentChannel === 'jsapi' && paymentJsapiParams"
               class="flow-action is-full"
               type="button"
               :disabled="!canPay || paymentLaunching || paymentPreparing"
@@ -438,7 +543,11 @@ function switchChannelLabel(channel: string) {
             </button>
 
             <button
-              v-else-if="paymentChannel === 'jsapi' && paymentPhase === 'authorizing'"
+              v-else-if="
+                !localSimulationAllowed &&
+                  paymentChannel === 'jsapi' &&
+                  paymentPhase === 'authorizing'
+              "
               class="flow-action is-full"
               type="button"
               disabled
@@ -447,7 +556,7 @@ function switchChannelLabel(channel: string) {
             </button>
 
             <button
-              v-else-if="paymentChannel === 'jsapi'"
+              v-else-if="!localSimulationAllowed && paymentChannel === 'jsapi'"
               class="flow-action is-full"
               type="button"
               :disabled="!canPay || paymentPreparing"
@@ -457,7 +566,7 @@ function switchChannelLabel(channel: string) {
             </button>
 
             <button
-              v-else-if="paymentChannel === 'h5'"
+              v-else-if="!localSimulationAllowed && paymentChannel === 'h5'"
               class="flow-action is-full"
               type="button"
               :disabled="!canPay || paymentLaunching || paymentPreparing"
@@ -474,8 +583,9 @@ function switchChannelLabel(channel: string) {
 
             <button
               v-if="
-                paymentError ||
-                  (paymentChannel === 'native' && !paymentCodeUrl && !paymentPreparing)
+                !localSimulationAllowed &&
+                  (paymentError ||
+                    (paymentChannel === 'native' && !paymentCodeUrl && !paymentPreparing))
               "
               class="flow-action is-secondary is-full"
               type="button"
@@ -486,6 +596,7 @@ function switchChannelLabel(channel: string) {
             </button>
 
             <button
+              v-if="!localSimulationAllowed"
               class="flow-action is-full"
               type="button"
               :disabled="paymentPreparing || !canPay"
@@ -495,7 +606,11 @@ function switchChannelLabel(channel: string) {
               我已完成支付
             </button>
 
-            <div v-for="option in switchOptions" :key="option" class="payment-channel-switch">
+            <div
+              v-for="option in localSimulationAllowed ? [] : switchOptions"
+              :key="option"
+              class="payment-channel-switch"
+            >
               <button
                 class="flow-action is-secondary is-full"
                 type="button"
@@ -507,14 +622,14 @@ function switchChannelLabel(channel: string) {
             </div>
 
             <button
-              v-if="localSimulation"
-              class="flow-action is-secondary is-full"
+              v-if="localSimulationAllowed"
+              class="flow-action is-full"
               type="button"
               :disabled="pending || !canPay"
               style="margin-top: 8px"
               @click="confirmPaymentSimulation"
             >
-              {{ pending ? '正在确认…' : '开发环境模拟支付' }}
+              {{ pending ? '正在确认支付…' : '确认并模拟支付成功' }}
             </button>
 
             <a
@@ -526,8 +641,24 @@ function switchChannelLabel(channel: string) {
             </a>
           </template>
           <template v-else-if="['paid', 'partially_refunded'].includes(order.status)">
-            <p>{{ statusLabel }}，电子票状态将从服务端实时读取。</p>
-            <NuxtLink class="flow-action is-full" :to="ticketHref">查看电子票</NuxtLink>
+            <p v-if="memberProfileEnabled">
+              {{ statusLabel }}。下一步可完善参会名片，生成专属报名海报。
+            </p>
+            <p v-else>{{ statusLabel }}。可继续查看电子票与参会安排。</p>
+            <NuxtLink v-if="memberProfileEnabled" class="flow-action is-full" :to="showcaseHref">
+              完善个人信息
+            </NuxtLink>
+            <NuxtLink class="flow-action is-secondary is-full" :to="ticketHref">
+              {{ memberProfileEnabled ? '稍后完善，先看电子票' : '查看电子票' }}
+            </NuxtLink>
+            <button
+              v-if="event.registration.additionalPurchaseEnabled"
+              class="flow-action is-secondary is-full"
+              type="button"
+              @click="continueForOther"
+            >
+              继续为他人购票
+            </button>
           </template>
           <template v-else>
             <p>{{ stateLead }}</p>

@@ -136,8 +136,6 @@ TokEMS 同时服务多大会管理和单场大会运营。最近大会适合返�
 | `event.manage`            | 大会基本信息   |
 | `event.site.read`         | 前台与模板     |
 | 报名或库存管理权限        | 报名与支付设置 |
-| `event.content.manage`    | 内容运营       |
-| `event.ai.read`           | AI 内容        |
 | `event.registration.read` | 报名管理       |
 | `event.order.read`        | 订单与退款     |
 | `event.notification.read` | 通知中心       |
@@ -145,6 +143,8 @@ TokEMS 同时服务多大会管理和单场大会运营。最近大会适合返�
 | `event.audit.read`        | 操作记录       |
 
 品牌入口也使用这个角色默认页。缺少 `event.dashboard.read` 的角色不会被送到大会概览后再显示 403。
+
+`event.content.manage` 与 `event.ai.read` 不再提供独立后台页面。大会内容后续通过配套 Skill 或 API 维护；同时拥有 `event.site.read` 的内容管理员默认进入基本信息页的公开页面展示区块。
 
 ### 明确选择与自动选择
 
@@ -191,7 +191,6 @@ TokEMS
 
 大会概览
 大会配置
-内容运营
 报名管理
 发票管理
 订单与退款

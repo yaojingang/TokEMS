@@ -2,6 +2,7 @@ import { hash } from 'bcryptjs';
 import { sql } from 'drizzle-orm';
 import { isLoopbackHostname } from '@conference/security';
 import {
+  ATTENDEE_SHOWCASE_CONSENT_VERSION,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   DEMO_EVENT,
   DEMO_EVENT_EXPERIENCE,
@@ -10,6 +11,7 @@ import {
 import { createDatabase } from './index.js';
 import {
   aiPrompts,
+  attendeeShowcaseProfiles,
   checkinDevices,
   checkinLists,
   conferenceTemplateDrafts,
@@ -25,9 +27,11 @@ import {
   memberProfiles,
   memberships,
   notificationTemplates,
+  orders,
   organizationHomepageEvents,
   organizations,
   publicUserIds,
+  payments,
   registrationForms,
   registrations,
   sessions,
@@ -35,12 +39,13 @@ import {
   templatePackages,
   ticketQuotas,
   ticketTypes,
+  tickets,
   userIdAllocators,
   users,
 } from './schema.js';
 
 const BLUEPRINT_ID = '77777777-7777-4777-8777-777777777777';
-const RELEASE_ID = '88888888-8888-4888-8888-888888888888';
+const RELEASE_ID = '28282828-2828-4282-8282-282828282828';
 const FORM_ID = '99999999-9999-4999-8999-999999999999';
 const DEVICE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const CONFERENCE_TEMPLATE_ID = DEMO_IDS.template.root;
@@ -176,6 +181,11 @@ const allowInsecureLocalAuth =
 const adminPassword =
   process.env.ADMIN_PASSWORD ??
   (allowInsecureLocalAuth || process.env.NODE_ENV !== 'production' ? 'admin' : '');
+const adminEmail = (process.env.ADMIN_EMAIL ?? 'admin@tokems.local').trim().toLowerCase();
+const adminUserId = (process.env.ADMIN_USER_ID ?? DEMO_IDS.adminUser).trim().toLowerCase();
+if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(adminUserId)) {
+  throw new Error('ADMIN_USER_ID must be a valid UUID');
+}
 if (
   process.env.NODE_ENV === 'production' &&
   !allowInsecureLocalAuth &&
@@ -249,15 +259,15 @@ try {
     await tx
       .insert(users)
       .values({
-        id: DEMO_IDS.adminUser,
-        email: process.env.ADMIN_EMAIL ?? 'admin@tokems.local',
+        id: adminUserId,
+        email: adminEmail,
         name: '组织管理员',
         passwordHash: adminPasswordHash,
       })
       .onConflictDoUpdate({
         target: users.id,
         set: {
-          email: process.env.ADMIN_EMAIL ?? 'admin@tokems.local',
+          email: adminEmail,
           passwordHash: adminPasswordHash,
           updatedAt: new Date(),
         },
@@ -267,7 +277,7 @@ try {
       .insert(memberships)
       .values({
         organizationId: DEMO_IDS.organization,
-        userId: DEMO_IDS.adminUser,
+        userId: adminUserId,
         role: 'organization_admin',
         grants: ['*'],
       })
@@ -284,7 +294,7 @@ try {
       .insert(memberProfiles)
       .values({
         organizationId: DEMO_IDS.organization,
-        userId: DEMO_IDS.adminUser,
+        userId: adminUserId,
         company: 'TokEMS Demo Team',
         title: '大会运营负责人',
         city: '深圳',
@@ -366,14 +376,14 @@ try {
       .values({
         organizationId: DEMO_IDS.organization,
         eventId: DEMO_IDS.event,
-        updatedBy: DEMO_IDS.adminUser,
+        updatedBy: adminUserId,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: organizationHomepageEvents.organizationId,
         set: {
           eventId: DEMO_IDS.event,
-          updatedBy: DEMO_IDS.adminUser,
+          updatedBy: adminUserId,
           updatedAt: new Date(),
         },
       });
@@ -473,8 +483,8 @@ try {
           'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
         tags: ['GEO', 'AI 营销', '收费报名'],
         status: 'active',
-        createdBy: DEMO_IDS.adminUser,
-        updatedBy: DEMO_IDS.adminUser,
+        createdBy: adminUserId,
+        updatedBy: adminUserId,
       })
       .onConflictDoUpdate({
         target: conferenceTemplates.id,
@@ -484,7 +494,7 @@ try {
             'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
           tags: ['GEO', 'AI 营销', '收费报名'],
           status: 'active',
-          updatedBy: DEMO_IDS.adminUser,
+          updatedBy: adminUserId,
           updatedAt: new Date(),
         },
       });
@@ -494,15 +504,14 @@ try {
       .values({
         id: CONFERENCE_TEMPLATE_VERSION_ID,
         templateId: CONFERENCE_TEMPLATE_ID,
-        version: 1,
+        version: 2,
         rendererPackageId: EDITORIAL_RENDERER_ID,
         schemaVersion: 2,
         definition: templateDefinition,
-        contentDigest: 'seed-geo-2026-reference-template-v2',
+        contentDigest: 'seed-geo-2026-attendee-showcase-v3',
         previewAssetKey: 'template-previews/tokems-editorial-standard-v1.webp',
-        changeSummary:
-          '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
-        createdBy: DEMO_IDS.adminUser,
+        changeSummary: '新增报名会员、参会名片、个人海报与第五步信息完善流程。',
+        createdBy: adminUserId,
         publishedAt: new Date('2026-07-16T08:30:00+08:00'),
       })
       .onConflictDoUpdate({
@@ -510,9 +519,8 @@ try {
         set: {
           schemaVersion: 2,
           definition: templateDefinition,
-          contentDigest: 'seed-geo-2026-reference-template-v2',
-          changeSummary:
-            '同步 GEO 大会 2026 原型文案、完整议程、嘉宾、FAQ、单一通票与标准四步报名流程。',
+          contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+          changeSummary: '新增报名会员、参会名片、个人海报与第五步信息完善流程。',
         },
       });
 
@@ -520,7 +528,7 @@ try {
       .update(conferenceTemplates)
       .set({
         currentPublishedVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
-        updatedBy: DEMO_IDS.adminUser,
+        updatedBy: adminUserId,
         updatedAt: new Date(),
       })
       .where(sql`${conferenceTemplates.id} = ${CONFERENCE_TEMPLATE_ID}`);
@@ -533,8 +541,8 @@ try {
         schemaVersion: 2,
         definition: templateDefinition,
         revision: 1,
-        contentDigest: 'seed-geo-2026-reference-template-v2',
-        updatedBy: DEMO_IDS.adminUser,
+        contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+        updatedBy: adminUserId,
       })
       .onConflictDoUpdate({
         target: conferenceTemplateDrafts.templateId,
@@ -542,8 +550,8 @@ try {
           schemaVersion: 2,
           definition: templateDefinition,
           rendererPackageId: EDITORIAL_RENDERER_ID,
-          contentDigest: 'seed-geo-2026-reference-template-v2',
-          updatedBy: DEMO_IDS.adminUser,
+          contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+          updatedBy: adminUserId,
           updatedAt: new Date(),
         },
       });
@@ -555,14 +563,14 @@ try {
         templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
         updatePolicy: 'manual',
         revision: 1,
-        updatedBy: DEMO_IDS.adminUser,
+        updatedBy: adminUserId,
       })
       .onConflictDoUpdate({
         target: eventTemplateBindings.eventId,
         set: {
           templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
           revision: 1,
-          updatedBy: DEMO_IDS.adminUser,
+          updatedBy: adminUserId,
           updatedAt: new Date(),
         },
       });
@@ -821,6 +829,152 @@ try {
             updatedAt: sql`excluded.updated_at`,
           },
         });
+
+      const publicDemoCustomers = DEMO_CUSTOMERS.slice(0, 3);
+      await tx
+        .insert(orders)
+        .values(
+          publicDemoCustomers.map((customer, index) => {
+            const createdAt = new Date(
+              `2026-07-${String(20 + index).padStart(2, '0')}T10:35:00+08:00`,
+            );
+            return {
+              id: `e0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              organizationId: DEMO_IDS.organization,
+              eventId: DEMO_IDS.event,
+              registrationId: `d0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              orderNo: `TOKEMSDEMO${customer.publicId}`,
+              status: 'paid' as const,
+              amount: 39_900,
+              currency: 'CNY',
+              pricingSnapshot: { source: 'local-demo-seed', ticketName: '大会通票' },
+              expiresAt: new Date(createdAt.getTime() + 15 * 60_000),
+              createdAt,
+              updatedAt: createdAt,
+            };
+          }),
+        )
+        .onConflictDoUpdate({
+          target: orders.id,
+          set: { status: 'paid', updatedAt: sql`excluded.updated_at` },
+        });
+
+      await tx
+        .insert(payments)
+        .values(
+          publicDemoCustomers.map((customer, index) => {
+            const succeededAt = new Date(
+              `2026-07-${String(20 + index).padStart(2, '0')}T10:36:00+08:00`,
+            );
+            return {
+              id: `a0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              orderId: `e0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              provider: 'wechat',
+              channel: 'native' as const,
+              outTradeNo: `TOKDEMO${customer.publicId}`,
+              externalId: `DEMO-WECHAT-${customer.publicId}`,
+              status: 'succeeded' as const,
+              amount: 39_900,
+              currency: 'CNY',
+              succeededAt,
+              payload: { source: 'local-demo-seed' },
+              createdAt: succeededAt,
+              updatedAt: succeededAt,
+            };
+          }),
+        )
+        .onConflictDoUpdate({
+          target: payments.id,
+          set: { status: 'succeeded', succeededAt: sql`excluded.succeeded_at` },
+        });
+
+      await tx
+        .insert(tickets)
+        .values(
+          publicDemoCustomers.map((customer, index) => {
+            const issuedAt = new Date(
+              `2026-07-${String(20 + index).padStart(2, '0')}T10:36:30+08:00`,
+            );
+            return {
+              id: `f0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              eventId: DEMO_IDS.event,
+              registrationId: `d0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              ticketTypeId: DEMO_IDS.tickets.earlyBird,
+              code: `TOKEMS-DEMO-TICKET-${customer.publicId}`,
+              status: index === 0 ? ('valid' as const) : ('used' as const),
+              issuedAt,
+              createdAt: issuedAt,
+              updatedAt: issuedAt,
+            };
+          }),
+        )
+        .onConflictDoUpdate({
+          target: tickets.id,
+          set: { status: sql`excluded.status`, updatedAt: sql`excluded.updated_at` },
+        });
+
+      const demoIndustries = ['ai', 'brand-marketing-geo', 'internet-software-it'] as const;
+      await tx
+        .insert(attendeeShowcaseProfiles)
+        .values(
+          publicDemoCustomers.map((customer, index) => {
+            const qualifiedAt = new Date(
+              `2026-07-${String(20 + index).padStart(2, '0')}T10:36:00+08:00`,
+            );
+            return {
+              id: `91000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              organizationId: DEMO_IDS.organization,
+              eventId: DEMO_IDS.event,
+              registrationId: `d0000${customer.publicId}-0000-4000-8000-000000000${customer.publicId}`,
+              customerUserId: customer.id,
+              publicSlug: `demo-member-${customer.publicId}`,
+              qualifiedAt,
+              sequence: index + 1,
+              displayName: customer.realName,
+              company: customer.company,
+              title: customer.title,
+              industryCode: demoIndustries[index]!,
+              businessIntro: [
+                '关注 AI 产品商业化与企业增长，希望认识品牌市场和产品方向的同行。',
+                '为企业大会和行业活动提供内容策划与运营咨询，期待交流高质量活动增长。',
+                '正在研究 AI 搜索场景下的新产品机会，希望连接数据、内容与品牌团队。',
+              ][index]!,
+              businessUrl: 'https://example.com',
+              contactPhone: customer.mobile,
+              contactEmail: `demo${customer.publicId}@tokems.local`,
+              isPublic: true,
+              visibleFields: {
+                avatar: true,
+                displayName: true,
+                company: true,
+                title: true,
+                industry: true,
+                businessIntro: true,
+                businessUrl: true,
+                contactPhone: false,
+                contactEmail: false,
+                wechatId: false,
+              },
+              consentVersion: ATTENDEE_SHOWCASE_CONSENT_VERSION,
+              consentAt: qualifiedAt,
+              createdAt: qualifiedAt,
+              updatedAt: qualifiedAt,
+            };
+          }),
+        )
+        .onConflictDoUpdate({
+          target: attendeeShowcaseProfiles.id,
+          set: {
+            displayName: sql`excluded.display_name`,
+            company: sql`excluded.company`,
+            title: sql`excluded.title`,
+            industryCode: sql`excluded.industry_code`,
+            businessIntro: sql`excluded.business_intro`,
+            isPublic: true,
+            visibleFields: sql`excluded.visible_fields`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        });
     }
 
     await tx
@@ -943,7 +1097,7 @@ try {
       .values({
         id: RELEASE_ID,
         eventId: DEMO_IDS.event,
-        version: 1,
+        version: 2,
         templateKey: 'editorial-blue',
         templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
         status: 'published',
@@ -960,15 +1114,20 @@ try {
           registrationForm: { version: 1, termsVersion: '2026-07-16', fields: registrationFields },
           experience: DEMO_EVENT_EXPERIENCE,
         },
-        artifactKey: `releases/${DEMO_IDS.event}/v1/index.json`,
-        createdBy: DEMO_IDS.adminUser,
+        artifactKey: `releases/${DEMO_IDS.event}/v2/index.json`,
+        createdBy: adminUserId,
         publishedAt: new Date('2026-07-16T09:00:00+08:00'),
       })
       .onConflictDoUpdate({
         target: eventReleases.id,
         set: {
+          version: 2,
+          templateKey: 'editorial-blue',
           templateVersionId: CONFERENCE_TEMPLATE_VERSION_ID,
           status: 'published',
+          artifactKey: `releases/${DEMO_IDS.event}/v2/index.json`,
+          createdBy: adminUserId,
+          publishedAt: new Date('2026-07-16T09:00:00+08:00'),
           snapshot: {
             event: {
               name: DEMO_EVENT.name,

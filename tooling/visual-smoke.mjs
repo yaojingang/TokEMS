@@ -59,6 +59,7 @@ async function runVisualSmoke() {
     if (!(await page.locator('body.admin-body').count())) return;
     const findings = await page.evaluate(() => {
       const visible = (element) => {
+        if (element.classList.contains('sr-only')) return false;
         const style = getComputedStyle(element);
         const rect = element.getBoundingClientRect();
         return (
@@ -264,36 +265,37 @@ async function runVisualSmoke() {
   }
 
   async function assertSettingsWorkflow(page, label) {
-    await page.goto(`${adminBase}/manage/settings/website`, { waitUntil: 'networkidle' });
-    const siteName = page.locator('#site-name');
-    const originalName = await siteName.inputValue();
-    const changedName = `${originalName} · 交互验收`;
+    await page.goto(`${adminBase}/manage/settings/customers`, { waitUntil: 'networkidle' });
+    const policyVersion = page.locator('#customer-privacy-version');
+    const originalVersion = await policyVersion.inputValue();
+    const changedVersion =
+      originalVersion === 'visual-review' ? 'visual-review-2' : 'visual-review';
     const saveBar = page.locator('form[data-settings-form] > .settings-form-actions');
 
-    await siteName.fill(changedName);
+    await policyVersion.fill(changedVersion);
     await saveBar.waitFor();
     await saveBar.getByRole('button', { name: '放弃更改' }).click();
     await saveBar.waitFor({ state: 'hidden' });
-    if ((await siteName.inputValue()) !== originalName) {
-      issues.push(`${label}: 放弃更改后没有恢复网站名称`);
+    if ((await policyVersion.inputValue()) !== originalVersion) {
+      issues.push(`${label}: 放弃更改后没有恢复隐私政策版本`);
     }
     if (await saveBar.isVisible()) {
       issues.push(`${label}: 放弃更改后保存条仍然可见`);
     }
 
-    await siteName.fill(changedName);
+    await policyVersion.fill(changedVersion);
     const cancelDialogPromise = page.waitForEvent('dialog');
-    const cancelledNavigation = page.getByRole('link', { name: /统计与数据/ }).click();
+    const cancelledNavigation = page.getByRole('link', { name: /短信服务/ }).click();
     const cancelDialog = await cancelDialogPromise;
     if (cancelDialog.type() !== 'confirm') {
       issues.push(`${label}: 未保存离页提示类型为 ${cancelDialog.type()}`);
     }
     await cancelDialog.dismiss();
     await cancelledNavigation;
-    if (!new URL(page.url()).pathname.endsWith('/manage/settings/website')) {
+    if (!new URL(page.url()).pathname.endsWith('/manage/settings/customers')) {
       issues.push(`${label}: 取消离页后仍切换了设置模块`);
     }
-    if ((await siteName.inputValue()) !== changedName || !(await saveBar.isVisible())) {
+    if ((await policyVersion.inputValue()) !== changedVersion || !(await saveBar.isVisible())) {
       issues.push(`${label}: 取消离页后草稿或未保存状态丢失`);
     }
 
@@ -310,17 +312,17 @@ async function runVisualSmoke() {
       });
     };
     await page.route('**/admin/organization/settings', delaySettingsPatch);
-    await saveBar.getByRole('button', { name: '保存网站设置' }).click();
+    await saveBar.getByRole('button', { name: '保存账号与合规设置' }).click();
     await saveBar.getByText('正在保存设置').waitFor();
     const busyDialogPromise = page.waitForEvent('dialog');
-    const busyNavigation = page.getByRole('link', { name: /统计与数据/ }).click();
+    const busyNavigation = page.getByRole('link', { name: /短信服务/ }).click();
     const busyDialog = await busyDialogPromise;
     if (busyDialog.type() !== 'alert' || !busyDialog.message().includes('正在保存')) {
       issues.push(`${label}: 保存期间没有给出明确的离页阻止提示`);
     }
     await busyDialog.accept();
     await busyNavigation;
-    if (!new URL(page.url()).pathname.endsWith('/manage/settings/website')) {
+    if (!new URL(page.url()).pathname.endsWith('/manage/settings/customers')) {
       issues.push(`${label}: 保存请求进行中仍切换了设置模块`);
     }
     await page.locator('.save-status.error').waitFor();
@@ -332,7 +334,7 @@ async function runVisualSmoke() {
     if (await invitationEmail.count()) {
       await invitationEmail.fill('draft-review@example.com');
       const teamDialogPromise = page.waitForEvent('dialog');
-      const teamNavigation = page.getByRole('link', { name: /组织与默认项/ }).click();
+      const teamNavigation = page.getByRole('link', { name: /支付服务/ }).click();
       const teamDialog = await teamDialogPromise;
       await teamDialog.dismiss();
       await teamNavigation;
@@ -340,11 +342,11 @@ async function runVisualSmoke() {
         issues.push(`${label}: 取消离页后团队邀请草稿仍被丢弃`);
       }
       const acceptDialogPromise = page.waitForEvent('dialog');
-      const acceptedNavigation = page.getByRole('link', { name: /组织与默认项/ }).click();
+      const acceptedNavigation = page.getByRole('link', { name: /支付服务/ }).click();
       const acceptDialog = await acceptDialogPromise;
       await acceptDialog.accept();
       await acceptedNavigation;
-      await page.waitForURL(/\/manage\/settings\/general$/);
+      await page.waitForURL(/\/manage\/settings\/payment$/);
     }
 
     checked.push(label);
@@ -357,10 +359,11 @@ async function runVisualSmoke() {
     await address.fill(`${originalAddress} · 交互验收`);
     const saveButton = page.getByRole('button', { name: '保存修改' });
     await saveButton.click();
-    await page.locator('.admin-confirm-dialog[open]').waitFor();
+    const dialog = page.locator('.admin-confirm-dialog[open]');
+    await dialog.waitFor();
     await assertCenteredDialog(page, '.admin-confirm-dialog[open]', label);
-    await page.getByRole('button', { name: '返回检查' }).click();
-    await page.locator('.admin-confirm-dialog').waitFor({ state: 'hidden' });
+    await dialog.getByRole('button', { name: '返回检查' }).click();
+    await dialog.waitFor({ state: 'hidden' });
     if ((await page.evaluate(() => document.activeElement?.textContent?.trim())) !== '保存修改') {
       issues.push(`${label}: 关闭确认弹窗后没有恢复保存按钮焦点`);
     }
@@ -459,6 +462,94 @@ async function runVisualSmoke() {
     checked.push(label);
   }
 
+  async function assertRegistrationToolbarLayout(page, label) {
+    const layout = await page.locator('.registration-toolbar').evaluate((toolbar) => {
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const titlebar = document.querySelector('.registration-page-titlebar');
+      const titlebarRect = titlebar?.getBoundingClientRect();
+      const searchStyle = getComputedStyle(toolbar.querySelector('.admin-search'));
+      const controls = [...toolbar.querySelectorAll('.registration-toolbar-filters > *')].map(
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            top: Math.round(rect.top),
+            right: Math.round(rect.right),
+            bottom: Math.round(rect.bottom),
+            left: Math.round(rect.left),
+          };
+        },
+      );
+      const actions = [...document.querySelectorAll('.registration-page-actions > *')].map(
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            right: Math.round(rect.right),
+            bottom: Math.round(rect.bottom),
+            backgroundColor: getComputedStyle(element).backgroundColor,
+          };
+        },
+      );
+      return {
+        viewportWidth: window.innerWidth,
+        titlebar: titlebarRect
+          ? {
+              right: Math.round(titlebarRect.right),
+            }
+          : null,
+        toolbar: {
+          top: Math.round(toolbarRect.top),
+          right: Math.round(toolbarRect.right),
+          bottom: Math.round(toolbarRect.bottom),
+          left: Math.round(toolbarRect.left),
+        },
+        searchBorder: {
+          color: searchStyle.borderTopColor,
+          style: searchStyle.borderTopStyle,
+          width: searchStyle.borderTopWidth,
+        },
+        controls,
+        actions,
+      };
+    });
+    if (layout.controls.length !== 6) {
+      issues.push(`${label}: 预期 6 个筛选控件，实际为 ${layout.controls.length} 个`);
+      return;
+    }
+    if (layout.viewportWidth > 860) {
+      const controlTops = layout.controls.map((control) => control.top);
+      if (Math.max(...controlTops) - Math.min(...controlTops) > 1) {
+        issues.push(`${label}: 桌面端筛选控件没有保持同一基线`);
+      }
+      if (
+        !layout.titlebar ||
+        !layout.actions.length ||
+        layout.actions.some((action) => action.bottom > layout.toolbar.top) ||
+        Math.abs(layout.actions.at(-1).right - layout.titlebar.right) > 1
+      ) {
+        issues.push(`${label}: 页面操作没有保持在标题区右上角`);
+      }
+    }
+    if (layout.actions.some((action) => action.backgroundColor !== 'rgba(0, 0, 0, 0)')) {
+      issues.push(`${label}: 标题区操作按钮仍带有背景色`);
+    }
+    if (
+      layout.searchBorder.width !== '1px' ||
+      layout.searchBorder.style !== 'solid' ||
+      layout.searchBorder.color === 'rgba(0, 0, 0, 0)'
+    ) {
+      issues.push(`${label}: 搜索框缺少 1px 浅灰色实线边框`);
+    }
+    const escaped = layout.controls.some(
+      (control) =>
+        control.left < layout.toolbar.left ||
+        control.right > layout.toolbar.right ||
+        control.top < layout.toolbar.top ||
+        control.bottom > layout.toolbar.bottom,
+    );
+    if (escaped) issues.push(`${label}: 筛选控件超出工具栏边界`);
+    checked.push(label);
+  }
+
   const desktop = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     deviceScaleFactor: 1,
@@ -535,48 +626,19 @@ async function runVisualSmoke() {
   const managementSurfaces = [
     ['/manage/users', '用户管理', 'admin-users-desktop.png', '用户管理桌面端'],
     ['/manage/templates', '模板管理', 'admin-templates-desktop.png', '模板管理桌面端'],
-    [
-      '/manage/settings',
-      '组织与建会默认项',
-      'admin-system-settings-desktop.png',
-      '管理中心设置桌面端',
-    ],
-    [
-      '/manage/settings/website',
-      '公开网站',
-      'admin-website-settings-desktop.png',
-      '网站设置桌面端',
-    ],
-    [
-      '/manage/settings/payment',
-      '支付服务',
-      'admin-payment-settings-desktop.png',
-      '支付设置桌面端',
-    ],
+    ['/manage/settings', '支付服务', 'admin-system-settings-desktop.png', '管理中心设置桌面端'],
     ['/manage/settings/sms', '短信服务', 'admin-sms-settings-desktop.png', '短信服务设置桌面端'],
     [
-      '/manage/settings/analytics',
-      '统计与数据',
-      'admin-analytics-settings-desktop.png',
-      '统计设置桌面端',
-    ],
-    [
-      '/manage/settings/integrations',
-      '集成状态',
-      'admin-integrations-settings-desktop.png',
-      '服务集成桌面端',
-    ],
-    [
       '/manage/settings/customers',
-      '用户账号',
+      '账号与合规',
       'admin-customer-settings-desktop.png',
-      '用户账号设置桌面端',
+      '账号与合规设置桌面端',
     ],
     [
       '/manage/settings/team',
-      '团队与权限',
+      '管理员与权限',
       'admin-team-settings-desktop.png',
-      '团队权限设置桌面端',
+      '管理员权限设置桌面端',
     ],
     ['/account', '个人中心', 'admin-account-desktop.png', '个人中心桌面端'],
   ];
@@ -638,10 +700,10 @@ async function runVisualSmoke() {
       '大会基本设置桌面端',
     ],
     [
-      `${eventBase}/settings/site`,
-      '大会官网设置',
+      `${eventBase}/settings/general#public-page`,
+      '公开页面展示',
       'admin-publishing-desktop.png',
-      '官网设置桌面端',
+      '公开页面设置桌面端',
     ],
     [
       `${eventBase}/settings/registration`,
@@ -656,20 +718,9 @@ async function runVisualSmoke() {
       'admin-change-history-desktop.png',
       '修改记录桌面端',
     ],
-    [`${eventBase}/settings/content`, '内容运营', 'admin-content-desktop.png', '内容管理桌面端'],
-    [
-      `${eventBase}/registrations`,
-      '报名管理',
-      'admin-registrations-desktop.png',
-      '报名管理桌面端',
-    ],
+    [`${eventBase}/registrations`, '报名管理', 'admin-registrations-desktop.png', '报名管理桌面端'],
     [`${eventBase}/invoices`, '发票管理', 'admin-invoices-desktop.png', '发票管理桌面端'],
-    [
-      `${eventBase}/notifications`,
-      '通知中心',
-      'admin-notifications-desktop.png',
-      '通知中心桌面端',
-    ],
+    [`${eventBase}/notifications`, '通知中心', 'admin-notifications-desktop.png', '通知中心桌面端'],
     [`${eventBase}/activity`, '审计日志与数据导出', 'admin-audit-desktop.png', '操作记录桌面端'],
   ];
   for (const [path, heading, file, label] of adminSurfaces) {
@@ -696,6 +747,7 @@ async function runVisualSmoke() {
   await screenshot(admin, 'admin-event-unavailable-desktop.png', '大会上下文不可用状态桌面端');
 
   await admin.goto(`${adminBase}${eventBase}/registrations`, { waitUntil: 'networkidle' });
+  await assertRegistrationToolbarLayout(admin, '报名管理筛选栏桌面端');
   const registrationPageSize = admin.getByLabel('每页显示条数');
   await registrationPageSize.fill('3');
   await registrationPageSize.press('Enter');
@@ -829,6 +881,7 @@ async function runVisualSmoke() {
   await screenshot(mobileAdmin, 'admin-event-unavailable-mobile.png', '大会上下文不可用状态手机端');
 
   await mobileAdmin.goto(`${adminBase}${eventBase}/registrations`, { waitUntil: 'networkidle' });
+  await assertRegistrationToolbarLayout(mobileAdmin, '报名管理筛选栏手机端');
   const mobileRegistrationView = mobileAdmin.getByRole('link', { name: '查看' }).first();
   if (await mobileRegistrationView.count()) {
     await mobileRegistrationView.click();

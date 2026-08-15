@@ -25,7 +25,7 @@ const scopeLabels: Record<EventRelease['changeScope'], string> = {
   experience: '页面体验',
   registration: '报名设置',
   ticket: '票种',
-  content: '内容运营',
+  content: '大会内容',
   form: '表单与条款',
   lifecycle: '大会状态',
 };

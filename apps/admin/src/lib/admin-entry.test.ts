@@ -54,8 +54,17 @@ describe('administrator entry resolution', () => {
     });
   });
 
-  it('routes AI readers directly to the unified content workspace', () => {
-    expect(eventLandingRouteName(['event.read', 'event.ai.read'])).toBe('event-content');
+  it('does not expose a workspace landing page for AI-only permissions', () => {
+    const grants = ['event.read', 'event.ai.read'];
+
+    expect(eventLandingRouteName(grants)).toBe('forbidden');
+    expect(hasEventWorkspaceLanding(grants)).toBe(false);
+  });
+
+  it('routes content managers with website access to general settings', () => {
+    expect(eventLandingRouteName(['event.read', 'event.content.manage', 'event.site.read'])).toBe(
+      'event-settings-general',
+    );
   });
 
   it('keeps known same-origin redirects and rejects unsafe or looping targets', () => {

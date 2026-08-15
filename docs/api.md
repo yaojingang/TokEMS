@@ -32,7 +32,8 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 | POST   | `/orders/:orderId/invoice-request`                        | 使用订单访问凭证提交或补充发票资料          |
 | GET    | `/orders/:orderId/invoice-documents/:documentId/download` | 使用发票下载权限获取文件                    |
 | POST   | `/payments/webhook/:provider`                             | 支付渠道签名回调                            |
-| POST   | `/payments/mock/:orderId/confirm`                         | 仅开发环境使用的支付确认                    |
+| GET    | `/payments/mock/:orderId/capability`                      | 使用订单凭证查询本机模拟支付权限            |
+| POST   | `/payments/mock/:orderId/confirm`                         | 白名单本机账户使用订单凭证确认模拟支付      |
 | GET    | `/tickets/:codeOrRegistrationId`                          | 按票号或报名 ID 查询电子票                  |
 | POST   | `/checkins`                                               | 需要 `event.checkin.execute` 授权的在线核销 |
 | GET    | `/health`                                                 | API、数据库和运行模式健康状态               |
@@ -59,7 +60,7 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 }
 ```
 
-候补邀请报名会附加 `waitlistOfferToken`。服务端校验邀请票种、邮箱、过期时间和领取状态。报名响应中的 `orderAccessToken` 只返回给当前参会人，前端在会话存储中保存并用于订单页。访问链接接口按订单校验信息签发短期令牌，数据库只保存摘要；通知链接把令牌放在 URL 片段中，避免令牌进入服务端访问日志。公开报名限制为每 IP 每分钟 60 次，同一大会的有效报名不能复用邮箱或手机号。
+候补邀请报名会附加 `waitlistOfferToken`。服务端校验邀请票种、邮箱、过期时间和领取状态。报名响应中的 `orderAccessToken` 只返回给当前参会人，前端在会话存储中保存并用于订单页。访问链接接口按订单校验信息签发短期令牌，数据库只保存摘要；通知链接把令牌放在 URL 片段中，避免令牌进入服务端访问日志。公开报名限制为每 IP 每分钟 60 次；同一大会按已验证用户账号与手机号保持一条报名记录，邮箱可由多个报名人共用。
 
 支付渠道对原始请求体计算签名：
 
@@ -81,12 +82,14 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | PATCH  | `/admin/organization/members/:membershipId`        | `org.member.manage`                        |
 | PATCH  | `/admin/organization/members/:membershipId/status` | `org.member.manage`，启用或停用            |
 | DELETE | `/admin/organization/members/:membershipId`        | `org.member.manage`，移除成员              |
+| POST   | `/admin/organization/administrators`               | 超级管理员，直接创建管理员                 |
+| PATCH  | `/admin/organization/administrators/:membershipId` | 超级管理员，修改用户名或重置密码           |
+| DELETE | `/admin/organization/administrators/:membershipId` | 超级管理员，删除当前组织管理员权限         |
 | GET    | `/admin/organization/invitations`                  | `org.member.read`                          |
 | POST   | `/admin/organization/invitations`                  | `org.member.manage`                        |
 | DELETE | `/admin/organization/invitations/:invitationId`    | `org.member.manage`，取消邀请              |
 | GET    | `/admin/organization/settings`                     | 组织设置读取                               |
 | PATCH  | `/admin/organization/settings`                     | 组织设置修改                               |
-| GET    | `/admin/integrations/status`                       | 支付、通知、AI、对象存储接入状态           |
 
 邀请创建响应中的 `acceptanceToken` 只返回一次，72 小时内有效。数据库保存令牌摘要，后台把令牌放在链接片段中，避免令牌进入 Web 服务器请求日志。登录可提交 `organizationSlug` 选择邀请对应的组织。
 
@@ -105,6 +108,10 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | PATCH  | `/customer/profile`                              | 更新可选资料与版本号                                             |
 | GET    | `/customer/registrations`                        | 报名历史游标分页                                                 |
 | GET    | `/customer/registrations/:registrationId`        | 报名、订单、电子票详情                                           |
+| GET    | `/customer/events/:eventId/purchase-context`     | 本人参会、本人购买、可追加名额和推荐动作                         |
+| GET    | `/customer/orders`                               | 按购票人归属返回订单、参会人、支付、发票和票状态                 |
+| PATCH  | `/customer/orders/:orderId/attendee`             | 购票人在名额认领前修改参会人资料并轮换认领邀请                   |
+| POST   | `/customer/attendee-claims`                      | 使用独立参会人令牌认领一个报名名额                               |
 | POST   | `/customer/registration-claims`                  | 同手机号订单访问凭证，一次性认领                                 |
 | GET    | `/customer/invoices`                             | 发票中心分类、准确数量、游标分页与可用操作                       |
 | GET    | `/customer/orders/:orderId/invoice`              | 读取本人订单的发票申请                                           |
@@ -127,6 +134,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 普通用户没有独立的密码登录或公开账号注册接口。`/customer-auth/verify` 会为首次验证的“组织 + 手机号”创建账号，已有账号会直接建立新会话。具备 `customer.manage` 权限的后台成员可以预建手机号账号和基础资料，预建过程不创建登录会话，用户首次登录仍需通过短信验证码。本地 `fake` 模式在验证码申请响应中返回固定演示验证码 `123456`；正式 `provider` 模式不会在响应中返回验证码。
 
 历史报名认领令牌同时校验组织、报名、有效期、权限范围和当前登录手机号。成功后令牌中的认领权限立即消费。
+
+大会报名采用“一笔订单对应一个参会名额”。登录用户可以为本人购买，也可以在大会开启追加名额后为其他参会人多次下单。`settings.registration.additionalPurchaseEnabled` 默认 `false`，单个购票人在同一大会的有效名额上限默认 5。现代订单以 `purchaserCustomerUserId` 作为财务所有权，账号删除后保持订单、票和发票；仅 `purchaserCustomerUserId` 与 `purchaseIntentId` 同时为空的历史订单允许按原报名账号回退。参会人认领只获得本人报名和电子票权限。
 
 发票首次申请与资料更新使用独立契约。更新请求和后台状态操作携带 `expectedUpdatedAt`，服务在事务锁内核对版本；检测到其他页面或工作人员已更新记录时返回 `409`，客户端刷新最新状态后再继续。发票中心以订单创建时间和订单 ID 作为稳定游标，申请状态变化不会让记录在翻页期间跳动。普通用户时间线只返回公开状态文案；驳回原因可以展示，内部操作者、元数据和后台备注不会返回。
 
@@ -212,6 +221,7 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | GET    | `/admin/events/:eventId/invoices/export-jobs/:exportJobId`                      | 查询当前大会异步导出状态                                |
 | POST   | `/admin/events/:eventId/invoices/export-jobs/:exportJobId/retry`                | 重试失败任务                                            |
 | GET    | `/admin/events/:eventId/invoices/export-jobs/:exportJobId/download`             | 获取短期导出文件地址                                    |
+| POST   | `/admin/events/:eventId/invoices/batch-imports/preflight`                       | 校验批量导入清单、申请单状态与文件映射                  |
 
 重新上传文件沿用原发票文件 ID。新对象通过大小、媒体类型、文件签名和 SHA-256 校验后，在事务内切换存储对象；替换失败时旧文件继续有效。删除采用带原因的作废记录，用户下载接口会立即拒绝已删除文件；重新上传已删除文件会恢复同一文件 ID，并将交付状态重置为未发送。
 
@@ -236,6 +246,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | GET      | `/admin/events/:eventId/registrations/export.csv` | 报名 CSV 导出              |
 
 原有 `/admin/dashboard?eventId=`、`/admin/registrations?eventId=` 和 `/admin/orders?eventId=` 在兼容周期内继续可用。
+
+Dashboard 指标口径：`paidOrders` 为 `paid` 或 `partially_refunded` 订单数；`paidSeats` 为这些订单对应的非取消有效报名席位数；`confirmedAttendees` 为未被归并且状态为 `confirmed`、`checked_in` 或 `completed` 的报名数；`purchasers` 为付费订单的去重购票人数；`revenue` 为订单金额扣除成功退款后的净额。`conversionRate` 使用 `paidSeats / submitted active registrations`。报名 CSV 分列导出购票人与参会人资料、订单归属、购买意图和订单总额，所有单元格继续执行公式注入防护。
 
 报名分页查询支持 `q`、`status`、`page` 和 `pageSize`，`pageSize` 范围为 1 到 100。响应为 `{ items, total, page, pageSize }`。报名详情需要 `event.registration.read`，关联用户账号资料还需要 `customer.read`；缺少用户查看权限时通过 `customerRelation: "restricted"` 明确标记。
 

@@ -42,21 +42,15 @@ const navigation = computed(() => [
     grants: ['event.dashboard.read'],
   },
   {
-    name: session.can('event.manage')
+    name: session.canAny(['event.manage', 'event.site.read'])
       ? 'event-settings-general'
-      : session.can('event.site.read')
-        ? 'event-settings-site'
-        : session.canAny(['event.content.manage', 'event.ai.read'])
-          ? 'event-content'
-          : 'event-settings-registration',
+      : 'event-settings-registration',
     match: '/settings',
     icon: '◇',
     label: '大会配置',
     grants: [
       'event.manage',
       'event.site.read',
-      'event.content.manage',
-      'event.ai.read',
       'event.registration.manage',
       'event.inventory.read',
       'event.inventory.manage',
@@ -232,17 +226,11 @@ onMounted(() => {
     <template v-else>
       <div v-if="settingsSection" class="event-settings-view">
         <nav class="event-secondary-nav" aria-label="大会配置分区">
-          <RouterLink v-if="session.can('event.manage')" :to="eventRoute('event-settings-general')">
-            基本信息
-          </RouterLink>
-          <RouterLink v-if="session.can('event.site.read')" :to="eventRoute('event-settings-site')">
-            官网设置
-          </RouterLink>
           <RouterLink
-            v-if="session.canAny(['event.content.manage', 'event.ai.read'])"
-            :to="eventRoute('event-content')"
+            v-if="session.canAny(['event.manage', 'event.site.read'])"
+            :to="eventRoute('event-settings-general')"
           >
-            内容运营
+            基本信息
           </RouterLink>
           <RouterLink
             v-if="

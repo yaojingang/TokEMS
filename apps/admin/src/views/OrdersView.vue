@@ -53,6 +53,10 @@ const refundTargetRefunded = computed(() =>
 const refundTargetRemaining = computed(() =>
   Math.max(0, (refundTarget.value?.amount ?? 0) - refundTargetRefunded.value),
 );
+const isBlockedFullRefund = computed(() => {
+  if (!refundTarget.value?.fullRefundBlockedReason) return false;
+  return Math.round(Number(refundForm.amountYuan) * 100) === refundTargetRemaining.value;
+});
 const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize)));
 const visibleRange = computed(() => {
   if (!totalRecords.value) return '0 条订单';
@@ -143,6 +147,10 @@ async function submitRefund() {
   }
   if (amount > refundTargetRemaining.value) {
     errorMessage.value = `退款金额不能超过可退余额 ${money(refundTargetRemaining.value)}`;
+    return;
+  }
+  if (amount === refundTargetRemaining.value && refundTarget.value.fullRefundBlockedReason) {
+    errorMessage.value = refundTarget.value.fullRefundBlockedReason;
     return;
   }
   const reason = refundForm.reason.trim();
@@ -262,6 +270,9 @@ onMounted(load);
           />
           <small>已退款 {{ money(refundTargetRefunded) }}，本次最多
             {{ money(refundTargetRemaining) }}</small>
+          <small v-if="refundTarget.fullRefundBlockedReason" class="refund-guard-note">
+            {{ refundTarget.fullRefundBlockedReason }}。如业务允许，可填写小于可退余额的部分退款金额。
+          </small>
         </div>
         <div class="form-field">
           <label for="refund-reason">退款原因</label>
@@ -279,8 +290,8 @@ onMounted(load);
           退款将记入 {{ session.activeEvent.value?.shortName ?? '当前大会' }}
         </span>
         <button class="button secondary" type="button" @click="cancelRefund">取消</button>
-        <button class="button danger" type="submit" :disabled="refundPending">
-          {{ refundPending ? '正在退款…' : '确认退款' }}
+        <button class="button danger" type="submit" :disabled="refundPending || isBlockedFullRefund">
+          {{ refundPending ? '正在退款…' : isBlockedFullRefund ? '整单退款不可用' : '确认退款' }}
         </button>
       </div>
     </form>
@@ -305,6 +316,7 @@ onMounted(load);
         <thead>
           <tr>
             <th>订单号</th>
+            <th>购票人</th>
             <th>参会人</th>
             <th>票种</th>
             <th>支付方式</th>
@@ -318,6 +330,11 @@ onMounted(load);
           <tr v-for="row in rows" :key="row.id">
             <td>
               <span class="row-title mono-code">{{ row.orderNo }}</span><span class="row-sub">{{ row.id }}</span>
+            </td>
+            <td>
+              <span class="row-title">{{ row.purchaserName || '未填写姓名' }}</span>
+              <span class="row-sub">{{ row.purchaserMobile }}</span>
+              <span v-if="row.isProxyPurchase" class="status-badge draft">代购</span>
             </td>
             <td>
               <span class="row-title">{{ row.attendeeName }}</span><span class="row-sub">{{ row.attendeeCompany }} · {{ row.attendeeMobile }}</span>
@@ -403,6 +420,10 @@ onMounted(load);
     <div class="checkin-result">
       <div class="summary-row">
         <span>订单标识</span><strong class="mono-code">{{ selected.id }}</strong>
+      </div>
+      <div class="summary-row">
+        <span>购票人</span><strong>{{ selected.purchaserName || '未填写姓名' }} · {{ selected.purchaserMobile }} ·
+          {{ selected.isProxyPurchase ? '为他人购票' : '本人购票' }}</strong>
       </div>
       <div class="summary-row">
         <span>参会人</span><strong>{{ selected.attendeeName }} · {{ selected.attendeeMobile }} ·
@@ -492,6 +513,10 @@ onMounted(load);
   font-family: var(--mono);
   font-size: 10px;
   text-align: center;
+}
+
+.refund-guard-note {
+  color: var(--red);
 }
 
 @media (max-width: 760px) {

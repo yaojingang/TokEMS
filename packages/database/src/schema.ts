@@ -15,7 +15,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { inArray, sql } from 'drizzle-orm';
+import { inArray, isNotNull, sql } from 'drizzle-orm';
 import type {
   ConferenceTemplateDefinition,
   EventSettings,
@@ -24,6 +24,35 @@ import type {
   OrganizationSettings,
   TemplateSurface,
 } from '@conference/contracts';
+
+type AttendeeIndustryCode =
+  | 'ai'
+  | 'brand-marketing-geo'
+  | 'internet-software-it'
+  | 'ecommerce-retail-consumer'
+  | 'enterprise-service-consulting'
+  | 'advertising-media-content'
+  | 'education-training'
+  | 'finance-investment'
+  | 'healthcare'
+  | 'manufacturing-supply-chain'
+  | 'real-estate-construction'
+  | 'government-association-public'
+  | 'other';
+
+type AttendeeShowcaseVisibleFields = Record<
+  | 'avatar'
+  | 'displayName'
+  | 'company'
+  | 'title'
+  | 'industry'
+  | 'businessIntro'
+  | 'businessUrl'
+  | 'contactPhone'
+  | 'contactEmail'
+  | 'wechatId',
+  boolean
+>;
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -275,6 +304,51 @@ export const customerProfiles = pgTable(
   ],
 );
 
+export const customerMediaAssets = pgTable(
+  'customer_media_assets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => customerUsers.id, { onDelete: 'cascade' }),
+    kind: varchar('kind', { length: 32 }).notNull().default('avatar'),
+    sourceStorageKey: varchar('source_storage_key', { length: 500 }).notNull(),
+    outputStorageKey: varchar('output_storage_key', { length: 500 }),
+    mediaType: varchar('media_type', { length: 80 }).notNull(),
+    size: integer('size').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    contentDigest: varchar('content_digest', { length: 64 }).notNull(),
+    status: varchar('status', { length: 24 }).notNull().default('processing'),
+    failureReason: text('failure_reason'),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    sourceDeletedAt: timestamp('source_deleted_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.customerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'customer_media_assets_customer_org_fk',
+    }),
+    check('customer_media_assets_kind_check', sql`${table.kind} in ('avatar')`),
+    check(
+      'customer_media_assets_status_check',
+      sql`${table.status} in ('processing', 'ready', 'failed')`,
+    ),
+    check('customer_media_assets_size_check', sql`${table.size} between 1 and 5242880`),
+    index('customer_media_assets_owner_time_idx').on(
+      table.organizationId,
+      table.customerUserId,
+      table.createdAt,
+    ),
+    index('customer_media_assets_status_idx').on(table.status, table.updatedAt),
+  ],
+);
+
 export const customerAuthChallenges = pgTable(
   'customer_auth_challenges',
   {
@@ -501,6 +575,8 @@ export const events = pgTable(
           currency: 'CNY',
           registrationOpen: true,
           accountMode: 'mobile_otp_required',
+          additionalPurchaseEnabled: false,
+          maxActiveSeatsPerPurchaser: 5,
         },
       }),
     ...timestamps,
@@ -509,6 +585,7 @@ export const events = pgTable(
     check('events_id_range', sql`${table.id} between 101 and 2147483647`),
     uniqueIndex('events_org_slug_unique').on(table.organizationId, table.slug),
     uniqueIndex('events_org_id_unique').on(table.organizationId, table.id),
+    uniqueIndex('events_id_org_unique').on(table.id, table.organizationId),
     index('events_org_status_idx').on(table.organizationId, table.status),
   ],
 );
@@ -987,6 +1064,11 @@ export const registrations = pgTable(
     customerUserId: uuid('customer_user_id').references(() => customerUsers.id, {
       onDelete: 'set null',
     }),
+    supersededByRegistrationId: uuid('superseded_by_registration_id').references(
+      (): AnyPgColumn => registrations.id,
+      { onDelete: 'set null' },
+    ),
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
     registrationCode: varchar('registration_code', { length: 40 }).notNull(),
     status: registrationStatus('status').notNull().default('pending_payment'),
     attendee: jsonb('attendee')
@@ -1033,12 +1115,13 @@ export const registrations = pgTable(
       table.attendeeMobileE164,
       table.createdAt,
     ),
-    uniqueIndex('registrations_event_mobile_active_unique')
+    index('registrations_superseded_idx').on(table.eventId, table.supersededAt),
+    uniqueIndex('registrations_event_mobile_unique')
       .on(table.eventId, table.attendeeMobileE164)
-      .where(sql`${table.attendeeMobileE164} <> '' and ${table.status} <> 'cancelled'`),
-    index('registrations_event_customer_idx')
+      .where(sql`${table.attendeeMobileE164} <> '' and ${table.supersededAt} is null`),
+    uniqueIndex('registrations_event_customer_unique')
       .on(table.eventId, table.customerUserId)
-      .where(sql`${table.customerUserId} is not null`),
+      .where(sql`${table.customerUserId} is not null and ${table.supersededAt} is null`),
   ],
 );
 
@@ -1055,6 +1138,20 @@ export const orders = pgTable(
     registrationId: uuid('registration_id')
       .notNull()
       .references(() => registrations.id),
+    purchaserCustomerUserId: uuid('purchaser_customer_user_id').references(
+      () => customerUsers.id,
+      { onDelete: 'set null' },
+    ),
+    purchaserSnapshot: jsonb('purchaser_snapshot').$type<{
+      customerUserId: string | null;
+      mobile: string;
+      name: string;
+      email: string;
+      company: string;
+      title: string;
+      city: string;
+    }>(),
+    purchaseIntentId: uuid('purchase_intent_id'),
     orderNo: varchar('order_no', { length: 40 }).notNull(),
     status: orderStatus('status').notNull().default('pending_payment'),
     amount: integer('amount').notNull(),
@@ -1069,6 +1166,11 @@ export const orders = pgTable(
       foreignColumns: [registrations.id, registrations.organizationId, registrations.eventId],
       name: 'orders_registration_scope_fk',
     }),
+    foreignKey({
+      columns: [table.purchaserCustomerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'orders_purchaser_customer_org_fk',
+    }).onDelete('no action'),
     uniqueIndex('orders_no_unique').on(table.orderNo),
     uniqueIndex('orders_registration_unique').on(table.registrationId),
     uniqueIndex('orders_business_tuple_unique').on(
@@ -1078,6 +1180,83 @@ export const orders = pgTable(
       table.eventId,
     ),
     index('orders_event_status_idx').on(table.eventId, table.status),
+    index('orders_purchaser_time_idx').on(table.purchaserCustomerUserId, table.createdAt),
+    uniqueIndex('orders_purchaser_intent_unique')
+      .on(
+        table.organizationId,
+        table.eventId,
+        table.purchaserCustomerUserId,
+        table.purchaseIntentId,
+      )
+      .where(
+        sql`${table.purchaserCustomerUserId} is not null and ${table.purchaseIntentId} is not null`,
+      ),
+  ],
+);
+
+export const attendeeClaimTokens = pgTable(
+  'attendee_claim_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    registrationId: uuid('registration_id')
+      .notNull()
+      .references(() => registrations.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    mobileDigest: varchar('mobile_digest', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('attendee_claim_tokens_hash_unique').on(table.tokenHash),
+    index('attendee_claim_tokens_registration_time_idx').on(
+      table.registrationId,
+      table.createdAt,
+    ),
+    index('attendee_claim_tokens_active_expiry_idx')
+      .on(table.expiresAt)
+      .where(sql`${table.consumedAt} is null and ${table.revokedAt} is null`),
+  ],
+);
+
+export const registrationPurchaseAttempts = pgTable(
+  'registration_purchase_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    purchaserCustomerUserId: uuid('purchaser_customer_user_id').notNull(),
+    purchaseIntentId: uuid('purchase_intent_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.purchaserCustomerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'registration_purchase_attempts_purchaser_org_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.eventId, table.organizationId],
+      foreignColumns: [events.id, events.organizationId],
+      name: 'registration_purchase_attempts_event_org_fk',
+    }).onDelete('cascade'),
+    index('registration_purchase_attempts_purchaser_time_idx').on(
+      table.organizationId,
+      table.eventId,
+      table.purchaserCustomerUserId,
+      table.createdAt,
+    ),
+    uniqueIndex('registration_purchase_attempts_intent_unique').on(
+      table.organizationId,
+      table.eventId,
+      table.purchaserCustomerUserId,
+      table.purchaseIntentId,
+    ),
   ],
 );
 
@@ -1139,6 +1318,7 @@ export const payments = pgTable(
     wechatTradeState: varchar('wechat_trade_state', { length: 32 }),
     credentialVersion: integer('credential_version').notNull().default(1),
     preparedAt: timestamp('prepared_at', { withTimezone: true }),
+    succeededAt: timestamp('succeeded_at', { withTimezone: true }),
     prepayExpiresAt: timestamp('prepay_expires_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     lastQueriedAt: timestamp('last_queried_at', { withTimezone: true }),
@@ -1153,6 +1333,95 @@ export const payments = pgTable(
     uniqueIndex('payments_active_attempt_unique')
       .on(table.orderId)
       .where(inArray(table.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])),
+  ],
+);
+
+export const attendeeShowcaseProfiles = pgTable(
+  'attendee_showcase_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    registrationId: uuid('registration_id')
+      .notNull()
+      .references(() => registrations.id, { onDelete: 'cascade' }),
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => customerUsers.id, { onDelete: 'cascade' }),
+    publicSlug: varchar('public_slug', { length: 32 }).notNull(),
+    qualifiedAt: timestamp('qualified_at', { withTimezone: true }).notNull(),
+    sequence: integer('sequence').notNull(),
+    displayName: varchar('display_name', { length: 120 }),
+    company: varchar('company', { length: 160 }),
+    title: varchar('title', { length: 100 }),
+    industryCode: varchar('industry_code', { length: 48 }).$type<AttendeeIndustryCode>(),
+    businessIntro: text('business_intro'),
+    businessUrl: varchar('business_url', { length: 500 }),
+    contactPhone: varchar('contact_phone', { length: 40 }),
+    contactEmail: varchar('contact_email', { length: 255 }),
+    wechatId: varchar('wechat_id', { length: 80 }),
+    avatarAssetId: uuid('avatar_asset_id').references(() => customerMediaAssets.id, {
+      onDelete: 'set null',
+    }),
+    isPublic: boolean('is_public').notNull().default(false),
+    visibleFields: jsonb('visible_fields')
+      .$type<AttendeeShowcaseVisibleFields>()
+      .notNull()
+      .default({
+        avatar: true,
+        displayName: true,
+        company: true,
+        title: true,
+        industry: true,
+        businessIntro: true,
+        businessUrl: true,
+        contactPhone: false,
+        contactEmail: false,
+        wechatId: false,
+      }),
+    consentVersion: varchar('consent_version', { length: 40 }),
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    adminHiddenAt: timestamp('admin_hidden_at', { withTimezone: true }),
+    adminHiddenReason: varchar('admin_hidden_reason', { length: 500 }),
+    version: integer('version').notNull().default(1),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.registrationId, table.organizationId, table.eventId],
+      foreignColumns: [registrations.id, registrations.organizationId, registrations.eventId],
+      name: 'attendee_showcases_registration_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.customerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'attendee_showcases_customer_org_fk',
+    }),
+    uniqueIndex('attendee_showcases_registration_unique').on(table.registrationId),
+    uniqueIndex('attendee_showcases_public_slug_unique').on(table.publicSlug),
+    uniqueIndex('attendee_showcases_avatar_asset_unique')
+      .on(table.avatarAssetId)
+      .where(isNotNull(table.avatarAssetId)),
+    check('attendee_showcases_sequence_positive', sql`${table.sequence} > 0`),
+    check('attendee_showcases_version_positive', sql`${table.version} > 0`),
+    index('attendee_showcases_public_list_idx').on(
+      table.eventId,
+      table.isPublic,
+      table.adminHiddenAt,
+      table.qualifiedAt,
+      table.registrationId,
+    ),
+    index('attendee_showcases_industry_idx').on(
+      table.eventId,
+      table.industryCode,
+      table.qualifiedAt,
+      table.registrationId,
+    ),
+    index('attendee_showcases_customer_idx').on(table.customerUserId, table.updatedAt),
   ],
 );
 

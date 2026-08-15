@@ -14,14 +14,29 @@ import {
   type LoginResult,
   type OrganizationRole,
 } from '@conference/contracts';
-import { memberships, organizations, publicUserIds, users } from '@conference/database';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import {
+  memberProfiles,
+  memberships,
+  organizations,
+  publicUserIds,
+  users,
+} from '@conference/database';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import { AuthGuard, type AuthenticatedUser } from '../common/auth.guard.js';
 import { adminLoginThrottleLimit } from '../common/auth-throttle.js';
 import { DatabaseService } from '../common/database.service.js';
 import { DomainError } from '../common/domain-error.js';
 import { OrganizationAdminService } from '../common/organization-admin.service.js';
+import {
+  configuredSuperAdministratorId,
+  normalizeStaffAccountEmail,
+  staffAccountEmail,
+  staffAccountPublicEmail,
+  staffAccountUsername,
+  staffCredentialRevision,
+  staffCredentialVersion,
+} from '../common/staff-account.js';
 
 @Injectable()
 export class AuthService {
@@ -46,52 +61,76 @@ export class AuthService {
       uuid: string;
       publicId: number;
       email: string;
+      username: string | null;
       name: string;
       role: OrganizationRole;
       organizationId: string;
       grants: string[];
+      credentialVersion?: string;
+      membershipId?: string;
+      membershipVersion?: string;
     } = {
-      uuid: DEMO_IDS.adminUser,
+      uuid: configuredSuperAdministratorId(),
       publicId: 101,
-      email: process.env.ADMIN_EMAIL ?? 'admin@tokems.local',
+      email: normalizeStaffAccountEmail(process.env.ADMIN_EMAIL ?? 'admin@tokems.local'),
+      username: process.env.ADMIN_USERNAME ?? 'admin',
       name: '组织管理员',
       role: 'organization_admin',
       organizationId: DEMO_IDS.organization,
       grants: ['*'],
     };
-    const adminUsername = process.env.ADMIN_USERNAME ?? 'admin';
-    const lookupEmail =
-      parsed.data.username === adminUsername ? identity.email : parsed.data.username;
+    const adminUsername = (process.env.ADMIN_USERNAME ?? 'admin').trim().toLowerCase();
+    const submittedUsername = parsed.data.username.trim().toLowerCase();
+    const lookupEmail = submittedUsername.includes('@')
+      ? submittedUsername
+      : staffAccountEmail(submittedUsername);
     let valid =
       process.env.NODE_ENV !== 'production' &&
-      (parsed.data.username === adminUsername || lookupEmail === identity.email) &&
+      (submittedUsername === adminUsername || submittedUsername === identity.email.toLowerCase()) &&
       parsed.data.password === (process.env.ADMIN_PASSWORD ?? 'admin');
 
     if (db) {
-      const [userRow] = await db
-        .select({ user: users, publicId: publicUserIds.publicId })
-        .from(users)
-        .innerJoin(
-          publicUserIds,
-          and(
-            eq(publicUserIds.subjectType, 'staff'),
-            eq(publicUserIds.subjectUuid, users.id),
-            isNull(publicUserIds.retiredAt),
-          ),
-        )
-        .where(eq(users.email, lookupEmail))
-        .limit(1);
+      const findUserRow = async (email: string) => {
+        const rows = await db
+          .select({ user: users, publicId: publicUserIds.publicId })
+          .from(users)
+          .innerJoin(
+            publicUserIds,
+            and(
+              eq(publicUserIds.subjectType, 'staff'),
+              eq(publicUserIds.subjectUuid, users.id),
+              isNull(publicUserIds.retiredAt),
+            ),
+          )
+          .where(sql`lower(${users.email}) = ${normalizeStaffAccountEmail(email)}`)
+          .limit(2);
+        return rows.length === 1 ? rows[0] : undefined;
+      };
+      let userRow = await findUserRow(lookupEmail);
+      if (!userRow && submittedUsername === adminUsername && lookupEmail !== identity.email) {
+        userRow = await findUserRow(identity.email);
+      }
       const user = userRow?.user;
       if (user?.passwordHash) {
         const [membership] = await db
           .select({
+            id: memberships.id,
             organizationId: memberships.organizationId,
             role: memberships.role,
             grants: memberships.grants,
             status: memberships.status,
+            updatedAt: memberships.updatedAt,
+            preferences: memberProfiles.preferences,
           })
           .from(memberships)
           .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
+          .leftJoin(
+            memberProfiles,
+            and(
+              eq(memberProfiles.organizationId, memberships.organizationId),
+              eq(memberProfiles.userId, memberships.userId),
+            ),
+          )
           .where(
             and(
               eq(memberships.userId, user.id),
@@ -110,10 +149,17 @@ export class AuthService {
             uuid: user.id,
             publicId: userRow!.publicId,
             email: user.email,
+            username: staffAccountUsername(user.email),
             name: user.name,
             role: membership.role,
             organizationId: membership.organizationId,
             grants: membership.grants,
+            credentialVersion: staffCredentialVersion(
+              user,
+              staffCredentialRevision(membership.preferences),
+            ),
+            membershipId: membership.id,
+            membershipVersion: membership.updatedAt.toISOString(),
           };
         }
       } else {
@@ -131,16 +177,21 @@ export class AuthService {
     const accessToken = await this.jwt.signAsync({
       sub: identity.uuid,
       email: identity.email,
+      username: identity.username,
       name: identity.name,
       role: identity.role,
       organizationId: identity.organizationId,
       grants: identity.grants,
+      credentialVersion: identity.credentialVersion,
+      membershipId: identity.membershipId,
+      membershipVersion: identity.membershipVersion,
     });
     return {
       accessToken,
       user: {
         id: identity.publicId,
-        email: identity.email,
+        email: staffAccountPublicEmail(identity.email),
+        username: identity.username,
         name: identity.name,
         role: identity.role,
       },

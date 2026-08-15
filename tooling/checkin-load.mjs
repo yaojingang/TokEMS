@@ -75,7 +75,7 @@ try {
     body: JSON.stringify({
       settings: {
         registration: {
-          accountMode: 'guest_allowed',
+          accountMode: 'mobile_otp_required',
         },
       },
     }),

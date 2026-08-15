@@ -34,9 +34,18 @@ export function resolveEventExperience(event: PublicEvent): ResolvedStructuredEx
         enabled: true,
       })),
     },
-    registrationFlow: event.experience?.registrationFlow ?? fallback.registrationFlow,
+    registrationFlow: event.experience?.registrationFlow ?? {
+      ...fallback.registrationFlow,
+      steps: fallback.registrationFlow.steps.filter((step) => step.type !== 'member-profile'),
+    },
     initialization: fallback.initialization,
   };
+}
+
+export function hasEnabledEventFlowStep(event: PublicEvent, type: TemplateFlowStep['type']) {
+  return Boolean(
+    event.experience?.registrationFlow.steps.some((step) => step.type === type && step.enabled),
+  );
 }
 
 export function enabledFlowSteps(

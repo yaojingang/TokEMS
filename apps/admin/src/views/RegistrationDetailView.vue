@@ -6,6 +6,7 @@ import RegistrationInvoicePanel from '../components/registration/RegistrationInv
 import { conferenceApi } from '../lib/api';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
 import { deriveAdminInvoicePresentation } from '../lib/invoice-presentation';
+import { fullRefundBlockedReason, isBlockedFullRefund } from '../lib/refund-guard';
 import { parseEventId } from '../lib/route-scope';
 
 const route = useRoute();
@@ -87,6 +88,19 @@ const canManageInvoice = computed(
   () => detail.value?.capabilities.manage_invoice?.allowed === true,
 );
 const refundAmount = computed(() => Math.round(Number(refundForm.amountYuan || 0) * 100));
+const fullRefundGuardReason = computed(() =>
+  fullRefundBlockedReason(
+    registration.value?.status,
+    detail.value?.fulfillment.ticket?.status,
+  ),
+);
+const blockedFullRefund = computed(() =>
+  isBlockedFullRefund(
+    fullRefundGuardReason.value,
+    refundAmount.value,
+    refundableAmount.value,
+  ),
+);
 const refundInvoiceImpact = computed(() => {
   if (!invoiceRequest.value || refundAmount.value <= 0) return '本次退款不涉及已存在的发票申请。';
   if (['issued', 'adjustment_required'].includes(invoiceRequest.value.status)) {
@@ -380,6 +394,10 @@ async function submitRefund() {
   }
   if (refundAmount.value > refundableAmount.value) {
     errorMessage.value = `退款金额不能超过可退余额 ${money(refundableAmount.value)}。`;
+    return;
+  }
+  if (blockedFullRefund.value) {
+    errorMessage.value = fullRefundGuardReason.value ?? '当前订单无法整单退款。';
     return;
   }
   if (refundForm.reason.trim().length < 2) {
@@ -687,6 +705,14 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
                 <dt>所在城市</dt>
                 <dd>{{ registration.attendee.city || '待补充' }}</dd>
               </div>
+              <div>
+                <dt>购票人</dt>
+                <dd>{{ registration.purchaserName || '未填写姓名' }} · {{ registration.purchaserMobile }}</dd>
+              </div>
+              <div>
+                <dt>购买关系</dt>
+                <dd>{{ registration.isProxyPurchase ? '为他人购票' : '本人购买' }}</dd>
+              </div>
             </dl>
           </section>
 
@@ -774,7 +800,12 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
                 </div>
                 <div class="impact-note">
                   <span aria-hidden="true">i</span>
-                  <p>{{ refundInvoiceImpact }}</p>
+                  <p>
+                    {{ refundInvoiceImpact }}
+                    <template v-if="fullRefundGuardReason">
+                      {{ fullRefundGuardReason }}，可填写小于可退余额的部分退款金额。
+                    </template>
+                  </p>
                 </div>
                 <div class="refund-confirm">
                   <p>
@@ -784,8 +815,18 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
                         : paymentMethodLabel(order.paymentMethod)
                     }}。退款提交后可在下方记录中追踪结果。
                   </p>
-                  <button class="button danger" type="submit" :disabled="refundPending">
-                    {{ refundPending ? '提交中…' : `确认退款 ${money(refundAmount)}` }}
+                  <button
+                    class="button danger"
+                    type="submit"
+                    :disabled="refundPending || blockedFullRefund"
+                  >
+                    {{
+                      refundPending
+                        ? '提交中…'
+                        : blockedFullRefund
+                          ? '整单退款不可用'
+                          : `确认退款 ${money(refundAmount)}`
+                    }}
                   </button>
                 </div>
               </form>

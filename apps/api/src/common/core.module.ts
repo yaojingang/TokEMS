@@ -18,6 +18,7 @@ import { AliyunSmsService } from './aliyun-sms.service.js';
 import { HtmlTemplateOperationsService } from './html-template-operations.service.js';
 import { RedisService } from './redis.service.js';
 import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
+import { AttendeeShowcaseService } from './attendee-showcase.service.js';
 
 @Global()
 @Module({
@@ -41,6 +42,7 @@ import { AdminRegistrationOperationsService } from './admin-registration-operati
     AliyunSmsService,
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
+    AttendeeShowcaseService,
   ],
   exports: [
     DatabaseService,
@@ -62,6 +64,7 @@ import { AdminRegistrationOperationsService } from './admin-registration-operati
     AliyunSmsService,
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
+    AttendeeShowcaseService,
   ],
 })
 export class CoreModule {}

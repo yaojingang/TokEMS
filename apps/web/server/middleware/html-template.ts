@@ -3,19 +3,7 @@ import {
   publicEventHomePath,
   publicEventSlugFromPathSegment,
 } from '@conference/contracts';
-
-const FORWARDED_HEADERS = [
-  'content-type',
-  'content-security-policy',
-  'cache-control',
-  'etag',
-  'referrer-policy',
-  'permissions-policy',
-  'x-content-type-options',
-  'content-language',
-  'vary',
-  'warning',
-] as const;
+import { homeDocumentResponseHeaders } from '../utils/home-document-headers';
 
 export default defineEventHandler(async (event) => {
   const url = getRequestURL(event);
@@ -64,9 +52,7 @@ export default defineEventHandler(async (event) => {
         signal: AbortSignal.timeout(4_000),
       });
     response = await fetchDocument(documentPath);
-    const canonicalSlug = eventSlug
-      ? response.headers.get('x-canonical-event-slug')
-      : undefined;
+    const canonicalSlug = eventSlug ? response.headers.get('x-canonical-event-slug') : undefined;
     if (canonicalSlug && canonicalSlug !== eventSlug) {
       const parsedCanonicalSlug = EventSlugSchema.safeParse(canonicalSlug);
       if (parsedCanonicalSlug.success) {
@@ -81,6 +67,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 503, statusMessage: '大会页面暂时不可用' });
   }
 
+  homeDocumentResponseHeaders(response).forEach(([header, value]) => {
+    setHeader(event, header, value);
+  });
   if (response.status === 204) return;
   if (response.status === 404) {
     throw createError({
@@ -88,10 +77,6 @@ export default defineEventHandler(async (event) => {
       statusMessage: eventSlug ? '大会不存在或尚未发布' : '首页默认大会尚未配置',
     });
   }
-  FORWARDED_HEADERS.forEach((header) => {
-    const value = response.headers.get(header);
-    if (value) setHeader(event, header, value);
-  });
   setResponseStatus(event, response.status);
   if (response.status === 304) return '';
   return response.text();

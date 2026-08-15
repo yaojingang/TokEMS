@@ -4,6 +4,7 @@ import {
   CustomerAdminListQuerySchema,
   CustomerAdminListSchema,
   CustomerAdminSummarySchema,
+  UpdateCustomerAdminSchema,
   resolveCustomerAdminDisplay,
 } from './index.js';
 
@@ -88,5 +89,10 @@ describe('resolveCustomerAdminDisplay', () => {
         email: 'invalid-email',
       }).success,
     ).toBe(false);
+  });
+
+  it('rejects empty administrator customer updates', () => {
+    expect(UpdateCustomerAdminSchema.safeParse({}).success).toBe(false);
+    expect(UpdateCustomerAdminSchema.safeParse({ status: 'blocked' }).success).toBe(true);
   });
 });

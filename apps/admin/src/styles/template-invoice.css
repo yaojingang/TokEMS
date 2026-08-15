@@ -1983,6 +1983,30 @@
   overflow: hidden;
 }
 
+.invoice-batch-trigger {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.invoice-batch-trigger[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.invoice-batch-panel {
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.invoice-batch-summary p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.invoice-batch-summary strong {
+  color: var(--ink);
+}
+
 .invoice-table-wrap {
   overflow-x: auto;
 }

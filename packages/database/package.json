@@ -24,6 +24,7 @@
     "test": "vitest run --passWithNoTests",
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
+    "repair-registration-identities": "tsx src/repair-registration-identities.ts",
     "migrate:template-domain": "tsx src/migrate-template-domain.ts",
     "seed": "tsx src/seed.ts"
   },

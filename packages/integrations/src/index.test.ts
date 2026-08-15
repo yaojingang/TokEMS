@@ -26,5 +26,7 @@ describe('Aliyun SMS helpers', () => {
       lastError: null,
     });
     expect(configuration.templates.paymentSucceeded.enabled).toBe(false);
+    expect(configuration.templates.ticketIssued.enabled).toBe(false);
+    expect(configuration.templates.refundSucceeded.enabled).toBe(false);
   });
 });

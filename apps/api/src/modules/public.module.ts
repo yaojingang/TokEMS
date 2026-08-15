@@ -25,6 +25,7 @@ import {
   CreateRegistrationSchema,
   isPublicEventStatus,
   PaymentCallbackSchema,
+  PublicEventMemberListQuerySchema,
   publicEventHomePath,
   publicEventScopedPath,
   WaitlistJoinSchema,
@@ -39,6 +40,8 @@ import { TemplateOperationsService } from '../common/template-operations.service
 import { resolveTrustedClientIp, WeChatPayService } from '../common/wechat-pay.service.js';
 import { CustomerAuthService } from '../common/customer-auth.service.js';
 import { HtmlTemplateOperationsService } from '../common/html-template-operations.service.js';
+import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
+import { resolveLocalPaymentSimulationPolicy } from '../common/local-payment-simulation.js';
 
 const WeChatSwitchChannelBodySchema = z
   .object({
@@ -46,6 +49,11 @@ const WeChatSwitchChannelBodySchema = z
     oauthSession: z.string().trim().min(16).max(500).optional(),
   })
   .strict();
+
+const PublicOrganizationSlugSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9-]{0,79}$/u);
 
 const WeChatJsapiPrepareBodySchema = z
   .object({
@@ -275,6 +283,8 @@ class EventsController {
     @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
     @Inject(HtmlTemplateOperationsService)
     private readonly htmlTemplates: HtmlTemplateOperationsService,
+    @Inject(AttendeeShowcaseService)
+    private readonly showcases: AttendeeShowcaseService,
   ) {}
 
   @Get(':slug/home-document')
@@ -295,6 +305,76 @@ class EventsController {
       organizationSlug,
       ifNoneMatch,
       reply,
+    );
+  }
+
+  @Get(':slug/members')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async getMembers(
+    @Param('slug') slug: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Query() query: Record<string, unknown>,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const parsed = PublicEventMemberListQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '报名会员分页参数校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.showcases.publicMembers(
+      slug,
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      parsed.data,
+    );
+  }
+
+  @Get(':slug/members/:publicSlug/avatar')
+  @Throttle({ default: { limit: 1_200, ttl: 60_000 } })
+  async getMemberAvatar(
+    @Param('slug') slug: string,
+    @Param('publicSlug') publicSlug: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Query('organization') organizationSlugQuery: string | undefined,
+    @Res() reply: FastifyReply,
+  ) {
+    const organizationSlug = PublicOrganizationSlugSchema.safeParse(
+      organizationSlugValue ??
+        organizationSlugQuery ??
+        process.env.PUBLIC_ORGANIZATION_SLUG ??
+        'tokems-demo',
+    );
+    if (!organizationSlug.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '大会组织标识无效',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const body = await this.showcases.publicAvatarContent(slug, organizationSlug.data, publicSlug);
+    return reply
+      .header('Cache-Control', 'private, no-store')
+      .header('Content-Type', 'image/webp')
+      .send(body);
+  }
+
+  @Get(':slug/members/:publicSlug')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  async getMember(
+    @Param('slug') slug: string,
+    @Param('publicSlug') publicSlug: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.showcases.publicMember(
+      slug,
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      publicSlug,
     );
   }
 
@@ -544,16 +624,42 @@ class OrdersController {
 
   @Post('payments/mock/:orderId/confirm')
   @HttpCode(HttpStatus.OK)
-  confirmMockPayment(@Param('orderId') orderId: string, @Headers('idempotency-key') key?: string) {
-    const localSimulationEnabled = process.env.ENABLE_LOCAL_PAYMENT_SIMULATION === 'true';
-    if (process.env.NODE_ENV === 'production' || !localSimulationEnabled) {
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  confirmMockPayment(
+    @Param('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    const policy = resolveLocalPaymentSimulationPolicy();
+    if (!policy.enabled) {
       throw new DomainError(
         API_ERROR_CODES.FORBIDDEN,
         '当前环境未启用模拟支付确认',
         HttpStatus.FORBIDDEN,
       );
     }
-    return this.repository.confirmMockPayment(orderId, idempotencyKey(key));
+    return this.repository.confirmLocalPaymentSimulation(
+      orderId,
+      orderAccessToken(authorization),
+      idempotencyKey(key),
+      policy.allowedMobileE164s,
+    );
+  }
+
+  @Get('payments/mock/:orderId/capability')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async localPaymentSimulationCapability(
+    @Param('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
+  ) {
+    const policy = resolveLocalPaymentSimulationPolicy();
+    if (!policy.enabled) return { allowed: false };
+    const allowed = await this.repository.canUseLocalPaymentSimulation(
+      orderId,
+      orderAccessToken(authorization),
+      policy.allowedMobileE164s,
+    );
+    return { allowed };
   }
 
   @Post('payments/wechat/:orderId/native')

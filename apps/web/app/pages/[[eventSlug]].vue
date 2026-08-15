@@ -5,10 +5,24 @@ import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   publicEventHomePath,
   publicEventScopedPath,
+  type EventPurchaseContext,
   type PublicEvent,
+  type PublicEventMemberList,
   type Session,
 } from '@conference/contracts';
 import { resolveEventExperience } from '~/composables/useEventExperience';
+import {
+  loadMemberDirectoryWithFallback,
+  startMemberDirectoryAutoRefresh,
+} from '~/utils/member-directory-refresh';
+import {
+  isMemberDirectoryInitialLoading,
+  resolveMemberDirectoryState,
+} from '~/utils/member-directory-state';
+import { attendeeAvatarInitial } from '~/utils/attendee-poster';
+import { useCustomerSession } from '~/composables/useCustomerSession';
+import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
+import { resolveHomeRegistrationCta } from '~/utils/purchase-journey';
 
 definePageMeta({ publicEventHome: true });
 
@@ -16,10 +30,17 @@ let countdown: ReturnType<typeof setInterval> | undefined;
 let observer: IntersectionObserver | undefined;
 let scrollHandler: (() => void) | undefined;
 let accentClickHandler: ((event: MouseEvent) => void) | undefined;
+let memberVisibilityHandler: (() => void) | undefined;
+let memberRefreshController: ReturnType<typeof startMemberDirectoryAutoRefresh> | undefined;
 const api = useConferenceApi();
+const customer = useCustomerSession();
 const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
 const event = api.eventState;
+const purchaseContext = ref<EventPurchaseContext | null>(null);
+const purchaseContextLoading = ref(false);
+const purchaseContextFailed = ref(false);
+let purchaseContextLoadKey = '';
 const requestedEventSlug = computed(() => {
   const value = Array.isArray(route.params.eventSlug)
     ? route.params.eventSlug[0]
@@ -48,6 +69,12 @@ const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
 const experience = computed(() => resolveEventExperience(event.value));
 const homeBlocks = computed(() => experience.value.home.blocks);
+const membersBlock = computed(() =>
+  event.value.experience?.home?.blocks.find((block) => block.nodeKey === 'home.members'),
+);
+const membersBlockEnabled = computed(() => Boolean(membersBlock.value?.enabled));
+const membersPage = ref(1);
+const membersIndustry = ref('');
 const defaultHomeBlocks =
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.kind === 'structured'
     ? DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.home.blocks
@@ -101,8 +128,31 @@ const eventDate = computed(() => {
     opening: `${start.month}.${start.day}`,
   };
 });
-const registrationHref = (ticketId: string) =>
-  publicEventScopedPath('/register', event.value.slug, { ticket: ticketId });
+const registrationAction = computed(() => {
+  const pendingOrderId = purchaseContext.value?.resumePaymentOrderId;
+  const storedToken = pendingOrderId ? readOrderAccessToken(pendingOrderId) : '';
+  return resolveHomeRegistrationCta({
+    eventSlug: event.value.slug,
+    ticketId: primaryTicket.value.id,
+    priceLabel: money(primaryTicket.value.price),
+    state: !customer.loaded.value || purchaseContextLoading.value
+      ? 'loading'
+      : !customer.session.value
+        ? 'anonymous'
+        : purchaseContextFailed.value
+          ? 'failed'
+          : 'ready',
+    context: purchaseContext.value,
+    ...(pendingOrderId && storedToken
+      ? { resumePaymentHref: publicEventScopedPath(`/order/${pendingOrderId}`, event.value.slug) }
+      : {}),
+  });
+});
+const registrationActionLabel = computed(() =>
+  registrationAction.value.kind === 'register' && primaryTicket.value.remaining < 1
+    ? '加入候补名单'
+    : registrationAction.value.label,
+);
 const faqHref = computed(() =>
   experience.value.faq.mode === 'page' ? publicEventScopedPath('/faq', event.value.slug) : '#faq',
 );
@@ -122,8 +172,69 @@ const blockCopy = (nodeKey: string, key: string, fallback: string) => {
   const defaultValue = defaultHomeBlocks.find((block) => block.nodeKey === nodeKey)?.content[key];
   return typeof defaultValue === 'string' ? defaultValue : fallback;
 };
+const emptyMemberList = (): PublicEventMemberList => ({
+  items: [],
+  total: 0,
+  overallTotal: 0,
+  page: 1,
+  pageSize: 40,
+  totalPages: 1,
+  categoryMode: false,
+  industries: [],
+});
+const memberDirectorySnapshots = new Map<string, PublicEventMemberList>();
+const {
+  data: memberDirectory,
+  pending: membersPending,
+  refresh: refreshMemberDirectory,
+} = await useAsyncData(
+  () => `conference-members-${event.value.slug}`,
+  async () => {
+    if (!membersBlockEnabled.value) return emptyMemberList();
+    const slug = event.value.slug;
+    const page = membersPage.value;
+    const industry = membersIndustry.value;
+    const snapshotKey = `${slug}:${page}:${industry}`;
+    const result = await loadMemberDirectoryWithFallback(
+      () => api.getEventMembers(slug, page, industry || undefined),
+      memberDirectorySnapshots.get(snapshotKey) ?? emptyMemberList(),
+    );
+    memberDirectorySnapshots.set(snapshotKey, result);
+    return result;
+  },
+  { watch: [eventRouteKey, membersBlockEnabled, membersPage, membersIndustry] },
+);
+const membersInitialLoading = computed(() =>
+  isMemberDirectoryInitialLoading(membersPending.value, Boolean(memberDirectory.value)),
+);
+let memberNavigationPending = false;
+const selectMemberIndustry = (code: string) => {
+  if (membersIndustry.value === code) return;
+  memberNavigationPending = true;
+  membersIndustry.value = code;
+  membersPage.value = 1;
+};
+const changeMembersPage = (change: number) => {
+  const target = Math.min(
+    Math.max(1, membersPage.value + change),
+    memberDirectory.value?.totalPages ?? 1,
+  );
+  if (target === membersPage.value) return;
+  memberNavigationPending = true;
+  membersPage.value = target;
+};
+const memberTotal = computed(() => memberDirectory.value?.overallTotal ?? 0);
+const memberDirectoryState = computed(() =>
+  resolveMemberDirectoryState(
+    membersBlockEnabled.value,
+    membersInitialLoading.value,
+    memberDirectory.value?.total ?? 0,
+  ),
+);
 const heroPrimaryAction = computed(() =>
-  blockCopy('home.hero', 'primaryAction', `立即报名 ${money(primaryTicket.value.price)}`),
+  registrationAction.value.kind === 'register'
+    ? blockCopy('home.hero', 'primaryAction', registrationActionLabel.value)
+    : registrationActionLabel.value,
 );
 const heroSecondaryAction = computed(() =>
   blockCopy('home.hero', 'secondaryAction', '查看两日议程'),
@@ -173,8 +284,8 @@ const upgradeItems = computed(() =>
       '新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。',
     ],
     [
-      '300 席',
-      '500 席',
+      '北京单会场',
+      '深圳多会场',
       '从聚会到行业大会',
       '移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。',
     ],
@@ -197,8 +308,16 @@ const upgradeItems = computed(() =>
       'ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。',
     ],
   ].map(([oldValue, newValue, title, body], index) => ({
-    oldValue: blockCopy('home.upgrade', `item${index + 1}Old`, oldValue!),
-    newValue: blockCopy('home.upgrade', `item${index + 1}New`, newValue!),
+    oldValue: blockCopy(
+      'home.upgrade',
+      index === 2 ? 'item3OldVenue' : `item${index + 1}Old`,
+      oldValue!,
+    ),
+    newValue: blockCopy(
+      'home.upgrade',
+      index === 2 ? 'item3NewVenue' : `item${index + 1}New`,
+      newValue!,
+    ),
     title: blockCopy('home.upgrade', `item${index + 1}Title`, title!),
     body: blockCopy('home.upgrade', `item${index + 1}Body`, body!),
   })),
@@ -214,13 +333,17 @@ const hosts = computed(() =>
     {
       name: '乔向阳',
       role: 'GEO大会发起人 · 企业数字增长专家',
-      bio: '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量。从第一届的 300 人到第二届的 500 人，持续推动中国 GEO 从聚会走向行业共同体。',
+      bio: '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。',
       goal: '目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。',
     },
   ].map((host, index) => ({
     name: blockCopy('home.organizer', `host${index + 1}Name`, host.name),
     role: blockCopy('home.organizer', `host${index + 1}Role`, host.role),
-    bio: blockCopy('home.organizer', `host${index + 1}Bio`, host.bio),
+    bio: blockCopy(
+      'home.organizer',
+      index === 1 ? 'host2Summary' : `host${index + 1}Bio`,
+      host.bio,
+    ),
     goal: blockCopy('home.organizer', `host${index + 1}Goal`, host.goal),
   })),
 );
@@ -368,12 +491,65 @@ useHead(() => ({
 watch(loadedEvent, async (loaded) => {
   if (!loaded) return;
   event.value = loaded;
+  membersPage.value = 1;
+  membersIndustry.value = '';
   activeDay.value = days.value[0] ?? 1;
   await nextTick();
   document.querySelectorAll('.reveal:not(.in)').forEach((element) => observer?.observe(element));
 });
 
-onMounted(() => {
+watch(memberDirectory, async (directory) => {
+  if (!directory) return;
+  if (!directory.categoryMode && membersIndustry.value) {
+    membersIndustry.value = '';
+    return;
+  }
+  if (membersPage.value > directory.totalPages) {
+    membersPage.value = directory.totalPages;
+    return;
+  }
+  if (!import.meta.client) return;
+  await nextTick();
+  document.querySelectorAll('.reveal:not(.in)').forEach((element) => observer?.observe(element));
+  if (!memberNavigationPending) return;
+  memberNavigationPending = false;
+  const results = document.querySelector<HTMLElement>('#members .member-grid');
+  results?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  results?.focus({ preventScroll: true });
+});
+
+async function loadPurchaseContext() {
+  if (!import.meta.client || !customer.loaded.value) return;
+  if (!customer.session.value) {
+    purchaseContext.value = null;
+    purchaseContextFailed.value = false;
+    purchaseContextLoadKey = '';
+    return;
+  }
+  const key = `${customer.session.value.customer.id}:${event.value.id}`;
+  if (key === purchaseContextLoadKey) return;
+  purchaseContextLoadKey = key;
+  purchaseContextLoading.value = true;
+  purchaseContextFailed.value = false;
+  try {
+    purchaseContext.value = await customer.purchaseContext(event.value.id);
+  } catch {
+    purchaseContext.value = null;
+    purchaseContextFailed.value = true;
+  } finally {
+    purchaseContextLoading.value = false;
+  }
+}
+
+watch(
+  () => [customer.loaded.value, customer.session.value?.customer.id, event.value.id],
+  () => void loadPurchaseContext(),
+  { flush: 'post' },
+);
+
+onMounted(async () => {
+  await customer.refresh().catch(() => null);
+  await loadPurchaseContext();
   activeDay.value = days.value[0] ?? 1;
   const nav = document.getElementById('nav');
   const sticky = document.getElementById('stickyBar');
@@ -406,6 +582,18 @@ onMounted(() => {
   tick();
   countdown = setInterval(tick, 1_000);
 
+  memberRefreshController = startMemberDirectoryAutoRefresh(
+    refreshMemberDirectory,
+    () =>
+      membersBlockEnabled.value &&
+      !membersPending.value &&
+      document.visibilityState === 'visible',
+  );
+  memberVisibilityHandler = () => {
+    if (document.visibilityState === 'visible') memberRefreshController?.refreshIfNeeded();
+  };
+  document.addEventListener('visibilitychange', memberVisibilityHandler);
+
   observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
@@ -436,6 +624,10 @@ onBeforeUnmount(() => {
   if (scrollHandler) window.removeEventListener('scroll', scrollHandler);
   if (accentClickHandler) document.removeEventListener('click', accentClickHandler);
   if (countdown) clearInterval(countdown);
+  if (memberVisibilityHandler) {
+    document.removeEventListener('visibilitychange', memberVisibilityHandler);
+  }
+  memberRefreshController?.stop();
   observer?.disconnect();
 });
 </script>
@@ -471,6 +663,7 @@ onBeforeUnmount(() => {
           <a v-if="blockEnabled('home.speakers')" href="#speakers">{{
             blockCopy('home.navigation', 'speakersLabel', '嘉宾')
           }}</a>
+          <a v-if="memberDirectoryState.visible" href="#members">报名会员</a>
           <a v-if="blockEnabled('home.tickets')" href="#tickets">{{
             blockCopy('home.navigation', 'ticketsLabel', '门票')
           }}</a>
@@ -479,9 +672,14 @@ onBeforeUnmount(() => {
           }}</a>
         </div>
         <div class="nav-cta">
-          <a :href="registrationHref(primaryTicket.id)" class="btn btn-primary">
-            <span>{{ blockCopy('home.navigation', 'actionLabel', '立即报名') }}</span>
-            <span class="nav-register-price">{{ money(primaryTicket.price) }}</span>
+          <a
+            :href="registrationAction.href"
+            class="btn btn-primary"
+            :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
+            :aria-disabled="registrationAction.kind === 'loading'"
+            @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+          >
+            <span>{{ registrationActionLabel }}</span>
           </a>
           <CustomerAccountAction />
         </div>
@@ -530,10 +728,15 @@ onBeforeUnmount(() => {
             }}</b></span>
           </div>
           <div class="hero-btns reveal in" data-d="3">
-            <a :href="registrationHref(primaryTicket.id)" class="btn btn-primary">{{ heroPrimaryAction }} <span class="arr">→</span></a>
+            <a
+              :href="registrationAction.href"
+              class="btn btn-primary"
+              :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
+              :aria-disabled="registrationAction.kind === 'loading'"
+              @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+            >{{ heroPrimaryAction }} <span class="arr">→</span></a>
             <a href="#agenda" class="btn btn-outline">{{ heroSecondaryAction }}</a>
-            <span class="hero-note">限量 {{ event.stats.seats }} 席 ·
-              {{ blockCopy('home.hero', 'note', '第一届全部售罄') }}</span>
+            <span class="hero-note">{{ blockCopy('home.hero', 'note', '第一届全部售罄') }}</span>
           </div>
         </div>
         <div class="hero-visual reveal in" data-d="2">
@@ -595,7 +798,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="answer-metrics">
               <span class="answer-metric"><b>{{ money(primaryTicket.price) }}</b><small>{{ blockCopy('home.hero', 'priceMetricLabel', '两日通票') }}</small></span>
-              <span class="answer-metric"><b>{{ event.stats.seats }}+</b><small>{{ blockCopy('home.hero', 'seatsMetricLabel', '限量席位') }}</small></span>
+              <span class="answer-metric"><b>40+</b><small>{{ blockCopy('home.hero', 'topicsMetricLabel', '干货主题') }}</small></span>
               <span class="answer-metric"><b>{{ eventDate.opening }}</b><small>{{ event.city
               }}{{ blockCopy('home.hero', 'openingMetricSuffix', '开幕') }}</small></span>
             </div>
@@ -625,9 +828,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="stat-item reveal" data-d="2">
-          <div class="stat-num">{{ event.stats.seats }}<em>+</em></div>
+          <div class="stat-num">{{ blockCopy('home.stats', 'sessionsValue', '30') }}<em>+</em></div>
           <div class="stat-lbl">
-            {{ blockCopy('home.stats', 'seatsLabel', '创始人 / 高管 / 增长负责人') }}
+            {{ blockCopy('home.stats', 'sessionsLabel', '主题分享与实战议程') }}
           </div>
         </div>
         <div class="stat-item reveal" data-d="3">
@@ -934,6 +1137,128 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <!-- ── REGISTERED MEMBERS ── -->
+    <section
+      v-if="memberDirectoryState.visible"
+      id="members"
+      :data-template-variant="membersBlock?.variant ?? 'editorial-grid'"
+      :style="blockStyle('home.members')"
+    >
+      <div class="wrap">
+        <div class="sec-head reveal member-head">
+          <div>
+            <span class="kicker">{{ blockCopy('home.members', 'kicker', 'ATTENDEES') }}</span>
+            <h2 class="sec-title">
+              {{ blockCopy('home.members', 'title', '和同行者，在大会前先认识') }}
+            </h2>
+            <p class="sec-sub">
+              {{
+                blockCopy(
+                  'home.members',
+                  'subtitle',
+                  '已报名并主动公开参会名片的会员，将按报名顺序在这里出现',
+                )
+              }}
+            </p>
+          </div>
+          <div v-if="memberTotal" class="member-count">
+            <span>已公开</span>
+            <strong>{{ memberTotal }}</strong>
+            <span>位会员</span>
+          </div>
+        </div>
+
+        <div
+          v-if="memberDirectory?.categoryMode"
+          class="member-industries"
+          role="tablist"
+          aria-label="按行业筛选报名会员"
+        >
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="membersIndustry === ''"
+            :class="{ active: membersIndustry === '' }"
+            @click="selectMemberIndustry('')"
+          >
+            全部 <span>{{ memberTotal }}</span>
+          </button>
+          <button
+            v-for="industry in memberDirectory.industries"
+            :key="industry.code"
+            type="button"
+            role="tab"
+            :aria-selected="membersIndustry === industry.code"
+            :class="{ active: membersIndustry === industry.code }"
+            @click="selectMemberIndustry(industry.code)"
+          >
+            {{ industry.label }} <span>{{ industry.count }}</span>
+          </button>
+        </div>
+
+        <div v-if="membersInitialLoading" class="member-loading" role="status">
+          正在更新报名会员…
+        </div>
+        <div v-else-if="memberDirectoryState.empty" class="member-empty" role="status">
+          <span aria-hidden="true">MEMBER DIRECTORY</span>
+          <strong>{{
+            blockCopy('home.members', 'emptyText', '报名会员正在陆续完善参会名片')
+          }}</strong>
+          <p>完成报名并公开参会名片后，将按报名顺序展示在这里。</p>
+        </div>
+        <div v-else class="member-grid" tabindex="-1">
+          <a
+            v-for="member in memberDirectory?.items ?? []"
+            :key="member.publicSlug"
+            class="member-tile"
+            :href="
+              publicEventScopedPath(`/members/${encodeURIComponent(member.publicSlug)}`, event.slug)
+            "
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span class="member-identity">
+              <span class="member-avatar">
+                <img
+                  v-if="member.avatarUrl"
+                  :src="member.avatarUrl"
+                  :alt="member.displayName ? `${member.displayName}的头像` : '报名会员头像'"
+                  loading="lazy"
+                />
+                <b v-else aria-hidden="true">{{
+                  attendeeAvatarInitial(member.displayName || member.initials)
+                }}</b>
+              </span>
+              <span class="member-copy">
+                <strong>{{ member.displayName || '报名会员' }}</strong>
+                <em v-if="member.company">{{ member.company }}</em>
+              </span>
+            </span>
+            <span class="member-open" aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <nav
+          v-if="(memberDirectory?.totalPages ?? 1) > 1"
+          class="member-pagination"
+          aria-label="报名会员分页"
+        >
+          <button type="button" :disabled="membersPage <= 1" @click="changeMembersPage(-1)">
+            上一页
+          </button>
+          <span>第 {{ memberDirectory?.page ?? membersPage }} /
+            {{ memberDirectory?.totalPages ?? 1 }} 页</span>
+          <button
+            type="button"
+            :disabled="membersPage >= (memberDirectory?.totalPages ?? 1)"
+            @click="changeMembersPage(1)"
+          >
+            下一页
+          </button>
+        </nav>
+      </div>
+    </section>
+
     <!-- ── HOSTS ── -->
     <section
       v-if="blockEnabled('home.organizer')"
@@ -999,10 +1324,7 @@ onBeforeUnmount(() => {
         <div class="ticket-layout">
           <div class="ticket-main reveal">
             <div class="ticket-purchase">
-              <span class="ticket-badge">{{ primaryTicket.name }} ·
-                {{
-                  blockCopy('home.tickets', 'badgeSuffix', '限量 ' + event.stats.seats + ' 席')
-                }}</span>
+              <span class="ticket-badge">{{ primaryTicket.name }}</span>
               <span class="price-label">{{
                 blockCopy('home.tickets', 'priceLabel', '统一票价')
               }}</span>
@@ -1016,15 +1338,17 @@ onBeforeUnmount(() => {
                   blockCopy('home.tickets', 'description', '一张票，全程参与两天大会')
                 }}
               </div>
-              <a :href="registrationHref(primaryTicket.id)" class="btn btn-primary ticket-cta">{{
-                                                                                                 primaryTicket.remaining > 0
-                                                                                                   ? blockCopy(
-                                                                                                     'home.tickets',
-                                                                                                     'actionLabel',
-                                                                                                     '立即报名 ' + money(primaryTicket.price),
-                                                                                                   )
-                                                                                                   : '加入候补名单'
-                                                                                               }}
+              <a
+                :href="registrationAction.href"
+                class="btn btn-primary ticket-cta"
+                :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
+                :aria-disabled="registrationAction.kind === 'loading'"
+                @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+              >{{
+                 registrationAction.kind === 'register'
+                   ? blockCopy('home.tickets', 'actionLabel', registrationActionLabel)
+                   : registrationActionLabel
+               }}
                 <span class="arr">→</span></a>
               <div class="ticket-note">
                 {{ blockCopy('home.tickets', 'note', '八项参会权益已全部包含') }}
@@ -1139,20 +1463,19 @@ onBeforeUnmount(() => {
           </h2>
           <p class="sub">
             {{ eventDate.compact }} · {{ event.city }} · 两日全通票
-            {{ money(primaryTicket.price) }} · 限量 {{ event.stats.seats }} 席
+            {{ money(primaryTicket.price) }}
           </p>
           <a
-            :href="registrationHref(primaryTicket.id)"
+            :href="registrationAction.href"
             class="btn btn-primary"
+            :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
+            :aria-disabled="registrationAction.kind === 'loading'"
             style="font-size: 16px; padding: 16px 44px"
+            @click="registrationAction.kind === 'loading' && $event.preventDefault()"
           >{{
-             primaryTicket.remaining > 0
-               ? blockCopy(
-                 'home.registration-cta',
-                 'actionLabel',
-                 '立即报名 ' + money(primaryTicket.price),
-               )
-               : '加入候补名单'
+             registrationAction.kind === 'register'
+               ? blockCopy('home.registration-cta', 'actionLabel', registrationActionLabel)
+               : registrationActionLabel
            }}
             <span class="arr">→</span></a>
           <p style="margin-top: 20px; font-size: 12.5px; color: var(--ink-muted)">
@@ -1192,9 +1515,13 @@ onBeforeUnmount(() => {
             {{ event.city }}
           </div>
         </div>
-        <a :href="registrationHref(primaryTicket.id)" class="btn btn-primary">{{
-          primaryTicket.remaining > 0 ? '立即报名' : '加入候补'
-        }}</a>
+        <a
+          :href="registrationAction.href"
+          class="btn btn-primary"
+          :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
+          :aria-disabled="registrationAction.kind === 'loading'"
+          @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+        >{{ registrationActionLabel }}</a>
       </div>
     </div>
   </div>

@@ -16,7 +16,11 @@ import type {
   UpdateEventSlug,
   UpdateOrganizationMember,
 } from '@conference/contracts';
-import { API_ERROR_CODES, normalizeConferenceTemplateDefinition } from '@conference/contracts';
+import {
+  API_ERROR_CODES,
+  DEMO_IDS,
+  normalizeConferenceTemplateDefinition,
+} from '@conference/contracts';
 import {
   auditLogs,
   checkinLists,
@@ -55,6 +59,18 @@ import { mergeTemplateDefinition } from './template-definition.js';
 type Database = NonNullable<DatabaseService['db']>;
 
 const generateEventShortSlug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 6);
+
+function isConfiguredSuperAdministrator(
+  user: { id: string },
+  member: { role: string; grants: string[]; status: 'active' | 'disabled' },
+) {
+  return (
+    user.id === (process.env.ADMIN_USER_ID ?? DEMO_IDS.adminUser).trim() &&
+    member.status === 'active' &&
+    member.role === 'organization_admin' &&
+    member.grants.includes('*')
+  );
+}
 
 interface BlueprintSnapshot {
   event?: { tagline?: string; description?: string; timezone?: string; locale?: string };
@@ -223,6 +239,7 @@ export class EventOperationsService {
       role: membership.role,
       grants: membership.grants,
       status: membership.status,
+      isSuperAdministrator: isConfiguredSuperAdministrator(user, membership),
       profile: profile
         ? {
             company: profile.company,
@@ -321,6 +338,7 @@ export class EventOperationsService {
       role: result.membership.role,
       grants: result.membership.grants,
       status: result.membership.status,
+      isSuperAdministrator: isConfiguredSuperAdministrator(result.user, result.membership),
       profile: {
         company: result.profile.company,
         title: result.profile.title,
@@ -428,10 +446,7 @@ export class EventOperationsService {
         .select({ eventId: eventSlugAliases.eventId })
         .from(eventSlugAliases)
         .where(
-          and(
-            eq(eventSlugAliases.organizationId, organizationId),
-            eq(eventSlugAliases.slug, slug),
-          ),
+          and(eq(eventSlugAliases.organizationId, organizationId), eq(eventSlugAliases.slug, slug)),
         )
         .limit(1),
     ]);
@@ -592,10 +607,10 @@ export class EventOperationsService {
     try {
       return await db.transaction(async (tx) => {
         const [organization] = await tx
-          .select({ settings: organizations.settings })
+          .select({ id: organizations.id })
           .from(organizations)
           .where(eq(organizations.id, organizationId))
-          .for('update')
+          .for('key share')
           .limit(1);
         if (!organization) {
           throw new DomainError(
@@ -604,17 +619,8 @@ export class EventOperationsService {
             HttpStatus.NOT_FOUND,
           );
         }
-        const organizationSettings = organization.settings as {
-          defaultTimezone?: string;
-          defaultBlueprintId?: string | null;
-          customerAccounts?: {
-            defaultAccountMode?: 'mobile_otp_required' | 'guest_allowed';
-          };
-        };
-        const effectiveTimezone =
-          input.timezone ?? organizationSettings.defaultTimezone ?? 'Asia/Shanghai';
-        const effectiveBlueprintId =
-          input.blueprintId ?? organizationSettings.defaultBlueprintId ?? undefined;
+        const effectiveTimezone = input.timezone ?? 'Asia/Shanghai';
+        const effectiveBlueprintId = input.blueprintId;
         const [selectedTemplate] = await tx
           .select({
             version: conferenceTemplateVersions,
@@ -747,10 +753,9 @@ export class EventOperationsService {
                 paymentMode: 'ticketed',
                 currency: 'CNY',
                 registrationOpen: true,
-                accountMode:
-                  organizationSettings.customerAccounts?.defaultAccountMode === 'guest_allowed'
-                    ? 'guest_allowed'
-                    : 'mobile_otp_required',
+                accountMode: 'mobile_otp_required',
+                additionalPurchaseEnabled: false,
+                maxActiveSeatsPerPurchaser: 5,
               },
               stats: { seats: 0, speakers: 0, days: 1, attendeeSatisfaction: 0 },
               faqs: templateDefinition.faq.items
@@ -1023,11 +1028,18 @@ export class EventOperationsService {
         registrationOpen:
           !('registrationOpen' in eventRegistration) ||
           eventRegistration.registrationOpen !== false,
-        accountMode:
-          'accountMode' in eventRegistration &&
-          eventRegistration.accountMode === 'mobile_otp_required'
-            ? ('mobile_otp_required' as const)
-            : ('guest_allowed' as const),
+        accountMode: 'mobile_otp_required' as const,
+        additionalPurchaseEnabled:
+          'additionalPurchaseEnabled' in eventRegistration &&
+          eventRegistration.additionalPurchaseEnabled === true,
+        maxActiveSeatsPerPurchaser:
+          'maxActiveSeatsPerPurchaser' in eventRegistration &&
+          typeof eventRegistration.maxActiveSeatsPerPurchaser === 'number' &&
+          Number.isInteger(eventRegistration.maxActiveSeatsPerPurchaser) &&
+          eventRegistration.maxActiveSeatsPerPurchaser >= 1 &&
+          eventRegistration.maxActiveSeatsPerPurchaser <= 20
+            ? eventRegistration.maxActiveSeatsPerPurchaser
+            : 5,
       };
       if (registration.paymentMode === 'free' && ticketRows.some((ticket) => ticket.price !== 0)) {
         throw new DomainError(
@@ -1241,6 +1253,8 @@ export class EventOperationsService {
               paymentMode?: 'free' | 'ticketed';
               registrationOpen?: boolean;
               accountMode?: 'mobile_otp_required' | 'guest_allowed';
+              additionalPurchaseEnabled?: boolean;
+              maxActiveSeatsPerPurchaser?: number;
             };
           };
         };
@@ -1270,10 +1284,19 @@ export class EventOperationsService {
               : ('ticketed' as const),
           currency: 'CNY' as const,
           registrationOpen,
-          accountMode:
-            snapshot.event?.settings?.registration?.accountMode === 'guest_allowed'
-              ? ('guest_allowed' as const)
-              : ('mobile_otp_required' as const),
+          accountMode: 'mobile_otp_required' as const,
+          additionalPurchaseEnabled:
+            snapshot.event?.settings?.registration?.additionalPurchaseEnabled === true,
+          maxActiveSeatsPerPurchaser:
+            typeof snapshot.event?.settings?.registration?.maxActiveSeatsPerPurchaser ===
+              'number' &&
+            Number.isInteger(
+              snapshot.event.settings.registration.maxActiveSeatsPerPurchaser,
+            ) &&
+            snapshot.event.settings.registration.maxActiveSeatsPerPurchaser >= 1 &&
+            snapshot.event.settings.registration.maxActiveSeatsPerPurchaser <= 20
+              ? snapshot.event.settings.registration.maxActiveSeatsPerPurchaser
+              : 5,
         },
         currentReleaseId: target.id,
         templateKey: target.templateKey,
@@ -1835,7 +1858,7 @@ export class EventOperationsService {
           current.name === input.name &&
           current.termsVersion === input.termsVersion &&
           current.termsContent === input.termsContent &&
-          JSON.stringify(current.fields) === JSON.stringify(normalizedFields)
+          JSON.stringify(normalizeFields(current.fields)) === JSON.stringify(normalizedFields)
         ) {
           return current;
         }

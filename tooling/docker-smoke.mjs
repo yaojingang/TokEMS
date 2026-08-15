@@ -81,6 +81,7 @@ await waitFor('API 与 PostgreSQL 健康', async () => {
   assert(body.status === 'ok', `API status is ${body.status}`);
   assert(body.database?.mode === 'postgresql', 'API is not using PostgreSQL');
   assert(body.database?.ok === true, 'PostgreSQL ping failed');
+  assert(body.database?.migration?.ok === true, 'PostgreSQL migration hash is not current');
   apiBuild = body.build;
 });
 
@@ -100,7 +101,7 @@ const verifiedBuild = await waitFor('五个运行服务版本一致', async () =
         'worker',
         'node',
         '-e',
-        "console.log(JSON.stringify({service:'worker',sha:process.env.BUILD_SHA,builtAt:process.env.BUILD_TIME,migration:process.env.BUILD_MIGRATION}))",
+        "console.log(JSON.stringify({service:'worker',sha:process.env.BUILD_SHA,builtAt:process.env.BUILD_TIME,migration:process.env.BUILD_MIGRATION,migrationHash:process.env.BUILD_MIGRATION_HASH}))",
       ],
       { encoding: 'utf8', env: environment },
     ).trim(),

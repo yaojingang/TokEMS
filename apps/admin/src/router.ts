@@ -8,10 +8,12 @@ import {
 } from './lib/admin-entry';
 import { parseEventId } from './lib/route-scope';
 import { createRouteLoadRecovery } from './lib/route-load-recovery';
+import { legacyContentWorkspaceRoute } from './lib/legacy-content-route';
 
 function recentEventRoute(
   name: string,
   query: Record<string, string | string[]> = {},
+  hash = '',
 ): RouteLocationRaw {
   const eventId = session.activeEventId.value;
   if (!eventId) return { name: 'login' };
@@ -19,6 +21,7 @@ function recentEventRoute(
     name,
     params: { eventId },
     query,
+    ...(hash ? { hash } : {}),
   };
 }
 
@@ -143,8 +146,7 @@ export const router = createRouter({
             {
               path: 'general',
               name: 'manage-settings-general',
-              component: () => import('./views/ManagementGeneralSettingsView.vue'),
-              meta: { requiredGrants: ['org.settings.read'] },
+              redirect: { name: 'manage-settings' },
             },
             {
               path: 'website',
@@ -167,14 +169,12 @@ export const router = createRouter({
             {
               path: 'analytics',
               name: 'manage-settings-analytics',
-              component: () => import('./views/ManagementAnalyticsSettingsView.vue'),
-              meta: { requiredGrants: ['org.settings.read'] },
+              redirect: { name: 'manage-settings' },
             },
             {
               path: 'integrations',
               name: 'manage-settings-integrations',
-              component: () => import('./views/ManagementIntegrationsView.vue'),
-              meta: { requiredGrants: ['org.settings.read'] },
+              redirect: { name: 'manage-settings' },
             },
             {
               path: 'customers',
@@ -241,10 +241,8 @@ export const router = createRouter({
                   name: session.can('event.manage')
                     ? 'event-settings-general'
                     : session.can('event.site.read')
-                      ? 'event-settings-site'
-                      : session.canAny(['event.content.manage', 'event.ai.read'])
-                        ? 'event-content'
-                        : 'event-settings-registration',
+                      ? 'event-settings-general'
+                      : 'event-settings-registration',
                   params: to.params,
                 }
               : {
@@ -256,17 +254,21 @@ export const router = createRouter({
           path: 'settings/general',
           name: 'event-settings-general',
           component: () => import('./views/EventView.vue'),
-          meta: { title: '大会配置', code: 'GENERAL', requiredGrants: ['event.manage'] },
+          meta: {
+            title: '大会配置',
+            code: 'GENERAL',
+            requiredGrants: ['event.manage', 'event.site.read'],
+          },
         },
         {
           path: 'settings/site',
           name: 'event-settings-site',
-          component: () => import('./views/PublishingView.vue'),
-          meta: {
-            title: '大会配置',
-            code: 'SITE',
-            requiredGrants: ['event.site.read'],
-          },
+          redirect: (to) => ({
+            name: 'event-settings-general',
+            params: to.params,
+            query: to.query,
+            hash: '#public-page',
+          }),
         },
         {
           path: 'settings/registration',
@@ -307,40 +309,24 @@ export const router = createRouter({
         {
           path: 'settings/content',
           name: 'event-content',
-          component: () => import('./views/ContentView.vue'),
-          meta: {
-            title: '内容运营',
-            code: 'CONTENT',
-            requiredGrants: ['event.content.manage', 'event.ai.read'],
-          },
+          redirect: (to) =>
+            legacyContentWorkspaceRoute(to.params, to.query, to.hash),
         },
         {
           path: 'content/ai',
           name: 'event-ai',
-          redirect: (to) => ({
-            name: 'event-content',
-            params: to.params,
-            query: to.query,
-            hash: to.hash || '#ai-copy',
-          }),
+          redirect: (to) =>
+            legacyContentWorkspaceRoute(to.params, to.query, to.hash || '#public-page'),
         },
         {
           path: 'content',
-          redirect: (to) => ({
-            name: 'event-content',
-            params: to.params,
-            query: to.query,
-            hash: to.hash,
-          }),
+          redirect: (to) =>
+            legacyContentWorkspaceRoute(to.params, to.query, to.hash),
         },
         {
           path: 'settings/content/ai',
-          redirect: (to) => ({
-            name: 'event-ai',
-            params: to.params,
-            query: to.query,
-            hash: to.hash || '#ai-copy',
-          }),
+          redirect: (to) =>
+            legacyContentWorkspaceRoute(to.params, to.query, to.hash || '#public-page'),
         },
         {
           path: 'registrations',
@@ -433,7 +419,7 @@ export const router = createRouter({
     {
       path: '/publishing',
       redirect: (to) =>
-        recentEventRoute('event-settings-site', to.query as Record<string, string | string[]>),
+        recentEventRoute('event-settings-general', to.query as Record<string, string | string[]>),
     },
     {
       path: '/forms',
@@ -453,7 +439,11 @@ export const router = createRouter({
     {
       path: '/content',
       redirect: (to) =>
-        recentEventRoute('event-content', to.query as Record<string, string | string[]>),
+        recentEventRoute(
+          'event-settings-general',
+          to.query as Record<string, string | string[]>,
+          to.hash || '#public-page',
+        ),
     },
     {
       path: '/notifications',
@@ -462,7 +452,12 @@ export const router = createRouter({
     },
     {
       path: '/ai',
-      redirect: (to) => recentEventRoute('event-ai', to.query as Record<string, string | string[]>),
+      redirect: (to) =>
+        recentEventRoute(
+          'event-settings-general',
+          to.query as Record<string, string | string[]>,
+          to.hash || '#public-page',
+        ),
     },
     {
       path: '/audit',
@@ -581,7 +576,7 @@ router.beforeEach(async (to, from) => {
 
   if (to.name === 'manage-settings') {
     return {
-      name: session.can('org.settings.read') ? 'manage-settings-general' : 'manage-settings-team',
+      name: session.can('org.settings.read') ? 'manage-settings-payment' : 'manage-settings-team',
     };
   }
 

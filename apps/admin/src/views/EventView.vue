@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { EventStatus, PublicEvent, UpdateEvent } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
+import PublishingView from './PublishingView.vue';
 import { conferenceApi, publicEventUrl, session } from '../lib/api';
 
 const event = ref<PublicEvent>();
@@ -10,6 +11,7 @@ const pending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
 const showImportantChangeConfirm = ref(false);
+const canManageEvent = computed(() => session.can('event.manage'));
 const baseline = ref<{
   startsAt: string;
   endsAt: string;
@@ -191,7 +193,7 @@ async function save() {
     </div>
     <div class="admin-head-actions">
       <a class="button secondary" :href="publicEventUrl()" target="_blank" rel="noopener noreferrer">预览前台 ↗</a>
-      <button class="button" type="button" :disabled="pending" @click="requestSave">
+      <button v-if="canManageEvent" class="button" type="button" :disabled="pending" @click="requestSave">
         {{ pending ? '保存中…' : '保存修改' }}
       </button>
     </div>
@@ -207,7 +209,7 @@ async function save() {
       </div>
       <span class="status-badge">{{ statusLabels[event?.status ?? form.status] }}</span>
     </header>
-    <form class="event-form settings-form-spaced" @submit.prevent="requestSave">
+    <form class="event-form settings-form-spaced" :inert="!canManageEvent" @submit.prevent="requestSave">
       <div class="form-grid">
         <div class="form-field">
           <label for="event-name">大会名称</label><input id="event-name" v-model="form.name" required />
@@ -256,12 +258,23 @@ async function save() {
           <label for="event-address">详细地址</label><input id="event-address" v-model="form.address" required />
         </div>
       </div>
-      <div class="event-form-actions">
+      <div v-if="canManageEvent" class="event-form-actions">
         <button class="button" type="submit" :disabled="pending">
           {{ pending ? '保存中…' : '保存基本信息' }}
         </button>
       </div>
     </form>
+  </section>
+
+  <section v-if="session.can('event.site.read')" id="public-page" class="settings-section-stack">
+    <header class="admin-panel-header">
+      <div>
+        <p class="eyebrow">PUBLIC PAGE</p>
+        <h2>公开页面展示</h2>
+        <p>页面模板、首页行动入口和常见问题统一在基本信息页维护。</p>
+      </div>
+    </header>
+    <PublishingView embedded />
   </section>
 
   <AdminConfirmDialog

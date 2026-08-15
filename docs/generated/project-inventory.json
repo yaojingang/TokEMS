@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 10,
-  "adminViews": 35,
-  "migrations": 42,
-  "latestMigration": "0041_needy_the_liberteens.sql",
-  "databaseTables": 62,
-  "apiControllers": 24,
-  "apiOperations": 188,
-  "testFiles": 63
+  "webPages": 13,
+  "adminViews": 31,
+  "migrations": 49,
+  "latestMigration": "0048_registration_purchase_attempts.sql",
+  "databaseTables": 66,
+  "apiControllers": 25,
+  "apiOperations": 207,
+  "testFiles": 113
 }

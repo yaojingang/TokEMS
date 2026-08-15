@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { RegistrationStatus, WaitlistEntry } from '@conference/contracts';
+import type {
+  RegistrationBusinessStatus,
+  RegistrationInvoiceSummaryStatus,
+  RegistrationStatus,
+  WaitlistEntry,
+} from '@conference/contracts';
 import { useRoute } from 'vue-router';
 import { conferenceApi, publicEventUrl, session, type AdminRegistrationRow } from '../lib/api';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
@@ -9,6 +14,8 @@ const rows = ref<AdminRegistrationRow[]>([]);
 const waitlist = ref<WaitlistEntry[]>([]);
 const q = ref('');
 const status = ref<RegistrationStatus | ''>('');
+const businessStatus = ref<RegistrationBusinessStatus | ''>('');
+const invoiceStatus = ref<RegistrationInvoiceSummaryStatus | ''>('');
 const loading = ref(false);
 const exporting = ref(false);
 const errorMessage = ref('');
@@ -90,6 +97,8 @@ async function load(resetPage = false) {
       conferenceApi.getRegistrations({
         ...(q.value.trim() ? { q: q.value.trim() } : {}),
         ...(status.value ? { status: status.value } : {}),
+        ...(businessStatus.value ? { businessStatus: businessStatus.value } : {}),
+        ...(invoiceStatus.value ? { invoiceStatus: invoiceStatus.value } : {}),
         page: requestedPage,
         pageSize: pageSize.value,
       }),
@@ -136,10 +145,32 @@ watch(
 
 <template>
   <header class="admin-page-head registration-page-head reveal is-visible">
-    <div class="registration-page-heading">
-      <p class="eyebrow">REGISTRATION OPERATIONS</p>
-      <h1>报名管理</h1>
-      <p>统一查看参会人资料、报名进度与关联订单。</p>
+    <div class="registration-page-titlebar">
+      <div class="registration-page-heading">
+        <p class="eyebrow">REGISTRATION OPERATIONS</p>
+        <h1>报名管理</h1>
+        <p>统一查看参会人资料、报名进度与关联订单。</p>
+      </div>
+      <div class="admin-head-actions registration-page-actions" aria-label="报名数据操作">
+        <button class="button secondary" type="button" @click="load()">刷新数据</button>
+        <button
+          v-if="canExport"
+          class="button secondary"
+          type="button"
+          :disabled="exporting"
+          @click="exportData"
+        >
+          {{ exporting ? '正在导出…' : '导出报名与订单 CSV' }}
+        </button>
+        <a
+          class="button secondary"
+          :href="registrationUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          新增报名 ↗
+        </a>
+      </div>
     </div>
     <form class="registration-toolbar" role="search" @submit.prevent="load(true)">
       <div class="registration-toolbar-filters">
@@ -149,9 +180,41 @@ watch(
             v-model="q"
             type="search"
             aria-label="搜索报名"
-            placeholder="搜索姓名、公司、手机号、报名码"
+            placeholder="搜索姓名、公司、手机号、报名码、订单号"
           />
         </label>
+        <select
+          v-model="businessStatus"
+          class="admin-select"
+          aria-label="按业务状态筛选"
+          @change="load(true)"
+        >
+          <option value="">全部业务状态</option>
+          <option value="pending_review">待审核</option>
+          <option value="pending_payment">待支付</option>
+          <option value="payment_processing">支付中</option>
+          <option value="payment_failed">支付失败</option>
+          <option value="paid">已支付</option>
+          <option value="partially_refunded">部分退款</option>
+          <option value="refunded">已退款</option>
+          <option value="closed">已关闭</option>
+          <option value="confirmed">免费报名已确认</option>
+        </select>
+        <select
+          v-model="invoiceStatus"
+          class="admin-select"
+          aria-label="按发票状态筛选"
+          @change="load(true)"
+        >
+          <option value="">全部发票状态</option>
+          <option value="eligible">可申请</option>
+          <option value="not_eligible">不可开票</option>
+          <option value="pending_review">待审核</option>
+          <option value="issuing">开票中</option>
+          <option value="issued">已开具</option>
+          <option value="adjustment_required">待调整</option>
+          <option value="cancelled">已终止</option>
+        </select>
         <select
           v-model="status"
           class="admin-select"
@@ -172,26 +235,13 @@ watch(
           @click="
             q = '';
             status = '';
+            businessStatus = '';
+            invoiceStatus = '';
             load(true);
           "
         >
           重置
         </button>
-      </div>
-      <div class="registration-toolbar-actions" aria-label="报名数据操作">
-        <button class="button secondary" type="button" @click="load()">刷新数据</button>
-        <button
-          v-if="canExport"
-          class="button secondary"
-          type="button"
-          :disabled="exporting"
-          @click="exportData"
-        >
-          {{ exporting ? '正在导出…' : '导出报名与订单 CSV' }}
-        </button>
-        <a class="button" :href="registrationUrl" target="_blank" rel="noopener noreferrer">
-          新增报名 ↗
-        </a>
       </div>
     </form>
   </header>
@@ -205,17 +255,24 @@ watch(
         </caption>
         <thead>
           <tr>
+            <th>购票人</th>
             <th>参会人</th>
             <th>联系方式</th>
             <th>票种</th>
-            <th>报名状态</th>
-            <th>关联订单</th>
-            <th class="number">金额</th>
+            <th>业务状态</th>
+            <th>支付与退款</th>
+            <th>发票</th>
+            <th>最近更新</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
+            <td>
+              <span class="row-title">{{ row.purchaserName || '未填写姓名' }}</span>
+              <span class="row-sub">{{ row.purchaserMobile }}</span>
+              <span v-if="row.isProxyPurchase" class="status-badge draft">代购</span>
+            </td>
             <td>
               <span class="row-title">{{ row.attendee.name }}</span>
               <span class="row-sub">{{ row.attendee.company }} · {{ row.attendee.title }}</span>
@@ -226,25 +283,31 @@ watch(
             </td>
             <td>{{ row.ticketType.name }}</td>
             <td>
-              <span class="status-badge" :class="statusClass(row.status)">
-                {{ statusLabel(row.status) }}
+              <span class="status-badge" :class="statusClass(row.businessStatus)">
+                {{ statusLabel(row.businessStatus) }}
               </span>
+              <span class="row-sub">报名：{{ statusLabel(row.status) }}</span>
             </td>
             <td>
               <template v-if="row.order">
-                <span class="status-badge" :class="statusClass(row.order.status)">
-                  {{ statusLabel(row.order.status) }}
-                </span>
                 <span class="row-sub order-reference">
                   {{ row.order.orderNo }} · {{ paymentMethodLabel(row.order.paymentMethod) }}
+                </span>
+                <span class="row-sub">
+                  实付 {{ money(row.paidAmount) }} · 已退 {{ money(row.refundedAmount) }}
                 </span>
               </template>
               <span v-else class="status-badge muted">未生成</span>
             </td>
-            <td class="number">
-              <strong v-if="row.order">{{ money(row.order.amount) }}</strong>
-              <span v-else>－</span>
+            <td>
+              <span class="status-badge" :class="statusClass(row.invoiceSummary.status)">
+                {{ statusLabel(row.invoiceSummary.status) }}
+              </span>
+              <span v-if="row.invoiceSummary.requestNo" class="row-sub">
+                {{ row.invoiceSummary.requestNo }}
+              </span>
             </td>
+            <td>{{ dateTime(row.lastBusinessAt) }}</td>
             <td>
               <div class="row-actions">
                 <RouterLink
@@ -385,15 +448,33 @@ watch(
   margin-bottom: 16px;
 }
 
-.registration-page-heading {
+.registration-page-titlebar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
   margin-bottom: 18px;
 }
 
+.registration-page-heading {
+  min-width: 0;
+}
+
+.registration-page-actions {
+  flex: 0 0 auto;
+}
+
+.registration-page-actions .button {
+  min-height: var(--admin-control-height);
+  padding-inline: 12px;
+  background: transparent;
+  font-size: var(--admin-font-control);
+  white-space: nowrap;
+}
+
 .registration-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  container-name: registration-toolbar;
+  container-type: inline-size;
   padding: 10px;
   background: #fff;
   border: 1px solid var(--line);
@@ -403,17 +484,9 @@ watch(
 .registration-toolbar-filters {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) 160px auto auto;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(140px, 160px)) repeat(2, 64px);
   gap: 8px;
   align-items: center;
-}
-
-.registration-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
 }
 
 .registration-toolbar .admin-search,
@@ -422,11 +495,23 @@ watch(
   min-width: 0;
 }
 
+.registration-toolbar .admin-search {
+  border: 1px solid var(--line);
+}
+
+.registration-toolbar .admin-search:focus-within {
+  border-color: var(--blue);
+}
+
 .registration-toolbar .button {
   min-height: var(--admin-control-height);
   padding-inline: 12px;
   font-size: var(--admin-font-control);
   white-space: nowrap;
+}
+
+.registration-toolbar-filters > .button {
+  width: 64px;
 }
 
 .registration-list-panel {
@@ -537,19 +622,26 @@ watch(
   outline-offset: 1px;
 }
 
+@container registration-toolbar (max-width: 860px) {
+  .registration-toolbar-filters {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .registration-toolbar .admin-search {
+    grid-column: 1 / -1;
+  }
+
+  .registration-toolbar .admin-select {
+    grid-column: span 2;
+  }
+
+  .registration-toolbar-filters > .button {
+    width: 100%;
+    grid-column: span 3;
+  }
+}
+
 @media (max-width: 1040px) {
-  .registration-toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .registration-toolbar-actions {
-    justify-content: flex-end;
-    padding-top: 10px;
-    padding-left: 0;
-    border-top: 1px solid var(--line);
-    border-left: 0;
-  }
-
   .registration-pagination {
     justify-content: center;
   }
@@ -561,28 +653,29 @@ watch(
 }
 
 @media (max-width: 640px) {
-  .registration-page-heading {
-    margin-bottom: 16px;
+  .registration-page-titlebar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
   }
 
-  .registration-toolbar-filters {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-
-  .registration-toolbar .admin-search {
-    grid-column: 1 / -1;
-  }
-
-  .registration-toolbar-actions {
+  .registration-page-actions {
+    width: 100%;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .registration-toolbar-actions .button {
+  .registration-page-actions .button {
     width: 100%;
   }
 
-  .registration-toolbar-actions .button:last-child {
+  .registration-page-actions .button:nth-child(3):last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container registration-toolbar (max-width: 500px) {
+  .registration-toolbar .admin-select {
     grid-column: 1 / -1;
   }
 }

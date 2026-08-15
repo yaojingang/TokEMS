@@ -17,6 +17,9 @@ const dashboardForRange = (from: string, to: string, value = 1): AdminDashboard 
     metrics: {
       registrations: 1,
       paidOrders: 1,
+      paidSeats: 1,
+      confirmedAttendees: 1,
+      purchasers: 1,
       revenue: 100,
       checkedIn: 0,
       conversionRate: 100,

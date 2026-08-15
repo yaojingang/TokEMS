@@ -68,6 +68,38 @@ const templateRows: Array<{
   },
 ];
 
+const templateGroups = [
+  {
+    key: 'account',
+    name: '账号与登录',
+    description: '保障用户登录和身份验证。',
+    keys: ['customerOtp'] as AliyunSmsTemplateKey[],
+  },
+  {
+    key: 'registration',
+    name: '报名与交易',
+    description: '覆盖报名、审核、支付、候补和发票进度。',
+    keys: [
+      'registrationSubmitted',
+      'registrationApproved',
+      'registrationRejected',
+      'paymentSucceeded',
+      'waitlistAvailable',
+      'invoiceDetailsRequested',
+      'invoiceReady',
+    ] as AliyunSmsTemplateKey[],
+  },
+  {
+    key: 'operations',
+    name: '运营通知',
+    description: '用于大会前的运营提醒。',
+    keys: ['eventReminder'] as AliyunSmsTemplateKey[],
+  },
+].map((group) => ({
+  ...group,
+  rows: templateRows.filter((row) => group.keys.includes(row.key)),
+}));
+
 const configuration = ref<AliyunSmsConfiguration>();
 const loading = ref(true);
 const loaded = ref(false);
@@ -346,47 +378,55 @@ watch([testPhone, testTemplateKey], () => {
           </div>
           <span class="settings-count">{{ enabledTemplates.length }} 个场景已启用</span>
         </div>
-        <div class="sms-template-list">
-          <article v-for="row in templateRows" :key="row.key" class="sms-template-row">
-            <label class="sms-template-switch">
-              <input
-                v-model="form.templates[row.key].enabled"
-                type="checkbox"
-                :disabled="!canManage"
-              />
-              <span>
-                <strong>{{ row.name }}</strong>
-                <small>{{ row.description }}</small>
-                <small
-                  v-if="form.templates[row.key].enabled"
-                  class="sms-template-validation"
-                  :class="`is-${form.templates[row.key].status ?? 'unverified'}`"
-                >
-                  {{
-                    form.templates[row.key].status === 'verified'
-                      ? '接口已受理'
-                      : form.templates[row.key].status === 'error'
-                        ? '模板验证失败'
-                        : '模板待验证'
-                  }}
-                </small>
-              </span>
-            </label>
-            <div class="sms-template-code">
-              <label :for="`sms-template-${row.key}`">模板 CODE</label>
-              <input
-                :id="`sms-template-${row.key}`"
-                v-model="form.templates[row.key].templateCode"
-                maxlength="40"
-                placeholder="SMS_123456789"
-                :required="form.templates[row.key].enabled"
-                :disabled="!canManage"
-              />
+        <div class="sms-template-groups">
+          <section v-for="group in templateGroups" :key="group.key" class="sms-template-group">
+            <header>
+              <h4>{{ group.name }}</h4>
+              <p>{{ group.description }}</p>
+            </header>
+            <div class="sms-template-list">
+              <article v-for="row in group.rows" :key="row.key" class="sms-template-row">
+                <label class="sms-template-switch">
+                  <input
+                    v-model="form.templates[row.key].enabled"
+                    type="checkbox"
+                    :disabled="!canManage"
+                  />
+                  <span>
+                    <strong>{{ row.name }}</strong>
+                    <small>{{ row.description }}</small>
+                    <small
+                      v-if="form.templates[row.key].enabled"
+                      class="sms-template-validation"
+                      :class="`is-${form.templates[row.key].status ?? 'unverified'}`"
+                    >
+                      {{
+                        form.templates[row.key].status === 'verified'
+                          ? '接口已受理'
+                          : form.templates[row.key].status === 'error'
+                            ? '模板验证失败'
+                            : '模板待验证'
+                      }}
+                    </small>
+                  </span>
+                </label>
+                <div class="sms-template-code">
+                  <label :for="`sms-template-${row.key}`">模板 CODE</label>
+                  <input
+                    :id="`sms-template-${row.key}`"
+                    v-model="form.templates[row.key].templateCode"
+                    maxlength="40"
+                    placeholder="SMS_123456789"
+                    :required="form.templates[row.key].enabled"
+                    :disabled="!canManage"
+                  />
+                </div>
+                <div class="sms-variable-list" aria-label="模板变量">
+                  <code v-for="variable in row.variables" :key="variable">{{ variable }}</code>
+                </div>
+              </article>
             </div>
-            <div class="sms-variable-list" aria-label="模板变量">
-              <code v-for="variable in row.variables" :key="variable">{{ variable }}</code>
-            </div>
-          </article>
+          </section>
         </div>
       </section>
 

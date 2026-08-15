@@ -4,6 +4,7 @@ import { appendFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Queue, UnrecoverableError, Worker, type ConnectionOptions, type Job } from 'bullmq';
+import sharp from 'sharp';
 import {
   HtmlTemplateAiProposalOutputSchema,
   OrganizationSettingsSchema,
@@ -13,11 +14,14 @@ import {
 } from '@conference/contracts';
 import {
   ACTIVE_WECHAT_PAYMENT_STATUSES,
+  assertDatabaseMigrationCurrent,
   aiRuns,
+  attendeeClaimTokens,
   conferenceTemplateDrafts,
   conferenceTemplates,
   createDatabase,
   customerAuthChallenges,
+  customerMediaAssets,
   customerSessions,
   conferenceTemplateVersions,
   events,
@@ -37,7 +41,10 @@ import {
   organizations,
   outboxEvents,
   payments,
+  readDatabaseMigrationStatus,
+  refunds,
   registrations,
+  tickets,
   ticketTypes,
   templateHtmlImports,
   templateHtmlDocuments,
@@ -79,13 +86,29 @@ import {
   isNull,
   lt,
   lte,
+  ne,
   or,
   sql,
   sum,
   type SQL,
 } from 'drizzle-orm';
 import type { ConferenceDatabase } from '@conference/database';
+import { consumeAttendeeClaimInvitation } from './attendee-claim-invitation.worker.js';
+import { financialNotificationRecipient } from './financial-notification-recipient.js';
+import {
+  deliverWhileInvoiceCurrent,
+  invoiceNotificationIsCurrent,
+  type InvoiceDocumentIdentity,
+} from './invoice-notification-policy.js';
 import { processHtmlTemplateImportScan } from './html-template-import.worker.js';
+import { notificationPayloadEncryptionSecret } from './notification-payload-secret.js';
+import { routeRegistrationNotification } from './registration-notification-router.js';
+import {
+  consumeRegistrationReviewNotification,
+  consumeRefundSucceededNotification,
+  consumeTicketIssuedNotification,
+  type LifecycleNotificationDependencies,
+} from './registration-lifecycle-notification.worker.js';
 
 const queueName = 'conference-domain-events';
 const htmlImportQueueName = 'conference-html-template-imports';
@@ -95,6 +118,7 @@ const htmlImportConcurrency = Number(process.env.HTML_TEMPLATE_WORKER_CONCURRENC
 const durableSideEffectEvents = new Set([
   'TemplateHtmlImportCleanupRequested',
   'TemplateAssetDeletionRequested',
+  'CustomerAvatarDeletionRequested',
   'EventPublished',
 ]);
 const OUTBOX_DISPATCH_LEASE_MS = 30_000;
@@ -185,11 +209,7 @@ async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: 
 }
 
 function notificationPayloadSecret() {
-  return (
-    process.env.NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET ??
-    process.env.JWT_SECRET ??
-    'conference-notification-payload-development-secret'
-  );
+  return notificationPayloadEncryptionSecret();
 }
 
 function sealNotificationSecret(value: string) {
@@ -202,7 +222,7 @@ function openNotificationSecret(value: string) {
 
 function objectStorageUrl(
   storageKey: string,
-  method: 'DELETE' | 'PUT',
+  method: 'DELETE' | 'GET' | 'PUT',
   mediaType = 'text/csv; charset=utf-8',
 ) {
   const endpoint = process.env.S3_ENDPOINT;
@@ -252,6 +272,147 @@ function objectStorageUrl(
     createHmac('sha256', signingKey).update(stringToSign).digest('hex'),
   );
   return `${endpointUrl.origin}${canonicalUri}?${params.toString()}`;
+}
+
+class PermanentCustomerAvatarError extends Error {}
+
+async function processCustomerAvatar(
+  db: ConferenceDatabase,
+  payload: Record<string, unknown>,
+  job: Job,
+) {
+  const assetId = String(payload.assetId ?? '');
+  if (!/^[a-f0-9-]{36}$/iu.test(assetId)) {
+    throw new Error('CustomerAvatarProcessingRequested is missing assetId');
+  }
+  const [asset] = await db
+    .select()
+    .from(customerMediaAssets)
+    .where(eq(customerMediaAssets.id, assetId))
+    .limit(1);
+  if (!asset) return;
+  if (asset.status === 'ready' && asset.outputStorageKey) return;
+  if (asset.sourceDeletedAt) return;
+  if (
+    !asset.sourceStorageKey.startsWith(
+      `customers/${asset.organizationId}/${asset.customerUserId}/avatars/`,
+    )
+  ) {
+    throw new Error('Customer avatar source key is outside the owner scope');
+  }
+  const sourceUrl = objectStorageUrl(asset.sourceStorageKey, 'GET');
+  if (!sourceUrl) throw new Error('Object storage is required to process customer avatars');
+  try {
+    const sourceResponse = await fetch(sourceUrl, { signal: AbortSignal.timeout(20_000) });
+    if (!sourceResponse.ok) {
+      const message = `Customer avatar download returned ${sourceResponse.status}`;
+      if (sourceResponse.status >= 400 && sourceResponse.status < 500) {
+        throw new PermanentCustomerAvatarError(message);
+      }
+      throw new Error(message);
+    }
+    const source = Buffer.from(await sourceResponse.arrayBuffer());
+    if (source.byteLength !== asset.size || source.byteLength > 5 * 1024 * 1024) {
+      throw new PermanentCustomerAvatarError(
+        'Customer avatar source size does not match its reservation',
+      );
+    }
+    if (createHash('sha256').update(source).digest('hex') !== asset.contentDigest) {
+      throw new PermanentCustomerAvatarError(
+        'Customer avatar source digest does not match its reservation',
+      );
+    }
+    let output: Buffer;
+    try {
+      output = await sharp(source, { limitInputPixels: 16_777_216, failOn: 'warning' })
+        .rotate()
+        .resize(512, 512, { fit: 'cover', position: 'attention' })
+        .webp({ quality: 86, effort: 5 })
+        .toBuffer();
+    } catch (error) {
+      throw new PermanentCustomerAvatarError(
+        error instanceof Error ? error.message : 'Customer avatar cannot be decoded',
+      );
+    }
+    const outputStorageKey = `customers/${asset.organizationId}/${asset.customerUserId}/avatars/${asset.id}/avatar.webp`;
+    const uploadUrl = objectStorageUrl(outputStorageKey, 'PUT', 'image/webp');
+    if (!uploadUrl) throw new Error('Object storage is required to save customer avatars');
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/webp',
+        'Content-Length': String(output.byteLength),
+        'If-None-Match': '*',
+      },
+      body: new Uint8Array(output),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!uploadResponse.ok && uploadResponse.status !== 412) {
+      throw new Error(`Customer avatar upload returned ${uploadResponse.status}`);
+    }
+    const [ready] = await db
+      .update(customerMediaAssets)
+      .set({
+        outputStorageKey,
+        mediaType: 'image/webp',
+        width: 512,
+        height: 512,
+        status: 'ready',
+        failureReason: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(customerMediaAssets.id, asset.id), eq(customerMediaAssets.status, 'processing')),
+      )
+      .returning({ id: customerMediaAssets.id });
+    if (!ready) return;
+    const deleteUrl = objectStorageUrl(asset.sourceStorageKey, 'DELETE');
+    if (deleteUrl) {
+      const deleteResponse = await fetch(deleteUrl, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        console.warn(
+          `[avatar] original cleanup returned ${deleteResponse.status} asset=${asset.id}`,
+        );
+      } else {
+        await db
+          .update(customerMediaAssets)
+          .set({ sourceDeletedAt: new Date(), updatedAt: new Date() })
+          .where(eq(customerMediaAssets.id, asset.id));
+      }
+    }
+  } catch (error) {
+    const permanent = error instanceof PermanentCustomerAvatarError;
+    const finalAttempt = job.attemptsMade + 1 >= Number(job.opts.attempts ?? 1);
+    let sourceDeletedAt: Date | undefined;
+    if (permanent || finalAttempt) {
+      const deleteUrl = objectStorageUrl(asset.sourceStorageKey, 'DELETE');
+      if (deleteUrl) {
+        try {
+          const deleteResponse = await fetch(deleteUrl, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(20_000),
+          });
+          if (deleteResponse.ok || deleteResponse.status === 404) sourceDeletedAt = new Date();
+        } catch {
+          // The maintenance cleanup retries source deletion later.
+        }
+      }
+    }
+    await db
+      .update(customerMediaAssets)
+      .set({
+        status: permanent || finalAttempt ? 'failed' : 'processing',
+        failureReason: error instanceof Error ? error.message.slice(0, 2_000) : '头像处理失败',
+        ...(sourceDeletedAt ? { sourceDeletedAt } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(customerMediaAssets.id, asset.id), ne(customerMediaAssets.status, 'ready')));
+    if (permanent) return;
+    throw error;
+  }
 }
 
 async function deleteTemplateAsset(db: ConferenceDatabase, payload: Record<string, unknown>) {
@@ -306,6 +467,45 @@ async function deleteTemplateAsset(db: ConferenceDatabase, payload: Record<strin
         );
     }
   });
+}
+
+async function deleteCustomerAvatar(db: ConferenceDatabase, payload: Record<string, unknown>) {
+  const assetId = String(payload.assetId ?? '');
+  const organizationId = String(payload.organizationId ?? '');
+  const customerUserId = String(payload.customerUserId ?? '');
+  const sourceStorageKey = String(payload.sourceStorageKey ?? '');
+  const outputStorageKey = payload.outputStorageKey ? String(payload.outputStorageKey) : '';
+  const prefix = `customers/${organizationId}/${customerUserId}/avatars/`;
+  const storageKeys = [sourceStorageKey, outputStorageKey].filter(Boolean);
+  if (
+    !/^[a-f0-9-]{36}$/iu.test(assetId) ||
+    !/^[a-f0-9-]{36}$/iu.test(organizationId) ||
+    !/^[a-f0-9-]{36}$/iu.test(customerUserId) ||
+    storageKeys.some((storageKey) => !storageKey.startsWith(prefix))
+  ) {
+    throw new UnrecoverableError('Customer avatar deletion payload is outside the owner scope');
+  }
+  for (const storageKey of storageKeys) {
+    const url = objectStorageUrl(storageKey, 'DELETE');
+    if (!url) throw new Error('Object storage is required to delete customer avatars');
+    const response = await fetch(url, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Customer avatar deletion returned ${response.status}`);
+    }
+  }
+  await db
+    .update(customerMediaAssets)
+    .set({
+      status: 'failed',
+      failureReason: '头像已移除 [objects-cleaned]',
+      outputStorageKey: null,
+      sourceDeletedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(customerMediaAssets.id, assetId));
 }
 
 async function deleteHtmlImportSource(db: ConferenceDatabase, payload: Record<string, unknown>) {
@@ -861,7 +1061,10 @@ async function processInvoiceExport(db: ConferenceDatabase, payload: Record<stri
 
   try {
     const filters = job.filters;
-    const conditions: SQL[] = [eq(invoiceRequests.organizationId, job.organizationId)];
+    const conditions: SQL[] = [
+      eq(invoiceRequests.organizationId, job.organizationId),
+      isNull(registrations.supersededAt),
+    ];
     if (typeof filters.eventId === 'number') {
       conditions.push(eq(invoiceRequests.eventId, filters.eventId));
     }
@@ -904,7 +1107,25 @@ async function processInvoiceExport(db: ConferenceDatabase, payload: Record<stri
       `conference-invoice-export-${job.id}-${randomBytes(8).toString('hex')}.csv`,
     );
     const digest = createHash('sha256');
-    const header = `\uFEFF${['申请单号', '大会', '订单号', '发票抬头', '金额', '状态', '申请时间']
+    const header = `\uFEFF${[
+      'request_no',
+      'registration_code',
+      'event_name',
+      'attendee_name',
+      'mobile',
+      'company_name',
+      'tax_id',
+      'email',
+      'payment_status',
+      'paid_amount',
+      'refunded_amount',
+      'invoice_amount',
+      'currency',
+      'invoice_status',
+      'invoice_number',
+      'invoice_code',
+      'upload_file',
+    ]
       .map(exportCsvCell)
       .join(',')}\n`;
     await writeFile(tempPath, header, { flag: 'wx' });
@@ -930,17 +1151,40 @@ async function processInvoiceExport(db: ConferenceDatabase, payload: Record<stri
             id: invoiceRequests.id,
             createdAt: invoiceRequests.createdAt,
             requestNo: invoiceRequests.requestNo,
+            registrationCode: registrations.registrationCode,
             eventName: events.name,
-            orderNo: orders.orderNo,
+            attendee: registrations.attendee,
             title: invoiceRequests.title,
-            amount: invoiceRequests.amount,
-            status: invoiceRequests.status,
-            requestedAt: invoiceRequests.requestedAt,
+            taxId: invoiceRequests.taxId,
+            email: invoiceRequests.email,
+            paymentStatus: orders.status,
+            paidAmount: sql<number>`coalesce((
+              select max(${payments.amount}) from ${payments}
+              where ${payments.orderId} = ${orders.id}
+                and ${payments.status} in ('succeeded', 'refunded')
+            ), 0)::int`,
+            refundedAmount: sql<number>`coalesce((
+              select sum(${refunds.amount}) from ${refunds}
+              where ${refunds.orderId} = ${orders.id} and ${refunds.status} = 'succeeded'
+            ), 0)::int`,
+            invoiceAmount: invoiceRequests.netPaidAmount,
+            currency: invoiceRequests.currency,
+            invoiceStatus: invoiceRequests.status,
+            invoiceNumber: invoiceDocuments.invoiceNumber,
+            invoiceCode: invoiceDocuments.invoiceCode,
+            documentMediaType: invoiceDocuments.mediaType,
           })
           .from(invoiceRequests)
           .innerJoin(events, eq(events.id, invoiceRequests.eventId))
           .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
           .innerJoin(registrations, eq(registrations.id, invoiceRequests.registrationId))
+          .leftJoin(
+            invoiceDocuments,
+            and(
+              eq(invoiceDocuments.invoiceRequestId, invoiceRequests.id),
+              isNull(invoiceDocuments.voidedAt),
+            ),
+          )
           .where(and(...pageConditions))
           .orderBy(desc(invoiceRequests.createdAt), desc(invoiceRequests.id))
           .limit(1_000);
@@ -949,12 +1193,22 @@ async function processInvoiceExport(db: ConferenceDatabase, payload: Record<stri
           .map((row) =>
             [
               row.requestNo,
+              row.registrationCode,
               row.eventName,
-              row.orderNo,
+              row.attendee.name,
+              row.attendee.mobile,
               row.title,
-              row.amount,
-              row.status,
-              row.requestedAt.toISOString(),
+              row.taxId,
+              row.email,
+              row.paymentStatus,
+              row.paidAmount,
+              row.refundedAmount,
+              row.invoiceAmount,
+              row.currency,
+              row.invoiceStatus,
+              row.invoiceNumber ?? '',
+              row.invoiceCode ?? '',
+              `files/${row.requestNo}.${row.documentMediaType === 'application/ofd' ? 'ofd' : 'pdf'}`,
             ]
               .map(exportCsvCell)
               .join(','),
@@ -1127,7 +1381,7 @@ async function handleReleasedInventory(
     .select({ eventId: orders.eventId, ticketTypeId: registrations.ticketTypeId })
     .from(orders)
     .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-    .where(eq(orders.id, orderId))
+    .where(and(eq(orders.id, orderId), isNull(registrations.supersededAt)))
     .limit(1);
   if (scope) await offerNextWaitlist(db, scope.eventId, scope.ticketTypeId);
 }
@@ -1385,7 +1639,7 @@ async function deliverNotification(
     .where(eq(notificationDeliveries.id, deliveryId))
     .limit(1);
   if (!delivery) throw new Error(`Notification delivery ${deliveryId} does not exist`);
-  if (['sent', 'delivered', 'accepted', 'failed'].includes(delivery.status)) return;
+  if (['sent', 'delivered', 'accepted', 'failed', 'cancelled'].includes(delivery.status)) return;
   if (delivery.channel === 'sms') {
     if (smsContext && (await deliverAliyunSms(db, delivery, smsContext))) return;
     if (!smsContext && (await aliyunSmsAccount(db, delivery.organizationId))) {
@@ -1571,6 +1825,9 @@ async function deliverOrderAccessNotification(
   correlationId: string,
   jobId: string | undefined,
 ) {
+  if (payload.recipientRole !== undefined && payload.recipientRole !== 'purchaser') {
+    throw new Error(`${eventType} recipientRole must be purchaser`);
+  }
   const orderId = String(payload.orderId ?? '');
   if (!orderId) throw new Error(`${eventType} is missing orderId`);
   const [scope] = await db
@@ -1583,7 +1840,7 @@ async function deliverOrderAccessNotification(
     .from(orders)
     .innerJoin(events, eq(events.id, orders.eventId))
     .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-    .where(eq(orders.id, orderId))
+    .where(and(eq(orders.id, orderId), isNull(registrations.supersededAt)))
     .limit(1);
   if (!scope) {
     console.info(`[notification] order removed before delivery id=${orderId}`);
@@ -1609,7 +1866,12 @@ async function deliverOrderAccessNotification(
       expiresAt: expiry,
     });
   }
-  const recipient = String((payload.recipient ?? scope.attendee.email) || scope.attendeeMobileE164);
+  const recipient = financialNotificationRecipient(
+    scope.order,
+    { email: scope.attendee.email, mobile: scope.attendeeMobileE164 },
+    payload.recipient,
+  );
+  if (!recipient) throw new Error(`${eventType} purchaser recipient is unavailable`);
   const channel = recipient.includes('@') ? 'email' : 'sms';
   const accessUrl = paymentOrderAccessUrl(orderId, scope.event.slug, accessToken);
   const renewal = eventType === 'OrderAccessLinkRequested';
@@ -1643,6 +1905,72 @@ async function deliverOrderAccessNotification(
   });
 }
 
+async function deliverAttendeeClaimInvitation(
+  db: ConferenceDatabase,
+  payload: Record<string, unknown>,
+  correlationId: string,
+  jobId: string | undefined,
+) {
+  return consumeAttendeeClaimInvitation(
+    { payload, correlationId, ...(jobId ? { jobId } : {}) },
+    {
+      encryptionSecret: notificationPayloadSecret(),
+      publicSiteUrl: conferenceSiteUrl(),
+      findActiveClaim: async (registrationId, tokenHash) => {
+        const [scope] = await db
+          .select({
+            registration: registrations,
+            event: events,
+            expiresAt: attendeeClaimTokens.expiresAt,
+          })
+          .from(attendeeClaimTokens)
+          .innerJoin(registrations, eq(registrations.id, attendeeClaimTokens.registrationId))
+          .innerJoin(events, eq(events.id, registrations.eventId))
+          .where(
+            and(
+              eq(attendeeClaimTokens.registrationId, registrationId),
+              eq(attendeeClaimTokens.tokenHash, tokenHash),
+              gt(attendeeClaimTokens.expiresAt, new Date()),
+              isNull(attendeeClaimTokens.consumedAt),
+              isNull(attendeeClaimTokens.revokedAt),
+              isNull(registrations.supersededAt),
+            ),
+          )
+          .limit(1);
+        if (!scope) {
+          console.info(
+            `[notification] attendee claim invitation is stale registration=${registrationId}`,
+          );
+          return null;
+        }
+        return {
+          organizationId: scope.registration.organizationId,
+          eventId: scope.registration.eventId,
+          eventName: scope.event.name,
+          eventSlug: scope.event.slug,
+          eventTimezone: scope.event.timezone,
+          attendeeName: scope.registration.attendee.name,
+          recipient:
+            scope.registration.attendee.email ||
+            scope.registration.attendee.mobile ||
+            scope.registration.attendeeMobileE164,
+          expiresAt: scope.expiresAt,
+        };
+      },
+      ensureDelivery: async (input) => {
+        const [delivery] = await db
+          .insert(notificationDeliveries)
+          .values(input)
+          .onConflictDoNothing()
+          .returning({ id: notificationDeliveries.id });
+        return delivery?.id ?? input.id;
+      },
+      deliverNotification: async (input) =>
+        deliverNotification(db, input.deliveryId, input.jobId, input.body, input.smsContext),
+    },
+  );
+}
+
 async function deliverInvoiceAccessNotification(
   db: ConferenceDatabase,
   eventType: string,
@@ -1650,27 +1978,83 @@ async function deliverInvoiceAccessNotification(
   correlationId: string,
   jobId: string | undefined,
 ) {
+  if (payload.recipientRole !== undefined && payload.recipientRole !== 'purchaser') {
+    throw new Error(`${eventType} recipientRole must be purchaser`);
+  }
   const invoiceId = String(payload.invoiceId ?? '');
   if (!invoiceId) throw new Error(`${eventType} is missing invoiceId`);
   const [scope] = await db
     .select({
       invoice: invoiceRequests,
+      order: orders,
       event: events,
       attendee: registrations.attendee,
       attendeeMobileE164: registrations.attendeeMobileE164,
     })
     .from(invoiceRequests)
+    .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
     .innerJoin(events, eq(events.id, invoiceRequests.eventId))
     .innerJoin(registrations, eq(registrations.id, invoiceRequests.registrationId))
-    .where(eq(invoiceRequests.id, invoiceId))
+    .where(and(eq(invoiceRequests.id, invoiceId), isNull(registrations.supersededAt)))
     .limit(1);
   if (!scope) {
     console.info(`[notification] invoice removed before delivery id=${invoiceId}`);
     return;
   }
 
+  const issued = eventType === 'InvoiceIssued' || eventType === 'InvoiceDeliveryRequested';
+  const payloadDocumentIdentity: InvoiceDocumentIdentity | null = issued
+    ? {
+        documentId: String(payload.documentId ?? ''),
+        storageKey: String(payload.storageKey ?? ''),
+        contentDigest: String(payload.contentDigest ?? ''),
+        issuedAt: String(payload.issuedAt ?? ''),
+      }
+    : null;
+  if (issued) {
+    const [activeDocument] = await db
+      .select({
+        documentId: invoiceDocuments.id,
+        storageKey: invoiceDocuments.storageKey,
+        contentDigest: invoiceDocuments.contentDigest,
+        issuedAt: invoiceDocuments.issuedAt,
+      })
+      .from(invoiceDocuments)
+      .where(
+        and(eq(invoiceDocuments.invoiceRequestId, invoiceId), isNull(invoiceDocuments.voidedAt)),
+      )
+      .orderBy(desc(invoiceDocuments.issuedAt))
+      .limit(1);
+    if (
+      !invoiceNotificationIsCurrent({
+        eventType,
+        invoiceStatus: scope.invoice.status,
+        payloadDocumentIdentity,
+        activeDocumentIdentity: activeDocument
+          ? { ...activeDocument, issuedAt: activeDocument.issuedAt.toISOString() }
+          : null,
+      })
+    ) {
+      console.info(
+        `[notification] stale invoice delivery ignored invoice=${invoiceId} document=${payloadDocumentIdentity?.documentId ?? ''}`,
+      );
+      return;
+    }
+  } else if (
+    !invoiceNotificationIsCurrent({
+      eventType,
+      invoiceStatus: scope.invoice.status,
+      payloadDocumentIdentity: null,
+      activeDocumentIdentity: null,
+    })
+  ) {
+    console.info(`[notification] stale invoice details request ignored invoice=${invoiceId}`);
+    return;
+  }
+
   let accessToken = String(payload.accessToken ?? '');
   let expiresAt = String(payload.expiresAt ?? '');
+  let generatedAccessTokenId: string | null = null;
   if (!accessToken) {
     accessToken = randomBytes(32).toString('base64url');
     const requestedExpiry = new Date(expiresAt);
@@ -1682,14 +2066,23 @@ async function deliverInvoiceAccessNotification(
         ? requestedExpiry
         : new Date(Date.now() + 10 * 60_000);
     expiresAt = expiry.toISOString();
-    await db.insert(orderAccessTokens).values({
-      orderId: scope.invoice.orderId,
-      tokenHash: createHash('sha256').update(accessToken).digest('hex'),
-      scopes: ['order:read', 'invoice:read', 'invoice:write'],
-      expiresAt: expiry,
-    });
+    const [generatedToken] = await db
+      .insert(orderAccessTokens)
+      .values({
+        orderId: scope.invoice.orderId,
+        tokenHash: createHash('sha256').update(accessToken).digest('hex'),
+        scopes: ['order:read', 'invoice:read', 'invoice:write'],
+        expiresAt: expiry,
+      })
+      .returning({ id: orderAccessTokens.id });
+    generatedAccessTokenId = generatedToken?.id ?? null;
   }
-  const recipient = String((payload.recipient ?? scope.attendee.email) || scope.attendeeMobileE164);
+  const recipient = financialNotificationRecipient(
+    scope.order,
+    { email: scope.attendee.email, mobile: scope.attendeeMobileE164 },
+    payload.recipient,
+  );
+  if (!recipient) throw new Error(`${eventType} purchaser recipient is unavailable`);
   const channel = recipient.includes('@') ? 'email' : 'sms';
   const siteUrl = conferenceSiteUrl();
   const accessUrl = `${siteUrl}${publicEventScopedPath(
@@ -1697,7 +2090,6 @@ async function deliverInvoiceAccessNotification(
     scope.event.slug,
     { order: scope.invoice.orderId },
   )}#token=${encodeURIComponent(accessToken)}`;
-  const issued = eventType === 'InvoiceIssued' || eventType === 'InvoiceDeliveryRequested';
   const body = issued
     ? `你的电子发票已经开具。请在 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })} 前通过安全链接查看和下载：${accessUrl}`
     : `请在 ${new Date(expiresAt).toLocaleString('zh-CN', { timeZone: scope.event.timezone })} 前通过安全链接补充或查看发票信息：${accessUrl}`;
@@ -1716,17 +2108,164 @@ async function deliverInvoiceAccessNotification(
     })
     .onConflictDoNothing()
     .returning();
+  const claimedForDelivery = await db.transaction(async (tx) => {
+    const [currentInvoice] = await tx
+      .select({ status: invoiceRequests.status })
+      .from(invoiceRequests)
+      .where(eq(invoiceRequests.id, invoiceId))
+      .for('update')
+      .limit(1);
+    const [activeDocument] = issued
+      ? await tx
+          .select({
+            documentId: invoiceDocuments.id,
+            storageKey: invoiceDocuments.storageKey,
+            contentDigest: invoiceDocuments.contentDigest,
+            issuedAt: invoiceDocuments.issuedAt,
+          })
+          .from(invoiceDocuments)
+          .where(
+            and(
+              eq(invoiceDocuments.invoiceRequestId, invoiceId),
+              isNull(invoiceDocuments.voidedAt),
+            ),
+          )
+          .orderBy(desc(invoiceDocuments.issuedAt))
+          .for('update')
+          .limit(1)
+      : [];
+    const current =
+      Boolean(currentInvoice) &&
+      invoiceNotificationIsCurrent({
+        eventType,
+        invoiceStatus: currentInvoice?.status ?? '',
+        payloadDocumentIdentity,
+        activeDocumentIdentity: activeDocument
+          ? { ...activeDocument, issuedAt: activeDocument.issuedAt.toISOString() }
+          : null,
+      });
+    if (!current) {
+      if (generatedAccessTokenId) {
+        await tx
+          .update(orderAccessTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+      }
+      await tx
+        .update(notificationDeliveries)
+        .set({
+          status: 'cancelled',
+          error: '发票状态或文件版本已变化，通知已取消',
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+            inArray(notificationDeliveries.status, ['queued', 'retrying', 'claimed']),
+          ),
+        );
+      return false;
+    }
+    const [claim] = await tx
+      .update(notificationDeliveries)
+      .set({ status: 'claimed', error: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+          or(
+            inArray(notificationDeliveries.status, ['queued', 'retrying']),
+            and(
+              eq(notificationDeliveries.status, 'claimed'),
+              lt(notificationDeliveries.updatedAt, new Date(Date.now() - 5 * 60_000)),
+            ),
+          ),
+        ),
+      )
+      .returning({ id: notificationDeliveries.id });
+    if (!claim && generatedAccessTokenId) {
+      await tx
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+    }
+    return Boolean(claim);
+  });
+  if (!claimedForDelivery) return;
   try {
-    await deliverNotification(db, delivery?.id ?? deliveryId, jobId, body, {
-      templateKey: issued ? 'invoiceReady' : 'invoiceDetailsRequested',
-      parameters: {
-        eventName: scope.event.name,
-        expiresAt: new Date(expiresAt).toLocaleString('zh-CN', {
-          timeZone: scope.event.timezone,
+    const deliveredCurrentVersion = await deliverWhileInvoiceCurrent({
+      withCurrentVersionLease: (run) =>
+        db.transaction(async (tx) => {
+          const [currentInvoice] = await tx
+            .select({ status: invoiceRequests.status })
+            .from(invoiceRequests)
+            .where(eq(invoiceRequests.id, invoiceId))
+            .for('update')
+            .limit(1);
+          const [activeDocument] = issued
+            ? await tx
+                .select({
+                  documentId: invoiceDocuments.id,
+                  storageKey: invoiceDocuments.storageKey,
+                  contentDigest: invoiceDocuments.contentDigest,
+                  issuedAt: invoiceDocuments.issuedAt,
+                })
+                .from(invoiceDocuments)
+                .where(
+                  and(
+                    eq(invoiceDocuments.invoiceRequestId, invoiceId),
+                    isNull(invoiceDocuments.voidedAt),
+                  ),
+                )
+                .orderBy(desc(invoiceDocuments.issuedAt))
+                .for('update')
+                .limit(1)
+            : [];
+          return run(
+            Boolean(currentInvoice) &&
+              invoiceNotificationIsCurrent({
+                eventType,
+                invoiceStatus: currentInvoice?.status ?? '',
+                payloadDocumentIdentity,
+                activeDocumentIdentity: activeDocument
+                  ? { ...activeDocument, issuedAt: activeDocument.issuedAt.toISOString() }
+                  : null,
+              }),
+          );
         }),
-        url: accessUrl,
+      cancelStale: async () => {
+        if (generatedAccessTokenId) {
+          await db
+            .update(orderAccessTokens)
+            .set({ revokedAt: new Date() })
+            .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+        }
+        await db
+          .update(notificationDeliveries)
+          .set({
+            status: 'cancelled',
+            error: '发票在发送前已经退款、取消或替换文件，通知已取消',
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+              eq(notificationDeliveries.status, 'claimed'),
+            ),
+          );
       },
+      deliver: () =>
+        deliverNotification(db, delivery?.id ?? deliveryId, jobId, body, {
+          templateKey: issued ? 'invoiceReady' : 'invoiceDetailsRequested',
+          parameters: {
+            eventName: scope.event.name,
+            expiresAt: new Date(expiresAt).toLocaleString('zh-CN', {
+              timeZone: scope.event.timezone,
+            }),
+            url: accessUrl,
+          },
+        }),
     });
+    if (!deliveredCurrentVersion) return;
     const [deliveryResult] = await db
       .select({ status: notificationDeliveries.status, error: notificationDeliveries.error })
       .from(notificationDeliveries)
@@ -1738,14 +2277,165 @@ async function deliverInvoiceAccessNotification(
     await db
       .update(invoiceRequests)
       .set({ deliveryStatus: 'sent', lastSentAt: new Date(), updatedAt: new Date() })
-      .where(eq(invoiceRequests.id, invoiceId));
+      .where(
+        issued
+          ? and(
+              eq(invoiceRequests.id, invoiceId),
+              eq(invoiceRequests.status, 'issued'),
+              sql`exists (
+                select 1 from ${invoiceDocuments} active_invoice_document
+                where active_invoice_document.invoice_request_id = ${invoiceRequests.id}
+                  and active_invoice_document.id = ${String(payload.documentId ?? '')}
+                  and active_invoice_document.storage_key = ${String(payload.storageKey ?? '')}
+                  and active_invoice_document.content_digest = ${String(payload.contentDigest ?? '')}
+                  and active_invoice_document.issued_at = ${new Date(String(payload.issuedAt ?? ''))}
+                  and active_invoice_document.voided_at is null
+              )`,
+            )
+          : and(
+              eq(invoiceRequests.id, invoiceId),
+              inArray(invoiceRequests.status, ['awaiting_details', 'rejected']),
+            ),
+      );
   } catch (error) {
+    const [deliveryState] = await db
+      .select({ status: notificationDeliveries.status })
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, delivery?.id ?? deliveryId))
+      .limit(1);
+    if (
+      generatedAccessTokenId &&
+      !['sent', 'delivered', 'accepted'].includes(deliveryState?.status ?? '')
+    ) {
+      await db
+        .update(orderAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(orderAccessTokens.id, generatedAccessTokenId));
+    }
+    await db
+      .update(notificationDeliveries)
+      .set({
+        status: 'retrying',
+        error: error instanceof Error ? error.message.slice(0, 1000) : 'provider request failed',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(notificationDeliveries.id, delivery?.id ?? deliveryId),
+          eq(notificationDeliveries.status, 'claimed'),
+        ),
+      );
     await db
       .update(invoiceRequests)
       .set({ deliveryStatus: 'failed', updatedAt: new Date() })
       .where(eq(invoiceRequests.id, invoiceId));
     throw error;
   }
+}
+
+function lifecycleNotificationDependencies(
+  db: ConferenceDatabase,
+  jobId: string | undefined,
+): LifecycleNotificationDependencies {
+  return {
+    publicSiteUrl: conferenceSiteUrl(),
+    findReviewScope: async (registrationId) => {
+      const [scope] = await db
+        .select({ registration: registrations, event: events })
+        .from(registrations)
+        .innerJoin(events, eq(events.id, registrations.eventId))
+        .where(and(eq(registrations.id, registrationId), isNull(registrations.supersededAt)))
+        .limit(1);
+      if (!scope) return null;
+      return {
+        organizationId: scope.registration.organizationId,
+        eventId: scope.registration.eventId,
+        eventName: scope.event.name,
+        eventSlug: scope.event.slug,
+        attendeeName: scope.registration.attendee.name,
+        attendeeRecipient:
+          scope.registration.attendee.email ||
+          scope.registration.attendee.mobile ||
+          scope.registration.attendeeMobileE164,
+      };
+    },
+    findTicketScope: async (ticketId, registrationId) => {
+      const [scope] = await db
+        .select({ ticket: tickets, registration: registrations, event: events })
+        .from(tickets)
+        .innerJoin(registrations, eq(registrations.id, tickets.registrationId))
+        .innerJoin(events, eq(events.id, registrations.eventId))
+        .where(
+          and(
+            eq(tickets.id, ticketId),
+            eq(tickets.registrationId, registrationId),
+            eq(tickets.status, 'valid'),
+            isNull(registrations.supersededAt),
+          ),
+        )
+        .limit(1);
+      if (!scope) return null;
+      return {
+        organizationId: scope.registration.organizationId,
+        eventId: scope.registration.eventId,
+        eventName: scope.event.name,
+        eventSlug: scope.event.slug,
+        registrationId: scope.registration.id,
+        ticketCode: scope.ticket.code,
+        attendeeName: scope.registration.attendee.name,
+        attendeeRecipient:
+          scope.registration.attendee.email ||
+          scope.registration.attendee.mobile ||
+          scope.registration.attendeeMobileE164,
+      };
+    },
+    findRefundScope: async (refundId, orderId) => {
+      const [scope] = await db
+        .select({ refund: refunds, order: orders, registration: registrations, event: events })
+        .from(refunds)
+        .innerJoin(orders, eq(orders.id, refunds.orderId))
+        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+        .innerJoin(events, eq(events.id, orders.eventId))
+        .where(
+          and(
+            eq(refunds.id, refundId),
+            eq(refunds.orderId, orderId),
+            eq(refunds.status, 'succeeded'),
+          ),
+        )
+        .limit(1);
+      if (!scope) return null;
+      const purchaserRecipient = financialNotificationRecipient(scope.order, {
+        email: scope.registration.attendee.email,
+        mobile: scope.registration.attendeeMobileE164 || scope.registration.attendee.mobile,
+      });
+      return {
+        organizationId: scope.order.organizationId,
+        eventId: scope.order.eventId,
+        eventName: scope.event.name,
+        registrationId: scope.registration.id,
+        orderNo: scope.order.orderNo,
+        amount: scope.refund.amount,
+        currency: scope.refund.currency,
+        purchaserName:
+          scope.order.purchaserSnapshot?.name ||
+          (scope.order.purchaserCustomerUserId === null && scope.order.purchaseIntentId === null
+            ? scope.registration.attendee.name
+            : '购票人'),
+        purchaserRecipient,
+      };
+    },
+    ensureDelivery: async (input) => {
+      const [delivery] = await db
+        .insert(notificationDeliveries)
+        .values(input)
+        .onConflictDoNothing()
+        .returning({ id: notificationDeliveries.id });
+      return delivery?.id ?? input.id;
+    },
+    deliver: async (input) =>
+      deliverNotification(db, input.deliveryId, jobId, input.body, input.smsContext),
+  };
 }
 
 async function deliverRegistrationReviewNotification(
@@ -1755,69 +2445,10 @@ async function deliverRegistrationReviewNotification(
   correlationId: string,
   jobId: string | undefined,
 ) {
-  const registrationId = String(payload.registrationId ?? '');
-  if (!registrationId) throw new Error(`${eventType} is missing registrationId`);
-  const [scope] = await db
-    .select({
-      registration: registrations,
-      order: orders,
-      event: events,
-      attendeeMobileE164: registrations.attendeeMobileE164,
-    })
-    .from(registrations)
-    .innerJoin(orders, eq(orders.registrationId, registrations.id))
-    .innerJoin(events, eq(events.id, registrations.eventId))
-    .where(eq(registrations.id, registrationId))
-    .limit(1);
-  if (!scope) {
-    console.info(`[notification] registration removed before delivery id=${registrationId}`);
-    return;
-  }
-
-  const approved = eventType === 'RegistrationReviewApproved';
-  const paymentRequired = payload.paymentRequired === true;
-  const siteUrl = conferenceSiteUrl();
-  let resultUrl = `${siteUrl}${publicEventScopedPath('/faq', scope.event.slug)}`;
-  if (approved) {
-    const accessToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + 31 * 24 * 60 * 60_000);
-    await db.insert(orderAccessTokens).values({
-      orderId: scope.order.id,
-      tokenHash: createHash('sha256').update(accessToken).digest('hex'),
-      scopes: ['order:read'],
-      expiresAt,
-    });
-    resultUrl = paymentOrderAccessUrl(scope.order.id, scope.event.slug, accessToken);
-  }
-  const reason = String(payload.reason ?? '').trim();
-  const body = approved
-    ? paymentRequired
-      ? `${scope.registration.attendee.name}，你的报名审核已通过。请在 15 分钟内完成支付：${resultUrl}`
-      : `${scope.registration.attendee.name}，你的免费报名审核已通过，电子票已经签发：${resultUrl}`
-    : `${scope.registration.attendee.name}，本次报名审核未通过。${reason ? `原因：${reason}。` : ''}如需帮助，请查看大会常见问题：${resultUrl}`;
-  const deliveryId = deterministicUuid(`registration-review:${correlationId}`);
-  const [delivery] = await db
-    .insert(notificationDeliveries)
-    .values({
-      id: deliveryId,
-      organizationId: scope.registration.organizationId,
-      eventId: scope.registration.eventId,
-      registrationId,
-      channel: scope.registration.attendee.email ? 'email' : 'sms',
-      recipient: scope.registration.attendee.email || scope.attendeeMobileE164,
-      subject: approved ? `${scope.event.name} 报名审核已通过` : `${scope.event.name} 报名审核结果`,
-      body: approved
-        ? '安全订单访问链接在发送时生成，正文不保存在运营数据库中。'
-        : '报名审核结果会通过已配置的通知模板发送。',
-    })
-    .onConflictDoNothing()
-    .returning();
-  await deliverNotification(db, delivery?.id ?? deliveryId, jobId, body, {
-    templateKey: approved ? 'registrationApproved' : 'registrationRejected',
-    parameters: approved
-      ? { eventName: scope.event.name, url: resultUrl }
-      : { eventName: scope.event.name, reason: reason || '请联系大会主办方了解详情' },
-  });
+  return consumeRegistrationReviewNotification(
+    { eventType, payload, correlationId },
+    lifecycleNotificationDependencies(db, jobId),
+  );
 }
 
 async function deliverPaymentSucceededNotification(
@@ -1826,6 +2457,9 @@ async function deliverPaymentSucceededNotification(
   correlationId: string,
   jobId: string | undefined,
 ) {
+  if (payload.recipientRole !== undefined && payload.recipientRole !== 'purchaser') {
+    throw new Error('PaymentSucceeded recipientRole must be purchaser');
+  }
   const orderId = String(payload.orderId ?? '');
   if (!orderId) throw new Error('PaymentSucceeded is missing orderId');
   const [scope] = await db
@@ -1833,14 +2467,19 @@ async function deliverPaymentSucceededNotification(
       order: orders,
       event: events,
       attendee: registrations.attendee,
-      attendeeMobileE164: registrations.attendeeMobileE164,
     })
     .from(orders)
     .innerJoin(events, eq(events.id, orders.eventId))
     .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-    .where(eq(orders.id, orderId))
+    .where(and(eq(orders.id, orderId), isNull(registrations.supersededAt)))
     .limit(1);
-  if (!scope || !scope.attendeeMobileE164) return;
+  if (!scope) return;
+  const purchaserMobile =
+    scope.order.purchaserSnapshot?.mobile ||
+    (scope.order.purchaserCustomerUserId === null && scope.order.purchaseIntentId === null
+      ? scope.attendee.mobile
+      : '');
+  if (!purchaserMobile) return;
   const amount = new Intl.NumberFormat('zh-CN', {
     style: 'currency',
     currency: scope.order.currency,
@@ -1854,7 +2493,7 @@ async function deliverPaymentSucceededNotification(
       eventId: scope.order.eventId,
       registrationId: scope.order.registrationId,
       channel: 'sms',
-      recipient: scope.attendeeMobileE164,
+      recipient: purchaserMobile,
       subject: `${scope.event.name} 支付成功`,
       body: '支付成功通知会通过已配置的短信模板发送。',
     })
@@ -1864,7 +2503,7 @@ async function deliverPaymentSucceededNotification(
     db,
     delivery?.id ?? deliveryId,
     jobId,
-    `${scope.attendee.name}，你的订单 ${scope.order.orderNo} 已支付成功，金额 ${amount}。`,
+    `${scope.order.purchaserSnapshot?.name || scope.attendee.name}，你的订单 ${scope.order.orderNo} 已支付成功，金额 ${amount}。`,
     {
       templateKey: 'paymentSucceeded',
       parameters: {
@@ -1888,21 +2527,30 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
     case 'CustomerOtpRequested':
       await deliverCustomerOtpNotification(db, eventPayload, job.id);
       break;
+    case 'AttendeeClaimInvitationRequested':
     case 'RegistrationSubmitted':
-      await deliverOrderAccessNotification(
-        db,
-        eventType,
-        eventPayload,
-        String(correlationId),
-        job.id,
-      );
+      await routeRegistrationNotification(eventType, {
+        attendeeClaim: () =>
+          deliverAttendeeClaimInvitation(db, eventPayload, String(correlationId), job.id),
+        orderAccess: () =>
+          deliverOrderAccessNotification(
+            db,
+            String(eventType),
+            eventPayload,
+            String(correlationId),
+            job.id,
+          ),
+      });
       break;
     case 'PaymentSucceeded':
       await deliverPaymentSucceededNotification(db, eventPayload, String(correlationId), job.id);
       console.info(`[analytics] payment succeeded correlation=${String(correlationId)}`);
       break;
     case 'TicketIssued':
-      console.info(`[document] ticket delivery scheduled correlation=${String(correlationId)}`);
+      await consumeTicketIssuedNotification(
+        { payload: eventPayload, correlationId: String(correlationId) },
+        lifecycleNotificationDependencies(db, job.id),
+      );
       break;
     case 'RegistrationReviewApproved':
     case 'RegistrationReviewRejected':
@@ -1999,6 +2647,9 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
     case 'TemplateAssetDeletionRequested':
       await deleteTemplateAsset(db, eventPayload);
       break;
+    case 'CustomerAvatarDeletionRequested':
+      await deleteCustomerAvatar(db, eventPayload);
+      break;
     case 'TemplateVariableMappingRequested':
       await processTemplateVariableMapping(db, eventPayload, job);
       break;
@@ -2011,11 +2662,18 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
     case 'EventPublished':
       await createEventHtmlReleaseArtifact(db, eventPayload);
       break;
+    case 'CustomerAvatarProcessingRequested':
+      await processCustomerAvatar(db, eventPayload, job);
+      break;
     case 'InventoryReservationExpired':
       await handleReleasedInventory(db, eventPayload, false);
       break;
     case 'RefundSucceeded':
       await handleReleasedInventory(db, eventPayload, true);
+      await consumeRefundSucceededNotification(
+        { payload: eventPayload, correlationId: String(correlationId) },
+        lifecycleNotificationDependencies(db, job.id),
+      );
       break;
     default:
       console.info(`[event] ${String(eventType)} correlation=${String(correlationId)}`);
@@ -2483,6 +3141,80 @@ async function maintainCustomerAuthData(db: ConferenceDatabase) {
   );
 }
 
+async function cleanupExpiredCustomerAvatarSources(db: ConferenceDatabase) {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60_000);
+  const assets = await db
+    .select()
+    .from(customerMediaAssets)
+    .where(
+      or(
+        and(
+          inArray(customerMediaAssets.status, ['processing', 'failed']),
+          isNull(customerMediaAssets.confirmedAt),
+          isNull(customerMediaAssets.sourceDeletedAt),
+          lt(customerMediaAssets.createdAt, cutoff),
+        ),
+        and(eq(customerMediaAssets.status, 'ready'), isNull(customerMediaAssets.sourceDeletedAt)),
+      ),
+    )
+    .orderBy(asc(customerMediaAssets.createdAt))
+    .limit(100);
+  for (const asset of assets) {
+    const expiredUnconfirmed = !asset.confirmedAt && asset.status !== 'ready';
+    if (expiredUnconfirmed) {
+      const [claimed] = await db
+        .update(customerMediaAssets)
+        .set({
+          status: 'failed',
+          failureReason: `${asset.failureReason ?? '头像上传已过期'} [cleanup-claimed]`.slice(
+            0,
+            2_000,
+          ),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(customerMediaAssets.id, asset.id),
+            isNull(customerMediaAssets.confirmedAt),
+            isNull(customerMediaAssets.sourceDeletedAt),
+            lt(customerMediaAssets.createdAt, cutoff),
+          ),
+        )
+        .returning({ id: customerMediaAssets.id });
+      if (!claimed) continue;
+    }
+    const url = objectStorageUrl(asset.sourceStorageKey, 'DELETE');
+    if (!url) return;
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok && response.status !== 404) continue;
+      await db
+        .update(customerMediaAssets)
+        .set({
+          ...(expiredUnconfirmed
+            ? {
+                failureReason: `${asset.failureReason ?? '头像上传已过期'} [source-cleaned]`.slice(
+                  0,
+                  2_000,
+                ),
+              }
+            : {}),
+          sourceDeletedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(customerMediaAssets.id, asset.id));
+    } catch (error) {
+      console.warn(
+        `[avatar] expired source cleanup failed asset=${asset.id}`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+}
+
 async function reconcileAliyunSmsDeliveries(db: ConferenceDatabase) {
   if (reconcilingSmsReceipts) return;
   reconcilingSmsReceipts = true;
@@ -2539,6 +3271,7 @@ async function reconcileAliyunSmsDeliveries(db: ConferenceDatabase) {
 async function start() {
   console.info(`[worker] build=${JSON.stringify(resolveBuildInfo('worker', process.env))}`);
   resolveDeploymentOrigins();
+  notificationPayloadSecret();
   const redisUrl = process.env.REDIS_URL;
   const databaseUrl = process.env.DATABASE_URL;
   if (!redisUrl || !databaseUrl) {
@@ -2556,6 +3289,20 @@ async function start() {
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     return;
+  }
+  const { db, pool } = createDatabase(databaseUrl);
+  try {
+    const migrationStatus = await readDatabaseMigrationStatus(pool);
+    if (process.env.NODE_ENV === 'production' || process.env.BUILD_MIGRATION_HASH) {
+      assertDatabaseMigrationCurrent(migrationStatus);
+    } else if (!migrationStatus.ok) {
+      console.warn(
+        `[worker] migration hash check skipped for source development expected=${migrationStatus.expected} applied=${migrationStatus.applied}`,
+      );
+    }
+  } catch (error) {
+    await pool.end();
+    throw error;
   }
   const producerConnection = redisConnection(redisUrl, 1);
   const workerConnection = redisConnection(redisUrl);
@@ -2577,7 +3324,6 @@ async function start() {
       removeOnFail: { age: 7 * 86_400 },
     },
   });
-  const { db, pool } = createDatabase(databaseUrl);
   const worker = new Worker(queueName, (job) => processDomainEvent(job, db), {
     connection: workerConnection,
     concurrency,
@@ -2783,6 +3529,7 @@ async function start() {
   await expireHtmlTemplateImports(db);
   await expireTemplateAssetUploadReservations(db);
   await maintainCustomerAuthData(db);
+  await cleanupExpiredCustomerAvatarSources(db);
   await reconcileAliyunSmsDeliveries(db);
   const inventoryTimer = setInterval(() => {
     void releaseExpiredReservations(db);
@@ -2795,7 +3542,10 @@ async function start() {
     void expireTemplateAssetUploadReservations(db);
   }, 60_000);
   const customerAuthMaintenanceTimer = setInterval(
-    () => void maintainCustomerAuthData(db),
+    () => {
+      void maintainCustomerAuthData(db);
+      void cleanupExpiredCustomerAvatarSources(db);
+    },
     6 * 60 * 60_000,
   );
   const smsReceiptTimer = setInterval(

@@ -218,6 +218,15 @@ describePersistent('PostgreSQL tenant isolation', () => {
     ]);
   });
 
+  it('serializes computed registration activity timestamps', async () => {
+    const result = await repository.listRegistrations(eventB, {}, organizationB);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.lastBusinessAt).toBe(
+      new Date(result.items[0]!.lastBusinessAt).toISOString(),
+    );
+  });
+
   it('returns preset dashboard trend days and tolerates legacy invalid timezones', async () => {
     const presetDashboard = await repository.getDashboard(eventB, organizationB, { days: 30 });
     expect(presetDashboard.registrationTrend).toHaveLength(30);

@@ -38,6 +38,11 @@ describe('AdminRegistrationOperationsService', () => {
     expect(detail.commerce).toEqual({ access: 'restricted' });
     expect(detail.invoice).toEqual({ access: 'restricted' });
     expect('order' in detail.registration).toBe(false);
+    expect(detail.registration).toMatchObject({
+      purchaserName: '王欣怡',
+      purchaserMobile: '13800002101',
+      isProxyPurchase: false,
+    });
     expect(AdminRegistrationOperationsDetailSchema.safeParse(detail).success).toBe(true);
   });
 });

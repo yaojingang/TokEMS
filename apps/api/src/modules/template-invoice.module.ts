@@ -27,6 +27,7 @@ import {
   CreateConferenceTemplateSchema,
   CreateInvoiceDocumentSchema,
   InvoiceActionSchema,
+  InvoiceBatchPreflightSchema,
   InvoiceVersionSchema,
   InvoiceBuyerSchema,
   InvoiceListQuerySchema,
@@ -894,6 +895,21 @@ class InvoiceController {
     return { count: groups.reduce((sum, group) => sum + group, 0) };
   }
 
+  @Post('batch-imports/preflight')
+  @RequireAllGrants('event.read', 'org.invoice.manage')
+  preflightBatchImport(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.invoices.preflightBatchImport(
+      request.user.organizationId,
+      eventId,
+      request.user.sub,
+      parse(InvoiceBatchPreflightSchema, body),
+    );
+  }
+
   @Get('export.csv')
   @RequireAllGrants('event.read', 'org.invoice.export')
   async exportCsv(
@@ -923,7 +939,7 @@ class InvoiceController {
       );
       return reply.code(HttpStatus.ACCEPTED).send(job);
     }
-    const rows = await this.invoices.list(request.user.organizationId, parsedQuery);
+    const rows = await this.invoices.exportRows(request.user.organizationId, parsedQuery);
     await this.invoices.auditExport(
       request.user.organizationId,
       eventId,

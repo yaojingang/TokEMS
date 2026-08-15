@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import {
+  type InvoiceBatchManifestItem,
+  type InvoiceBatchPreflightResult,
   type InvoiceListQuery,
   type InvoiceRequest,
   type InvoiceRequestStatus,
 } from '@conference/contracts';
 import { useRoute, useRouter } from 'vue-router';
 import { conferenceApi, session } from '../lib/api';
+import { readInvoiceBatchZip, type InvoiceBatchArchive } from '../lib/invoice-batch-import';
 import { dateTime } from '../lib/format';
 import { parseEventId } from '../lib/route-scope';
 
@@ -46,6 +49,14 @@ const actionReason = ref('');
 const voidDocumentId = ref('');
 const exportConfirmation = ref(false);
 const exporting = ref(false);
+const batchArchive = ref<InvoiceBatchArchive>();
+const batchFileName = ref('');
+const batchPreflight = ref<InvoiceBatchPreflightResult>();
+const batchParsing = ref(false);
+const batchImporting = ref(false);
+const batchResults = ref<
+  Array<{ requestNo: string; status: 'imported' | 'error'; message: string }>
+>([]);
 const selectedDocumentFile = ref<File>();
 const canManage = computed(() => session.can('org.invoice.manage'));
 const canExport = computed(() => session.can('org.invoice.export'));
@@ -431,6 +442,101 @@ async function exportRows() {
   }
 }
 
+async function chooseBatchArchive(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  batchParsing.value = true;
+  batchArchive.value = undefined;
+  batchPreflight.value = undefined;
+  batchResults.value = [];
+  errorMessage.value = '';
+  message.value = '';
+  try {
+    const archive = await readInvoiceBatchZip(file);
+    const preflight = await conferenceApi.preflightInvoiceBatch(
+      { items: archive.items },
+      eventId.value,
+    );
+    batchArchive.value = archive;
+    batchFileName.value = file.name;
+    batchPreflight.value = preflight;
+    message.value = `预检完成：${preflight.readyCount} 条可导入，${preflight.errorCount} 条需处理。`;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '批量导入包预检失败';
+  } finally {
+    input.value = '';
+    batchParsing.value = false;
+  }
+}
+
+async function importBatchItem(
+  item: InvoiceBatchManifestItem,
+  invoiceId: string,
+  bytes: Uint8Array,
+) {
+  const upload = await conferenceApi.prepareInvoiceDocumentUpload(
+    invoiceId,
+    {
+      fileName: item.uploadFile.split('/').at(-1) ?? item.uploadFile,
+      mediaType: item.mediaType,
+      size: item.size,
+      contentDigest: item.contentDigest,
+    },
+    eventId.value,
+  );
+  const uploadResponse = await fetch(upload.uploadUrl, {
+    method: upload.method,
+    headers: upload.headers,
+    body: new Blob([bytes.slice().buffer as ArrayBuffer], { type: item.mediaType }),
+  });
+  if (!uploadResponse.ok) throw new Error(`文件上传失败（${uploadResponse.status}）`);
+  await conferenceApi.addInvoiceDocument(
+    invoiceId,
+    {
+      documentType: 'original',
+      invoiceNumber: item.invoiceNumber,
+      ...(item.invoiceCode ? { invoiceCode: item.invoiceCode } : {}),
+      storageKey: upload.storageKey,
+      mediaType: item.mediaType,
+      size: item.size,
+      contentDigest: item.contentDigest,
+    },
+    eventId.value,
+  );
+}
+
+async function confirmBatchImport() {
+  const archive = batchArchive.value;
+  const preflight = batchPreflight.value;
+  if (!archive || !preflight?.readyCount) return;
+  batchImporting.value = true;
+  batchResults.value = [];
+  errorMessage.value = '';
+  const preflightByRequest = new Map(preflight.items.map((item) => [item.requestNo, item]));
+  for (const item of archive.items) {
+    const match = preflightByRequest.get(item.requestNo);
+    if (match?.status !== 'ready' || !match.invoiceId) continue;
+    const bytes = archive.files.get(item.uploadFile);
+    try {
+      if (!bytes) throw new Error('ZIP 中缺少目标文件');
+      await importBatchItem(item, match.invoiceId, bytes);
+      batchResults.value.push({ requestNo: item.requestNo, status: 'imported', message: '已开具' });
+    } catch (error) {
+      batchResults.value.push({
+        requestNo: item.requestNo,
+        status: 'error',
+        message: error instanceof Error ? error.message : '导入失败',
+      });
+    }
+  }
+  const imported = batchResults.value.filter((item) => item.status === 'imported').length;
+  const failed = batchResults.value.length - imported;
+  message.value = `批量导入完成：${imported} 条成功，${failed} 条失败。成功文件已进入用户个人中心。`;
+  batchImporting.value = false;
+  await load(1);
+}
+
 watch([query, status, fromDate, toDate, dateField], (_values, _oldValues, onCleanup) => {
   const timer = window.setTimeout(
     () => {
@@ -446,6 +552,9 @@ watch(eventId, (nextEventId, previousEventId) => {
   rows.value = [];
   resetPagination();
   detail.value = undefined;
+  batchArchive.value = undefined;
+  batchPreflight.value = undefined;
+  batchResults.value = [];
   void load(1);
 });
 watch(
@@ -470,17 +579,92 @@ onMounted(() => {
       <h1>发票管理</h1>
       <p>处理当前大会的发票资料、审核、开具、发送、退款调整与作废记录。</p>
     </div>
+    <div v-if="canManage" class="admin-head-actions">
+      <label
+        class="button secondary invoice-batch-trigger"
+        :aria-disabled="batchParsing || batchImporting"
+      >
+        {{
+          batchParsing ? '正在读取文件包…' : batchImporting ? '正在批量导入…' : '批量导入发票文件包'
+        }}
+        <input
+          class="sr-only"
+          type="file"
+          accept=".zip,application/zip"
+          :disabled="batchParsing || batchImporting"
+          @change="chooseBatchArchive"
+        />
+      </label>
+    </div>
   </header>
   <p v-if="message" class="admin-success" role="status">{{ message }}</p>
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
+  <section
+    v-if="canManage && (batchPreflight || batchResults.length)"
+    class="admin-panel invoice-batch-panel"
+  >
+    <div v-if="batchPreflight" class="admin-panel-header invoice-batch-summary">
+      <p>
+        <strong>{{ batchFileName }}</strong>
+        · 可导入 {{ batchPreflight.readyCount }} 条 · 需处理 {{ batchPreflight.errorCount }} 条
+      </p>
+      <button
+        class="button"
+        type="button"
+        :disabled="batchImporting || batchPreflight.readyCount === 0"
+        @click="confirmBatchImport"
+      >
+        {{ batchImporting ? '正在批量导入…' : `确认导入 ${batchPreflight.readyCount} 条` }}
+      </button>
+    </div>
+    <div v-if="batchPreflight?.items.length" class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>申请单号</th>
+            <th>预检结果</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in batchPreflight.items" :key="item.requestNo">
+            <td>{{ item.requestNo }}</td>
+            <td>
+              <span class="status-badge" :class="item.status === 'ready' ? '' : 'issue'">{{
+                item.status === 'ready' ? '可导入' : '需处理'
+              }}</span>
+            </td>
+            <td>{{ item.message }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-if="batchResults.length" class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>申请单号</th>
+            <th>导入结果</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in batchResults" :key="item.requestNo">
+            <td>{{ item.requestNo }}</td>
+            <td>
+              <span class="status-badge" :class="item.status === 'imported' ? '' : 'issue'">{{
+                item.status === 'imported' ? '成功' : '失败'
+              }}</span>
+            </td>
+            <td>{{ item.message }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="admin-panel invoice-list-panel">
-    <header class="admin-panel-header">
-      <div>
-        <h2>发票申请</h2>
-        <p>{{ visibleRange }}</p>
-      </div>
-    </header>
     <form class="admin-filter-bar invoice-filter-bar" role="search" @submit.prevent>
       <label class="admin-search">
         <span aria-hidden="true">⌕</span>

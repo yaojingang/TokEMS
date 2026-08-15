@@ -51,6 +51,15 @@ function idempotencyKey(value: string | undefined) {
   return value;
 }
 
+export const ADMIN_EVENT_READ_GRANTS = [
+  'event.read',
+  'event.manage',
+  'event.registration.manage',
+  'event.inventory.read',
+  'event.inventory.manage',
+  'event.site.read',
+] as const;
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
@@ -247,13 +256,7 @@ class AdminController {
   }
 
   @Get('events/:eventId')
-  @RequireGrant(
-    'event.read',
-    'event.manage',
-    'event.registration.manage',
-    'event.inventory.read',
-    'event.inventory.manage',
-  )
+  @RequireGrant(...ADMIN_EVENT_READ_GRANTS)
   event(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },

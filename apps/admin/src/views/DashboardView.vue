@@ -238,25 +238,43 @@ onMounted(async () => {
       <article class="admin-metric">
         <span>累计报名</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.registrations.toLocaleString() }}</strong><span class="delta neutral">当前大会</span>
+          <strong>{{ dashboard.metrics.registrations.toLocaleString() }}</strong>
+          <span class="delta neutral">当前大会</span>
         </div>
       </article>
       <article class="admin-metric">
-        <span>已支付订单</span>
+        <span>付费席位</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.paidOrders.toLocaleString() }}</strong><span class="delta up">{{ dashboard.metrics.conversionRate }}% 转化</span>
+          <strong>{{ dashboard.metrics.paidSeats.toLocaleString() }}</strong>
+          <span class="delta up">{{ dashboard.metrics.conversionRate }}% 转化</span>
+        </div>
+      </article>
+      <article class="admin-metric">
+        <span>付费购票人</span>
+        <div class="admin-metric-value">
+          <strong>{{ dashboard.metrics.purchasers.toLocaleString() }}</strong>
+          <span class="delta neutral">{{ dashboard.metrics.paidOrders.toLocaleString() }} 笔订单</span>
+        </div>
+      </article>
+      <article class="admin-metric">
+        <span>确认参会人</span>
+        <div class="admin-metric-value">
+          <strong>{{ dashboard.metrics.confirmedAttendees.toLocaleString() }}</strong>
+          <span class="delta neutral">含已签到与已完成</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>实收金额</span>
         <div class="admin-metric-value">
-          <strong class="metric-money">{{ money(dashboard.metrics.revenue) }}</strong><span class="delta neutral">累计实收</span>
+          <strong class="metric-money">{{ money(dashboard.metrics.revenue) }}</strong>
+          <span class="delta neutral">累计实收</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>发票开具情况</span>
         <div class="admin-metric-value">
-          <strong>{{ pendingInvoiceCount?.toLocaleString() ?? '—' }}</strong><span class="delta neutral">{{
+          <strong>{{ pendingInvoiceCount?.toLocaleString() ?? '—' }}</strong>
+          <span class="delta neutral">{{
             pendingInvoiceCount === null ? '暂不可用' : '项待处理'
           }}</span>
         </div>
@@ -324,18 +342,11 @@ onMounted(async () => {
             <span>01 / REVIEW</span><strong>处理报名审核</strong>
           </RouterLink>
           <RouterLink
-            v-if="session.can('event.content.manage')"
-            class="quick-action"
-            :to="eventRoute('event-content')"
-          >
-            <span>02 / CONTENT</span><strong>查看嘉宾与议程</strong>
-          </RouterLink>
-          <RouterLink
             v-if="session.can('event.manage')"
             class="quick-action"
             :to="eventRoute('event-settings-general')"
           >
-            <span>03 / PUBLISH</span><strong>更新大会信息</strong>
+            <span>02 / PUBLISH</span><strong>更新大会信息</strong>
           </RouterLink>
         </div>
       </section>
@@ -507,7 +518,7 @@ onMounted(async () => {
 
       <section
         v-if="session.can('event.registration.read')"
-        class="admin-panel reveal is-visible"
+        class="admin-panel dashboard-latest-panel reveal is-visible"
         aria-labelledby="latest-title"
       >
         <header class="admin-panel-header">
@@ -519,48 +530,35 @@ onMounted(async () => {
             查看全部 →
           </RouterLink>
         </header>
-        <div class="data-table-wrap">
-          <table class="data-table">
-            <caption class="sr-only">
-              最近报名记录
-            </caption>
-            <thead>
-              <tr>
-                <th>参会人</th>
-                <th>票种</th>
-                <th>状态</th>
-                <th>城市</th>
-                <th>提交时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in registrations.slice(0, 5)" :key="row.id">
-                <td>
-                  <span class="row-title">{{ row.attendee.name }}</span><span class="row-sub">{{ row.attendee.company }}</span>
-                </td>
-                <td>{{ row.ticketType.name }}</td>
-                <td>
-                  <span
-                    class="status-badge"
-                    :class="{
-                      pending: row.status === 'pending_review',
-                      draft: row.status === 'pending_payment',
-                    }"
-                  >{{
-                    row.status === 'confirmed'
-                      ? '已确认'
-                      : row.status === 'pending_review'
-                        ? '待审核'
-                        : '待支付'
-                  }}</span>
-                </td>
-                <td>{{ row.attendee.city }}</td>
-                <td>{{ new Date(row.createdAt).toLocaleDateString('zh-CN') }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-if="!registrations.length" class="admin-empty">当前大会暂无报名记录。</div>
-        </div>
+        <ul v-if="registrations.length" class="latest-registration-list">
+          <li v-for="row in registrations.slice(0, 5)" :key="row.id">
+            <div class="latest-registration-person">
+              <span class="row-title">{{ row.attendee.name }}</span>
+              <span class="row-sub">{{ row.attendee.company }}</span>
+            </div>
+            <span
+              class="status-badge"
+              :class="{
+                pending: row.status === 'pending_review',
+                draft: row.status === 'pending_payment',
+              }"
+            >{{
+              row.status === 'confirmed'
+                ? '已确认'
+                : row.status === 'pending_review'
+                  ? '待审核'
+                  : '待支付'
+            }}</span>
+            <div class="latest-registration-meta">
+              <span>{{ row.ticketType.name }}</span>
+              <span>{{ row.attendee.city }}</span>
+              <time :datetime="row.createdAt">
+                {{ new Date(row.createdAt).toLocaleDateString('zh-CN') }}
+              </time>
+            </div>
+          </li>
+        </ul>
+        <div v-else class="admin-empty">当前大会暂无报名记录。</div>
       </section>
     </div>
   </template>

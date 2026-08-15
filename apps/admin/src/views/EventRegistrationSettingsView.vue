@@ -7,10 +7,12 @@ import type {
   PublicEvent,
 } from '@conference/contracts';
 import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
+import { isPublicEventStatus } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
 import { money } from '../lib/format';
+import { eventSettingsEffectDescription } from '../lib/event-settings-effect';
 
 interface InventoryRow {
   id: string;
@@ -46,6 +48,8 @@ const settingsForm = reactive({
   paymentMode: 'ticketed' as EventPaymentMode,
   registrationOpen: true,
   accountMode: 'mobile_otp_required' as CustomerAccountMode,
+  additionalPurchaseEnabled: false,
+  maxActiveSeatsPerPurchaser: 5,
 });
 const ticketForm = reactive({
   code: '',
@@ -65,6 +69,9 @@ const flowForm = reactive({
 });
 
 const isFree = computed(() => settingsForm.paymentMode === 'free');
+const settingsEffectDescription = computed(() =>
+  eventSettingsEffectDescription(event.value?.status),
+);
 const canManageRegistration = computed(() =>
   session.canAny(['event.manage', 'event.registration.manage']),
 );
@@ -105,6 +112,9 @@ async function load(preserveSettings = false, preserveFlow = false) {
       settingsForm.paymentMode = loaded.registration.paymentMode;
       settingsForm.registrationOpen = loaded.registration.registrationOpen;
       settingsForm.accountMode = loaded.registration.accountMode;
+      settingsForm.additionalPurchaseEnabled = loaded.registration.additionalPurchaseEnabled;
+      settingsForm.maxActiveSeatsPerPurchaser =
+        loaded.registration.maxActiveSeatsPerPurchaser;
     }
     if (loadedExperience && (!preserveFlow || !experience.value)) hydrateFlow(loadedExperience);
   } catch (error) {
@@ -115,8 +125,7 @@ async function load(preserveSettings = false, preserveFlow = false) {
 onMounted(load);
 
 function savedMessage(subject = '已保存') {
-  return event.value &&
-    ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(event.value.status)
+  return event.value && isPublicEventStatus(event.value.status)
     ? `${subject}，前台已生效`
     : `${subject}，大会上线时生效`;
 }
@@ -126,7 +135,9 @@ function requestSaveSettings() {
   const changesBusinessFlow =
     current &&
     (current.paymentMode !== settingsForm.paymentMode ||
-      current.registrationOpen !== settingsForm.registrationOpen);
+      current.registrationOpen !== settingsForm.registrationOpen ||
+      current.additionalPurchaseEnabled !== settingsForm.additionalPurchaseEnabled ||
+      current.maxActiveSeatsPerPurchaser !== settingsForm.maxActiveSeatsPerPurchaser);
   if (!changesBusinessFlow) {
     void saveSettings();
     return;
@@ -134,8 +145,8 @@ function requestSaveSettings() {
   confirmation.value = {
     title: settingsForm.registrationOpen ? '确认更新报名方式？' : '确认暂停前台报名？',
     description: settingsForm.registrationOpen
-      ? '保存成功后新的报名会立即采用当前流程，已有订单和电子票继续保留原记录。'
-      : '保存成功后前台页面继续保留，并立即停止接收新的报名提交。',
+      ? `已有订单和电子票继续保留原记录。${settingsEffectDescription.value}`
+      : `前台页面继续保留。${settingsEffectDescription.value}`,
     confirmLabel: settingsForm.registrationOpen ? '确认并生效' : '确认暂停报名',
     tone: settingsForm.registrationOpen ? 'primary' : 'danger',
     details: [
@@ -144,6 +155,12 @@ function requestSaveSettings() {
         value: settingsForm.paymentMode === 'free' ? '免费报名' : '按票种收费',
       },
       { label: '前台报名', value: settingsForm.registrationOpen ? '开放' : '暂停' },
+      {
+        label: '追加名额',
+        value: settingsForm.additionalPurchaseEnabled
+          ? `开放，每位购票人最多 ${settingsForm.maxActiveSeatsPerPurchaser} 个有效名额`
+          : '关闭',
+      },
     ],
     action: saveSettings,
   };
@@ -157,6 +174,11 @@ async function confirmImportantChange() {
 }
 
 async function saveSettings() {
+  const maxActiveSeats = Math.round(Number(settingsForm.maxActiveSeatsPerPurchaser));
+  if (!Number.isInteger(maxActiveSeats) || maxActiveSeats < 1 || maxActiveSeats > 20) {
+    errorMessage.value = '每位购票人的有效名额上限需要设置为 1 到 20。';
+    return;
+  }
   if (isFree.value && event.value?.tickets.some((ticket) => ticket.price > 0)) {
     errorMessage.value = '免费报名模式下，所有票种价格需要设为 0 元。';
     return;
@@ -172,6 +194,8 @@ async function saveSettings() {
           currency: 'CNY',
           registrationOpen: settingsForm.registrationOpen,
           accountMode: settingsForm.accountMode,
+          additionalPurchaseEnabled: settingsForm.additionalPurchaseEnabled,
+          maxActiveSeatsPerPurchaser: maxActiveSeats,
         },
       },
     });
@@ -362,7 +386,7 @@ async function saveFlow() {
     <div>
       <p class="eyebrow">EVENT SETTINGS / REGISTRATION</p>
       <h1>报名设置</h1>
-      <p>统一维护报名方式、票种容量和前台报名流程，保存后直接应用。</p>
+      <p>统一维护报名方式、票种容量和前台报名流程。{{ settingsEffectDescription }}</p>
     </div>
     <span class="status-badge" :class="isFree ? 'paid' : 'draft'">
       {{ isFree ? 'FREE' : 'TICKETED' }}
@@ -405,24 +429,39 @@ async function saveFlow() {
       <div class="choice-card-grid registration-account-mode">
         <label
           class="choice-card"
-          :class="{ selected: settingsForm.accountMode === 'mobile_otp_required' }"
+          :class="{ selected: true }"
         >
-          <input v-model="settingsForm.accountMode" type="radio" value="mobile_otp_required" />
+          <input
+            v-model="settingsForm.accountMode"
+            type="radio"
+            value="mobile_otp_required"
+            disabled
+          />
           <span>
-            <strong>用户登录后报名</strong>
-            <small>适合需要用户中心、跨大会历史和发票管理的大会</small>
+            <strong>手机号验证码登录</strong>
+            <small>所有大会统一登录后报名，报名记录、支付和发票归入同一用户中心</small>
           </span>
         </label>
-        <label
-          class="choice-card"
-          :class="{ selected: settingsForm.accountMode === 'guest_allowed' }"
-        >
-          <input v-model="settingsForm.accountMode" type="radio" value="guest_allowed" />
-          <span>
-            <strong>允许游客直接报名</strong>
-            <small>保留原有快速流程，登录用户的报名仍会进入用户中心</small>
-          </span>
-        </label>
+      </div>
+      <label class="setting-toggle">
+        <span>
+          <strong>允许购票人继续增加名额</strong>
+          <small>开启后，已报名用户可继续为他人创建独立订单。{{ settingsEffectDescription }}</small>
+        </span>
+        <input v-model="settingsForm.additionalPurchaseEnabled" type="checkbox" />
+      </label>
+      <div v-if="settingsForm.additionalPurchaseEnabled" class="form-field additional-seat-limit">
+        <label for="max-active-seats">每位购票人最多有效名额</label>
+        <input
+          id="max-active-seats"
+          v-model.number="settingsForm.maxActiveSeatsPerPurchaser"
+          type="number"
+          min="1"
+          max="20"
+          step="1"
+          required
+        />
+        <small>包含本人和代购名额，已关闭、已退款和已取消记录不计入。</small>
       </div>
       <div class="event-form-actions">
         <button class="button" type="submit" :disabled="settingsPending">

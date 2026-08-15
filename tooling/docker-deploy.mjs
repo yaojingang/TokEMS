@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { assertBuildSourceState } from './lib/build-version.mjs';
 import {
@@ -13,6 +14,11 @@ const migration = readdirSync(resolve('packages/database/drizzle'))
   .filter((file) => /^\d{4}_[A-Za-z0-9_-]+\.sql$/u.test(file))
   .sort()
   .at(-1);
+const migrationHash = migration
+  ? createHash('sha256')
+      .update(readFileSync(resolve('packages/database/drizzle', migration)))
+      .digest('hex')
+  : 'unknown';
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
 }
@@ -33,6 +39,7 @@ const environment = {
   BUILD_SHA: gitSha,
   BUILD_TIME: process.env.BUILD_TIME ?? new Date().toISOString(),
   BUILD_MIGRATION: migration ?? 'unknown',
+  BUILD_MIGRATION_HASH: migrationHash,
 };
 
 function run(command, args) {

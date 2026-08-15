@@ -460,7 +460,107 @@
 
 .dashboard-flow {
   display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   gap: 18px;
+  align-items: stretch;
+}
+
+.dashboard-flow > .admin-panel:only-child {
+  grid-column: 1 / -1;
+}
+
+.dashboard-flow .trend-chart-stage {
+  height: clamp(260px, 24vw, 320px);
+}
+
+.dashboard-latest-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.latest-registration-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.latest-registration-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "person status"
+    "meta meta";
+  gap: 8px 12px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(23, 34, 51, 0.07);
+}
+
+.latest-registration-list li:last-child {
+  border-bottom: 0;
+}
+
+.latest-registration-person {
+  min-width: 0;
+  grid-area: person;
+}
+
+.latest-registration-person .row-title,
+.latest-registration-person .row-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latest-registration-person .row-title {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.latest-registration-person .row-sub {
+  margin-top: 3px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.latest-registration-list > li > .status-badge {
+  grid-area: status;
+}
+
+.latest-registration-meta {
+  min-width: 0;
+  display: flex;
+  grid-area: meta;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.latest-registration-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latest-registration-meta span + span::before {
+  margin-right: 7px;
+  color: var(--line-strong);
+  content: "·";
+}
+
+.latest-registration-meta time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .admin-panel {
@@ -1421,6 +1521,12 @@
   }
   .dashboard-overview-grid {
     grid-template-columns: 1fr;
+  }
+  .dashboard-flow {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-flow .trend-chart-stage {
+    height: clamp(280px, 34vw, 360px);
   }
 }
 

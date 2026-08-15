@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Added additional-seat purchases with separate purchaser and attendee identities, durable purchase intents, attendee claim invitations, and customer purchase history.
+- Added attendee showcase profiles, a public member directory, shareable attendee pages, personal poster generation, avatar processing, and moderation controls.
+- Added invoice batch preflight/import workflows, richer registration exports, and administrator account management.
+- Added dashboard metrics for paid orders, paid seats, confirmed attendees, and distinct purchasers.
+
+### Changed
+
+- Made mainland-China mobile OTP the primary customer entry path and enforced one active registration identity per event through repair tooling and database constraints.
+- Simplified customer invoice submission to company name, tax identifier, and email while retaining the previous v1 request contract during the compatibility window.
+- Consolidated organization and event settings navigation while retaining redirects for removed content routes and the aggregate integration-status API.
+- Added build migration hashes to runtime health checks so API and Worker startup can detect schema drift.
+
+### Fixed
+
+- Prevented expired pending-payment orders from blocking a purchaser's next checkout while background cleanup is still pending.
+- Preserved customer-facing invoice and integration API compatibility for previously deployed clients.
+- Corrected dashboard trend fixtures and generated project inventory after the metrics and test suites expanded.
+
+### Security
+
+- Restricted proxy-purchased ticket codes, QR payloads, checkout responses, and order-token retrieval to the attendee identity.
+- Added stricter tenant and ownership checks, encrypted notification payload secrets, persistent purchase-attempt throttling, transaction retries, and a production-safe local payment simulation allowlist.
+- Revoked customer sessions on account blocking and pinned the transitive `nanoid` dependency to a patched release.
+
 ### Planned
 
 - Continue security and production deployment hardening.

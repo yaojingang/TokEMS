@@ -11,7 +11,7 @@ pnpm docker:deploy
 
 1. 使用根目录多阶段 `Dockerfile` 构建 API、Worker、Nuxt、Admin 和本地通知接收器镜像。
 2. 启动 PostgreSQL、Redis、MinIO、Mailpit 与通知接收器并等待健康检查。
-3. 运行一次性 `db-init`，执行 35 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
+3. 运行一次性 `db-init`，执行 49 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
 4. 运行一次性 `minio-init`，创建私有 `conference-assets` 桶。
 5. 按依赖顺序启动 API、Worker、Web 和 Admin。
 6. 启动 Gateway，在同一 IP 和端口上按主机名代理前台、后台和 API。
@@ -58,7 +58,7 @@ node tooling/docker-compose.mjs logs db-init minio-init
 
 `db-init` 和 `minio-init` 正常状态为 `Exited (0)`。其余长期服务应显示 `Up` 与 `healthy`。
 
-部署脚本会从当前 Git 提交和迁移目录生成 `BUILD_SHA`、`BUILD_TIME` 与 `BUILD_MIGRATION`。API 的 `/api/v1/health`、Web 的 `/version.json`、Admin 的 `/admin/version.json`、Gateway 的 `/version.json` 和 Worker 启动日志应返回同一组值。`pnpm release:manifest` 会把逐文件 SHA-256、镜像摘要、OpenAPI 摘要和脱敏环境指纹写入 `test-results/remediation/<run-id>/manifest.json`。
+部署脚本会从当前 Git 提交和迁移目录生成 `BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION` 与 `BUILD_MIGRATION_HASH`。API 健康检查会比较构建迁移哈希和数据库最新已应用哈希；不一致时返回 `degraded`，Worker 会拒绝启动。Web、Admin、Gateway 与 Worker 的版本信息也必须一致。`pnpm release:manifest` 会把逐文件 SHA-256、镜像摘要、OpenAPI 摘要和脱敏环境指纹写入 `test-results/remediation/<run-id>/manifest.json`。
 
 ### 停止、更新与数据卷
 
@@ -112,6 +112,7 @@ pnpm dev
 | `VITE_SIMPLE_AUTH`                         | 运营后台的本地简化登录界面开关                    |
 | `SEED_DEMO_DATA`                           | 是否写入演示组织和管理员，生产环境默认关闭        |
 | `ADMIN_USERNAME`                           | 运营后台登录用户名，本地默认为 `admin`            |
+| `ADMIN_USER_ID`                            | 超级管理员的固定用户 UUID，默认使用种子管理员 ID  |
 | `ADMIN_PASSWORD`                           | 管理员初始密码，正式环境至少 16 字符              |
 | `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`         | 源码开发模式的 CORS 来源                          |
 | `PUBLIC_ORGANIZATION_SLUG`                 | 默认公开组织                                      |
@@ -121,6 +122,7 @@ pnpm dev
 | `PAYMENT_WEBHOOK_SECRET`                   | 通用支付回调 HMAC 密钥                            |
 | `PAYMENT_WEBHOOK_SECRET_<PROVIDER>`        | 渠道专用回调密钥，优先级更高                      |
 | `ENABLE_LOCAL_PAYMENT_SIMULATION`          | 本地容器模拟支付开关                              |
+| `LOCAL_PAYMENT_SIMULATION_MOBILES`         | 允许本机模拟支付的手机号白名单，逗号分隔          |
 | `NOTIFICATION_WEBHOOK_URL`                 | 邮件及通用通知提供商 HTTP 入口                    |
 | `NOTIFICATION_WEBHOOK_TOKEN`               | 通知提供商 Bearer Token                           |
 | `SMS_RECEIPT_INTERVAL_MS`                  | 阿里云短信送达状态查询周期，默认 30000 毫秒       |
@@ -136,6 +138,7 @@ pnpm dev
 | `DOCKER_S3_ENDPOINT`                       | Compose 容器访问对象存储的内部地址                |
 | `BUILD_SHA` / `BUILD_TIME`                 | 构建对应的提交和 UTC 时间                         |
 | `BUILD_MIGRATION`                          | 构建对应的最高数据库迁移文件                      |
+| `BUILD_MIGRATION_HASH`                     | 构建对应的最高数据库迁移 SHA-256                  |
 | `API_BIND_ADDRESS`                         | 源码 API 监听地址，本地假验证码模式必须为回环地址 |
 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`  | 本地对象存储凭据                                  |
 | `S3_PUBLIC_ENDPOINT` / `S3_REGION`         | 浏览器可访问的对象存储入口与签名区域              |
@@ -150,7 +153,7 @@ pnpm dev
 
 ## 迁移策略
 
-`packages/database/drizzle/` 包含 35 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
+`packages/database/drizzle/` 包含 49 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
 
 ```bash
 # 修改 packages/database/src/schema.ts 后生成迁移
@@ -169,6 +172,29 @@ pnpm check
 普通用户升级会为既有报名补写规范化手机号和邮箱，并创建跨组织外键及有效报名唯一索引。`0013` 到 `0019` 对锁等待设置了 5 秒上限，无法及时获取表锁时会安全终止，发布任务可在业务低峰重试。
 
 报名、订单或用户表数据量较大时，应安排维护窗口，并在生产数据副本记录迁移执行时长。`0015` 会预检同一大会的重复有效手机号，`0019` 会预检报名、订单和发票的组织及大会关系；预检失败时先修复报告中的错配数据。`0017` 需要数据库账号具备启用 `pg_trgm` 扩展的权限。超出窗口预算时，将数据补写拆成分批任务，并单独安排索引变更。
+
+`0042` 先增加报名归并字段与支付成功时间，不受历史重复报名阻塞。`0043` 在建立“同一用户或手机号、同一大会一条报名”的唯一索引前执行预检。出现重复时按以下顺序处理：
+
+```bash
+# 默认只预览，输出会脱敏
+pnpm db:repair-registration-identities
+
+# 仅在预览没有阻塞组后执行
+pnpm db:repair-registration-identities -- --apply
+
+# 建立最终唯一索引
+pnpm db:migrate
+```
+
+归并命令保留原报名、订单及审计历史，冗余报名会清空身份键并关联到主报名。含多条业务事实、多个未关闭订单、关联订单缺失或交叉身份的组会返回退出码 2，交由人工核对。
+
+### 多次单票迁移与灰度
+
+`0047_multi_purchase_foundation.sql` 为订单增加购票人、购买快照和购买意图，为报名增加独立认领令牌，并为大会增加追加购买开关与单人有效席位上限。`0048_registration_purchase_attempts.sql` 增加持久化购买尝试与购买意图唯一约束，用于跨实例限流和幂等重试。两次迁移均为增量迁移；升级顺序为先执行迁移，再发布 API 与 Worker，最后发布前台和后台。
+
+灰度初始保持 `additionalPurchaseEnabled=false` 和 `maxActiveSeatsPerPurchaser=5`。先选择内部大会开启，验证本人购买、代购、认领、退款、发票、通知和 CSV，再逐场开放。重点监控 `paidOrders`、`paidSeats`、`purchasers`、净收入、购买尝试 429/409、认领失败率、Outbox 延迟与通知失败率。
+
+应用回滚时关闭追加购买开关并回退应用版本，保留 `0047`、`0048` 新增列和表。已创建的订单、席位、认领令牌及审计记录继续保留。出现异常时暂停新代购，继续允许本人订单恢复、支付完成、退款和票务履约。
 
 ## 生产构建与启动
 
@@ -202,7 +228,7 @@ node apps/web/.output/server/index.mjs
 5. 把签名写入 `X-Payment-Signature` 并调用 `/api/v1/payments/webhook/<provider>`。
 6. 验证成功、重复回调、金额错误、过期时间戳和伪造签名五类用例。
 
-开发模拟支付路由在 `NODE_ENV=production` 下固定返回 403。本地 Compose 的完整验收使用带 HMAC 签名的测试渠道回调完成付款、出票与核销。源码开发环境如需临时使用模拟路由，可显式设置 `ENABLE_LOCAL_PAYMENT_SIMULATION=true`。
+模拟支付只在 `DEPLOYMENT_MODE=local`、前后台及支付入口均为本机回环地址、`ENABLE_LOCAL_PAYMENT_SIMULATION=true` 时开放。调用方还需持有订单访问令牌，订单必须绑定有效客户账号，报名手机号与客户手机号必须一致并命中 `LOCAL_PAYMENT_SIMULATION_MOBILES`。正式部署固定拒绝该能力。
 
 ### 微信支付三通道（Native / JSAPI / H5）
 
@@ -238,6 +264,8 @@ TokEMS 将大会主站与支付入口拆分：
 已验证的阿里云短信配置会由 Worker 直接调用官方 SDK，组织下全部大会共享同一配置。发送请求使用通知投递 ID 作为稳定 `OutId`，`Code=OK` 表示阿里云已受理；Worker 随后调用 `QuerySendDetails` 更新最终送达或失败状态。网络结果不明确的请求会先查询状态，不会直接重发。
 
 邮件、未接入阿里云的短信和其他通用通知继续调用 `NOTIFICATION_WEBHOOK_URL`，请求会传递 JSON 正文、`Idempotency-Key: notification:<deliveryId>` 和可选 Bearer Token。提供商返回 2xx 即视为接收成功，可在 `X-Message-Id` 返回渠道流水。
+
+通知按角色分流。报名提交、支付、退款、发票和审核通过后的支付链接发送给购票人；审核通过或拒绝结果、参会认领邀请和电子票发送给参会人。审核结果消息不包含订单访问令牌、金额或发票入口。每个业务事件使用确定性投递 ID，重复消费会复用原投递记录。历史事件缺少 `recipientRole` 时，Worker 按订单购买快照处理财务通知，并只对同时缺少现代购买意图的历史订单回退参会人联系方式。
 
 通知失败会把投递状态写为 `retrying` 并交给 BullMQ 重试。候补邀请失败不会丢失原队列记录。候补占位过期后，Worker 会标记当前邀请并调度下一位。
 
@@ -277,7 +305,7 @@ node tooling/import-conference-prototype.mjs --apply
 
 ## 健康与观测
 
-- API 与数据库：`GET /api/v1/health`
+- API 与数据库：`GET /api/v1/health`，确认 `database.migration.ok=true`
 - PostgreSQL：`pg_isready`
 - Redis：`redis-cli ping`
 - MinIO：`GET /minio/health/live`

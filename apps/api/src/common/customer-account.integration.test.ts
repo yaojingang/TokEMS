@@ -2,10 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventId } from '@conference/contracts';
 import {
+  attendeeClaimTokens,
   auditLogs,
   customerProfiles,
   customerSessions,
   customerUsers,
+  eventReleases,
   events,
   invoiceDocuments,
   invoiceRequests,
@@ -13,14 +15,17 @@ import {
   orders,
   organizations,
   outboxEvents,
+  payments,
   publicUserIds,
   refunds,
   registrations,
+  tickets,
   ticketTypes,
   users,
   waitlistEntries,
 } from '@conference/database';
-import { and, eq, sql } from 'drizzle-orm';
+import { openSecret } from '@conference/security';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { CustomerAccountService } from './customer-account.service.js';
 import { CustomerAuthService } from './customer-auth.service.js';
 import { ConferenceRepository } from './conference.repository.js';
@@ -54,6 +59,7 @@ describePersistent('customer account deletion', () => {
   const ticketTypeId = randomUUID();
   const customerUserId = randomUUID();
   const registrationId = randomUUID();
+  const purchaserOrderId = randomUUID();
   const waitlistEntryId = randomUUID();
   const sessionId = randomUUID();
   const paginationCustomerIds = Array.from({ length: 24 }, () => randomUUID());
@@ -174,6 +180,28 @@ describePersistent('customer account deletion', () => {
       attendeeMobileE164: '+8613800138000',
       attendeeEmailNormalized: 'delete-test@example.com',
     });
+    await db.insert(orders).values({
+      id: purchaserOrderId,
+      organizationId,
+      eventId,
+      registrationId,
+      purchaserCustomerUserId: customerUserId,
+      purchaserSnapshot: {
+        customerUserId,
+        mobile: '+8613980000001',
+        name: '删除验收',
+        email: 'buyer-delete@example.com',
+        company: '',
+        title: '',
+        city: '',
+      },
+      orderNo: `DELETE-${purchaserOrderId.slice(0, 8)}`,
+      status: 'paid',
+      amount: 0,
+      currency: 'CNY',
+      pricingSnapshot: {},
+      expiresAt: new Date('2028-01-01T00:00:00.000Z'),
+    });
     await db.insert(waitlistEntries).values({
       id: waitlistEntryId,
       organizationId,
@@ -281,6 +309,30 @@ describePersistent('customer account deletion', () => {
     expect(byNumericId.items.map((item) => item.id)).toEqual([paginationPublicIds[0]]);
   });
 
+  it('keeps prior sessions revoked after a blocked account is reactivated', async () => {
+    await service.adminUpdate(organizationId, randomUUID(), customerPublicId, {
+      status: 'blocked',
+    });
+    const [blockedSession] = await database
+      .db!.select({ revokedAt: customerSessions.revokedAt })
+      .from(customerSessions)
+      .where(eq(customerSessions.id, sessionId))
+      .limit(1);
+    expect(blockedSession?.revokedAt).toBeInstanceOf(Date);
+
+    await service.adminUpdate(organizationId, randomUUID(), customerPublicId, {
+      status: 'active',
+    });
+    const [reactivatedSession] = await database
+      .db!.select({ revokedAt: customerSessions.revokedAt })
+      .from(customerSessions)
+      .where(eq(customerSessions.id, sessionId))
+      .limit(1);
+    expect(reactivatedSession?.revokedAt?.toISOString()).toBe(
+      blockedSession?.revokedAt?.toISOString(),
+    );
+  });
+
   it('enforces organization scope and preserves business history while removing the account', async () => {
     const challenge = await auth.requestOtp(customerRequest(), '13980000001');
     expect(challenge.developmentCode).toBe('123456');
@@ -319,6 +371,7 @@ describePersistent('customer account deletion', () => {
       deleted: true,
       detachedRegistrations: 0,
       detachedWaitlistEntries: 0,
+      detachedPurchaserOrders: 0,
     });
     await expect(
       database
@@ -333,6 +386,7 @@ describePersistent('customer account deletion', () => {
       deleted: true,
       detachedRegistrations: 1,
       detachedWaitlistEntries: 1,
+      detachedPurchaserOrders: 1,
     });
 
     const db = database.db!;
@@ -341,6 +395,7 @@ describePersistent('customer account deletion', () => {
       deletedProfile,
       deletedSession,
       retainedRegistration,
+      retainedPurchaserOrder,
       retainedWaitlist,
       log,
     ] = await Promise.all([
@@ -356,6 +411,7 @@ describePersistent('customer account deletion', () => {
         .where(eq(customerSessions.customerUserId, customerUserId))
         .limit(1),
       db.select().from(registrations).where(eq(registrations.id, registrationId)).limit(1),
+      db.select().from(orders).where(eq(orders.id, purchaserOrderId)).limit(1),
       db.select().from(waitlistEntries).where(eq(waitlistEntries.id, waitlistEntryId)).limit(1),
       db
         .select()
@@ -374,11 +430,13 @@ describePersistent('customer account deletion', () => {
     expect(deletedProfile).toHaveLength(0);
     expect(deletedSession).toHaveLength(0);
     expect(retainedRegistration[0]?.customerUserId).toBeNull();
+    expect(retainedPurchaserOrder[0]?.purchaserCustomerUserId).toBeNull();
     expect(retainedWaitlist[0]?.customerUserId).toBeNull();
     expect(log[0]?.after).toMatchObject({
       deleted: true,
       detachedRegistrations: 1,
       detachedWaitlistEntries: 1,
+      detachedPurchaserOrders: 1,
     });
     await expect(
       service.claimRegistration(staleSession, {
@@ -402,6 +460,7 @@ describePersistent('customer account deletion', () => {
       deleted: true,
       detachedRegistrations: 0,
       detachedWaitlistEntries: 0,
+      detachedPurchaserOrders: 0,
     });
   });
 });
@@ -585,6 +644,17 @@ describePersistent('customer invoice center', () => {
         updatedAt: new Date(`2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.123Z`),
       })),
     );
+    await db.insert(payments).values(
+      orderIds.map((orderId, index) => ({
+        orderId,
+        provider: 'invoice-center-test',
+        externalId: `invoice-center-payment-${index}-${organizationId}`,
+        status: index === 3 ? ('refunded' as const) : ('succeeded' as const),
+        amount: 39900,
+        currency: 'CNY',
+        succeededAt: new Date(`2026-01-${String(index + 1).padStart(2, '0')}T00:00:30.123Z`),
+      })),
+    );
     const [awaitingInvoice, issuedInvoice] = await db
       .insert(invoiceRequests)
       .values([
@@ -716,16 +786,27 @@ describePersistent('customer invoice center', () => {
       canApply: false,
       unavailableReason: '订单已无可开票的实际支付金额。',
     });
+    await database
+      .db!.update(payments)
+      .set({ succeededAt: null })
+      .where(eq(payments.orderId, orderIds[0]!));
+    await expect(
+      invoices.customerOrderInvoiceContext(organizationId, customerUserId, orderIds[0]!),
+    ).resolves.toMatchObject({
+      canApply: false,
+      unavailableReason: '订单完成支付后才可以申请发票。',
+    });
+    await database
+      .db!.update(payments)
+      .set({ succeededAt: new Date('2026-01-01T00:00:30.123Z') })
+      .where(eq(payments.orderId, orderIds[0]!));
 
     const firstPage = await account.invoices(session, { category: 'all', limit: 1 });
     expect(firstPage.items[0]?.orderId).not.toBe(orderIds[0]);
     await invoices.createCustomerOrderInvoice(organizationId, customerUserId, orderIds[0]!, {
-      buyerType: 'company',
-      title: '分页期间新申请公司',
+      companyName: '分页期间新申请公司',
       taxId: '911100001234567801',
       email: 'invoice-center@example.com',
-      mobile: '13980000021',
-      content: '会务费',
     });
     const pagedOrderIds = new Set(firstPage.items.map((item) => item.orderId));
     let cursor = firstPage.nextCursor;
@@ -735,6 +816,754 @@ describePersistent('customer invoice center', () => {
       cursor = page.nextCursor;
     }
     expect(pagedOrderIds).toEqual(new Set([orderIds[0], orderIds[1], orderIds[2]]));
+  });
+
+  it('authorizes purchaser financial data while keeping a claimed attendee finance-blind', async () => {
+    const purchaserUserId = randomUUID();
+    const purchaseIntentId = randomUUID();
+    const db = database.db!;
+    await db.insert(customerUsers).values({
+      id: purchaserUserId,
+      organizationId,
+      mobileE164: '+8613980000099',
+      lastLoginAt: new Date(),
+    });
+    await db.insert(customerProfiles).values({
+      customerUserId: purchaserUserId,
+      realName: '代购验收用户',
+      email: 'proxy-buyer@example.com',
+    });
+    const purchaserPublicId = await publicIdFor(database, 'customer', purchaserUserId);
+    const purchaserCustomer = (await account.adminDetail(organizationId, purchaserPublicId))
+      .customer;
+    const purchaserSession = {
+      ...session,
+      customerUserId: purchaserUserId,
+      customer: purchaserCustomer,
+    };
+    try {
+      await expect(
+        invoices.readCustomerOrderInvoice(organizationId, customerUserId, orderIds[1]!),
+      ).resolves.toMatchObject({ orderId: orderIds[1] });
+      await db
+        .update(orders)
+        .set({
+          purchaserCustomerUserId: purchaserUserId,
+          purchaseIntentId,
+          purchaserSnapshot: {
+            customerUserId: purchaserUserId,
+            mobile: '+8613980000099',
+            name: '代购验收用户',
+            email: 'proxy-buyer@example.com',
+            company: '',
+            title: '',
+            city: '',
+          },
+        })
+        .where(eq(orders.id, orderIds[2]!));
+
+      await expect(
+        invoices.readCustomerOrderInvoice(organizationId, customerUserId, orderIds[2]!),
+      ).rejects.toMatchObject({ status: 404 });
+      await expect(
+        invoices.readCustomerOrderInvoice(organizationId, purchaserUserId, orderIds[2]!),
+      ).resolves.toMatchObject({ orderId: orderIds[2] });
+      const orderNo = `INV-ORDER-3-${organizationId.slice(0, 8)}`;
+      await invoices.requestOrderAccessLink({
+        orderNo,
+        email: 'invoice-center@example.com',
+      });
+      expect(
+        await db
+          .select({ id: outboxEvents.id })
+          .from(outboxEvents)
+          .where(
+            and(
+              eq(outboxEvents.eventType, 'OrderAccessLinkRequested'),
+              eq(outboxEvents.eventId, eventIds[2]!),
+            ),
+          ),
+      ).toHaveLength(0);
+      await invoices.requestOrderAccessLink({
+        orderNo,
+        email: 'proxy-buyer@example.com',
+      });
+      const recoveryEvents = await db
+        .select({ payload: outboxEvents.payload })
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'OrderAccessLinkRequested'),
+            eq(outboxEvents.eventId, eventIds[2]!),
+          ),
+        );
+      expect(recoveryEvents).toHaveLength(1);
+      expect(recoveryEvents[0]?.payload).toMatchObject({
+        orderId: orderIds[2],
+        recipient: 'proxy-buyer@example.com',
+      });
+      await expect(account.registration(session, registrationIds[2]!)).resolves.toMatchObject({
+        canManageOrder: false,
+        orderId: null,
+        amount: null,
+        invoiceId: null,
+      });
+      await expect(account.purchasedOrders(purchaserSession)).resolves.toMatchObject({
+        items: [
+          expect.objectContaining({
+            id: orderIds[2],
+            attendeeName: '发票验收用户',
+            invoiceStatus: 'issued',
+          }),
+        ],
+      });
+      const purchaserInvoiceCenter = await account.invoices(purchaserSession, {
+        category: 'issued',
+        limit: 20,
+      });
+      expect(purchaserInvoiceCenter.items.map((item) => item.orderId)).toEqual([orderIds[2]]);
+
+      await expect(
+        account.adminDelete(organizationId, randomUUID(), purchaserPublicId),
+      ).resolves.toMatchObject({ deleted: true, detachedPurchaserOrders: 1 });
+      await expect(
+        invoices.readCustomerOrderInvoice(organizationId, customerUserId, orderIds[2]!),
+      ).rejects.toMatchObject({ status: 404 });
+      expect((await account.purchasedOrders(session)).items.map((item) => item.id)).not.toContain(
+        orderIds[2],
+      );
+      await expect(account.registration(session, registrationIds[2]!)).resolves.toMatchObject({
+        canManageOrder: false,
+        orderId: null,
+        amount: null,
+        invoiceId: null,
+      });
+      expect(
+        (await account.invoices(session, { category: 'issued', limit: 20 })).items.map(
+          (item) => item.orderId,
+        ),
+      ).not.toContain(orderIds[2]);
+
+      await db
+        .delete(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'OrderAccessLinkRequested'),
+            eq(outboxEvents.eventId, eventIds[2]!),
+          ),
+        );
+      await invoices.requestOrderAccessLink({
+        orderNo,
+        email: 'invoice-center@example.com',
+      });
+      expect(
+        await db
+          .select({ id: outboxEvents.id })
+          .from(outboxEvents)
+          .where(
+            and(
+              eq(outboxEvents.eventType, 'OrderAccessLinkRequested'),
+              eq(outboxEvents.eventId, eventIds[2]!),
+            ),
+          ),
+      ).toHaveLength(0);
+    } finally {
+      await db
+        .delete(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'OrderAccessLinkRequested'),
+            eq(outboxEvents.eventId, eventIds[2]!),
+          ),
+        );
+      await db
+        .update(orders)
+        .set({
+          purchaserCustomerUserId: null,
+          purchaserSnapshot: null,
+          purchaseIntentId: null,
+        })
+        .where(eq(orders.id, orderIds[2]!));
+      await db.delete(customerUsers).where(eq(customerUsers.id, purchaserUserId));
+    }
+  });
+
+  it('keeps purchase context on the active release until a newer release is activated', async () => {
+    const db = database.db!;
+    const eventSlug = `purchase-context-release-${randomUUID().slice(0, 8)}`;
+    const firstReleaseId = randomUUID();
+    const secondReleaseId = randomUUID();
+    const disabledReleaseId = randomUUID();
+    const [event] = await db
+      .insert(events)
+      .values({
+        organizationId,
+        slug: eventSlug,
+        name: '购票上下文发布快照验收大会',
+        shortName: '发布快照验收',
+        tagline: '验证草稿设置隔离',
+        description: '验证购票上下文只读取当前激活的发布版本。',
+        status: 'registration_open',
+        startsAt: new Date('2028-02-01T01:00:00.000Z'),
+        endsAt: new Date('2028-02-01T10:00:00.000Z'),
+        timezone: 'Asia/Shanghai',
+        venue: '深圳验收会场',
+        city: '深圳',
+        address: '深圳验收地址',
+        settings: {
+          currentReleaseId: firstReleaseId,
+          registration: {
+            paymentMode: 'ticketed',
+            currency: 'CNY',
+            registrationOpen: true,
+            accountMode: 'mobile_otp_required',
+            additionalPurchaseEnabled: true,
+            maxActiveSeatsPerPurchaser: 9,
+          },
+        },
+      })
+      .returning({ id: events.id });
+    await db.insert(eventReleases).values([
+      {
+        id: firstReleaseId,
+        eventId: event!.id,
+        version: 1,
+        templateKey: 'release-context-test',
+        snapshot: {
+          event: {
+            settings: {
+              registration: {
+                additionalPurchaseEnabled: false,
+                maxActiveSeatsPerPurchaser: 2,
+              },
+            },
+          },
+        },
+        artifactKey: `releases/${event!.id}/v1/index.json`,
+      },
+      {
+        id: secondReleaseId,
+        eventId: event!.id,
+        version: 2,
+        templateKey: 'release-context-test',
+        snapshot: {
+          event: {
+            settings: {
+              registration: {
+                additionalPurchaseEnabled: true,
+                maxActiveSeatsPerPurchaser: 7,
+              },
+            },
+          },
+        },
+        artifactKey: `releases/${event!.id}/v2/index.json`,
+      },
+      {
+        id: disabledReleaseId,
+        eventId: event!.id,
+        version: 3,
+        templateKey: 'release-context-test',
+        snapshot: {
+          event: {
+            settings: {
+              registration: {
+                registrationOpen: false,
+                additionalPurchaseEnabled: true,
+                maxActiveSeatsPerPurchaser: 7,
+              },
+            },
+          },
+        },
+        artifactKey: `releases/${event!.id}/v3/index.json`,
+      },
+    ]);
+    const historicalTicketTypeId = randomUUID();
+    const historicalRegistrations = Array.from({ length: 80 }, (_, index) => ({
+      id: randomUUID(),
+      organizationId,
+      eventId: event!.id,
+      ticketTypeId: historicalTicketTypeId,
+      customerUserId: null,
+      registrationCode: `CTX-HISTORY-${event!.id}-${index}`,
+      status: 'cancelled' as const,
+      attendee: {
+        name: `历史参会人 ${index}`,
+        mobile: `+86137${String(index).padStart(8, '0')}`,
+        email: `history-${index}@example.com`,
+        company: '',
+        title: '',
+        city: '深圳',
+      },
+      attendeeMobileE164: `+86137${String(index).padStart(8, '0')}`,
+      attendeeEmailNormalized: `history-${index}@example.com`,
+    }));
+    await db.insert(ticketTypes).values({
+      id: historicalTicketTypeId,
+      organizationId,
+      eventId: event!.id,
+      code: `CTX-HISTORY-${event!.id}`,
+      name: '历史订单测试票',
+      description: '验证大量历史订单聚合',
+      price: 0,
+      capacity: 100,
+    });
+    await db.insert(registrations).values(historicalRegistrations);
+    await db.insert(orders).values(
+      historicalRegistrations.map((registration, index) => ({
+        organizationId,
+        eventId: event!.id,
+        registrationId: registration.id,
+        purchaserCustomerUserId: session.customerUserId,
+        purchaseIntentId: randomUUID(),
+        orderNo: `CTX-HISTORY-${event!.id}-${index}`,
+        status: 'closed' as const,
+        amount: 0,
+        currency: 'CNY',
+        pricingSnapshot: {},
+        expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+      })),
+    );
+    try {
+      await expect(account.purchaseContext(session, event!.id)).resolves.toMatchObject({
+        additionalPurchaseEnabled: false,
+        maxActiveSeatsPerPurchaser: 2,
+      });
+      await db
+        .update(events)
+        .set({
+          settings: {
+            currentReleaseId: firstReleaseId,
+            registration: {
+              paymentMode: 'ticketed',
+              currency: 'CNY',
+              registrationOpen: true,
+              accountMode: 'mobile_otp_required',
+              additionalPurchaseEnabled: true,
+              maxActiveSeatsPerPurchaser: 12,
+            },
+          },
+        })
+        .where(eq(events.id, event!.id));
+      await expect(account.purchaseContext(session, event!.id)).resolves.toMatchObject({
+        additionalPurchaseEnabled: false,
+        maxActiveSeatsPerPurchaser: 2,
+      });
+      await db
+        .update(events)
+        .set({
+          settings: {
+            currentReleaseId: secondReleaseId,
+            registration: {
+              paymentMode: 'ticketed',
+              currency: 'CNY',
+              registrationOpen: true,
+              accountMode: 'mobile_otp_required',
+              additionalPurchaseEnabled: true,
+              maxActiveSeatsPerPurchaser: 12,
+            },
+          },
+        })
+        .where(eq(events.id, event!.id));
+      await expect(account.purchaseContext(session, event!.id)).resolves.toMatchObject({
+        additionalPurchaseEnabled: true,
+        maxActiveSeatsPerPurchaser: 7,
+        myPurchases: { paidCount: 0, pendingCount: 0, activeSeatCount: 0 },
+      });
+      await db.update(events).set({ status: 'ended' }).where(eq(events.id, event!.id));
+      const ended = await account.purchaseContext(session, event!.id);
+      expect(ended.canPurchaseAdditional).toBe(false);
+      expect(ended.recommendedActions).not.toEqual(
+        expect.arrayContaining(['buy_more', 'register_self']),
+      );
+      await db
+        .update(events)
+        .set({
+          status: 'registration_open',
+          settings: {
+            currentReleaseId: disabledReleaseId,
+            registration: {
+              paymentMode: 'ticketed',
+              currency: 'CNY',
+              registrationOpen: true,
+              accountMode: 'mobile_otp_required',
+              additionalPurchaseEnabled: true,
+              maxActiveSeatsPerPurchaser: 12,
+            },
+          },
+        })
+        .where(eq(events.id, event!.id));
+      const disabled = await account.purchaseContext(session, event!.id);
+      expect(disabled.canPurchaseAdditional).toBe(false);
+      expect(disabled.recommendedActions).not.toEqual(
+        expect.arrayContaining(['buy_more', 'register_self']),
+      );
+      await db
+        .update(events)
+        .set({
+          settings: {
+            registration: {
+              paymentMode: 'ticketed',
+              currency: 'CNY',
+              registrationOpen: true,
+              accountMode: 'mobile_otp_required',
+              additionalPurchaseEnabled: true,
+              maxActiveSeatsPerPurchaser: 12,
+            },
+          },
+        })
+        .where(eq(events.id, event!.id));
+      const withoutRelease = await account.purchaseContext(session, event!.id);
+      expect(withoutRelease.canPurchaseAdditional).toBe(false);
+      expect(withoutRelease.recommendedActions).not.toEqual(
+        expect.arrayContaining(['buy_more', 'register_self']),
+      );
+    } finally {
+      await db.delete(events).where(eq(events.id, event!.id));
+    }
+  });
+
+  it('lists proxy purchases, rotates attendee details, and consumes a claim only once', async () => {
+    const db = database.db!;
+    const purchaserUserId = randomUUID();
+    const attendeeUserId = randomUUID();
+    const proxyReleaseId = randomUUID();
+    const proxyEventSlug = `proxy-account-${randomUUID().slice(0, 8)}`;
+    await db.insert(customerUsers).values([
+      {
+        id: purchaserUserId,
+        organizationId,
+        mobileE164: '+8613980000088',
+        lastLoginAt: new Date(),
+      },
+      {
+        id: attendeeUserId,
+        organizationId,
+        mobileE164: '+8613980000077',
+        lastLoginAt: new Date(),
+      },
+    ]);
+    await db.insert(customerProfiles).values([
+      { customerUserId: purchaserUserId, realName: '多名额购票人' },
+      { customerUserId: attendeeUserId, realName: '待认领参会人' },
+    ]);
+    const [proxyEvent] = await db
+      .insert(events)
+      .values({
+        organizationId,
+        slug: proxyEventSlug,
+        name: '多名额账户验收大会',
+        shortName: '多名额验收',
+        tagline: '账户认领验收',
+        description: '验证购票人与参会人权限隔离。',
+        status: 'registration_open',
+        startsAt: new Date('2028-01-01T01:00:00.000Z'),
+        endsAt: new Date('2028-01-01T10:00:00.000Z'),
+        timezone: 'Asia/Shanghai',
+        venue: '深圳验收会场',
+        city: '深圳',
+        address: '深圳验收地址',
+        settings: {
+          currentReleaseId: proxyReleaseId,
+          registration: {
+            paymentMode: 'ticketed',
+            currency: 'CNY',
+            registrationOpen: true,
+            accountMode: 'mobile_otp_required',
+            additionalPurchaseEnabled: true,
+            maxActiveSeatsPerPurchaser: 5,
+          },
+        },
+      })
+      .returning({ id: events.id });
+    await db.insert(eventReleases).values({
+      id: proxyReleaseId,
+      eventId: proxyEvent!.id,
+      version: 1,
+      templateKey: 'proxy-account-test',
+      snapshot: {
+        event: {
+          settings: {
+            registration: {
+              paymentMode: 'ticketed',
+              currency: 'CNY',
+              registrationOpen: true,
+              accountMode: 'mobile_otp_required',
+              additionalPurchaseEnabled: true,
+              maxActiveSeatsPerPurchaser: 5,
+            },
+          },
+        },
+      },
+      artifactKey: `releases/${proxyEvent!.id}/v1/index.json`,
+    });
+    const proxyTicketTypeId = randomUUID();
+    const proxyRegistrationId = randomUUID();
+    const proxyOrderId = randomUUID();
+    const rawClaimToken = `proxy-claim-${randomUUID()}-secret`;
+    await db.insert(ticketTypes).values({
+      id: proxyTicketTypeId,
+      organizationId,
+      eventId: proxyEvent!.id,
+      code: `PROXY-${proxyEvent!.id}`,
+      name: '代购验收票',
+      description: '代购验收',
+      price: 39900,
+      capacity: 10,
+    });
+    await db.insert(registrations).values({
+      id: proxyRegistrationId,
+      organizationId,
+      eventId: proxyEvent!.id,
+      ticketTypeId: proxyTicketTypeId,
+      customerUserId: null,
+      registrationCode: `PROXY-${proxyRegistrationId.slice(0, 8)}`,
+      status: 'confirmed',
+      attendee: {
+        name: '原参会人',
+        mobile: '+8613980000066',
+        email: 'original-attendee@example.com',
+        company: '',
+        title: '',
+        city: '深圳',
+      },
+      attendeeMobileE164: '+8613980000066',
+      attendeeEmailNormalized: 'original-attendee@example.com',
+    });
+    await db.insert(orders).values({
+      id: proxyOrderId,
+      organizationId,
+      eventId: proxyEvent!.id,
+      registrationId: proxyRegistrationId,
+      purchaserCustomerUserId: purchaserUserId,
+      purchaseIntentId: randomUUID(),
+      purchaserSnapshot: {
+        customerUserId: purchaserUserId,
+        mobile: '+8613980000088',
+        name: '多名额购票人',
+        email: 'proxy-purchaser@example.com',
+        company: '',
+        title: '',
+        city: '',
+      },
+      orderNo: `PROXY-${proxyOrderId.slice(0, 8)}`,
+      status: 'paid',
+      amount: 39900,
+      currency: 'CNY',
+      pricingSnapshot: {},
+      expiresAt: new Date('2028-01-01T00:00:00.000Z'),
+    });
+    await db.insert(payments).values({
+      orderId: proxyOrderId,
+      provider: 'proxy-test',
+      externalId: `proxy-payment-${proxyOrderId}`,
+      status: 'succeeded',
+      amount: 39900,
+      currency: 'CNY',
+      succeededAt: new Date(),
+    });
+    await db.insert(tickets).values({
+      eventId: proxyEvent!.id,
+      registrationId: proxyRegistrationId,
+      ticketTypeId: proxyTicketTypeId,
+      code: `TOK-T-${randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`,
+    });
+    await db.insert(invoiceRequests).values({
+      requestNo: `PROXY-INV-${proxyOrderId.slice(0, 8)}`,
+      organizationId,
+      eventId: proxyEvent!.id,
+      orderId: proxyOrderId,
+      registrationId: proxyRegistrationId,
+      buyerType: 'company',
+      title: '代购发票公司',
+      taxId: '911100001234567801',
+      email: 'proxy-purchaser@example.com',
+      mobile: '+8613980000088',
+      content: '会务费',
+      amount: 39900,
+      netPaidAmount: 39900,
+      currency: 'CNY',
+      status: 'issued',
+    });
+    await db.insert(attendeeClaimTokens).values({
+      registrationId: proxyRegistrationId,
+      tokenHash: createHash('sha256').update(rawClaimToken).digest('hex'),
+      mobileDigest: createHash('sha256').update('+8613980000066').digest('hex'),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+    });
+    const purchaserPublicId = await publicIdFor(database, 'customer', purchaserUserId);
+    const attendeePublicId = await publicIdFor(database, 'customer', attendeeUserId);
+    const purchaserSession = {
+      ...session,
+      customerUserId: purchaserUserId,
+      customer: (await account.adminDetail(organizationId, purchaserPublicId)).customer,
+    };
+    const attendeeSession = {
+      ...session,
+      customerUserId: attendeeUserId,
+      customer: (await account.adminDetail(organizationId, attendeePublicId)).customer,
+    };
+    try {
+      await expect(account.purchaseContext(purchaserSession, proxyEvent!.id)).resolves.toMatchObject({
+        myAttendance: null,
+        myPurchases: { paidCount: 1, pendingCount: 0, activeSeatCount: 1 },
+        canPurchaseAdditional: true,
+        recommendedActions: expect.arrayContaining(['buy_more', 'register_self']),
+      });
+      await expect(account.purchasedOrders(purchaserSession)).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: proxyOrderId, paymentStatus: 'succeeded' })],
+      });
+      await expect(account.purchasedOrders(attendeeSession)).resolves.toMatchObject({ items: [] });
+      await expect(
+        account.claimAttendee(attendeeSession, {
+          registrationId: proxyRegistrationId,
+          claimToken: rawClaimToken,
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+
+      await account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+        name: '原参会人',
+      });
+      await account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+        company: '仅更新公司名称',
+      });
+      expect(
+        await db
+          .select({ id: outboxEvents.id })
+          .from(outboxEvents)
+          .where(
+            and(
+              eq(outboxEvents.eventType, 'AttendeeClaimInvitationRequested'),
+              eq(outboxEvents.eventId, proxyEvent!.id),
+            ),
+          ),
+      ).toHaveLength(0);
+      await account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+        name: '待认领参会人',
+        mobile: '13980000077',
+        email: 'claimed-attendee@example.com',
+      });
+      const [invitation] = await db
+        .select({ payload: outboxEvents.payload })
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'AttendeeClaimInvitationRequested'),
+            eq(outboxEvents.eventId, proxyEvent!.id),
+          ),
+        )
+        .orderBy(sql`${outboxEvents.occurredAt} desc`)
+        .limit(1);
+      expect(invitation?.payload).not.toHaveProperty('attendeeClaimToken');
+      const rotatedClaimToken = openSecret(
+        String(invitation?.payload.sealedAttendeeClaimToken),
+        process.env.NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET ??
+          process.env.JWT_SECRET ??
+          'conference-notification-payload-development-secret',
+      );
+      const activeClaimTokensBeforeCooldown = await db
+        .select({ id: attendeeClaimTokens.id })
+        .from(attendeeClaimTokens)
+        .where(
+          and(
+            eq(attendeeClaimTokens.registrationId, proxyRegistrationId),
+            isNull(attendeeClaimTokens.consumedAt),
+            isNull(attendeeClaimTokens.revokedAt),
+          ),
+        );
+      const invitationsBeforeCooldown = await db
+        .select({ id: outboxEvents.id })
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'AttendeeClaimInvitationRequested'),
+            eq(outboxEvents.eventId, proxyEvent!.id),
+          ),
+        );
+      await expect(
+        account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+          email: 'second-contact@example.com',
+        }),
+      ).rejects.toMatchObject({ status: 429 });
+      await expect(
+        account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+          title: '冷却期内职位更新',
+        }),
+      ).resolves.toMatchObject({ id: proxyOrderId });
+      const [updatedAttendee] = await db
+        .select({ attendee: registrations.attendee })
+        .from(registrations)
+        .where(eq(registrations.id, proxyRegistrationId))
+        .limit(1);
+      expect(updatedAttendee?.attendee.title).toBe('冷却期内职位更新');
+      const activeClaimTokensAfterCooldown = await db
+        .select({ id: attendeeClaimTokens.id })
+        .from(attendeeClaimTokens)
+        .where(
+          and(
+            eq(attendeeClaimTokens.registrationId, proxyRegistrationId),
+            isNull(attendeeClaimTokens.consumedAt),
+            isNull(attendeeClaimTokens.revokedAt),
+          ),
+        );
+      const invitationsAfterCooldown = await db
+        .select({ id: outboxEvents.id })
+        .from(outboxEvents)
+        .where(
+          and(
+            eq(outboxEvents.eventType, 'AttendeeClaimInvitationRequested'),
+            eq(outboxEvents.eventId, proxyEvent!.id),
+          ),
+        );
+      expect(activeClaimTokensAfterCooldown).toEqual(activeClaimTokensBeforeCooldown);
+      expect(invitationsAfterCooldown).toEqual(invitationsBeforeCooldown);
+      await expect(
+        account.claimAttendee(attendeeSession, {
+          registrationId: proxyRegistrationId,
+          claimToken: rawClaimToken,
+        }),
+      ).rejects.toMatchObject({ status: 401 });
+      await expect(
+        account.claimAttendee(
+          { ...attendeeSession, organizationId: randomUUID() },
+          { registrationId: proxyRegistrationId, claimToken: rotatedClaimToken },
+        ),
+      ).rejects.toMatchObject({ status: 401 });
+      await expect(
+        account.claimAttendee(attendeeSession, {
+          registrationId: proxyRegistrationId,
+          claimToken: rotatedClaimToken,
+        }),
+      ).resolves.toMatchObject({
+        claimed: true,
+        registration: { canManageOrder: false, orderId: null, amount: null },
+      });
+      await expect(account.adminDetail(organizationId, purchaserPublicId)).resolves.toMatchObject({
+        invoices: [expect.objectContaining({ title: '代购发票公司' })],
+      });
+      await expect(account.adminDetail(organizationId, attendeePublicId)).resolves.toMatchObject({
+        invoices: [],
+      });
+      await expect(
+        account.adminList(organizationId, { q: String(purchaserPublicId), page: 1 }),
+      ).resolves.toMatchObject({ items: [expect.objectContaining({ invoiceCount: 1 })] });
+      await expect(
+        account.adminList(organizationId, { q: String(attendeePublicId), page: 1 }),
+      ).resolves.toMatchObject({ items: [expect.objectContaining({ invoiceCount: 0 })] });
+      await expect(
+        account.claimAttendee(attendeeSession, {
+          registrationId: proxyRegistrationId,
+          claimToken: rotatedClaimToken,
+        }),
+      ).rejects.toMatchObject({ status: 401 });
+      await expect(
+        account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, { name: '再次修改' }),
+      ).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await db.delete(outboxEvents).where(eq(outboxEvents.eventId, proxyEvent!.id));
+      await db.delete(auditLogs).where(eq(auditLogs.eventId, proxyEvent!.id));
+      await db.delete(events).where(eq(events.id, proxyEvent!.id));
+      await db.delete(customerUsers).where(inArray(customerUsers.id, [purchaserUserId, attendeeUserId]));
+    }
   });
 
   it('isolates administrator invoice reads by conference inside one organization', async () => {
@@ -755,12 +1584,9 @@ describePersistent('customer invoice center', () => {
       customerUserId,
       awaiting.orderId,
       {
-        buyerType: 'company',
-        title: '发票验收公司',
+        companyName: '发票验收公司',
         taxId: '911100001234567801',
         email: 'invoice-center@example.com',
-        mobile: '13980000021',
-        content: '会务费',
         expectedUpdatedAt: awaiting.updatedAt,
       },
     );
@@ -770,12 +1596,9 @@ describePersistent('customer invoice center', () => {
 
     await expect(
       invoices.updateCustomerOrderInvoice(organizationId, customerUserId, awaiting.orderId, {
-        buyerType: 'company',
-        title: '旧页面提交的公司名称',
+        companyName: '旧页面提交的公司名称',
         taxId: '911100001234567801',
         email: 'invoice-center@example.com',
-        mobile: '13980000021',
-        content: '会务费',
         expectedUpdatedAt: awaiting.updatedAt,
       }),
     ).rejects.toMatchObject({ status: 409 });
@@ -789,12 +1612,9 @@ describePersistent('customer invoice center', () => {
       customerUserId,
       awaiting.orderId,
       {
-        buyerType: 'company',
-        title: '发票验收公司最新名称',
+        companyName: '发票验收公司最新名称',
         taxId: '911100001234567801',
         email: 'invoice-center@example.com',
-        mobile: '13980000021',
-        content: '会务费',
         expectedUpdatedAt: submitted.updatedAt,
       },
     );
@@ -823,6 +1643,7 @@ describePersistent('customer invoice center', () => {
       orderIds[2]!,
     );
     const document = before.documents[0]!;
+    const originalDownload = new URL(document.downloadUrl!, 'http://customer.test');
     const previousStorage = {
       endpoint: process.env.S3_ENDPOINT,
       publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
@@ -875,6 +1696,14 @@ describePersistent('customer invoice center', () => {
         contentDigest: replacementDigest,
         downloadUrl: expect.stringContaining(`/invoice-documents/${document.id}/download`),
       });
+      await expect(
+        invoices.resolveInvoiceDownload(
+          orderIds[2]!,
+          document.id,
+          Number(originalDownload.searchParams.get('expires')),
+          originalDownload.searchParams.get('signature')!,
+        ),
+      ).rejects.toMatchObject({ status: 401 });
       const replacementDownload = new URL(
         customerAfterReplace.documents[0]!.downloadUrl!,
         'http://customer.test',
@@ -958,11 +1787,23 @@ describePersistent('customer invoice center', () => {
       expect(customerAfterRestore.documents[0]?.downloadUrl).toContain(
         `/invoice-documents/${document.id}/download`,
       );
+      await expect(
+        invoices.resolveInvoiceDownload(
+          orderIds[2]!,
+          document.id,
+          replacementExpires,
+          replacementSignature,
+        ),
+      ).rejects.toMatchObject({ status: 401 });
+      const restoreDownload = new URL(
+        customerAfterRestore.documents[0]!.downloadUrl!,
+        'http://customer.test',
+      );
       const resolvedRestore = await invoices.resolveInvoiceDownload(
         orderIds[2]!,
         document.id,
-        replacementExpires,
-        replacementSignature,
+        Number(restoreDownload.searchParams.get('expires')),
+        restoreDownload.searchParams.get('signature')!,
       );
       expect(decodeURIComponent(new URL(resolvedRestore).pathname)).toContain(
         '/replacement-two.pdf',
@@ -1007,8 +1848,24 @@ describePersistent('customer invoice center', () => {
           eq(outboxEvents.organizationId, organizationId),
           eq(outboxEvents.eventType, 'InvoiceDeliveryRequested'),
         ),
-      );
+    );
     expect(eventsCount?.value).toBe(1);
+    const [deliveryEvent] = await database
+      .db!.select({ payload: outboxEvents.payload })
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.organizationId, organizationId),
+          eq(outboxEvents.eventType, 'InvoiceDeliveryRequested'),
+        ),
+      )
+      .limit(1);
+    expect(deliveryEvent?.payload).toMatchObject({
+      documentId: beforeSend.documents[0]!.id,
+      storageKey: expect.any(String),
+      contentDigest: beforeSend.documents[0]!.contentDigest,
+      issuedAt: expect.stringMatching(/Z$/),
+    });
     await expect(
       invoices.voidDocument(
         organizationId,

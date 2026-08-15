@@ -35,7 +35,8 @@ import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 
 export const CUSTOMER_SESSION_COOKIE = 'conference_customer_session';
-const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60_000;
+export const CUSTOMER_SESSION_LIFETIME_SECONDS = 400 * 24 * 60 * 60;
+const SESSION_LIFETIME_MS = CUSTOMER_SESSION_LIFETIME_SECONDS * 1_000;
 const OTP_LIFETIME_MS = 5 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 const FAKE_OTP_CODE = '123456';

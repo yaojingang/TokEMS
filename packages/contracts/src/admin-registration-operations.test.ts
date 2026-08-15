@@ -33,6 +33,9 @@ const registration = {
   invoiceRequired: true,
   marketingConsent: false,
   consentSnapshot: {},
+  purchaserName: '购票人林一',
+  purchaserMobile: '13900139000',
+  isProxyPurchase: true,
 };
 
 describe('AdminRegistrationOperationsDetailSchema', () => {
@@ -107,6 +110,12 @@ describe('AdminRegistrationOperationsDetailSchema', () => {
     });
 
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.registration).toMatchObject({
+        purchaserName: '购票人林一',
+        isProxyPurchase: true,
+      });
+    }
   });
 
   it('rejects commerce or invoice payloads hidden inside restricted contexts', () => {

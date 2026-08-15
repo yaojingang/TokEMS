@@ -295,6 +295,55 @@
       "when": 1785772920280,
       "tag": "0041_needy_the_liberteens",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786759067853,
+      "tag": "0042_registration_identity_support",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786759090902,
+      "tag": "0043_enforce_registration_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786760342194,
+      "tag": "0044_brief_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786764414181,
+      "tag": "0045_chubby_bloodscream",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786765744665,
+      "tag": "0046_tricky_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786781240039,
+      "tag": "0047_multi_purchase_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786782752422,
+      "tag": "0048_registration_purchase_attempts",
+      "breakpoints": true
     }
   ]
 }

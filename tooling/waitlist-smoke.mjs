@@ -3,6 +3,7 @@ import { hash } from '../apps/api/node_modules/bcryptjs/index.js';
 import { createDatabase, memberships, users } from '../packages/database/dist/index.js';
 import { DEMO_IDS } from '../packages/contracts/dist/index.js';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
+import { createCustomerSession } from './lib/customer-session.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const databaseUrl =
@@ -11,6 +12,7 @@ const notificationSinkUrl = process.env.NOTIFICATION_SINK_URL ?? 'http://localho
 const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const mobileSuffix = String(Date.now()).slice(-8);
 const testEventIds = [];
 
 function assert(condition, message) {
@@ -105,7 +107,7 @@ try {
           paymentMode: 'ticketed',
           currency: 'CNY',
           registrationOpen: true,
-          accountMode: 'guest_allowed',
+          accountMode: 'mobile_otp_required',
         },
       },
     }),
@@ -142,7 +144,7 @@ try {
     ticketTypeId: ticket.id,
     attendee: {
       name: '候补占位参会人',
-      mobile: '13800138001',
+      mobile: `138${mobileSuffix}`,
       email: `waitlist-holder-${runId}@example.com`,
       company: '候补闭环实验室',
       title: '首席验收官',
@@ -151,17 +153,28 @@ try {
     invoiceRequired: false,
     marketingConsent: true,
     termsAccepted: true,
+    purchaseFor: 'self',
+    purchaseIntentId: randomUUID(),
     formVersion: publishedForm.version,
     termsVersion: publishedForm.termsVersion,
   };
+  const holderSession = await createCustomerSession({
+    apiBase: baseUrl,
+    mobile: firstPayload.attendee.mobile,
+    organizationSlug: publicOrganizationSlug,
+  });
+  const holderHeaders = {
+    'Idempotency-Key': `waitlist-holder-${runId}`,
+    ...holderSession.headers,
+  };
   const firstCheckout = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-holder-${runId}` },
+    headers: holderHeaders,
     body: JSON.stringify(firstPayload),
   });
   const repeatedCheckout = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-holder-${runId}` },
+    headers: holderHeaders,
     body: JSON.stringify(firstPayload),
   });
   assert(
@@ -206,7 +219,7 @@ try {
   );
 
   const waitlistEmail = `waitlist-candidate-${runId}@example.com`;
-  const waitlistMobile = '13800138002';
+  const waitlistMobile = `139${mobileSuffix}`;
   const waitlistInput = {
     eventId,
     ticketTypeId: ticket.id,
@@ -214,14 +227,25 @@ try {
     email: waitlistEmail,
     mobile: waitlistMobile,
   };
+  const candidateSession = await createCustomerSession({
+    apiBase: baseUrl,
+    mobile: waitlistMobile,
+    organizationSlug: publicOrganizationSlug,
+  });
   const entry = await request('/waitlist', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-join-${runId}` },
+    headers: {
+      'Idempotency-Key': `waitlist-join-${runId}`,
+      ...candidateSession.headers,
+    },
     body: JSON.stringify(waitlistInput),
   });
   const repeatedEntry = await request('/waitlist', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-join-retry-${runId}` },
+    headers: {
+      'Idempotency-Key': `waitlist-join-retry-${runId}`,
+      ...candidateSession.headers,
+    },
     body: JSON.stringify(waitlistInput),
   });
   assert(
@@ -230,7 +254,10 @@ try {
   );
   const emailOnlyRetry = await request('/waitlist', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-email-retry-${runId}` },
+    headers: {
+      'Idempotency-Key': `waitlist-email-retry-${runId}`,
+      ...candidateSession.headers,
+    },
     body: JSON.stringify({
       eventId,
       ticketTypeId: ticket.id,
@@ -239,20 +266,30 @@ try {
     }),
   });
   assert(
-    emailOnlyRetry.id === entry.id && emailOnlyRetry.mobile === '',
-    'Email-only waitlist retry exposed a stored mobile number',
+    emailOnlyRetry.id === entry.id && emailOnlyRetry.mobile === `+86${waitlistMobile}`,
+    'Authenticated waitlist retry did not preserve the owner contact',
+  );
+  const spoofedMobileRetry = await request('/waitlist', {
+    method: 'POST',
+    headers: {
+      'Idempotency-Key': `waitlist-email-conflict-${runId}`,
+      ...candidateSession.headers,
+    },
+    body: JSON.stringify({
+      ...waitlistInput,
+      mobile: `137${mobileSuffix}`,
+    }),
+  });
+  assert(
+    spoofedMobileRetry.id === entry.id && spoofedMobileRetry.mobile === `+86${waitlistMobile}`,
+    'Authenticated waitlist retry accepted an unverified mobile',
   );
   await expectStatus('/waitlist', 409, {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-email-conflict-${runId}` },
-    body: JSON.stringify({
-      ...waitlistInput,
-      mobile: '13800138003',
-    }),
-  });
-  await expectStatus('/waitlist', 409, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-mobile-conflict-${runId}` },
+    headers: {
+      'Idempotency-Key': `waitlist-mobile-conflict-${runId}`,
+      ...candidateSession.headers,
+    },
     body: JSON.stringify({
       ...waitlistInput,
       email: `waitlist-conflict-${runId}@example.com`,
@@ -299,16 +336,22 @@ try {
 
   const invitedPayload = {
     ...firstPayload,
+    purchaseIntentId: randomUUID(),
     attendee: {
       ...firstPayload.attendee,
       name: '候补申请人',
+      mobile: waitlistMobile,
       email: waitlistEmail,
     },
     waitlistOfferToken: offerToken,
   };
+  const invitedHeaders = {
+    'Idempotency-Key': `waitlist-claim-${runId}`,
+    ...candidateSession.headers,
+  };
   const invitedCheckout = await request('/registrations', {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-claim-${runId}` },
+    headers: invitedHeaders,
     body: JSON.stringify(invitedPayload),
   });
   assert(
@@ -317,7 +360,10 @@ try {
   );
   await expectStatus('/registrations', 409, {
     method: 'POST',
-    headers: { 'Idempotency-Key': `waitlist-token-replay-${runId}` },
+    headers: {
+      ...candidateSession.headers,
+      'Idempotency-Key': `waitlist-token-replay-${runId}`,
+    },
     body: JSON.stringify({
       ...invitedPayload,
       attendee: { ...invitedPayload.attendee, name: '候补令牌重放者' },

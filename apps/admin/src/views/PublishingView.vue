@@ -15,6 +15,8 @@ import { dateTime } from '../lib/format';
 
 type EditableSiteSurface = Extract<TemplateSurface, 'home' | 'faq'>;
 
+defineProps<{ embedded?: boolean }>();
+
 const binding = ref<EventTemplateBinding>();
 const experience = ref<EventExperience>();
 const options = ref<ConferenceTemplateOption[]>([]);
@@ -36,7 +38,7 @@ const canSaveAsTemplate = session.canAll([
 ]);
 const saveAsForm = reactive({
   name: '',
-  description: '从大会官网设置提取的可复用模板',
+  description: '从大会公开页面设置提取的可复用模板',
   tags: '',
   includeContent: false,
 });
@@ -100,7 +102,7 @@ async function load() {
     replacementVersionId.value =
       loadedBinding.currentPublishedVersionId ?? loadedBinding.templateVersionId;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '大会官网设置读取失败';
+    errorMessage.value = error instanceof Error ? error.message : '大会公开页面设置读取失败';
   } finally {
     loading.value = false;
   }
@@ -190,7 +192,7 @@ async function saveSurface(surface: EditableSiteSurface) {
     hydrateExperience(updated, [surface]);
     message.value = savedMessage(surface === 'home' ? '首页设置已保存' : 'FAQ 设置已保存');
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '大会官网设置保存失败';
+    errorMessage.value = error instanceof Error ? error.message : '大会公开页面设置保存失败';
   } finally {
     pending.value = false;
   }
@@ -243,10 +245,10 @@ onMounted(() => void load());
 </script>
 
 <template>
-  <header class="admin-page-head reveal is-visible">
+  <header v-if="!embedded" class="admin-page-head reveal is-visible">
     <div>
       <p class="eyebrow">EVENT WEBSITE</p>
-      <h1>大会官网设置</h1>
+      <h1>大会公开页面设置</h1>
       <p>页面模板、首页与常见问题在同一页维护，保存后直接应用到当前大会。</p>
     </div>
     <a class="button secondary" :href="publicEventUrl()" target="_blank" rel="noopener noreferrer">
@@ -254,7 +256,7 @@ onMounted(() => void load());
     </a>
   </header>
   <SaveStatus :message="message" :error="errorMessage" />
-  <div v-if="loading" class="admin-loading">正在读取大会官网设置…</div>
+  <div v-if="loading" class="admin-loading">正在读取大会公开页面设置…</div>
 
   <div v-else-if="binding && experience" class="settings-section-stack">
     <section class="admin-panel event-template-binding-panel">

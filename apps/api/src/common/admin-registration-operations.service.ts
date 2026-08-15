@@ -21,7 +21,7 @@ import {
   users,
 } from '@conference/database';
 import { normalizeMainlandMobile } from '@conference/security';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { grantAllows, grantsAllowAll } from './auth.guard.js';
 import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
@@ -155,7 +155,7 @@ export class AdminRegistrationOperationsService {
           amount: payment.amount,
           currency: payment.currency,
           preparedAt: payment.preparedAt?.toISOString() ?? null,
-          succeededAt: null,
+          succeededAt: payment.succeededAt?.toISOString() ?? null,
           closedAt: payment.closedAt?.toISOString() ?? null,
           lastQueriedAt: payment.lastQueriedAt?.toISOString() ?? null,
           createdAt: payment.createdAt.toISOString(),
@@ -318,7 +318,7 @@ export class AdminRegistrationOperationsService {
             eq(registrations.eventId, eventId),
             eq(registrations.attendeeMobileE164, attendee.mobile),
             ne(registrations.id, registrationId),
-            ne(registrations.status, 'cancelled'),
+            isNull(registrations.supersededAt),
           ),
         )
         .limit(1);
@@ -342,6 +342,7 @@ export class AdminRegistrationOperationsService {
             eq(registrations.id, registrationId),
             eq(registrations.eventId, eventId),
             eq(registrations.organizationId, organizationId),
+            isNull(registrations.supersededAt),
           ),
         );
       await tx.insert(auditLogs).values({

@@ -256,23 +256,10 @@ async function openCreateForm() {
   errorMessage.value = '';
   preparingForm.value = true;
   try {
-    const [templateOptions, organization] = await Promise.all([
-      conferenceApi.getTemplateOptions(),
-      session.canAny(['org.settings.read', 'org.member.manage'])
-        ? conferenceApi.getOrganizationSettings()
-        : Promise.resolve(undefined),
-    ]);
+    const templateOptions = await conferenceApi.getTemplateOptions();
     templates.value = templateOptions;
-    if (organization) {
-      form.timezone = organization.settings.defaultTimezone;
-      const preferred = templateOptions.find(
-        (item) => item.id === organization.settings.defaultTemplateId,
-      );
-      form.templateVersionId =
-        preferred?.currentPublishedVersionId ?? templateOptions[0]?.currentPublishedVersionId ?? '';
-    } else {
-      form.templateVersionId = templateOptions[0]?.currentPublishedVersionId ?? '';
-    }
+    form.timezone = 'Asia/Shanghai';
+    form.templateVersionId = templateOptions[0]?.currentPublishedVersionId ?? '';
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '创建大会配置读取失败';
   } finally {
@@ -488,7 +475,7 @@ onMounted(() => void load());
                 v-if="session.can('event.site.read')"
                 class="button secondary compact event-template-action"
                 type="button"
-                @click="activate(item, 'event-settings-site')"
+                @click="activate(item, 'event-settings-general')"
               >
                 设置模板
               </button>

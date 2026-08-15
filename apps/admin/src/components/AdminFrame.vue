@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
             <span class="admin-account-avatar" aria-hidden="true">{{ accountInitial }}</span>
             <span>
               <strong>{{ session.user.value?.name ?? '大会运营管理员' }}</strong>
-              <small>{{ session.user.value?.email }}</small>
+              <small>{{ session.user.value?.username ?? session.user.value?.email }}</small>
               <em>{{ accountRole }}</em>
             </span>
           </div>

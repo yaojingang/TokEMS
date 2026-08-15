@@ -11,6 +11,8 @@ import {
   type CustomerUpdateInvoice,
   type EventId,
   type InvoiceBuyer,
+  type InvoiceBatchPreflight,
+  type InvoiceBatchPreflightResult,
   type InvoiceAction,
   type InvoiceListQuery,
   type InvoiceRequest,
@@ -30,6 +32,7 @@ import {
   orderAccessTokens,
   orders,
   outboxEvents,
+  payments,
   refunds,
   registrations,
   users,
@@ -42,6 +45,8 @@ import {
   eq,
   gte,
   ilike,
+  inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -52,6 +57,11 @@ import {
 } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
 import { customerInvoicePaymentEligibility } from './customer-invoice-policy.js';
+import { customerPurchaserScopeSql } from './customer-order-ownership.js';
+import {
+  invoiceDownloadIdentity,
+  type InvoiceDownloadDocumentIdentity,
+} from './invoice-download-identity.js';
 import { DomainError } from './domain-error.js';
 import { matchesDeclaredMediaType, readUploadWithinLimit } from './object-storage-verification.js';
 
@@ -62,6 +72,20 @@ type StoredInvoiceDocumentInput = Pick<
   'storageKey' | 'mediaType' | 'size' | 'contentDigest'
 >;
 type ReplaceInvoiceDocumentFileInput = StoredInvoiceDocumentInput & InvoiceAction;
+
+export function invoiceDocumentNotificationIdentity(document: {
+  id: string;
+  storageKey: string;
+  contentDigest: string;
+  issuedAt: Date;
+}) {
+  return {
+    documentId: document.id,
+    storageKey: document.storageKey,
+    contentDigest: document.contentDigest,
+    issuedAt: document.issuedAt.toISOString(),
+  };
+}
 
 const INVOICE_TRANSITIONS: Record<InvoiceRequestStatus, InvoiceRequestStatus[]> = {
   awaiting_details: ['pending_review', 'cancelled'],
@@ -153,27 +177,65 @@ function csvCell(value: unknown) {
   return /[",\r\n]/.test(guarded) ? `"${guarded.replaceAll('"', '""')}"` : guarded;
 }
 
-export function buildInvoiceExportCsv(
-  rows: Array<{
-    requestNo: string;
-    eventName: string;
-    orderNo: string;
-    title: string | null;
-    amount: number;
-    status: string;
-    requestedAt: string;
-  }>,
-) {
+export interface InvoiceExportRow {
+  requestNo: string;
+  registrationCode: string;
+  eventName: string;
+  attendeeName: string;
+  mobile: string | null;
+  title: string | null;
+  taxId: string | null;
+  email: string | null;
+  paymentStatus: string;
+  paidAmount: number;
+  refundedAmount: number;
+  invoiceAmount: number;
+  currency: string;
+  invoiceStatus: string;
+  invoiceNumber: string;
+  invoiceCode: string;
+  uploadFile: string;
+}
+
+export function buildInvoiceExportCsv(rows: InvoiceExportRow[]) {
   return [
-    ['申请单号', '大会', '订单号', '发票抬头', '金额', '状态', '申请时间'],
+    [
+      'request_no',
+      'registration_code',
+      'event_name',
+      'attendee_name',
+      'mobile',
+      'company_name',
+      'tax_id',
+      'email',
+      'payment_status',
+      'paid_amount',
+      'refunded_amount',
+      'invoice_amount',
+      'currency',
+      'invoice_status',
+      'invoice_number',
+      'invoice_code',
+      'upload_file',
+    ],
     ...rows.map((row) => [
       row.requestNo,
+      row.registrationCode,
       row.eventName,
-      row.orderNo,
+      row.attendeeName,
+      row.mobile,
       row.title,
-      row.amount,
-      row.status,
-      row.requestedAt,
+      row.taxId,
+      row.email,
+      row.paymentStatus,
+      row.paidAmount,
+      row.refundedAmount,
+      row.invoiceAmount,
+      row.currency,
+      row.invoiceStatus,
+      row.invoiceNumber,
+      row.invoiceCode,
+      row.uploadFile,
     ]),
   ]
     .map((row) => row.map(csvCell).join(','))
@@ -199,6 +261,10 @@ export class InvoiceOperationsService {
       );
     }
     return this.database.db;
+  }
+
+  private customerPurchaserScope(customerUserId: string) {
+    return customerPurchaserScopeSql(customerUserId);
   }
 
   private async scopedRequest(organizationId: string, invoiceId: string, eventId?: EventId) {
@@ -268,12 +334,18 @@ export class InvoiceOperationsService {
     return token;
   }
 
-  private downloadSignature(orderId: string, documentId: string, expires: number) {
+  private downloadSignature(
+    orderId: string,
+    document: InvoiceDownloadDocumentIdentity,
+    expires: number,
+  ) {
     const secret =
       process.env.INVOICE_DOWNLOAD_SIGNING_SECRET ??
       process.env.JWT_SECRET ??
       'conference-invoice-download-development-secret';
-    return createHmac('sha256', secret).update(`${orderId}.${documentId}.${expires}`).digest('hex');
+    return createHmac('sha256', secret)
+      .update(`${orderId}.${invoiceDownloadIdentity(document)}.${expires}`)
+      .digest('hex');
   }
 
   private exportSignature(
@@ -609,6 +681,149 @@ export class InvoiceOperationsService {
       .where(and(...conditions))
       .orderBy(desc(invoiceRequests.createdAt));
     return rows.map((row) => this.mapRequest(row, false));
+  }
+
+  async exportRows(
+    organizationId: string,
+    query: InvoiceListQuery = {},
+  ): Promise<InvoiceExportRow[]> {
+    const rows = await this.db()
+      .select({
+        requestNo: invoiceRequests.requestNo,
+        registrationCode: registrations.registrationCode,
+        eventName: events.name,
+        attendee: registrations.attendee,
+        title: invoiceRequests.title,
+        taxId: invoiceRequests.taxId,
+        email: invoiceRequests.email,
+        paymentStatus: orders.status,
+        paidAmount: sql<number>`coalesce((
+          select max(${payments.amount}) from ${payments}
+          where ${payments.orderId} = ${orders.id}
+            and ${payments.status} in ('succeeded', 'refunded')
+        ), 0)::int`,
+        refundedAmount: sql<number>`coalesce((
+          select sum(${refunds.amount}) from ${refunds}
+          where ${refunds.orderId} = ${orders.id} and ${refunds.status} = 'succeeded'
+        ), 0)::int`,
+        invoiceAmount: invoiceRequests.netPaidAmount,
+        currency: invoiceRequests.currency,
+        invoiceStatus: invoiceRequests.status,
+        invoiceNumber: invoiceDocuments.invoiceNumber,
+        invoiceCode: invoiceDocuments.invoiceCode,
+        documentMediaType: invoiceDocuments.mediaType,
+      })
+      .from(invoiceRequests)
+      .innerJoin(events, eq(events.id, invoiceRequests.eventId))
+      .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
+      .innerJoin(registrations, eq(registrations.id, invoiceRequests.registrationId))
+      .leftJoin(
+        invoiceDocuments,
+        and(
+          eq(invoiceDocuments.invoiceRequestId, invoiceRequests.id),
+          isNull(invoiceDocuments.voidedAt),
+        ),
+      )
+      .where(and(...this.listConditions(organizationId, query)))
+      .orderBy(desc(invoiceRequests.createdAt));
+    return rows.map((row) => ({
+      requestNo: row.requestNo,
+      registrationCode: row.registrationCode,
+      eventName: row.eventName,
+      attendeeName: row.attendee.name,
+      mobile: row.attendee.mobile,
+      title: row.title,
+      taxId: row.taxId,
+      email: row.email,
+      paymentStatus: row.paymentStatus,
+      paidAmount: row.paidAmount,
+      refundedAmount: row.refundedAmount,
+      invoiceAmount: row.invoiceAmount,
+      currency: row.currency,
+      invoiceStatus: row.invoiceStatus,
+      invoiceNumber: row.invoiceNumber ?? '',
+      invoiceCode: row.invoiceCode ?? '',
+      uploadFile: `files/${row.requestNo}.${row.documentMediaType === 'application/ofd' ? 'ofd' : 'pdf'}`,
+    }));
+  }
+
+  async preflightBatchImport(
+    organizationId: string,
+    eventId: EventId,
+    actorId: string,
+    input: InvoiceBatchPreflight,
+  ): Promise<InvoiceBatchPreflightResult> {
+    const requestNos = input.items.map((item) => item.requestNo);
+    const rows = await this.db()
+      .select({
+        invoiceId: invoiceRequests.id,
+        requestNo: invoiceRequests.requestNo,
+        status: invoiceRequests.status,
+        activeDocumentId: invoiceDocuments.id,
+      })
+      .from(invoiceRequests)
+      .leftJoin(
+        invoiceDocuments,
+        and(
+          eq(invoiceDocuments.invoiceRequestId, invoiceRequests.id),
+          isNull(invoiceDocuments.voidedAt),
+        ),
+      )
+      .where(
+        and(
+          eq(invoiceRequests.organizationId, organizationId),
+          eq(invoiceRequests.eventId, eventId),
+          inArray(invoiceRequests.requestNo, requestNos),
+        ),
+      );
+    const byRequestNo = new Map(rows.map((row) => [row.requestNo, row]));
+    const items: InvoiceBatchPreflightResult['items'] = input.items.map((item) => {
+      const row = byRequestNo.get(item.requestNo);
+      if (!row) {
+        return {
+          requestNo: item.requestNo,
+          invoiceId: null,
+          status: 'error',
+          message: '当前大会中没有该发票申请',
+        };
+      }
+      if (row.activeDocumentId) {
+        return {
+          requestNo: item.requestNo,
+          invoiceId: row.invoiceId,
+          status: 'error',
+          message: '该申请已经存在有效发票文件',
+        };
+      }
+      if (row.status !== 'issuing') {
+        return {
+          requestNo: item.requestNo,
+          invoiceId: row.invoiceId,
+          status: 'error',
+          message: `当前状态 ${row.status} 不允许上传新发票`,
+        };
+      }
+      return {
+        requestNo: item.requestNo,
+        invoiceId: row.invoiceId,
+        status: 'ready',
+        message: '申请与文件信息匹配，可以导入',
+      };
+    });
+    const readyCount = items.filter((item) => item.status === 'ready').length;
+    await this.db()
+      .insert(auditLogs)
+      .values({
+        organizationId,
+        eventId,
+        actorId,
+        action: 'invoice.batch_import.preflight',
+        resourceType: 'invoice_batch_import',
+        resourceId: crypto.randomUUID(),
+        after: { total: items.length, readyCount, errorCount: items.length - readyCount },
+        traceId: crypto.randomUUID(),
+      });
+    return { items, readyCount, errorCount: items.length - readyCount };
   }
 
   async page(organizationId: string, query: InvoiceListQuery = {}) {
@@ -1373,7 +1588,11 @@ export class InvoiceOperationsService {
         eventId: invoice.eventId,
         eventType: 'InvoiceIssued',
         correlationId: `invoice:issued:${document!.id}`,
-        payload: { invoiceId: invoice.id, documentId: document!.id },
+        payload: {
+          invoiceId: invoice.id,
+          recipientRole: 'purchaser',
+          ...invoiceDocumentNotificationIdentity(document!),
+        },
       });
       await tx.insert(auditLogs).values({
         organizationId,
@@ -1653,7 +1872,12 @@ export class InvoiceOperationsService {
         );
       }
       const [activeDocument] = await tx
-        .select({ id: invoiceDocuments.id })
+        .select({
+          id: invoiceDocuments.id,
+          storageKey: invoiceDocuments.storageKey,
+          contentDigest: invoiceDocuments.contentDigest,
+          issuedAt: invoiceDocuments.issuedAt,
+        })
         .from(invoiceDocuments)
         .where(
           and(eq(invoiceDocuments.invoiceRequestId, invoice.id), isNull(invoiceDocuments.voidedAt)),
@@ -1674,7 +1898,8 @@ export class InvoiceOperationsService {
         correlationId: `invoice:send:${invoiceId}:${crypto.randomUUID()}`,
         payload: {
           invoiceId,
-          documentId: activeDocument.id,
+          recipientRole: 'purchaser',
+          ...invoiceDocumentNotificationIdentity(activeDocument),
           recipient: invoice.email,
           requestedBy: actorId,
         },
@@ -1753,6 +1978,7 @@ export class InvoiceOperationsService {
         payload: {
           invoiceId,
           orderId: invoice.orderId,
+          recipientRole: 'purchaser',
           expiresAt: expiresAt.toISOString(),
           requestedBy: actorId,
         },
@@ -1787,7 +2013,7 @@ export class InvoiceOperationsService {
   async requestOrderAccessLink(input: RequestOrderAccessLink) {
     const generic = {
       accepted: true,
-      message: '如果订单号与报名邮箱匹配，新的访问链接会发送到该邮箱。',
+      message: '如果订单号与购票邮箱匹配，新的访问链接会发送到该邮箱。',
     };
     const [match] = await this.db()
       .select({
@@ -1800,7 +2026,12 @@ export class InvoiceOperationsService {
       .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
       .where(eq(orders.orderNo, input.orderNo))
       .limit(1);
-    if (!match || match.attendee.email.trim().toLowerCase() !== input.email.trim().toLowerCase()) {
+    const recoveryEmail =
+      match?.order.purchaserSnapshot?.email ||
+      (match?.order.purchaserCustomerUserId === null && match.order.purchaseIntentId === null
+        ? match.attendee.email
+        : '');
+    if (!match || recoveryEmail.trim().toLowerCase() !== input.email.trim().toLowerCase()) {
       return generic;
     }
 
@@ -1888,7 +2119,7 @@ export class InvoiceOperationsService {
         and(
           eq(orders.id, orderId),
           eq(orders.organizationId, organizationId),
-          eq(registrations.customerUserId, customerUserId),
+          this.customerPurchaserScope(customerUserId),
         ),
       )
       .limit(1);
@@ -1919,7 +2150,7 @@ export class InvoiceOperationsService {
         and(
           eq(orders.id, orderId),
           eq(orders.organizationId, organizationId),
-          eq(registrations.customerUserId, customerUserId),
+          this.customerPurchaserScope(customerUserId),
         ),
       )
       .limit(1);
@@ -1930,10 +2161,22 @@ export class InvoiceOperationsService {
       .select({ amount: sum(refunds.amount) })
       .from(refunds)
       .where(and(eq(refunds.orderId, orderId), eq(refunds.status, 'succeeded')));
+    const [successfulPayment] = await this.db()
+      .select({ id: payments.id })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.orderId, orderId),
+          inArray(payments.status, ['succeeded', 'refunded']),
+          isNotNull(payments.succeededAt),
+        ),
+      )
+      .limit(1);
     const eligibility = customerInvoicePaymentEligibility({
       orderStatus: scope.order.status,
       orderAmount: scope.order.amount,
       refundedAmount: Number(refundTotal?.amount ?? 0),
+      hasSuccessfulPayment: Boolean(successfulPayment),
     });
     const canApply = !scope.invoiceId && eligibility.canApply;
     const unavailableReason = canApply
@@ -1994,11 +2237,11 @@ export class InvoiceOperationsService {
     const expires = Date.now() + 10 * 60_000;
     return CustomerInvoiceDetailSchema.parse({
       ...detail,
-      documents: detail.documents.map(({ storageKey: _storageKey, ...document }) => ({
+      documents: detail.documents.map(({ storageKey, ...document }) => ({
         ...document,
         downloadUrl: document.voidedAt
           ? null
-          : `/orders/${encodeURIComponent(orderId)}/invoice-documents/${encodeURIComponent(document.id)}/download?expires=${expires}&signature=${this.downloadSignature(orderId, document.id, expires)}`,
+          : `/orders/${encodeURIComponent(orderId)}/invoice-documents/${encodeURIComponent(document.id)}/download?expires=${expires}&signature=${this.downloadSignature(orderId, { ...document, storageKey }, expires)}`,
       })),
       timeline: detail.logs.map((log) => {
         const copy = CUSTOMER_INVOICE_STATUS_COPY[log.toStatus];
@@ -2130,7 +2373,7 @@ export class InvoiceOperationsService {
           and(
             eq(orders.id, orderId),
             eq(orders.organizationId, organizationId),
-            eq(registrations.customerUserId, customerUserId),
+            this.customerPurchaserScope(customerUserId),
           ),
         )
         .for('update')
@@ -2138,14 +2381,45 @@ export class InvoiceOperationsService {
       if (!scope) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
       }
+      const buyerInput: InvoiceBuyer =
+        'companyName' in input
+          ? {
+              buyerType: 'company',
+              title: input.companyName,
+              taxId: input.taxId.toUpperCase(),
+              email: input.email,
+              mobile:
+                scope.order.purchaserSnapshot?.mobile || scope.registration.attendee.mobile,
+              content: '会务费',
+            }
+          : {
+              buyerType: input.buyerType,
+              title: input.title,
+              taxId: input.taxId.toUpperCase(),
+              email: input.email,
+              mobile: input.mobile,
+              content: input.content,
+            };
       const [refundTotal] = await tx
         .select({ amount: sum(refunds.amount) })
         .from(refunds)
         .where(and(eq(refunds.orderId, orderId), eq(refunds.status, 'succeeded')));
+      const [successfulPayment] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(
+          and(
+            eq(payments.orderId, orderId),
+            inArray(payments.status, ['succeeded', 'refunded']),
+            isNotNull(payments.succeededAt),
+          ),
+        )
+        .limit(1);
       const eligibility = customerInvoicePaymentEligibility({
         orderStatus: scope.order.status,
         orderAmount: scope.order.amount,
         refundedAmount: Number(refundTotal?.amount ?? 0),
+        hasSuccessfulPayment: Boolean(successfulPayment),
       });
       if (!eligibility.canApply) {
         throw new DomainError(
@@ -2215,7 +2489,7 @@ export class InvoiceOperationsService {
           metadata: { source: 'customer_account', customerUserId },
         });
       }
-      const changed = await this.applyInvoiceBuyer(tx, invoice!, input, {
+      const changed = await this.applyInvoiceBuyer(tx, invoice!, buyerInput, {
         source: 'customer_account',
         customerUserId,
       });
@@ -2231,7 +2505,7 @@ export class InvoiceOperationsService {
               : 'invoice.customer.submit',
           resourceType: 'invoice_request',
           resourceId: invoice!.id,
-          after: { orderId, buyerType: input.buyerType },
+          after: { orderId, buyerType: 'company' },
           traceId: crypto.randomUUID(),
         });
       }
@@ -2259,7 +2533,7 @@ export class InvoiceOperationsService {
           and(
             eq(invoiceRequests.orderId, orderId),
             eq(invoiceRequests.organizationId, organizationId),
-            eq(registrations.customerUserId, customerUserId),
+            this.customerPurchaserScope(customerUserId),
           ),
         )
         .for('update')
@@ -2269,7 +2543,12 @@ export class InvoiceOperationsService {
       }
       const invoice = scope.invoice;
       const [activeDocument] = await tx
-        .select({ id: invoiceDocuments.id })
+        .select({
+          id: invoiceDocuments.id,
+          storageKey: invoiceDocuments.storageKey,
+          contentDigest: invoiceDocuments.contentDigest,
+          issuedAt: invoiceDocuments.issuedAt,
+        })
         .from(invoiceDocuments)
         .where(
           and(eq(invoiceDocuments.invoiceRequestId, invoice.id), isNull(invoiceDocuments.voidedAt)),
@@ -2303,7 +2582,8 @@ export class InvoiceOperationsService {
         correlationId: `invoice:customer-send:${invoice.id}:${Date.now()}`,
         payload: {
           invoiceId: invoice.id,
-          documentId: activeDocument.id,
+          recipientRole: 'purchaser',
+          ...invoiceDocumentNotificationIdentity(activeDocument),
           recipient: invoice.email,
           requestedBy: customerUserId,
           requestedByType: 'customer',
@@ -2362,15 +2642,6 @@ export class InvoiceOperationsService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    const expected = Buffer.from(this.downloadSignature(orderId, documentId, expires), 'hex');
-    const received = Buffer.from(signature, 'hex');
-    if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
-      throw new DomainError(
-        API_ERROR_CODES.UNAUTHORIZED,
-        '发票下载链接签名无效',
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
     const [document] = await this.db()
       .select({
         document: invoiceDocuments,
@@ -2391,6 +2662,18 @@ export class InvoiceOperationsService {
         API_ERROR_CODES.NOT_FOUND,
         '可下载的发票文件不存在',
         HttpStatus.NOT_FOUND,
+      );
+    }
+    const expected = Buffer.from(
+      this.downloadSignature(orderId, document.document, expires),
+      'hex',
+    );
+    const received = Buffer.from(signature, 'hex');
+    if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+      throw new DomainError(
+        API_ERROR_CODES.UNAUTHORIZED,
+        '发票下载链接签名无效',
+        HttpStatus.UNAUTHORIZED,
       );
     }
     const downloadUrl = this.s3Presigned(document.document.storageKey, 'GET');
@@ -2430,21 +2713,53 @@ export class InvoiceOperationsService {
           HttpStatus.UNAUTHORIZED,
         );
       }
-      const [invoice] = await tx
-        .select()
+      const [scope] = await tx
+        .select({ invoice: invoiceRequests, order: orders })
         .from(invoiceRequests)
+        .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
         .where(and(eq(invoiceRequests.id, invoiceId), eq(invoiceRequests.orderId, token.orderId)))
         .for('update')
         .limit(1);
-      if (!invoice) {
+      if (!scope) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '发票申请不存在', HttpStatus.NOT_FOUND);
       }
-      await this.applyInvoiceBuyer(tx, invoice, input, { source: 'attendee' });
+      const [refundTotal] = await tx
+        .select({ amount: sum(refunds.amount) })
+        .from(refunds)
+        .where(and(eq(refunds.orderId, token.orderId), eq(refunds.status, 'succeeded')));
+      const [successfulPayment] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(
+          and(
+            eq(payments.orderId, token.orderId),
+            inArray(payments.status, ['succeeded', 'refunded']),
+            isNotNull(payments.succeededAt),
+          ),
+        )
+        .limit(1);
+      const eligibility = customerInvoicePaymentEligibility({
+        orderStatus: scope.order.status,
+        orderAmount: scope.order.amount,
+        refundedAmount: Number(refundTotal?.amount ?? 0),
+        hasSuccessfulPayment: Boolean(successfulPayment),
+      });
+      if (!eligibility.canApply) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          eligibility.unavailableReason ?? '当前订单暂时无法提交发票资料',
+          HttpStatus.CONFLICT,
+        );
+      }
+      await this.applyInvoiceBuyer(tx, scope.invoice, input, { source: 'attendee' });
       await tx
         .update(orderAccessTokens)
         .set({ lastUsedAt: new Date() })
         .where(eq(orderAccessTokens.id, token.id));
-      return { organizationId: invoice.organizationId, orderId: invoice.orderId };
+      return {
+        organizationId: scope.invoice.organizationId,
+        orderId: scope.invoice.orderId,
+      };
     });
     return this.customerInvoiceDetail(result.organizationId, result.orderId, invoiceId);
   }

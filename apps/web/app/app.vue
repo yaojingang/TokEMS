@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { useAsyncData, useRuntimeConfig } from '#app';
+import { useAsyncData } from '#app';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 
 const api = useConferenceApi();
 const customer = useCustomerSession();
 const route = useRoute();
-const runtimeConfig = useRuntimeConfig();
 const publicEventHome = computed(() => route.meta.publicEventHome === true);
 const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await useAsyncData(
   'public-site-configuration',
@@ -13,61 +12,12 @@ const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await use
   { deep: false },
 );
 
-const analyticsAllowed = computed(
-  () =>
-    runtimeConfig.public.paymentSurface !== true &&
-    !['/account', '/register', '/order', '/invoice', '/ticket', '/payment'].some(
-      (prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`),
-    ),
-);
-
-const analyticsScripts = computed(() => {
-  const analytics = siteConfiguration.value?.analytics;
-  if (!analyticsAllowed.value || !analytics?.enabled) return [];
-  if (analytics.provider === 'baidu' && analytics.trackingId) {
-    return [
-      {
-        key: 'analytics-baidu',
-        src: `https://hm.baidu.com/hm.js?${encodeURIComponent(analytics.trackingId)}`,
-        async: true,
-      },
-    ];
-  }
-  if (analytics.provider === 'google' && analytics.trackingId) {
-    const id = JSON.stringify(analytics.trackingId);
-    return [
-      {
-        key: 'analytics-google-loader',
-        src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analytics.trackingId)}`,
-        async: true,
-      },
-      {
-        key: 'analytics-google-config',
-        innerHTML: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config',${id});`,
-      },
-    ];
-  }
-  if (analytics.provider === 'umami' && analytics.scriptUrl) {
-    return [
-      {
-        key: 'analytics-umami',
-        src: analytics.scriptUrl,
-        async: true,
-        defer: true,
-        ...(analytics.siteId ? { 'data-website-id': analytics.siteId } : {}),
-      },
-    ];
-  }
-  return [];
-});
-
 useHead(() => {
   const website = siteConfiguration.value?.website;
   return {
     titleTemplate: website?.seoTitle ? `%s · ${website.seoTitle}` : undefined,
     meta: website?.seoDescription ? [{ name: 'description', content: website.seoDescription }] : [],
     link: website?.faviconUrl ? [{ rel: 'icon', href: website.faviconUrl }] : [],
-    script: analyticsScripts.value,
   };
 });
 

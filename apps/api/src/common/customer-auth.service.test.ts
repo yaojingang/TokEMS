@@ -3,6 +3,7 @@ import type { FastifyRequest } from 'fastify';
 import { DatabaseService } from './database.service.js';
 import {
   CUSTOMER_SESSION_COOKIE,
+  CUSTOMER_SESSION_LIFETIME_SECONDS,
   CustomerAuthService,
   customerOtpIpHourlyLimit,
 } from './customer-auth.service.js';
@@ -104,6 +105,24 @@ describe('CustomerAuthService memory flow', () => {
     expect(active?.customerUserId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
+  });
+
+  it('keeps a verified browser session for 400 days', async () => {
+    const service = new CustomerAuthService({ db: null } as unknown as DatabaseService);
+    const startedAt = Date.now();
+    const challenge = await service.requestOtp(request(), '13800138003');
+    const verified = await service.verifyOtp(request(), {
+      challengeId: challenge.challengeId,
+      mobile: '13800138003',
+      code: challenge.developmentCode!,
+      consentAccepted: true,
+      termsVersion: '',
+      privacyVersion: '',
+    });
+    const lifetime = new Date(verified.session.expiresAt).getTime() - startedAt;
+
+    expect(lifetime).toBeGreaterThanOrEqual(CUSTOMER_SESSION_LIFETIME_SECONDS * 1_000);
+    expect(lifetime).toBeLessThan(CUSTOMER_SESSION_LIFETIME_SECONDS * 1_000 + 1_000);
   });
 
   it('rejects an unsupported OTP mode', () => {

@@ -4,6 +4,11 @@ import type { EventStatus, RegistrationField, RegistrationForm } from '@conferen
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
+import {
+  isCoreRegistrationField,
+  nextCustomFieldKey,
+  prepareRegistrationForm,
+} from '../lib/registration-form-editor';
 
 const versions = ref<RegistrationForm[]>([]);
 const loading = ref(true);
@@ -106,7 +111,7 @@ async function load() {
 
 function addField() {
   editor.fields.push({
-    key: `custom_${editor.fields.length + 1}`,
+    key: nextCustomFieldKey(editor.fields),
     label: '自定义字段',
     type: 'text',
     required: false,
@@ -121,6 +126,13 @@ function updateOptions(field: RegistrationField, value: string) {
 }
 
 function requestSave() {
+  message.value = '';
+  errorMessage.value = '';
+  const prepared = prepareRegistrationForm(editor);
+  if (!prepared.ok) {
+    errorMessage.value = prepared.message;
+    return;
+  }
   if (importantChanges.value.length) {
     showImportantChangeConfirm.value = true;
     return;
@@ -130,15 +142,16 @@ function requestSave() {
 
 async function save() {
   showImportantChangeConfirm.value = false;
-  pending.value = true;
+  message.value = '';
   errorMessage.value = '';
+  const prepared = prepareRegistrationForm(editor);
+  if (!prepared.ok) {
+    errorMessage.value = prepared.message;
+    return;
+  }
+  pending.value = true;
   try {
-    await conferenceApi.publishForm({
-      name: editor.name,
-      fields: editor.fields,
-      termsVersion: editor.termsVersion,
-      termsContent: editor.termsContent,
-    });
+    await conferenceApi.publishForm(prepared.value);
     message.value = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
       eventStatus.value,
     )
@@ -173,6 +186,7 @@ onMounted(() => void load());
         <div>
           <h2>表单编辑器</h2>
           <p>历史报名继续保留当时确认的字段、条款和同意时间</p>
+          <p>姓名、手机号码和电子邮箱为核心字段；公司、职位、城市及自定义字段可调整必填状态或删除。</p>
         </div>
       </header>
       <form class="event-form" @submit.prevent="requestSave">
@@ -207,6 +221,8 @@ onMounted(() => void load());
               <input
                 v-model="field.key"
                 :aria-label="`字段 ${index + 1} 的字段键`"
+                :disabled="isCoreRegistrationField(field.key)"
+                :title="isCoreRegistrationField(field.key) ? '系统核心字段的键名保持固定' : undefined"
                 required
                 placeholder="field_key"
               />
@@ -222,7 +238,12 @@ onMounted(() => void load());
             </label>
             <label class="field-builder-cell">
               <span class="field-cell-label">类型</span>
-              <select v-model="field.type" :aria-label="`字段 ${index + 1} 的类型`">
+              <select
+                v-model="field.type"
+                :aria-label="`字段 ${index + 1} 的类型`"
+                :disabled="isCoreRegistrationField(field.key)"
+                :title="isCoreRegistrationField(field.key) ? '系统核心字段的类型保持固定' : undefined"
+              >
                 <option value="text">文本</option>
                 <option value="email">邮箱</option>
                 <option value="tel">手机</option>
@@ -249,14 +270,21 @@ onMounted(() => void load());
               <span v-else class="field-empty-value">无需填写</span>
             </label>
             <label class="field-builder-required">
-              <input v-model="field.required" type="checkbox" />
+              <input
+                v-model="field.required"
+                type="checkbox"
+                :disabled="isCoreRegistrationField(field.key)"
+                :title="isCoreRegistrationField(field.key) ? '系统核心字段保持必填' : undefined"
+              />
               <span>必填</span>
             </label>
             <div class="field-builder-action">
               <button
                 class="row-action"
                 type="button"
-                :aria-label="`删除字段 ${index + 1}`"
+                :aria-label="isCoreRegistrationField(field.key) ? `系统核心字段 ${index + 1} 不可删除` : `删除字段 ${index + 1}`"
+                :disabled="isCoreRegistrationField(field.key)"
+                :title="isCoreRegistrationField(field.key) ? '系统核心字段不可删除' : '删除字段'"
                 @click="editor.fields.splice(index, 1)"
               >
                 ×

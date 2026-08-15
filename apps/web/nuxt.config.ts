@@ -62,5 +62,6 @@ export default defineNuxtConfig({
     '/invoice/**': { ssr: false },
     '/ticket/**': { ssr: false },
     '/account/**': { ssr: false },
+    '/members/**': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
   },
 });

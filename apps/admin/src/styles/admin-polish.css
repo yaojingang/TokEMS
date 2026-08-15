@@ -127,6 +127,11 @@
   font-size: var(--admin-font-body);
 }
 
+.latest-registration-person .row-sub,
+.latest-registration-meta {
+  font-size: var(--admin-font-micro);
+}
+
 .admin-nav-label,
 .workspace-label span,
 .admin-command kbd,
@@ -144,7 +149,6 @@
 .event-switcher span,
 .template-card b,
 .inventory-strip small,
-.ai-run-head small,
 .quality-note span,
 .grant-list code,
 .integration-status-list b,
@@ -177,8 +181,6 @@
 .management-settings-note,
 .management-setting-list dt,
 .integration-status-list span,
-.speaker-copy small,
-.session-copy small,
 .ticket-recommended,
 .invitation-link,
 .invitation-link code,
@@ -197,8 +199,6 @@
 .choice-card strong,
 .setting-toggle strong,
 .invitation-list strong,
-.speaker-copy strong,
-.session-copy strong,
 .management-setting-list dd {
   font-size: var(--admin-font-body);
 }
@@ -296,8 +296,7 @@
   height: 40px;
 }
 
-.ticket-row-actions b,
-.session-time {
+.ticket-row-actions b {
   font-size: var(--admin-font-micro);
 }
 
@@ -499,19 +498,6 @@
   place-items: center;
 }
 
-.speaker-copy,
-.session-copy {
-  min-width: 0;
-}
-
-.speaker-copy small,
-.session-copy small {
-  overflow: visible;
-  line-height: 1.55;
-  text-overflow: clip;
-  white-space: normal;
-}
-
 .field-error {
   margin: -6px 0 0;
   color: var(--red);
@@ -680,18 +666,6 @@
   .field-builder-action {
     align-self: end;
     justify-content: end;
-  }
-
-  .speaker-list li,
-  .session-list li {
-    align-items: start;
-    padding-block: 14px;
-  }
-
-  .speaker-list .row-actions,
-  .session-list .row-actions {
-    grid-column: 2 / -1;
-    justify-content: flex-start;
   }
 }
 

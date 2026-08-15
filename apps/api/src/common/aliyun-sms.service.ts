@@ -4,7 +4,6 @@ import {
   API_ERROR_CODES,
   type AliyunSmsConfiguration,
   type AliyunSmsConnectionTest,
-  type AliyunSmsTemplateKey,
   type TestAliyunSmsConfiguration,
   type UpdateAliyunSmsConfiguration,
 } from '@conference/contracts';
@@ -15,6 +14,7 @@ import {
   AliyunSmsClient,
   readAliyunSmsConfiguration,
   type AliyunSmsCredentials,
+  type AliyunSmsTemplateKey,
 } from '@conference/integrations';
 import { maskMobile, normalizeMainlandMobile } from '@conference/security';
 import { and, count, eq, gte, sql } from 'drizzle-orm';
@@ -44,6 +44,15 @@ const TEST_PARAMETERS: Record<AliyunSmsTemplateKey, Record<string, string>> = {
     reason: '测试消息，无需处理',
   },
   paymentSucceeded: {
+    eventName: '短信连接测试',
+    orderNo: 'TEST20260729',
+    amount: '0.01元',
+  },
+  ticketIssued: {
+    eventName: '短信连接测试',
+    url: 'https://example.com/ticket/test',
+  },
+  refundSucceeded: {
     eventName: '短信连接测试',
     orderNo: 'TEST20260729',
     amount: '0.01元',

@@ -216,7 +216,7 @@ export function managementLandingRouteName(grants: string[]) {
 export function eventLandingRouteName(grants: string[]) {
   if (hasGrant(grants, 'event.dashboard.read')) return 'event-overview';
   if (hasGrant(grants, 'event.manage')) return 'event-settings-general';
-  if (hasGrant(grants, 'event.site.read')) return 'event-settings-site';
+  if (hasGrant(grants, 'event.site.read')) return 'event-settings-general';
   if (
     hasAnyGrant(grants, [
       'event.registration.manage',
@@ -226,8 +226,6 @@ export function eventLandingRouteName(grants: string[]) {
   ) {
     return 'event-settings-registration';
   }
-  if (hasGrant(grants, 'event.content.manage')) return 'event-content';
-  if (hasGrant(grants, 'event.ai.read')) return 'event-content';
   if (hasGrant(grants, 'event.registration.read')) return 'event-registrations';
   if (hasGrant(grants, 'event.order.read')) return 'event-orders';
   if (hasGrant(grants, 'org.invoice.read')) return 'event-invoices';
