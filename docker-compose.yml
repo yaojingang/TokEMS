@@ -55,7 +55,7 @@ x-app-environment: &app-environment
   ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@tokems.local}
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
   SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
-  PUBLIC_ORGANIZATION_SLUG: ${PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+  PUBLIC_ORGANIZATION_SLUG: ${PUBLIC_ORGANIZATION_SLUG:-geo-conference}
   PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN must be the external scheme and host}
   ADMIN_ORIGIN: ${ADMIN_ORIGIN:?ADMIN_ORIGIN must be the external admin scheme and host}
   PAYMENT_PUBLIC_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
@@ -218,7 +218,7 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
     environment: *app-environment
     command:
@@ -251,7 +251,7 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
     environment:
       <<: *app-environment
@@ -293,7 +293,7 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
     environment: *app-environment
     depends_on:
@@ -319,14 +319,14 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
     environment:
       # Conference site must stay at domain root; never inherit payment base path.
       NUXT_APP_BASE_URL: /
       NUXT_API_INTERNAL_BASE: http://api:4100/api/v1
       NUXT_PUBLIC_API_BASE: /api/v1
-      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
       NUXT_PUBLIC_PAYMENT_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
       NUXT_PUBLIC_PAYMENT_BASE_PATH: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}
       NUXT_PUBLIC_CONFERENCE_ORIGIN: ${PUBLIC_ORIGIN}
@@ -365,13 +365,13 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
     environment:
       NUXT_APP_BASE_URL: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}/
       NUXT_API_INTERNAL_BASE: http://api:4100/api/v1
       NUXT_PUBLIC_API_BASE: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}/api/v1
-      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
       NUXT_PUBLIC_PAYMENT_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
       NUXT_PUBLIC_PAYMENT_BASE_PATH: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}
       NUXT_PUBLIC_CONFERENCE_ORIGIN: ${PUBLIC_ORIGIN}
@@ -409,7 +409,7 @@ services:
       args:
         <<: *build-args
         NUXT_PUBLIC_API_BASE: /api/v1
-        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-tokems-demo}
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
         VITE_API_BASE: /api/v1
         VITE_ADMIN_BASE: /admin/
         VITE_SIMPLE_AUTH: ${VITE_SIMPLE_AUTH:-false}

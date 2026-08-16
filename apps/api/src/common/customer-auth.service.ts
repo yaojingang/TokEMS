@@ -216,7 +216,7 @@ export class CustomerAuthService {
     return (
       (typeof header === 'string' ? header : undefined) ??
       process.env.PUBLIC_ORGANIZATION_SLUG ??
-      'tokems-demo'
+      'geo-conference'
     );
   }
 

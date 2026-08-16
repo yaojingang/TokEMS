@@ -9,7 +9,7 @@ const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const databaseUrl =
   process.env.DATABASE_URL ?? 'postgresql://conference:conference@localhost:15432/conference';
 const notificationSinkUrl = process.env.NOTIFICATION_SINK_URL ?? 'http://localhost:4080';
-const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const slugRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const mobileSuffix = String(Date.now()).slice(-8);

@@ -127,9 +127,9 @@ describe('administrator username and password login contract', () => {
         user: { id: 101, email: 'admin@tokems.local', name: '组织管理员' },
         organization: {
           id: 'organization-1',
-          slug: 'tokems-demo',
-          name: 'TokEMS Demo Team',
-          settings: { brandName: 'TokEMS' },
+          slug: 'geo-conference',
+          name: '中国GEO大会组委会',
+          settings: { brandName: '大会管理中心' },
         },
         membership: {
           id: 'membership-1',

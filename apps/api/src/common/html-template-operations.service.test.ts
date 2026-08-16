@@ -1,9 +1,29 @@
 import { describe, expect, it } from 'vitest';
+import { DEMO_EVENT } from '@conference/contracts';
 import {
   htmlImportStagedAssetIds,
+  htmlTemplateSampleContext,
   publishedHtmlEtag,
   redactRemoteResourceUrl,
 } from './html-template-operations.service.js';
+
+describe('HTML template sample context', () => {
+  it('uses tokems26 as its canonical conference content', () => {
+    expect(htmlTemplateSampleContext()).toMatchObject({
+      event: {
+        name: DEMO_EVENT.name,
+        shortName: DEMO_EVENT.shortName,
+        tagline: DEMO_EVENT.tagline,
+        startsAt: DEMO_EVENT.startsAt,
+        venue: DEMO_EVENT.venue,
+      },
+      tickets: DEMO_EVENT.tickets,
+      speakers: DEMO_EVENT.speakers,
+      sessions: DEMO_EVENT.sessions,
+      faqs: DEMO_EVENT.faqs,
+    });
+  });
+});
 
 describe('HTML import staged asset ownership', () => {
   it('cleans only assets created for the import', () => {

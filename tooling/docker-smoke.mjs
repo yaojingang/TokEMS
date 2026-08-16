@@ -36,7 +36,7 @@ const endpoints = {
 const adminUsername = environment.ADMIN_USERNAME;
 const adminPassword = environment.ADMIN_PASSWORD;
 const notificationToken = environment.NOTIFICATION_WEBHOOK_TOKEN;
-const publicOrganizationSlug = environment.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+const publicOrganizationSlug = environment.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
 const expectedEventSlug = process.env.DOCKER_EXPECTED_EVENT_SLUG ?? 'tokems26';
 const isProduction = environment.DEPLOYMENT_MODE === 'production';
 const customerSmokeMobile = `139${String(Date.now()).slice(-8)}`;

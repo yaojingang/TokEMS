@@ -295,7 +295,7 @@ class EventsController {
     @Res() reply: FastifyReply,
   ) {
     const organizationSlug =
-      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
     const route = await this.repository.resolvePublicEventRoute(slug, organizationSlug);
     if (route.isAlias) reply.header('X-Canonical-Event-Slug', route.slug);
     return servePublishedHomeDocument(
@@ -328,7 +328,7 @@ class EventsController {
     reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.showcases.publicMembers(
       slug,
-      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
       parsed.data,
     );
   }
@@ -346,7 +346,7 @@ class EventsController {
       organizationSlugValue ??
         organizationSlugQuery ??
         process.env.PUBLIC_ORGANIZATION_SLUG ??
-        'tokems-demo',
+        'geo-conference',
     );
     if (!organizationSlug.success) {
       throw new DomainError(
@@ -373,7 +373,7 @@ class EventsController {
     reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.showcases.publicMember(
       slug,
-      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
       publicSlug,
     );
   }
@@ -387,14 +387,14 @@ class EventsController {
     reply?.header('Cache-Control', 'no-cache, must-revalidate');
     const resolved = await this.repository.resolvePublicEventRoute(
       slug,
-      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     );
     if (resolved.isAlias) {
       reply?.header('Content-Location', publicEventHomePath(resolved.slug));
     }
     const event = await this.repository.getPublicEvent(
       resolved.slug,
-      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     );
     if (!isPublicEventStatus(event.status)) {
       throw new DomainError(
@@ -423,7 +423,7 @@ class HomepageController {
     @Res() reply: FastifyReply,
   ) {
     const organizationSlug =
-      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
     const event = await this.repository.getPublicHomepageEvent(organizationSlug);
     return servePublishedHomeDocument(
       this.htmlTemplates,
@@ -442,7 +442,7 @@ class HomepageController {
   ) {
     reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.repository.getPublicHomepageEvent(
-      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     );
   }
 }
@@ -462,7 +462,7 @@ class SiteConfigurationController {
   ) {
     reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.organizationAdmin.getPublicSiteConfiguration(
-      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     );
   }
 }
