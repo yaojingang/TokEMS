@@ -33,11 +33,11 @@
     "@conference/security": "workspace:*",
     "bcryptjs": "3.0.3",
     "drizzle-orm": "0.45.2",
-    "pg": "8.22.0"
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@types/node": "26.2.0",
-    "@types/pg": "8.20.0",
+    "@types/pg": "8.21.0",
     "drizzle-kit": "0.31.10",
     "tsx": "4.23.12",
     "typescript": "6.0.3",
