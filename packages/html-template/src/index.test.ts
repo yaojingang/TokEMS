@@ -174,8 +174,8 @@ describe('sanitizeHtmlTemplate', () => {
 describe('suggestTemplateBindings', () => {
   it('recognizes a primary title and business navigation without changing copy', () => {
     const document = sanitizeHtmlTemplate(`<!doctype html><html><body><main>
-      <h1>TokEMS Demo Conference 2026</h1>
-      <p>2026 年 8 月 18 日 · 上海国际会议中心</p>
+      <h1>第二届中国 GEO &amp; AI 营销大会</h1>
+      <p>2026 年 11 月 21–22 日 · 深圳湾科技生态园</p>
       <a href="/register">立即报名</a><a href="/faq">常见问题</a>
     </main></body></html>`);
 

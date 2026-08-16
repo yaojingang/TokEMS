@@ -5,10 +5,10 @@ const identity = {
   user: { id: 101, email: 'admin@tokems.local', name: '组织管理员' },
   organization: {
     id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    slug: 'tokems-demo',
-    name: 'TokEMS Demo Team',
+    slug: 'geo-conference',
+    name: '中国GEO大会组委会',
     settings: {
-      brandName: 'TokEMS Demo',
+      brandName: '大会管理中心',
       defaultTimezone: 'Asia/Shanghai',
       defaultCurrency: 'CNY',
       defaultBlueprintId: null,

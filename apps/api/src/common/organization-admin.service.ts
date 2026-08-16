@@ -390,11 +390,11 @@ export class OrganizationAdminService {
         },
         organization: {
           id: organizationId,
-          slug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
-          name: 'TokEMS Demo Team',
+          slug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+          name: '中国GEO大会组委会',
           settings: {
             ...DEFAULT_ORGANIZATION_SETTINGS,
-            brandName: 'TokEMS Demo',
+            brandName: '大会管理中心',
           },
         },
         membership: {
@@ -601,8 +601,8 @@ export class OrganizationAdminService {
         },
         organization: {
           id: organizationId,
-          slug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
-          name: 'TokEMS Demo Team',
+          slug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+          name: '中国GEO大会组委会',
         },
         membership: {
           id: `demo-membership:${userId}`,

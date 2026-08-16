@@ -19,7 +19,7 @@ describe('UpdateAccountProfileSchema', () => {
       name: '大会运营管理员',
       mobile: '13800138000',
       profile: {
-        company: 'TokEMS Demo Team',
+        company: '中国GEO大会组委会',
         title: '大会运营负责人',
         city: '深圳',
         bio: '负责大会统筹、内容发布与现场协作。',

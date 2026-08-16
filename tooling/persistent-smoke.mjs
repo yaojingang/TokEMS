@@ -55,7 +55,7 @@ assert(health.database?.mode === 'postgresql' && health.database?.ok, '健康检
 const customerSession = await createCustomerSession({
   apiBase,
   mobile: registrationBody.attendee.mobile,
-  organizationSlug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+  organizationSlug: process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
 });
 const headers = {
   'Content-Type': 'application/json',
