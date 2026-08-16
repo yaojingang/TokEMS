@@ -486,7 +486,7 @@ export class ConferenceRepository {
 
   async resolvePublicEventRoute(
     slug: string,
-    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
   ): Promise<{ eventId: EventId; slug: string; isAlias: boolean }> {
     const db = this.database.db;
     if (!db) {
@@ -539,7 +539,7 @@ export class ConferenceRepository {
 
   async getPublicEvent(
     slug = DEMO_EVENT.slug,
-    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     useActiveRelease = true,
   ): Promise<PublicEvent> {
     const db = this.database.db;
@@ -867,7 +867,7 @@ export class ConferenceRepository {
 
   async getPublicEventScope(
     slug = DEMO_EVENT.slug,
-    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
   ): Promise<{ id: EventId; slug: string; name: string }> {
     const db = this.database.db;
     if (!db) {
@@ -917,7 +917,7 @@ export class ConferenceRepository {
   }
 
   async getPublicHomepageEvent(
-    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+    organizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
   ): Promise<PublicEvent> {
     if (!this.database.db) return this.getPublicEvent(DEMO_EVENT.slug, organizationSlug);
     const [scope] = await this.database.db
@@ -5593,7 +5593,7 @@ export class ConferenceRepository {
       .limit(1);
     return this.getPublicEvent(
       updated.slug,
-      organization?.slug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organization?.slug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
       false,
     );
   }

@@ -29,7 +29,7 @@ RUN --mount=type=cache,id=tokems-pnpm-store,target=/pnpm/store \
 COPY . .
 
 ARG NUXT_PUBLIC_API_BASE=/api/v1
-ARG NUXT_PUBLIC_ORGANIZATION_SLUG=tokems-demo
+ARG NUXT_PUBLIC_ORGANIZATION_SLUG=geo-conference
 ARG VITE_API_BASE=/api/v1
 ARG VITE_ADMIN_BASE=/admin/
 ARG VITE_SIMPLE_AUTH=false

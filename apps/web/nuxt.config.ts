@@ -24,7 +24,7 @@ export default defineNuxtConfig({
       apiBase:
         process.env.NUXT_PUBLIC_API_BASE ??
         (process.env.NODE_ENV === 'production' ? '/api/v1' : 'http://localhost:4100/api/v1'),
-      organizationSlug: process.env.NUXT_PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo',
+      organizationSlug: process.env.NUXT_PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
       paymentOrigin: process.env.NUXT_PUBLIC_PAYMENT_ORIGIN ?? '',
       paymentBasePath: process.env.NUXT_PUBLIC_PAYMENT_BASE_PATH ?? '/pay/hui',
       conferenceOrigin: process.env.NUXT_PUBLIC_CONFERENCE_ORIGIN ?? '',

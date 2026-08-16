@@ -53,7 +53,39 @@ const CONFERENCE_TEMPLATE_VERSION_ID = DEMO_IDS.template.version;
 const EDITORIAL_RENDERER_ID = '12121212-1212-4121-8121-121212121212';
 const HTML_RENDERER_ID = '17171717-1717-4171-8171-171717171717';
 const isLocalDemoSeed = process.env.DEPLOYMENT_MODE === 'local';
-const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'tokems-demo';
+const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
+const canonicalOrganizationSettings = {
+  brand: 'GEO大会',
+  locale: 'zh-CN',
+  brandName: '大会管理中心',
+  defaultTimezone: 'Asia/Shanghai',
+  defaultCurrency: 'CNY',
+  defaultBlueprintId: null,
+  defaultTemplateId: CONFERENCE_TEMPLATE_ID,
+  customerAccounts: {
+    defaultAccountMode: 'mobile_otp_required',
+    termsUrl: '',
+    termsVersion: '',
+    privacyUrl: '',
+    privacyVersion: '',
+  },
+  website: {
+    siteName: '大会报名中心',
+    seoTitle: '大会报名中心',
+    seoDescription: '',
+    faviconUrl: '',
+    footerText: '',
+    icpNumber: '',
+    supportEmail: '',
+  },
+  analytics: {
+    enabled: false,
+    provider: 'baidu',
+    trackingId: '',
+    scriptUrl: '',
+    siteId: '',
+  },
+} as const;
 
 const DEMO_CUSTOMERS = [
   {
@@ -239,19 +271,15 @@ try {
       .values({
         id: DEMO_IDS.organization,
         slug: publicOrganizationSlug,
-        name: 'TokEMS Demo Team',
-        settings: {
-          brandName: 'TokEMS 运营台',
-          defaultTimezone: 'Asia/Shanghai',
-          defaultCurrency: 'CNY',
-          defaultBlueprintId: BLUEPRINT_ID,
-          defaultTemplateId: CONFERENCE_TEMPLATE_ID,
-        },
+        name: '中国GEO大会组委会',
+        settings: canonicalOrganizationSettings,
       })
       .onConflictDoUpdate({
         target: organizations.id,
         set: {
           slug: publicOrganizationSlug,
+          name: '中国GEO大会组委会',
+          settings: canonicalOrganizationSettings,
           updatedAt: new Date(),
         },
       });
@@ -295,7 +323,7 @@ try {
       .values({
         organizationId: DEMO_IDS.organization,
         userId: adminUserId,
-        company: 'TokEMS Demo Team',
+        company: '中国GEO大会组委会',
         title: '大会运营负责人',
         city: '深圳',
         bio: '负责大会站点、报名、支付、通知与现场核销运营。',
@@ -398,7 +426,7 @@ try {
           status: 'published',
           description: '复刻大会首页详情页的深蓝编辑式视觉与内容节奏。',
           manifest: {
-            entry: 'tokems-demo',
+            entry: 'tokems26',
             theme: 'conference-blue',
             supports: ['site', 'registration', 'ticket'],
             schemaVersions: [1, 2],
@@ -465,7 +493,7 @@ try {
       .values({
         id: CONFERENCE_TEMPLATE_ID,
         organizationId: DEMO_IDS.organization,
-        code: 'tokems-editorial-standard',
+        code: 'geo-editorial-standard',
         name: '中国第二届 GEO & AI 营销大会',
         description:
           'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
@@ -477,6 +505,7 @@ try {
       .onConflictDoUpdate({
         target: conferenceTemplates.id,
         set: {
+          code: 'geo-editorial-standard',
           name: '中国第二届 GEO & AI 营销大会',
           description:
             'GEO 大会白底编辑式官网，包含 AI 答案首屏、完整两日议程、嘉宾、FAQ 与单一通票报名。',
@@ -775,7 +804,9 @@ try {
         .values(
           DEMO_CUSTOMERS.slice(0, 6).map((customer, index) => {
             if (!('registrationStatus' in customer)) {
-              throw new Error(`Demo customer ${customer.publicId} is missing registration status`);
+              throw new Error(
+                `Canonical customer ${customer.publicId} is missing registration status`,
+              );
             }
             const createdAt = new Date(
               `2026-07-${String(20 + index).padStart(2, '0')}T10:30:00+08:00`,
@@ -1127,7 +1158,7 @@ try {
       .returning({ id: eventReleases.id });
 
     if (!seededRelease) {
-      throw new Error('Demo event release could not be seeded');
+      throw new Error('Canonical event release could not be seeded');
     }
     await tx.execute(sql`
       update ${events}

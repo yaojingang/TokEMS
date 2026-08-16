@@ -11,7 +11,7 @@ import {
 function request(cookies: Record<string, string> = {}) {
   return {
     headers: {
-      'x-organization-slug': 'tokems-demo',
+      'x-organization-slug': 'geo-conference',
       'user-agent': 'customer-auth-test',
     },
     cookies,
