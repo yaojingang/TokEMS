@@ -21,11 +21,11 @@
   "dependencies": {
     "@conference/contracts": "workspace:*",
     "dompurify": "3.4.13",
-    "ipaddr.js": "2.4.0",
+    "ipaddr.js": "2.5.0",
     "jsdom": "30.0.1",
-    "liquidjs": "10.27.2",
+    "liquidjs": "10.29.0",
     "parse5": "8.0.1",
-    "postcss": "8.5.25"
+    "postcss": "8.5.26"
   },
   "devDependencies": {
     "@types/jsdom": "28.0.3",
