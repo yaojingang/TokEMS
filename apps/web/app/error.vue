@@ -1,5 +1,45 @@
 <script setup lang="ts">
+import { useAsyncData, useRuntimeConfig } from '#app';
+import { onMounted } from 'vue';
+import {
+  analyticsNavigationContext,
+  isPublicAnalyticsErrorPath,
+  publicAnalyticsHeadEntries,
+  sendAnalyticsPageView,
+  shouldSendAnalyticsPageView,
+} from '~/utils/public-analytics';
+
 defineProps<{ error: { statusCode?: number; message?: string } }>();
+
+const api = useConferenceApi();
+const route = useRoute();
+const runtimeConfig = useRuntimeConfig();
+const { data: siteConfiguration } = await useAsyncData('public-site-configuration', () =>
+  api.getSiteConfiguration(),
+);
+
+useHead(() => {
+  const analytics = siteConfiguration.value?.analytics;
+  const analyticsAllowed = isPublicAnalyticsErrorPath(
+    route.path,
+    Boolean(runtimeConfig.public.paymentSurface),
+  );
+  return {
+    script: analyticsAllowed ? publicAnalyticsHeadEntries(analytics) : [],
+  };
+});
+
+onMounted(() => {
+  const context = analyticsNavigationContext(
+    siteConfiguration.value?.analytics,
+    route.fullPath,
+    Boolean(runtimeConfig.public.paymentSurface),
+    true,
+  );
+  if (shouldSendAnalyticsPageView(null, context) && context.provider) {
+    sendAnalyticsPageView(context.provider, context.path);
+  }
+});
 </script>
 
 <template>

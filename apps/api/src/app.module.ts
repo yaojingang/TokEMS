@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -12,9 +12,23 @@ import { CoreModule } from './common/core.module.js';
 import { TemplateInvoiceModule } from './modules/template-invoice.module.js';
 import { CustomerModule } from './modules/customer.module.js';
 import { configuredSuperAdministratorId } from './common/staff-account.js';
+import { AgentModule } from './modules/agent.module.js';
+import { AgentOperationInterceptor } from './common/agent-operation.interceptor.js';
+import {
+  decodeAgentAccessSecret,
+  resolveAgentAccessFeatures,
+  resolveAgentResource,
+} from '@conference/security';
 
 const jwtSecret = process.env.JWT_SECRET ?? 'conference-local-development-secret-2026';
 configuredSuperAdministratorId();
+if (resolveAgentAccessFeatures().access) {
+  if (!process.env.DATABASE_URL)
+    throw new Error('DATABASE_URL is required for TokEMS Agent Access');
+  if (!process.env.REDIS_URL) throw new Error('REDIS_URL is required for TokEMS Agent Access');
+  decodeAgentAccessSecret(process.env.AGENT_ACCESS_TOKEN_SECRET, 'AGENT_ACCESS_TOKEN_SECRET');
+  resolveAgentResource();
+}
 if (
   process.env.NODE_ENV === 'production' &&
   (!process.env.JWT_SECRET ||
@@ -49,8 +63,12 @@ if (
     OperationsModule,
     TemplateInvoiceModule,
     CustomerModule,
+    AgentModule,
     HealthModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useExisting: AgentOperationInterceptor },
+  ],
 })
 export class AppModule {}

@@ -1,0 +1,131 @@
+{
+  "schema_version": "2.0.0",
+  "name": "tokems-admin",
+  "title": "TokEMS Admin",
+  "job_to_be_done": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
+  "trigger_surface": {
+    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "should_trigger": [
+      "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
+      "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
+      "通过 tokems-admin 查询订单和发票状态，用户信息保持掩码。",
+      "Prepare a governed TokEMS refund operation and open its browser approval page.",
+      "用远程 TokEMS 超管连接调整管理员权限并验证审计记录。",
+      "Run the TokEMS template revision workflow, publish it, and verify the public event page.",
+      "从 TokEMS 后台按筛选条件导出报名数据到本机指定文件。",
+      "Reconcile an unknown TokEMS Agent operation without replaying the write."
+    ],
+    "should_not_trigger": [
+      "Implement a new TokEMS API controller and fix its TypeScript tests.",
+      "Review the TokEMS architecture document without connecting to a running instance.",
+      "Deploy TokEMS to a Linux server and update Nginx.",
+      "Browse the public conference agenda as an attendee.",
+      "Build a marketing page for an unrelated event platform.",
+      "source-code development",
+      "database, SSH, deployment, and server administration",
+      "credential, cookie, token, or secret extraction",
+      "arbitrary URL, method, path, query, or organization access",
+      "direct order amount, payment fact, or financial ledger mutation"
+    ],
+    "edge_cases": [
+      "Review the source code that implements TokEMS Agent authorization.",
+      "Write an operator runbook for TokEMS, and do not execute any admin action.",
+      "Use my browser cookie to click through TokEMS admin pages.",
+      "Connect to this arbitrary URL and send it the TokEMS refresh token.",
+      "Edit an order's paid amount directly in the TokEMS database."
+    ]
+  },
+  "workflow": {
+    "steps": [
+      "Read `references/authorization.md` before connecting or changing connection policy.",
+      "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
+      "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+      "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
+      "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
+      "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `checkin.sync` also accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
+      "Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.",
+      "Verify the persisted resource, public delivery API and rendered home document when applicable, job, or audit record. Treat connector evidence as client-reported until the server marks the operation verified. Use `operation reconcile` for `queued` or `unknown`; never replay the original write.",
+      "Report the output contract below. Delete terminal local pending state and keep exported or one-time-secret artifacts at mode `0600`."
+    ],
+    "decision_points": [],
+    "failure_modes": []
+  },
+  "resources": {
+    "references": [
+      "references/authorization.md",
+      "references/capability-map.md",
+      "references/commerce-and-invoices.md",
+      "references/communications-checkin-and-exports.md",
+      "references/content-and-events.md",
+      "references/customers-and-admins.md",
+      "references/safety-and-approvals.md",
+      "references/templates.md",
+      "references/troubleshooting.md"
+    ],
+    "scripts": [
+      "scripts/tokems-admin.js"
+    ],
+    "assets": [],
+    "reports": [
+      "reports/intent-context.json",
+      "reports/intent-confidence.json",
+      "reports/intent-confidence.md",
+      "reports/skill-overview.json",
+      "reports/skill-overview.html",
+      "reports/output_quality_scorecard.json",
+      "reports/output_quality_scorecard.md",
+      "reports/output_execution_runs.json",
+      "reports/output_execution_runs.md",
+      "reports/output_blind_answer_key.json",
+      "reports/output_review_adjudication.json",
+      "reports/output_review_adjudication.md",
+      "reports/review_annotations.json",
+      "reports/review_annotations.md",
+      "reports/conformance_matrix.json",
+      "reports/conformance_matrix.md",
+      "reports/security_trust_report.json",
+      "reports/security_trust_report.md",
+      "reports/runtime_permission_probes.json",
+      "reports/runtime_permission_probes.md",
+      "reports/skill_atlas.json",
+      "reports/skill_atlas.html"
+    ]
+  },
+  "eval_plan": {
+    "trigger": [
+      "evals/intent_context.json",
+      "evals/output/cases.jsonl",
+      "evals/output/fixtures/export-request.json",
+      "evals/packaging_expectations.json",
+      "evals/semantic_config.json",
+      "evals/trigger_cases.json"
+    ],
+    "output": [
+      "evals/output/cases.jsonl",
+      "evals/output/fixtures/export-request.json"
+    ],
+    "adversarial": [],
+    "baseline": "without_skill"
+  },
+  "risk": {
+    "output_risk": "low",
+    "execution_risk": "high",
+    "trust_boundary": "external"
+  },
+  "governance": {
+    "owner": "TokEMS Maintainers",
+    "maturity": "governed",
+    "review_cadence": "monthly",
+    "review_due": "2026-09-17"
+  },
+  "targets": [
+    "openai",
+    "generic"
+  ],
+  "source_files": [
+    "SKILL.md",
+    "manifest.json",
+    "agents/interface.yaml",
+    "reports/intent-context.json"
+  ]
+}

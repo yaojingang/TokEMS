@@ -39,6 +39,10 @@ export class IdempotencyService {
     string,
     { requestHash: string; promise: Promise<JsonObject> }
   >();
+  private readonly memoryCompleted = new Map<
+    string,
+    { requestHash: string; response: JsonObject; expiresAt: number }
+  >();
 
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
@@ -49,13 +53,39 @@ export class IdempotencyService {
     operation: () => Promise<T>,
     ttlOrOptions: number | IdempotencyExecutionOptions = 24 * 60 * 60_000,
   ): Promise<T> {
-    if (!this.database.db) return operation();
     const ttlMs =
       typeof ttlOrOptions === 'number' ? ttlOrOptions : (ttlOrOptions.ttlMs ?? 24 * 60 * 60_000);
     const allowLeaseTakeover =
       typeof ttlOrOptions === 'object' && ttlOrOptions.allowLeaseTakeover === true;
     const requestHash = idempotencyRequestHash(request);
     const lockKey = `${scope}:${key}`;
+    if (!this.database.db) {
+      const completed = this.memoryCompleted.get(lockKey);
+      if (completed && completed.expiresAt > Date.now()) {
+        if (completed.requestHash !== requestHash) this.conflict();
+        return completed.response as T;
+      }
+      if (completed) this.memoryCompleted.delete(lockKey);
+      const runningMemory = this.inFlight.get(lockKey);
+      if (runningMemory) {
+        if (runningMemory.requestHash !== requestHash) this.conflict();
+        return (await runningMemory.promise) as T;
+      }
+      const memoryJob = operation().then((response) => {
+        this.memoryCompleted.set(lockKey, {
+          requestHash,
+          response,
+          expiresAt: Date.now() + ttlMs,
+        });
+        return response;
+      });
+      this.inFlight.set(lockKey, { requestHash, promise: memoryJob });
+      try {
+        return await memoryJob;
+      } finally {
+        this.inFlight.delete(lockKey);
+      }
+    }
     const running = this.inFlight.get(lockKey);
     if (running) {
       if (running.requestHash !== requestHash) this.conflict();

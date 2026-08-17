@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 13,
-  "adminViews": 31,
-  "migrations": 52,
-  "latestMigration": "0051_goofy_skaar.sql",
-  "databaseTables": 67,
-  "apiControllers": 25,
-  "apiOperations": 208,
-  "testFiles": 121
+  "webPages": 15,
+  "adminViews": 37,
+  "migrations": 53,
+  "latestMigration": "0052_hard_rafael_vega.sql",
+  "databaseTables": 72,
+  "apiControllers": 30,
+  "apiOperations": 246,
+  "testFiles": 138
 }

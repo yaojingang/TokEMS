@@ -31,6 +31,11 @@ const items: SettingsItem[] = [
     grants: ['org.settings.read'],
   },
   {
+    name: 'manage-settings-analytics',
+    label: '网站统计',
+    grants: ['org.settings.read'],
+  },
+  {
     name: 'manage-settings-customers',
     label: '账号与合规',
     grants: ['org.settings.read'],

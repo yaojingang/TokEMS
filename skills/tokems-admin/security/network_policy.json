@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "default_policy": {
+    "require_https": true,
+    "custom_hosts": "explicit-user-approval",
+    "review_rule": "One exact user-approved TokEMS origin is accepted at connection time, then pinned to the secure connection profile. Redirects and host changes are denied."
+  },
+  "scripts": {
+    "scripts/tokems-admin.js": {
+      "purpose": "Discover, authorize, and execute catalog-bound TokEMS administration actions against one user-approved remote instance.",
+      "allowed_hosts": ["localhost", "127.0.0.1", "::1", "runtime-user-approved-tokems-host"],
+      "allowed_path_prefixes": [
+        "/.well-known/",
+        "/api/v1/oauth/",
+        "/api/v1/agent/",
+        "/api/v1/admin/",
+        "/api/v1/events/",
+        "/api/v1/homepage"
+      ],
+      "requires_https": true,
+      "custom_url_policy": "Only --origin on instance inspect and auth connect; remote HTTPS; origin-only input; stored connection pin after approval; no redirect; no free method, path, or URL.",
+      "timeout_seconds": { "default": 20, "maximum": 60 },
+      "auth": "DPoP sender-constrained access token from rotating OAuth Device Authorization credentials"
+    },
+    "scripts/lib/http.mjs": {
+      "purpose": "Enforce the approved origin, route-prefix allow-list, HTTPS policy, redirect denial, and bounded HTTP timeouts for all connector traffic.",
+      "allowed_hosts": ["localhost", "127.0.0.1", "::1", "runtime-user-approved-tokems-host"],
+      "allowed_path_prefixes": [
+        "/.well-known/",
+        "/api/v1/oauth/",
+        "/api/v1/agent/",
+        "/api/v1/admin/",
+        "/api/v1/events/",
+        "/api/v1/homepage"
+      ],
+      "requires_https": true,
+      "custom_url_policy": "Receives only the normalized origin pinned by auth.mjs and a catalog or connector constant path; redirects are denied.",
+      "timeout_seconds": { "default": 20, "maximum": 60 },
+      "auth": "Caller-supplied DPoP headers for authenticated API requests; no authorization header for discovery."
+    }
+  }
+}

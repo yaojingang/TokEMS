@@ -1,0 +1,63 @@
+{
+  "ok": true,
+  "schema_version": "2.0",
+  "generated_at": "2026-08-17",
+  "previous": {
+    "name": "tokems-admin",
+    "version": "0.1.0",
+    "targets": [
+      "openai",
+      "generic"
+    ]
+  },
+  "current": {
+    "name": "tokems-admin",
+    "version": "0.1.1",
+    "targets": [
+      "openai",
+      "generic"
+    ]
+  },
+  "summary": {
+    "declared_bump": "patch",
+    "recommended_bump": "patch",
+    "breaking_change_count": 0,
+    "added_target_count": 0,
+    "metadata_change_count": 0,
+    "checksum_change_count": 2,
+    "failure_count": 0,
+    "warning_count": 0
+  },
+  "upgrade_diff": {
+    "name_changed": false,
+    "added_targets": [],
+    "removed_targets": [],
+    "compatibility_changes": [],
+    "metadata_changes": [],
+    "checksum_changes": [
+      {
+        "field": "archive_sha256",
+        "from": "97c750d450aae79bbe066caa5c1d322f215875a55f15b2f4fa3ac3fb969d9ac6",
+        "to": "0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f"
+      },
+      {
+        "field": "package_sha256",
+        "from": "86500de67126b4c33be1a8a2a3294ea168ee87434181fe809796abdf578fc608",
+        "to": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+      }
+    ]
+  },
+  "release_notes": [
+    "Recommended version bump: patch.",
+    "Package or archive checksum changed; reviewers should verify package artifacts before release.",
+    "Package verification evidence: reports/package_verification.md."
+  ],
+  "failures": [],
+  "warnings": [],
+  "artifacts": {
+    "previous_package": "/private/var/folders/4t/pccsdygn0cg52j9z_g7dgvbc0000gn/T/tmp.eZQXwkQxcH/tokems-admin-0.1.0.json",
+    "current_package": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/registry_audit.json",
+    "json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/upgrade_check.json",
+    "markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/upgrade_check.md"
+  }
+}

@@ -8,6 +8,8 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
+export * from './agent-oauth.js';
+
 type DeploymentOriginEnvironment = Partial<
   Pick<
     NodeJS.ProcessEnv,

@@ -176,7 +176,7 @@ describe('suggestTemplateBindings', () => {
     const document = sanitizeHtmlTemplate(`<!doctype html><html><body><main>
       <h1>第二届中国 GEO &amp; AI 营销大会</h1>
       <p>2026 年 11 月 21–22 日 · 深圳湾科技生态园</p>
-      <a href="/register">立即报名</a><a href="/faq">常见问题</a>
+      <a href="/register">立即报名</a><a href="/faq">常见问题</a><a href="/cooperation">合作申请</a>
     </main></body></html>`);
 
     const proposals = suggestTemplateBindings(document.nodeManifest);
@@ -188,6 +188,13 @@ describe('suggestTemplateBindings', () => {
           proposal.binding.segments.some(
             (segment) => segment.kind === 'variable' && segment.path === 'event.name',
           ),
+      ),
+    ).toBe(true);
+    expect(
+      proposals.some(
+        (proposal) =>
+          proposal.binding.kind === 'attribute' &&
+          proposal.binding.variablePath === 'routes.cooperation',
       ),
     ).toBe(true);
     expect(

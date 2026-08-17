@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
-import { DEMO_IDS } from '../packages/contracts/dist/index.js';
+import { DEMO_EVENT, DEMO_IDS } from '../packages/contracts/dist/index.js';
 import { captureVisualFailure, redactVisualDiagnostic } from './lib/visual-evidence.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -562,6 +562,12 @@ async function runVisualSmoke() {
     await page.goto(webBase, { waitUntil: 'networkidle' });
     await page.locator('h1.hero-h').waitFor();
     await screenshot(page, 'web-home-desktop.png', '前台首页桌面端');
+    await page.goto(
+      `${webBase}/speakers/${DEMO_EVENT.speakers[0].id}?event=${encodeURIComponent(DEMO_EVENT.slug)}`,
+      { waitUntil: 'networkidle' },
+    );
+    await page.getByRole('heading', { name: DEMO_EVENT.speakers[0].name, level: 1 }).waitFor();
+    await screenshot(page, 'web-speaker-detail-desktop.png', '嘉宾详情页桌面端');
 
     await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
     await screenshot(page, 'web-register-desktop.png', '报名页桌面端');
@@ -712,6 +718,13 @@ async function runVisualSmoke() {
       '报名设置桌面端',
     ],
     [`${eventBase}/settings/form`, '报名表与条款', 'admin-forms-desktop.png', '表单条款桌面端'],
+    [`${eventBase}/speakers`, '嘉宾管理', 'admin-speakers-desktop.png', '嘉宾管理桌面端'],
+    [
+      `${eventBase}/speakers/${DEMO_EVENT.speakers[0].id}`,
+      '编辑嘉宾资料',
+      'admin-speaker-editor-desktop.png',
+      '嘉宾编辑页桌面端',
+    ],
     [
       `${eventBase}/settings/changes`,
       '修改记录',
@@ -785,6 +798,12 @@ async function runVisualSmoke() {
   if (includeWeb) {
     await mobile.goto(webBase, { waitUntil: 'networkidle' });
     await screenshot(mobile, 'web-home-mobile.png', '前台首页手机端');
+    await mobile.goto(
+      `${webBase}/speakers/${DEMO_EVENT.speakers[0].id}?event=${encodeURIComponent(DEMO_EVENT.slug)}`,
+      { waitUntil: 'networkidle' },
+    );
+    await mobile.getByRole('heading', { name: DEMO_EVENT.speakers[0].name, level: 1 }).waitFor();
+    await screenshot(mobile, 'web-speaker-detail-mobile.png', '嘉宾详情页手机端');
     await mobile.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
     await screenshot(mobile, 'web-register-mobile.png', '报名页手机端');
     await mobile.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });

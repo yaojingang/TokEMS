@@ -356,6 +356,8 @@ const homeCopyLabels: Record<string, string> = {
   primaryAction: '主按钮文案',
   secondaryAction: '辅助按钮文案',
   actionLabel: '行动按钮文案',
+  cooperationLabel: '合作导航文案',
+  directions: '合作方向说明',
   note: '补充说明',
   quote: '引用文案',
   attributionNames: '引用署名',
@@ -794,6 +796,7 @@ onBeforeUnmount(() => {
               <option value="compact">紧凑</option>
               <option value="cards">卡片</option>
               <option value="timeline">时间线</option>
+              <option value="editorial-band">编辑式行动区</option>
             </select>
           </div>
           <div v-for="[key, value] in selectedHomeCopyFields" :key="key" class="form-field">

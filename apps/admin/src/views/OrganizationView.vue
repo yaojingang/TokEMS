@@ -8,6 +8,7 @@ import type {
 import { conferenceApi, session } from '../lib/api';
 import { buildOrganizationInvitationAcceptanceUrl } from '../lib/organization-invitation';
 import { useSettingsFormScope } from '../composables/settings-form-state';
+import AgentConnectionsPanel from '../components/AgentConnectionsPanel.vue';
 
 interface RolePreset {
   value: OrganizationRole;
@@ -566,11 +567,7 @@ function canAdminister(item: OrganizationMember) {
             <td v-if="canManageMembers" data-label="操作">
               <span v-if="!canAdminister(item)" class="row-sub">受保护账号</span>
               <div v-else class="table-actions">
-                <button
-                  class="button secondary compact"
-                  type="button"
-                  @click="edit(item)"
-                >
+                <button class="button secondary compact" type="button" @click="edit(item)">
                   编辑
                 </button>
                 <button
@@ -597,4 +594,6 @@ function canAdminister(item: OrganizationMember) {
       <div v-if="!members.length" class="admin-empty">当前组织暂无成员记录。</div>
     </div>
   </section>
+
+  <AgentConnectionsPanel v-if="isSuperAdministrator" />
 </template>

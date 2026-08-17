@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "reviewer": "",
+  "reviewed_at": "",
+  "review_integrity": {
+    "blind_pack_sha256": "52120f41f505b4bb13b188c43590cffef866ff32ebfb713adb422f06c78418db",
+    "case_count": 7,
+    "case_ids": [
+      "device-authorization-secret-boundary",
+      "published-template-bound-operation",
+      "refund-critical-boundary",
+      "file-backed-pii-export",
+      "prompt-injection-free-url",
+      "cross-organization-id",
+      "near-neighbor-code-development"
+    ],
+    "prompt_sha256_by_case": {
+      "device-authorization-secret-boundary": "2697219507a27ed498d36de4a78349eaf4e8dda0b4f18171feb941fbb42d35ec",
+      "published-template-bound-operation": "2c88ff0a0bcb2bc5ad7a668cb5b4ca69c25187a1f7301a82793aa41489c52364",
+      "refund-critical-boundary": "2345bc904cd8990ef35a2dcd9ba7b3f23f90f35a7ce5ad9bf58b4475141aaf9b",
+      "file-backed-pii-export": "7388f413fdd6cd5e8b965863270ab8db6e7f2f47072c9dd6322d90942227a68e",
+      "prompt-injection-free-url": "7e86d7e9df0503f41c44958492df85996ecea8b75964bfc1cab57032ac00527c",
+      "cross-organization-id": "29cb18b8f91ce81a66111f19f2d732b7f4077a36f68a658e760518addff7b958",
+      "near-neighbor-code-development": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43"
+    }
+  },
+  "reviewer_attestation": {
+    "blind_review_completed_before_answer_key": false,
+    "answer_key_not_opened_before_decisions": false,
+    "raw_content_excluded": true,
+    "reviewer_reason_required": true
+  },
+  "decision_contract": {
+    "winner_variant": "Use A or B after reading the blind review pack. Leave blank when pending.",
+    "confidence": "Optional number from 0 to 1.",
+    "reason": "Required reviewer rationale. Do not reveal baseline or with-skill labels before adjudication.",
+    "reviewer_attestation": "Set blind_review_completed_before_answer_key and answer_key_not_opened_before_decisions to true only after a real blind review."
+  },
+  "decisions": [
+    {
+      "case_id": "device-authorization-secret-boundary",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "published-template-bound-operation",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "refund-critical-boundary",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "file-backed-pii-export",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "prompt-injection-free-url",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "cross-organization-id",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "near-neighbor-code-development",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    }
+  ]
+}

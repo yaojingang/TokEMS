@@ -1,0 +1,18 @@
+{
+  "origin": "https://events.example.invalid",
+  "actionId": "registrations.export",
+  "organizationId": "8b2a7a8c-b42f-4815-a727-ab08de2c9b26",
+  "eventId": "667d06e1-38ba-470e-b902-a1f2aeb43c31",
+  "filters": {
+    "status": "paid",
+    "createdAfter": "2026-08-01T00:00:00.000Z"
+  },
+  "output": "/Users/operator/Exports/tokems-paid-registrations.csv",
+  "providedEvidence": [
+    "exact organization",
+    "exact event",
+    "approved filters",
+    "absolute output path"
+  ],
+  "missingEvidence": ["current row count", "browser approval", "generated file digest"]
+}

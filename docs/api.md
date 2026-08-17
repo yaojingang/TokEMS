@@ -16,6 +16,38 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 - 离线核销同步使用设备首次登记时返回的 `X-Device-Token`。
 - API 默认对全局、登录、报名、候补和支付回调分别执行请求限流。
 
+## Agent Access（实验性）
+
+Agent Access 默认关闭，通过 OAuth Device Authorization 将本地 `tokems-admin` Skill 与一个确定的 TokEMS 实例、组织和超级管理员授权绑定。管理员密码只在 TokEMS 后台的 step-up 页面输入，连接器使用 DPoP 绑定的短期访问令牌和轮换 refresh token。
+
+| Method   | Path                                            | 说明                               |
+| -------- | ----------------------------------------------- | ---------------------------------- |
+| GET      | `/.well-known/tokems-agent`                     | 实例身份、版本和功能开关           |
+| GET      | `/.well-known/oauth-authorization-server`       | OAuth 端点元数据                   |
+| POST     | `/oauth/device_authorization`                   | 创建设备授权请求                   |
+| POST     | `/oauth/token`                                  | 设备码换取令牌或轮换 refresh token |
+| POST     | `/oauth/revoke`                                 | 撤销 refresh token 对应连接        |
+| POST     | `/auth/step-up`                                 | 后台管理员密码二次确认             |
+| GET      | `/agent/capabilities`                           | 当前连接可用动作目录               |
+| POST     | `/agent/operations`                             | 准备并绑定一项写操作               |
+| GET      | `/agent/operations/:operationId`                | 查询执行与验证状态                 |
+| POST     | `/agent/operations/:operationId/confirm`        | 确认无需浏览器审批的操作           |
+| POST     | `/agent/operations/:operationId/cancel`         | 取消尚未完成的操作                 |
+| POST     | `/agent/operations/:operationId/verify`         | 记录查询式验证摘要与证据类型       |
+| GET      | `/admin/agent-connections`                      | 后台查看当前组织连接               |
+| PATCH    | `/admin/agent-connections/:connectionId/policy` | step-up 后修改连接审批策略         |
+| POST     | `/admin/agent-connections/:connectionId/revoke` | 撤销单个连接                       |
+| POST     | `/admin/agent-connections/revoke-all`           | step-up 后紧急撤销当前组织全部连接 |
+| GET      | `/admin/agent-security-metrics`                 | 连接、授权、操作与安全告警摘要     |
+| GET/POST | `/admin/agent-authorizations/:authorizationId`  | 查看并批准或拒绝设备授权           |
+| GET/POST | `/admin/agent-operations/:operationId`          | 查看并批准或拒绝受控、关键操作     |
+
+写请求需要 `X-Agent-Operation-Id`、`X-Agent-Request-Hash`、`X-Agent-Before-Fingerprint` 与 `X-Agent-Current-Before-Fingerprint`。API 在进入领域逻辑前核对已批准操作、正文哈希、准备时前态、执行前新鲜前态以及路由参数和查询参数的目标指纹。`checkin.sync` 的设备令牌通过固定的 `X-Device-Token` 头传递。敏感读取还需要 `X-Agent-Purpose`。未知管理路由固定拒绝；动作目录未分类检查在 CI 中要求为零。
+
+当前 catalog 版本发布 78 个动作并映射到 78 个管理 handler。普通报名、用户、订单、退款和发票列表在 Agent 响应离开 API 前执行 PII 掩码；敏感详情需要 `tokems:pii`、明确用途和读取审计。公开内容执行成功后，官方连接器同时读取管理验证动作、公开大会或首页 API，以及已发布 `home-document`，再把组合证据摘要写回 operation。
+
+Scope 包含 `tokems:read`、`tokems:pii`、`tokems:write`、`tokems:finance`、`tokems:communications`、`tokems:export`、`tokems:security` 和 `tokems:dangerous`。`tokems:*` 只作为超级管理员授权界面的全量选择语义，令牌中保存展开后的具体 scope。
+
 ## 公开与交易接口
 
 | Method | Path                                                      | 说明                                        |
@@ -25,6 +57,7 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 | GET    | `/events/:slug`                                           | 获取当前发布快照及实时库存                  |
 | GET    | `/events/:slug/home-document`                             | 获取指定大会的已发布 HTML 首页              |
 | POST   | `/events/:slug/public-metrics/view`                       | 登记结构化首页单次页面访问                  |
+| POST   | `/cooperation-requests`                                   | 匿名提交单场公开大会的合作申请              |
 | POST   | `/registrations`                                          | 创建报名、订单和库存保留，可领取候补资格    |
 | POST   | `/waitlist`                                               | 售罄票种加入候补队列                        |
 | GET    | `/orders/:identifier`                                     | 使用订单访问凭证按订单 ID 或订单号查询      |
@@ -62,6 +95,17 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
   "termsVersion": "2026-07"
 }
 ```
+
+合作申请要求 `Idempotency-Key`，每 IP 每分钟最多提交 10 次，只接受预发布、报名开放、进行中或已结束大会。合作方向可选择 1 至 3 项，手机、邮箱和微信号至少填写一项；成功响应仅包含申请编号、大会名称和提交时间。
+
+## 组织网站统计
+
+| Method | Path                            | 授权或说明                                      |
+| ------ | ------------------------------- | ----------------------------------------------- |
+| GET    | `/admin/organization/settings`  | `org.settings.read`，读取组织设置和统计确认状态 |
+| PUT    | `/admin/organization/analytics` | `org.analytics.manage`，关键级启停与代码确认    |
+
+更新请求为 `{ "enabled": boolean, "snippet": string }`。启用时只接受百度统计、Google Analytics 4 和 Umami 的标准完整代码，并要求 HTTPS 资源、匹配的统计 ID 和单一受支持结构。服务端只持久化平台、统计 ID、脚本地址和站点 ID；审计记录包含启停状态、平台、代码摘要和脚本域名。通用组织设置接口拒绝 `analytics` 字段。旧配置需要通过专用接口重新确认后才会进入公开页面。
 
 候补邀请报名会附加 `waitlistOfferToken`。服务端校验邀请票种、邮箱、过期时间和领取状态。报名响应中的 `orderAccessToken` 只返回给当前参会人，前端在会话存储中保存并用于订单页。访问链接接口按订单校验信息签发短期令牌，数据库只保存摘要；通知链接把令牌放在 URL 片段中，避免令牌进入服务端访问日志。公开报名限制为每 IP 每分钟 60 次；同一大会按已验证用户账号与手机号保持一条报名记录，邮箱可由多个报名人共用。
 
@@ -237,6 +281,9 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | GET      | `/admin/events/:eventId/dashboard`                | 指标和票种库存             |
 | GET      | `/admin/events/:eventId/registrations`            | 报名分页查询               |
 | GET      | `/admin/events/:eventId/registrations/:id`        | 报名、订单与用户账号详情   |
+| GET      | `/admin/events/:eventId/cooperation-requests`     | 合作申请搜索、筛选与分页   |
+| GET      | `/admin/events/:eventId/cooperation-requests/:id` | 合作申请详情               |
+| PATCH    | `/admin/events/:eventId/cooperation-requests/:id` | 更新跟进状态与内部备注     |
 | GET      | `/admin/events/:eventId/orders`                   | 订单查询                   |
 | GET      | `/admin/events/:eventId/waitlist`                 | 候补队列                   |
 | POST     | `/admin/orders/:orderId/refunds`                  | 全额或部分退款             |
@@ -253,6 +300,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 Dashboard 指标口径：`paidOrders` 为 `paid` 或 `partially_refunded` 订单数；`paidSeats` 为这些订单对应的非取消有效报名席位数；`confirmedAttendees` 为未被归并且状态为 `confirmed`、`checked_in` 或 `completed` 的报名数；`purchasers` 为付费订单的去重购票人数；`revenue` 为订单金额扣除成功退款后的净额。`conversionRate` 使用 `paidSeats / submitted active registrations`。报名 CSV 分列导出购票人与参会人资料、订单归属、购买意图和订单总额，所有单元格继续执行公式注入防护。
 
 报名分页查询支持 `q`、`status`、`page` 和 `pageSize`，`pageSize` 范围为 1 到 100。响应为 `{ items, total, page, pageSize }`。报名详情需要 `event.registration.read`，关联用户账号资料还需要 `customer.read`；缺少用户查看权限时通过 `customerRelation: "restricted"` 明确标记。
+
+合作申请列表使用 `event.registration.read`，支持 `q`、`status`、`type`、`page` 和 `pageSize`。详情响应使用 `private, no-store`；修改需要 `event.registration.manage`，只接受 `status`、`internalNote` 和 `expectedUpdatedAt`，成功修改会写入审计记录。
 
 订单分页查询支持 `q`、`status` 和 `page`，固定每页 20 条，响应为 `{ items, total, page, pageSize }`。`q` 会匹配订单号、参会人姓名、手机号和公司。
 

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { idempotencyRequestHash } from './idempotency.service.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { DatabaseService } from './database.service.js';
+import { IdempotencyService, idempotencyRequestHash } from './idempotency.service.js';
 
 describe('idempotency request hashing', () => {
   it('treats reordered object keys as the same request and changed values as a conflict', () => {
@@ -18,5 +19,31 @@ describe('idempotency request hashing', () => {
 
     expect(reordered).toBe(first);
     expect(changed).not.toBe(first);
+  });
+});
+
+describe('in-memory idempotency', () => {
+  it('replays a successful response and rejects reuse with different input', async () => {
+    const service = new IdempotencyService({ db: undefined } as unknown as DatabaseService);
+    const operation = vi.fn(async () => ({ requestNo: 'COOP-20260817-ABC234' }));
+
+    const first = await service.execute(
+      'cooperation',
+      'request-key-01',
+      { company: '甲公司' },
+      operation,
+    );
+    const repeated = await service.execute(
+      'cooperation',
+      'request-key-01',
+      { company: '甲公司' },
+      operation,
+    );
+
+    expect(repeated).toEqual(first);
+    expect(operation).toHaveBeenCalledTimes(1);
+    await expect(
+      service.execute('cooperation', 'request-key-01', { company: '乙公司' }, operation),
+    ).rejects.toMatchObject({ status: 409 });
   });
 });

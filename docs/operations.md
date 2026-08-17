@@ -1,5 +1,7 @@
 # 运行、迁移与发布手册
 
+本文件说明通用运行、迁移和发布能力。`hui.ailingdaoli.com` 当前生产环境的固定目录、GitHub 推送规则、Docker 构建身份、备份、模板同步、验收和回滚流程见[生产推送与 Docker 发布规范](production-deployment-runbook.md)。每次正式发布的事实记录保存在 [`release-records/`](release-records/)。
+
 ## 本地 Docker 完整部署
 
 ```bash
@@ -11,7 +13,7 @@ pnpm docker:deploy
 
 1. 使用根目录多阶段 `Dockerfile` 构建 API、Worker、Nuxt、Admin 和本地通知接收器镜像。
 2. 启动 PostgreSQL、Redis、MinIO、Mailpit 与通知接收器并等待健康检查。
-3. 运行一次性 `db-init`，执行 51 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
+3. 运行一次性 `db-init`，执行 54 个 Drizzle 迁移；仅在 `SEED_DEMO_DATA=true` 时写入幂等演示数据。
 4. 运行一次性 `minio-init`，创建私有 `conference-assets` 桶。
 5. 按依赖顺序启动 API、Worker、Web 和 Admin。
 6. 启动 Gateway，在同一 IP 和端口上按主机名代理前台、后台和 API。
@@ -86,6 +88,16 @@ pnpm dev
 
 ## 环境变量
 
+### Agent Access 灰度
+
+Agent Access 首发状态为 `experimental`，三个开关默认均为 `false`。按以下顺序灰度，每一步完成安全指标、审计和撤销演练后再继续：
+
+1. 配置独立的 32 字节 base64 `AGENT_ACCESS_TOKEN_SECRET`，只开启 `TOKEMS_AGENT_ACCESS_ENABLED`，验证发现、设备授权、只读、DPoP、轮换与撤销。
+2. 开启 `TOKEMS_AGENT_WRITES_ENABLED`，验证受控审批、前态冲突、幂等策略、发布后真实页面与 `unknown` reconcile。
+3. 开启 `TOKEMS_AGENT_CRITICAL_ACTIONS_ENABLED`，验证退款、PII 导出、删除、管理员权限、集成 secret 和关键发票文件的 step-up。
+
+密钥轮换时先把旧值放入 `AGENT_ACCESS_TOKEN_PREVIOUS_SECRET`，再发布新主密钥。旧密钥只保留 15 分钟验证窗口，窗口结束后清空并重新发布。紧急处置优先在组织后台执行全部连接撤销，再关闭总开关；数据库中的 operation 与代理审计记录继续保留。
+
 | 变量                                       | 用途                                              |
 | ------------------------------------------ | ------------------------------------------------- |
 | `DATABASE_URL`                             | PostgreSQL 连接，生产环境必填                     |
@@ -153,7 +165,7 @@ pnpm dev
 
 ## 迁移策略
 
-`packages/database/drizzle/` 包含 51 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
+`packages/database/drizzle/` 包含 54 个已版本化迁移。`pnpm db:migrate` 通过 Drizzle 迁移记录识别待执行版本。
 
 ```bash
 # 修改 packages/database/src/schema.ts 后生成迁移

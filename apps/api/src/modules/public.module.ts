@@ -22,6 +22,7 @@ import { z } from 'zod';
 import {
   API_ERROR_CODES,
   CheckInRequestSchema,
+  CreateCooperationRequestSchema,
   CreateRegistrationSchema,
   isPublicEventStatus,
   PaymentCallbackSchema,
@@ -43,6 +44,8 @@ import { CustomerAuthService } from '../common/customer-auth.service.js';
 import { HtmlTemplateOperationsService } from '../common/html-template-operations.service.js';
 import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
 import { resolveLocalPaymentSimulationPolicy } from '../common/local-payment-simulation.js';
+import { CooperationRequestService } from '../common/cooperation-request.service.js';
+import { IdempotencyService } from '../common/idempotency.service.js';
 import { EventPublicMetricsService } from '../common/event-public-metrics.service.js';
 
 const WeChatSwitchChannelBodySchema = z
@@ -379,6 +382,22 @@ export class EventsController {
     );
   }
 
+  @Get(':slug/speakers/:speakerId')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async getSpeaker(
+    @Param('slug') slug: string,
+    @Param('speakerId') speakerId: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.repository.getPublicSpeaker(
+      slug,
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+      speakerId,
+    );
+  }
+
   @Get(':slug/members/:publicSlug/avatar')
   @Throttle({ default: { limit: 1_200, ttl: 60_000 } })
   async getMemberAvatar(
@@ -525,6 +544,42 @@ class TemplateAssetsController {
   async asset(@Param('assetId') assetId: string, @Res() reply: FastifyReply) {
     const url = await this.templates.publicAssetUrl(assetId);
     return reply.code(HttpStatus.FOUND).redirect(url);
+  }
+}
+
+@ApiTags('cooperation-requests')
+@Controller('cooperation-requests')
+class CooperationRequestsController {
+  constructor(
+    @Inject(CooperationRequestService)
+    private readonly cooperationRequests: CooperationRequestService,
+    @Inject(IdempotencyService) private readonly idempotency: IdempotencyService,
+  ) {}
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  create(
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+  ) {
+    const parsed = CreateCooperationRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '合作申请内容校验失败，请检查必填项',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    const organizationSlug = publicOrganizationSlug(organizationSlugValue);
+    return this.idempotency.execute(
+      `cooperation-request:${organizationSlug}:${parsed.data.eventId}`,
+      idempotencyKey(key),
+      parsed.data,
+      () => this.cooperationRequests.create(organizationSlug, parsed.data),
+    );
   }
 }
 
@@ -1064,6 +1119,7 @@ class CheckInController {
     HomepageController,
     SiteConfigurationController,
     TemplateAssetsController,
+    CooperationRequestsController,
     RegistrationsController,
     WaitlistController,
     OrdersController,

@@ -14,9 +14,14 @@ import {
 } from '@conference/contracts';
 import {
   ACTIVE_WECHAT_PAYMENT_STATUSES,
+  agentConnections,
+  agentDeviceAuthorizations,
+  agentOperations,
+  agentRefreshTokens,
   assertDatabaseMigrationCurrent,
   aiRuns,
   attendeeClaimTokens,
+  auditLogs,
   conferenceTemplateDrafts,
   conferenceTemplates,
   createDatabase,
@@ -1194,7 +1199,12 @@ async function createEventHtmlReleaseArtifact(
     speakers: Array.isArray(snapshot.speakers) ? snapshot.speakers : [],
     sessions: Array.isArray(snapshot.sessions) ? snapshot.sessions : [],
     faqs,
-    routes: { registration: '/register', faq: '/faq', account: '/account' },
+    routes: {
+      registration: publicEventScopedPath('/register', String(event.slug ?? '')),
+      cooperation: publicEventScopedPath('/apply/cooperation', String(event.slug ?? '')),
+      faq: publicEventScopedPath('/faq', String(event.slug ?? '')),
+      account: publicEventScopedPath('/account', String(event.slug ?? '')),
+    },
     site: OrganizationSettingsSchema.parse(scope.organizationSettings).website,
   });
   const html = htmlArtifactHead(
@@ -3493,6 +3503,219 @@ async function maintainCustomerAuthData(db: ConferenceDatabase) {
   );
 }
 
+async function maintainAgentAccessData(db: ConferenceDatabase) {
+  const now = new Date();
+  const authorizationCutoff = new Date(Date.now() - 24 * 60 * 60_000);
+  const refreshCutoff = new Date(Date.now() - 30 * 24 * 60 * 60_000);
+  const operationRetentionCutoff = new Date(Date.now() - 180 * 24 * 60 * 60_000);
+  const staleExecutionCutoff = new Date(Date.now() - 15 * 60_000);
+  const expiredConnections = await db
+    .update(agentConnections)
+    .set({ status: 'expired', updatedAt: now })
+    .where(and(eq(agentConnections.status, 'active'), lt(agentConnections.expiresAt, now)))
+    .returning({ id: agentConnections.id, organizationId: agentConnections.organizationId });
+  if (expiredConnections.length) {
+    await db
+      .update(agentRefreshTokens)
+      .set({ revokedAt: now, revocationReason: 'connection-expired' })
+      .where(
+        inArray(
+          agentRefreshTokens.connectionId,
+          expiredConnections.map(({ id }) => id),
+        ),
+      );
+    await db.insert(auditLogs).values(
+      expiredConnections.map((connection) => ({
+        organizationId: connection.organizationId,
+        actorType: 'system',
+        action: 'agent.connection.expired',
+        resourceType: 'agent-connection',
+        resourceId: connection.id,
+        before: { status: 'active' },
+        after: { status: 'expired' },
+        traceId: `agent-cleanup:${randomUUID()}`,
+      })),
+    );
+  }
+  await db
+    .update(agentOperations)
+    .set({ status: 'expired', completedAt: now, updatedAt: now })
+    .where(
+      and(
+        inArray(agentOperations.status, ['prepared', 'approval_required', 'approved']),
+        lt(agentOperations.expiresAt, now),
+      ),
+    );
+  const uncertainOperations = await db
+    .update(agentOperations)
+    .set({ status: 'unknown', verificationStatus: 'unverified', updatedAt: now })
+    .where(
+      and(
+        eq(agentOperations.status, 'executing'),
+        lt(agentOperations.executionStartedAt, staleExecutionCutoff),
+      ),
+    )
+    .returning({
+      id: agentOperations.id,
+      organizationId: agentOperations.organizationId,
+      connectionId: agentOperations.connectionId,
+      actionId: agentOperations.actionId,
+    });
+  if (uncertainOperations.length) {
+    await db.insert(auditLogs).values(
+      uncertainOperations.map((operation) => ({
+        organizationId: operation.organizationId,
+        actorId: operation.connectionId,
+        actorType: 'agent' as const,
+        action: 'agent.operation.execution-timeout',
+        resourceType: 'agent-operation',
+        resourceId: operation.id,
+        before: { status: 'executing', actionId: operation.actionId },
+        after: { status: 'unknown', reconciliationRequired: true },
+        traceId: `agent-reconcile:${randomUUID()}`,
+      })),
+    );
+  }
+  const queuedNotificationOperations = await db
+    .select({
+      id: agentOperations.id,
+      organizationId: agentOperations.organizationId,
+      connectionId: agentOperations.connectionId,
+      redactedResult: agentOperations.redactedResult,
+    })
+    .from(agentOperations)
+    .where(
+      and(
+        eq(agentOperations.status, 'queued'),
+        eq(agentOperations.actionId, 'communications.notifications.queue'),
+      ),
+    )
+    .limit(100);
+  for (const operation of queuedNotificationOperations) {
+    const deliveryId = operation.redactedResult?.id;
+    if (typeof deliveryId !== 'string') continue;
+    const [delivery] = await db
+      .select({ status: notificationDeliveries.status })
+      .from(notificationDeliveries)
+      .where(
+        and(
+          eq(notificationDeliveries.id, deliveryId),
+          eq(notificationDeliveries.organizationId, operation.organizationId),
+        ),
+      )
+      .limit(1);
+    const terminal =
+      delivery?.status === 'sent'
+        ? ({ status: 'succeeded', verificationStatus: 'verified' } as const)
+        : delivery?.status === 'failed'
+          ? ({ status: 'failed', verificationStatus: 'failed' } as const)
+          : undefined;
+    if (!terminal) continue;
+    await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(agentOperations)
+        .set({
+          ...terminal,
+          completedAt: now,
+          updatedAt: now,
+        })
+        .where(and(eq(agentOperations.id, operation.id), eq(agentOperations.status, 'queued')))
+        .returning({ id: agentOperations.id });
+      if (!updated) return;
+      await tx.insert(auditLogs).values({
+        organizationId: operation.organizationId,
+        actorId: operation.connectionId,
+        actorType: 'agent',
+        action: 'agent.operation.outbox-reconciled',
+        resourceType: 'agent-operation',
+        resourceId: operation.id,
+        before: { status: 'queued', deliveryId },
+        after: { ...terminal, deliveryStatus: delivery!.status },
+        traceId: `agent-reconcile:${randomUUID()}`,
+      });
+    });
+  }
+  const expiredSecretEscrows = await db
+    .update(agentOperations)
+    .set({
+      oneTimeSecretCiphertext: null,
+      verificationStatus: 'failed',
+      updatedAt: now,
+    })
+    .where(
+      and(
+        isNotNull(agentOperations.oneTimeSecretCiphertext),
+        lt(agentOperations.oneTimeSecretExpiresAt, now),
+      ),
+    )
+    .returning({
+      id: agentOperations.id,
+      organizationId: agentOperations.organizationId,
+      connectionId: agentOperations.connectionId,
+    });
+  if (expiredSecretEscrows.length) {
+    await db.insert(auditLogs).values(
+      expiredSecretEscrows.map((operation) => ({
+        organizationId: operation.organizationId,
+        actorId: operation.connectionId,
+        actorType: 'agent' as const,
+        action: 'agent.operation.one-time-secret-expired',
+        resourceType: 'agent-operation',
+        resourceId: operation.id,
+        before: { escrow: 'available' },
+        after: { escrow: 'expired', verificationStatus: 'failed' },
+        traceId: `agent-cleanup:${randomUUID()}`,
+      })),
+    );
+  }
+  await db
+    .update(agentDeviceAuthorizations)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        inArray(agentDeviceAuthorizations.status, ['pending', 'approved']),
+        lt(agentDeviceAuthorizations.expiresAt, now),
+      ),
+    );
+  await db
+    .delete(agentDeviceAuthorizations)
+    .where(
+      and(
+        inArray(agentDeviceAuthorizations.status, ['denied', 'consumed', 'expired']),
+        lt(agentDeviceAuthorizations.updatedAt, authorizationCutoff),
+      ),
+    );
+  const staleRefreshTokens = db
+    .select({ id: agentRefreshTokens.id })
+    .from(agentRefreshTokens)
+    .where(
+      or(
+        lt(agentRefreshTokens.expiresAt, refreshCutoff),
+        and(
+          isNotNull(agentRefreshTokens.revokedAt),
+          lt(agentRefreshTokens.revokedAt, refreshCutoff),
+        ),
+      ),
+    );
+  await db
+    .update(agentRefreshTokens)
+    .set({ replacedById: null })
+    .where(inArray(agentRefreshTokens.replacedById, staleRefreshTokens));
+  await db.delete(agentRefreshTokens).where(inArray(agentRefreshTokens.id, staleRefreshTokens));
+  await db
+    .update(agentRefreshTokens)
+    .set({ replacementTokenCiphertext: null, replayExpiresAt: null })
+    .where(lt(agentRefreshTokens.replayExpiresAt, now));
+  await db
+    .delete(agentOperations)
+    .where(
+      and(
+        inArray(agentOperations.status, ['succeeded', 'failed', 'denied', 'cancelled', 'expired']),
+        lt(agentOperations.updatedAt, operationRetentionCutoff),
+      ),
+    );
+}
+
 async function cleanupExpiredCustomerAvatarSources(db: ConferenceDatabase) {
   const cutoff = new Date(Date.now() - 24 * 60 * 60_000);
   const assets = await db
@@ -3889,6 +4112,7 @@ async function start() {
   await expireHtmlTemplateImports(db);
   await expireTemplateAssetUploadReservations(db);
   await maintainCustomerAuthData(db);
+  await maintainAgentAccessData(db);
   await cleanupExpiredCustomerAvatarSources(db);
   await reconcileAliyunSmsDeliveries(db);
   const inventoryTimer = setInterval(() => {
@@ -3908,6 +4132,13 @@ async function start() {
     },
     6 * 60 * 60_000,
   );
+  const agentAccessMaintenanceTimer = setInterval(
+    () =>
+      void maintainAgentAccessData(db).catch((error) =>
+        console.error('[worker] Agent Access maintenance failed', error),
+      ),
+    5 * 60_000,
+  );
   const smsReceiptTimer = setInterval(
     () => void reconcileAliyunSmsDeliveries(db),
     smsReceiptInterval,
@@ -3924,6 +4155,7 @@ async function start() {
     clearInterval(exportMaintenanceTimer);
     clearInterval(htmlImportMaintenanceTimer);
     clearInterval(customerAuthMaintenanceTimer);
+    clearInterval(agentAccessMaintenanceTimer);
     clearInterval(smsReceiptTimer);
     await worker.close();
     await htmlImportWorker.close();

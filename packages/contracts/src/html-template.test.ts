@@ -47,10 +47,18 @@ describe('HTML template contracts', () => {
           variablePath: 'routes.registration',
           missingPolicy: 'error',
         },
+        {
+          id: 'cooperation-link',
+          kind: 'attribute',
+          nodeId: 'tok-cooperation-link',
+          attributeName: 'href',
+          variablePath: 'routes.cooperation',
+          missingPolicy: 'error',
+        },
       ],
     });
 
-    expect(manifest.bindings).toHaveLength(2);
+    expect(manifest.bindings).toHaveLength(3);
   });
 
   it('rejects duplicate binding targets', () => {

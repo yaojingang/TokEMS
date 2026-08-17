@@ -1,0 +1,86 @@
+{
+  "ok": true,
+  "schema_version": "2.0",
+  "generated_at": "2026-08-17T07:46:29Z",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "privacy_contract": {
+    "storage": "local-first",
+    "event_scope": "metadata-only",
+    "raw_content_allowed": false,
+    "raw_event_log_packaged": false,
+    "blocked_fields": [
+      "content",
+      "input",
+      "inputs",
+      "message",
+      "messages",
+      "note",
+      "output",
+      "outputs",
+      "prompt",
+      "raw",
+      "text",
+      "transcript"
+    ]
+  },
+  "summary": {
+    "event_count": 1,
+    "adoption_sample_count": 0,
+    "activation_count": 0,
+    "accepted_count": 0,
+    "edited_count": 0,
+    "rejected_count": 0,
+    "missed_count": 0,
+    "failed_count": 0,
+    "adoption_rate": 0,
+    "missed_trigger_count": 0,
+    "wrong_trigger_count": 0,
+    "bad_output_count": 0,
+    "script_error_count": 0,
+    "missing_resource_count": 0,
+    "review_overdue_count": 0,
+    "risk_band": "low",
+    "event_types": {
+      "script_run": 1
+    },
+    "failure_types": {},
+    "source_types": {
+      "yao_cli": 1
+    },
+    "command_counts": {
+      "pnpm-test-tokems-admin-skill": 1
+    }
+  },
+  "adoption_by_skill": [
+    {
+      "skill": "tokems-admin",
+      "events": 1,
+      "adoption_events": 0,
+      "accepted": 0,
+      "edited": 0,
+      "rejected": 0,
+      "missed": 0,
+      "adoption_rate": 0
+    }
+  ],
+  "next_iteration_candidates": [],
+  "recent_events": [
+    {
+      "command": "pnpm-test-tokems-admin-skill",
+      "event": "script_run",
+      "skill": "tokems-admin",
+      "source": "yao_cli",
+      "version": "0.1.0",
+      "activation_type": "unknown",
+      "outcome": "accepted",
+      "failure_type": "none",
+      "timestamp": "2026-08-17T14:30:00+08:00"
+    }
+  ],
+  "failures": [],
+  "artifacts": {
+    "events_jsonl": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/telemetry_events.jsonl",
+    "json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/adoption_drift_report.json",
+    "markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/adoption_drift_report.md"
+  }
+}

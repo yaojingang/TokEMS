@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "failures": [],
+  "warnings": [],
+  "stats": {
+    "context_budget_tier": "governed",
+    "context_budget_limit": 1300,
+    "skill_body_tokens": 853,
+    "other_text_tokens": 78145,
+    "estimated_initial_load_tokens": 1102,
+    "estimated_total_text_tokens": 78998,
+    "deferred_resource_tokens": 4351,
+    "deferred_resource_warn_threshold": 120000,
+    "deferred_resource_dirs": [
+      { "path": "evals", "estimated_tokens": 2251, "file_count": 5 },
+      { "path": "references", "estimated_tokens": 2100, "file_count": 9 }
+    ],
+    "large_deferred_resource_dirs": [],
+    "deferred_resource_governance": {
+      "status": "not-required",
+      "large_dir_count": 0,
+      "governed_large_dir_count": 0,
+      "directories": [],
+      "summary": "No large deferred resource directory exceeds the per-dir threshold."
+    },
+    "relevant_file_count": 83,
+    "unused_resource_dirs": [],
+    "quality_signal_points": 125,
+    "quality_density": 113.4
+  },
+  "generator": "yao-meta-skill resource_boundary_check.analyze_skill"
+}

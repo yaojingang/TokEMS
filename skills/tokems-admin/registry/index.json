@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "generated_at": "2026-08-17",
+  "package_count": 1,
+  "packages": [
+    {
+      "name": "tokems-admin",
+      "version": "0.1.1",
+      "maturity": "governed",
+      "owner": "TokEMS Maintainers",
+      "targets": [
+        "openai",
+        "generic"
+      ],
+      "package_metadata": "registry/packages/tokems-admin.json",
+      "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+    }
+  ]
+}

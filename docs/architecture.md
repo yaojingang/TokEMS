@@ -49,6 +49,7 @@ flowchart TB
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
 | Registration   | 版本化表单、条款同意和参会人               | registration_forms, registrations                                                                 |
 | Public Metrics | 大会访问累计与公开参会聚合                 | event_public_metrics, registrations                                                               |
+| Cooperation    | 大会合作意向、联系方式与运营跟进           | cooperation_requests                                                                              |
 | Commerce       | 票种、库存保留、订单、支付、退款和状态日志 | ticket_types, inventory_reservations, orders, payments, refunds                                   |
 | Invoice        | 发票申请、文件、状态、访问凭证与导出任务   | invoice_requests, invoice_documents, invoice_state_logs, order_access_tokens, invoice_export_jobs |
 | Waitlist       | 售罄排队、顺序邀约、占位和一次性领取       | waitlist_entries                                                                                  |
@@ -134,3 +135,13 @@ capacity - sold - active reservations - active waitlist offers
 - MinIO/S3 保存模板图片、电子发票文件和异步导出文件；上传注册前校验对象大小、媒体类型和 SHA-256。
 - `AI_API_URL`、`AI_API_KEY` 和 `AI_MODEL` 接入兼容的内容生成服务。
 - OpenTelemetry、Prometheus 和集中日志可在 API/Worker 入口接入。
+
+### Agent 管理平面
+
+`tokems-admin` Skill 通过 Gateway 发现实例，由 Device Authorization 建立单组织连接。连接记录固定管理员成员关系、授权版本、scope、DPoP 公钥指纹和审批策略；管理员凭据不会进入 Agent 进程。访问令牌短期有效，refresh token 单次轮换，重放会撤销整个 token family 与连接。DPoP `jti` 通过 Redis 原子占位防重放，Redis 不可用时拒绝 Agent 请求。
+
+Agent 管理 handler 以动作目录为发布边界。所有后台 handler 都需要标记为已发布动作或明确排除，覆盖测试阻止未分类路由进入构建。当前目录包含 78 个动作并逐一映射 78 个管理 handler。写操作经过 prepare、confirm/approve、execute、verify/reconcile 生命周期，服务端保存脱敏差异、正文摘要、前态指纹、目标指纹、审批、验证和代理审计关联，完整正文与固定 secret header 留在连接器的本地加密待执行文件中。
+
+普通 PII 列表由 API 在响应阶段统一掩码，敏感详情要求用途、PII scope 和读取审计。公开内容操作完成后，连接器对管理 API 状态、同一 TokEMS origin 上的公开大会或首页 API、以及已发布 HTML home-document 执行查询式验证；证据以 SHA-256、HTTP 状态和 ETag 形式写回 operation，页面正文不进入审计或聊天输出。
+
+连接和写入由三个独立开关逐级开放：`TOKEMS_AGENT_ACCESS_ENABLED`、`TOKEMS_AGENT_WRITES_ENABLED`、`TOKEMS_AGENT_CRITICAL_ACTIONS_ENABLED`。应用回滚保留连接、operation 与审计表。

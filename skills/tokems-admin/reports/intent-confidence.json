@@ -1,0 +1,82 @@
+{
+  "score": 100,
+  "band": "high",
+  "gate_passed": true,
+  "authoring_ready": true,
+  "strengths": [
+    "The recurring job is concrete enough to anchor the package.",
+    "Real input shape is explicit.",
+    "The hand-back output is concrete.",
+    "Boundary exclusions are already explicit.",
+    "Operational constraints are visible."
+  ],
+  "gaps": [],
+  "follow_up_questions": [],
+  "clarification_plan": {
+    "decision": "proceed",
+    "language": "en",
+    "ambiguity_type": "",
+    "target_slot": "",
+    "question": "",
+    "rationale": "",
+    "decision_impact": "",
+    "blocking_ambiguities": [],
+    "stop_reason": "clear",
+    "inference_quality": "high"
+  },
+  "assumptions": [],
+  "anchor_sentence": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes. Primary output: One redacted JSON envelope with action, connection, organization, risk, operation state, verification, artifact digest, warnings, rollback boundary, and trace ID.. Exclusions: source-code development, database, SSH, deployment, and server administration, credential, cookie, token, or secret extraction, arbitrary URL, method, path, query, or organization access, direct order amount, payment fact, or financial ledger mutation.",
+  "recommended_action": "Intent is clear enough to package the first routeable version.",
+  "context": {
+    "job": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
+    "real_inputs": [
+      "exact HTTPS TokEMS origin or development loopback",
+      "Device Authorization connection approved by a current super administrator",
+      "catalog action ID and organization-scoped resource identifiers",
+      "file-backed parameter, request body, and reason inputs",
+      "browser approval for the effective risk policy"
+    ],
+    "primary_output": "One redacted JSON envelope with action, connection, organization, risk, operation state, verification, artifact digest, warnings, rollback boundary, and trace ID.",
+    "description": "Governed API operation of the TokEMS administrator surface.",
+    "exclusions": [
+      "source-code development",
+      "database, SSH, deployment, and server administration",
+      "credential, cookie, token, or secret extraction",
+      "arbitrary URL, method, path, query, or organization access",
+      "direct order amount, payment fact, or financial ledger mutation"
+    ],
+    "constraints": [
+      "remote targets require HTTPS and exact origin pinning",
+      "DPoP and rotating refresh credentials stay in a supported OS credential store",
+      "the live capability catalog, scopes, grants, feature flags, and organization remain authoritative",
+      "request hashes, before fingerprints, operation IDs, and approvals remain bound",
+      "missing evidence is reported literally as missing evidence"
+    ],
+    "standards": [
+      "zero unclassified surfaced management handlers",
+      "positive, negative, near-neighbor, prompt-injection, cross-organization, and output-contract eval coverage",
+      "OpenAI and generic conformance, trust, package, install, and upgrade gates pass",
+      "status remains experimental until real production acceptance evidence exists"
+    ],
+    "correction": "Catalog or management-handler drift blocks release until classification, security policy, verification, and eval evidence are updated.",
+    "user_references": [
+      "docs/tokems-admin-skill-design.md",
+      "current TokEMS API and administrator routes",
+      "approved TokEMS Admin Skill implementation plan"
+    ],
+    "skill_name": "",
+    "assumptions": [],
+    "clarification_state": {
+      "decision": "proceed",
+      "rounds_used": 0,
+      "max_rounds": 2,
+      "asked_ambiguities": [],
+      "resolved_ambiguities": [],
+      "correction_pending": false,
+      "blocking_ambiguities": [],
+      "stop_reason": "clear",
+      "inference_quality": "high"
+    },
+    "language": "en"
+  }
+}

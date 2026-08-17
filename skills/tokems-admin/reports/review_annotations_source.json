@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "review_contract": {
+    "gate_key": "One Review Studio gate key, such as output-lab or trust-report.",
+    "target_path": "Relative path to the source or report being annotated.",
+    "line": "Optional positive integer line number.",
+    "severity": "info | note | warning | blocker.",
+    "status": "open | resolved | deferred.",
+    "body": "Reviewer-visible annotation text."
+  },
+  "annotations": []
+}

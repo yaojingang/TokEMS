@@ -365,6 +365,13 @@
       "when": 1786947668316,
       "tag": "0051_goofy_skaar",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786954695407,
+      "tag": "0052_hard_rafael_vega",
+      "breakpoints": true
     }
   ]
 }

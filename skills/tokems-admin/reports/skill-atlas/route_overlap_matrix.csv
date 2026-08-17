@@ -1,0 +1,2 @@
+skill_a,skill_b,path_a,path_b,score,status,actionable,scope_a,scope_b
+tokems-admin,tokems-admin,tokems-admin/.build/install-root/simulate-tokems-admin/tokems-admin,tokems-admin,1.0,collision,False,generated-install-evidence,release

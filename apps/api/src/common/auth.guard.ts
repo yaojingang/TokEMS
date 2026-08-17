@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Optional,
   SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import type { OrganizationRole } from '@conference/contracts';
 import { memberProfiles, memberships, users } from '@conference/database';
 import { and, eq } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
+import { AgentPrincipalService, type AgentPrincipal } from './agent-principal.service.js';
 import { staffCredentialRevision, staffCredentialVersion } from './staff-account.js';
 
 const REQUIRED_GRANTS = 'conference.required_grants';
@@ -54,6 +56,9 @@ export class AuthGuard implements CanActivate {
     @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Optional()
+    @Inject(AgentPrincipalService)
+    private readonly agentPrincipal?: AgentPrincipalService,
   ) {}
 
   private allows(grants: string[], required: string) {
@@ -63,8 +68,37 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
     const request = context
       .switchToHttp()
-      .getRequest<FastifyRequest & { user?: AuthenticatedUser }>();
+      .getRequest<FastifyRequest & { user?: AuthenticatedUser; agentPrincipal?: AgentPrincipal }>();
     const authorization = request.headers.authorization;
+    const agentToken = authorization?.startsWith('DPoP ') ? authorization.slice(5) : undefined;
+    if (agentToken) {
+      if (!this.agentPrincipal) {
+        throw new UnauthorizedException('Agent Access is unavailable');
+      }
+      const authenticated = await this.agentPrincipal.authenticate(request, agentToken);
+      request.user = authenticated.user;
+      request.agentPrincipal = authenticated.principal;
+      const required =
+        this.reflector.getAllAndOverride<string[]>(REQUIRED_GRANTS, [
+          context.getHandler(),
+          context.getClass(),
+        ]) ?? [];
+      const requiredAll =
+        this.reflector.getAllAndOverride<string[]>(REQUIRED_ALL_GRANTS, [
+          context.getHandler(),
+          context.getClass(),
+        ]) ?? [];
+      if (
+        required.length &&
+        !required.some((grant) => this.allows(authenticated.user.grants, grant))
+      ) {
+        throw new ForbiddenException('当前委派管理员缺少执行此操作所需的权限');
+      }
+      if (requiredAll.length && !grantsAllowAll(authenticated.user.grants, requiredAll)) {
+        throw new ForbiddenException('当前委派管理员缺少执行此组合操作所需的全部权限');
+      }
+      return true;
+    }
     const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
 
     if (!token) {

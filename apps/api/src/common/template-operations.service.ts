@@ -31,6 +31,7 @@ import {
   eventTemplateOverrides,
   events,
   outboxEvents,
+  speakers,
   templateAssetUploadReservations,
   templateAssets,
   templateHtmlDocuments,
@@ -1926,6 +1927,22 @@ export class TemplateOperationsService {
           '模板资产仍被待提交的 HTML 导入任务使用',
           HttpStatus.CONFLICT,
           { importId: activeImportLease.importId },
+        );
+      }
+
+      const [speakerReference] = await tx
+        .select({ id: speakers.id })
+        .from(speakers)
+        .where(
+          and(eq(speakers.organizationId, organizationId), eq(speakers.avatarAssetId, assetId)),
+        )
+        .limit(1);
+      if (speakerReference) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '图片仍被嘉宾头像引用',
+          HttpStatus.CONFLICT,
+          { speakerId: speakerReference.id },
         );
       }
 

@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "reviewed_at": "2026-08-17",
+  "capabilities": {
+    "file_read": {
+      "decision": "approved",
+      "reviewer": "TokEMS Maintainers",
+      "scope": "Only user-selected JSON parameter/body files, UTF-8 reason or purpose files, and the explicit check-in device token file passed through fixed CLI options.",
+      "reason": "Catalog actions use file-backed structured input so shell text cannot become a free request path or accidental secret-bearing command argument. The check-in token stays out of shell arguments and is encrypted with the pending operation.",
+      "expires_at": "2027-08-17",
+      "evidence": ["SKILL.md", "scripts/lib/catalog.mjs", "scripts/lib/operations.mjs"],
+      "target_enforcement": {
+        "openai": "Codex asks for access to user-selected input files and the connector reads only explicit option values.",
+        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "generic": "Host must expose only user-selected input files to the connector.",
+        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+      }
+    },
+    "network": {
+      "decision": "approved",
+      "reviewer": "TokEMS Maintainers",
+      "scope": "Outbound HTTPS to one administrator-approved TokEMS origin pinned in the secure connection profile, limited to well-known, OAuth, Agent, auth step-up metadata, and catalog-declared administration paths.",
+      "reason": "Remote product administration needs bounded API access with DPoP, live capability checks, fixed route templates, redirect denial, and organization-scoped server authorization.",
+      "expires_at": "2027-08-17",
+      "evidence": [
+        "security/network_policy.json",
+        "references/authorization.md",
+        "reports/security_trust_report.md"
+      ],
+      "target_enforcement": {
+        "openai": "Connector validates and pins one exact origin; Codex workspace permission remains reviewer-visible.",
+        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "generic": "Adapter requires the connector origin validator and redirect-denying fetch wrapper.",
+        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+      }
+    },
+    "file_write": {
+      "decision": "approved",
+      "reviewer": "TokEMS Maintainers",
+      "scope": "Mode-0600 encrypted pending operation files under the dedicated local state directory and one explicit user-selected absolute artifact path; artifact writes reject existing files.",
+      "reason": "Prepared request bodies and approved exports need bounded local persistence with AES-256-GCM, terminal-state cleanup, explicit paths, checksums, and restrictive file permissions.",
+      "expires_at": "2027-08-17",
+      "evidence": [
+        "references/safety-and-approvals.md",
+        "scripts/lib/files.mjs",
+        "scripts/lib/crypto.mjs"
+      ],
+      "target_enforcement": {
+        "openai": "Connector resolves dedicated state storage, rejects relative artifact paths, and applies mode 0600.",
+        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "generic": "Host must preserve filesystem permissions and the packaged connector checks them.",
+        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+      }
+    },
+    "subprocess": {
+      "decision": "approved",
+      "reviewer": "TokEMS Maintainers",
+      "scope": "Fixed argument-list calls without a shell to macOS security or Linux secret-tool for credential storage and lookup.",
+      "reason": "Platform credential stores require local helper invocation; arguments are fixed, secrets pass through standard input when supported, output is captured, and no arbitrary command execution surface exists.",
+      "expires_at": "2027-08-17",
+      "evidence": [
+        "scripts/lib/credentials.mjs",
+        "references/authorization.md",
+        "reports/security_trust_report.md"
+      ],
+      "target_enforcement": {
+        "openai": "Connector uses spawnSync argument arrays with shell disabled and a strict helper allow-list.",
+        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "generic": "Adapter requires an approved Keychain or Secret Service helper and the same fixed invocation contract.",
+        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+      }
+    },
+    "interactive": {
+      "decision": "approved",
+      "reviewer": "TokEMS Maintainers",
+      "scope": "Browser Device Authorization handoff and progress notices; administrator passwords remain in the TokEMS browser and the connector never reads them.",
+      "reason": "Device Authorization needs a human to inspect and approve exact scopes, DPoP fingerprint, organization, and risk policy while keeping administrator credentials outside the AI process.",
+      "expires_at": "2027-08-17",
+      "evidence": ["references/authorization.md", "references/safety-and-approvals.md", "SKILL.md"],
+      "target_enforcement": {
+        "openai": "Connector emits a browser verification URL to stderr and one redacted JSON result to stdout.",
+        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "generic": "Host must display the verification URL and preserve the one-JSON stdout contract.",
+        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+      }
+    }
+  }
+}

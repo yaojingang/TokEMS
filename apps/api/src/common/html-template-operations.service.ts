@@ -2,6 +2,9 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   API_ERROR_CODES,
+  analyticsHeadHtml,
+  analyticsHeadScripts,
+  analyticsResourceOrigins,
   ConferenceTemplateDefinitionSchema,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   DEMO_EVENT,
@@ -101,6 +104,34 @@ export function publishedHtmlEtag(html: string) {
   return `"${createHash('sha256').update(html).digest('hex')}"`;
 }
 
+export function injectPublishedAnalyticsHead(
+  html: string,
+  analytics: ReturnType<typeof OrganizationSettingsSchema.parse>['analytics'],
+) {
+  const cleaned = html.replace(
+    /<script\b[^>]*\bdata-tok-analytics=["'][^"']+["'][^>]*>[\s\S]*?<\/script\s*>/giu,
+    '',
+  );
+  const analyticsHtml = analyticsHeadHtml(analytics);
+  return cleaned.replace(/<\/head>/iu, `${analyticsHtml ? `${analyticsHtml}\n` : ''}</head>`);
+}
+
+export function publishedAnalyticsCspSources(
+  analytics: ReturnType<typeof OrganizationSettingsSchema.parse>['analytics'],
+) {
+  const resources = analyticsResourceOrigins(analytics);
+  const inlineHashes = analyticsHeadScripts(analytics).flatMap((script) =>
+    script.innerHTML
+      ? [`'sha256-${createHash('sha256').update(script.innerHTML).digest('base64')}'`]
+      : [],
+  );
+  return {
+    script: [...new Set([...inlineHashes, ...resources.script])],
+    connect: [...new Set(resources.connect)],
+    image: [...new Set(resources.image)],
+  };
+}
+
 export function redactRemoteResourceUrl(value: string) {
   if (value.startsWith('data:')) return 'data:[content-redacted]';
   try {
@@ -164,7 +195,12 @@ export function htmlTemplateSampleContext(): Record<string, unknown> {
     speakers: DEMO_EVENT.speakers,
     sessions: DEMO_EVENT.sessions,
     faqs: DEMO_EVENT.faqs,
-    routes: { registration: '/register', faq: '/faq', account: '/account' },
+    routes: {
+      registration: '/register',
+      cooperation: '/apply/cooperation',
+      faq: '/faq',
+      account: '/account',
+    },
     site: {
       footerText: 'GEO大会组委会',
       supportEmail: '',
@@ -1296,20 +1332,26 @@ export class HtmlTemplateOperationsService {
       .replace(/<meta\s+property=["']og:url["'][^>]*>/giu, '')
       .replace(/<link\s+[^>]*rel=["']canonical["'][^>]*>/giu, '')
       .replace(/<link\s+[^>]*rel=["'][^"']*icon[^"']*["'][^>]*>/giu, '');
-    const injected = cleaned.replace(
+    const metadataInjected = cleaned.replace(
       /<\/head>/iu,
       `${headParts.filter(Boolean).join('')}\n</head>`,
     );
+    const injected = injectPublishedAnalyticsHead(metadataInjected, settings.analytics);
     const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT;
     const assetOrigin = publicEndpoint ? new URL(publicEndpoint).origin : null;
+    const analyticsSources = publishedAnalyticsCspSources(settings.analytics);
+    const scriptSources = analyticsSources.script.length ? analyticsSources.script : ["'none'"];
+    const connectSources = analyticsSources.connect.length ? analyticsSources.connect : ["'none'"];
     const csp = [
       "default-src 'none'",
-      "script-src 'none'",
+      `script-src ${scriptSources.join(' ')}`,
       "script-src-attr 'none'",
       "style-src 'unsafe-inline'",
-      `img-src ${["'self'", ...(assetOrigin ? [assetOrigin] : [])].join(' ')}`,
+      `img-src ${["'self'", ...(assetOrigin ? [assetOrigin] : []), ...analyticsSources.image].join(
+        ' ',
+      )}`,
       "font-src 'self'",
-      "connect-src 'none'",
+      `connect-src ${connectSources.join(' ')}`,
       "frame-src 'none'",
       "object-src 'none'",
       "base-uri 'none'",
@@ -1391,6 +1433,7 @@ export class HtmlTemplateOperationsService {
       faqs: event.faqs,
       routes: {
         registration: publicEventScopedPath('/register', event.slug),
+        cooperation: publicEventScopedPath('/apply/cooperation', event.slug),
         faq: publicEventScopedPath('/faq', event.slug),
         account: publicEventScopedPath('/account', event.slug),
       },

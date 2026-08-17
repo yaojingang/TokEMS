@@ -1,0 +1,812 @@
+{
+  "schema_version": "1.0",
+  "ok": false,
+  "generated_at": "2026-08-17",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "summary": {
+    "item_count": 21,
+    "module_count": 8,
+    "recommended_pr_count": 13,
+    "pass_count": 0,
+    "warn_count": 0,
+    "missing_count": 21,
+    "extension_track_count": 4,
+    "extension_partial_count": 3,
+    "extension_planned_count": 1,
+    "extension_covered_count": 0,
+    "adaptive_extension_ready": false,
+    "local_blueprint_ready": false,
+    "public_world_class_ready": false,
+    "world_class_evidence_pending_count": 4,
+    "decision": "continue-implementation"
+  },
+  "status_counts": {
+    "pass": 0,
+    "warn": 0,
+    "missing": 21
+  },
+  "extension_status_counts": {
+    "partial": 3,
+    "planned": 1
+  },
+  "modules": [
+    {
+      "key": "skill-ir",
+      "category": "core-module",
+      "label": "Skill IR",
+      "status": "missing",
+      "objective": "Platform-neutral capability contract exists before platform-specific packaging.",
+      "current": "schema missing; targets 0",
+      "command": "python3 scripts/yao.py skill-ir . --self",
+      "test": "python3 tests/verify_skill_ir.py",
+      "evidence": [
+        {
+          "path": "skill-ir/schema.json",
+          "exists": false
+        },
+        {
+          "path": "skill-ir/examples/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/export_skill_ir.py",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_skill_ir.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep all target packages compiled from IR rather than hand-maintained per target."
+    },
+    {
+      "key": "output-eval-lab",
+      "category": "core-module",
+      "label": "Output Eval Lab",
+      "status": "missing",
+      "objective": "with-skill/baseline output quality is measured with assertions, execution evidence, and blind review packs.",
+      "current": "7 cases; delta 100.0; execution 14",
+      "command": "python3 scripts/yao.py output-exec --self && python3 scripts/yao.py output-review --self",
+      "test": "python3 tests/verify_output_eval_lab.py",
+      "evidence": [
+        {
+          "path": "evals/output/schema.json",
+          "exists": false
+        },
+        {
+          "path": "evals/output/cases.jsonl",
+          "exists": true
+        },
+        {
+          "path": "scripts/run_output_eval.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/run_output_execution.py",
+          "exists": false
+        },
+        {
+          "path": "reports/output_quality_scorecard.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_output_eval_lab.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Add more real-file and adversarial holdout cases as adoption data grows."
+    },
+    {
+      "key": "runtime-conformance",
+      "category": "core-module",
+      "label": "Runtime Conformance",
+      "status": "missing",
+      "objective": "Target packages can be consumed by OpenAI, Claude, Agent Skills, VS Code, and generic targets.",
+      "current": "2/2 targets pass",
+      "command": "python3 scripts/yao.py conformance . --self",
+      "test": "python3 tests/verify_conformance_suite.py",
+      "evidence": [
+        {
+          "path": "runtime/conformance/schema.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/run_conformance_suite.py",
+          "exists": false
+        },
+        {
+          "path": "reports/conformance_matrix.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_conformance_suite.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep conformance cases aligned with current platform metadata rules."
+    },
+    {
+      "key": "trust-security",
+      "category": "core-module",
+      "label": "Trust Security",
+      "status": "missing",
+      "objective": "Scripts, dependencies, permissions, secrets, and package hash are reviewable for team distribution.",
+      "current": "10 scripts; secrets 0; help failures 0",
+      "command": "python3 scripts/yao.py trust . --self",
+      "test": "python3 tests/verify_trust_check.py",
+      "evidence": [
+        {
+          "path": "scripts/trust_check.py",
+          "exists": false
+        },
+        {
+          "path": "security/trust_policy.md",
+          "exists": false
+        },
+        {
+          "path": "security/script_policy.md",
+          "exists": false
+        },
+        {
+          "path": "security/permission_policy.json",
+          "exists": true
+        },
+        {
+          "path": "reports/security_trust_report.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_trust_check.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep high-permission approvals scoped, expiring, and mapped to target enforcement."
+    },
+    {
+      "key": "skill-atlas",
+      "category": "core-module",
+      "label": "Skill Atlas",
+      "status": "missing",
+      "objective": "Team skill portfolio reveals route collisions, stale ownership, dependency graph, and no-route opportunities.",
+      "current": "1 scanned skills; actionable collisions 0",
+      "command": "python3 scripts/yao.py skill-atlas --workspace-root . --self",
+      "test": "python3 tests/verify_skill_atlas.py",
+      "evidence": [
+        {
+          "path": "scripts/build_skill_atlas.py",
+          "exists": false
+        },
+        {
+          "path": "skill_atlas/catalog.json",
+          "exists": false
+        },
+        {
+          "path": "skill_atlas/route_overlap_matrix.csv",
+          "exists": false
+        },
+        {
+          "path": "skill_atlas/dependency_graph.json",
+          "exists": false
+        },
+        {
+          "path": "reports/skill_atlas.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_skill_atlas.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Use real telemetry to rank stale or drifting skills by impact, not only by static metadata."
+    },
+    {
+      "key": "registry-distribution",
+      "category": "core-module",
+      "label": "Registry Distribution",
+      "status": "missing",
+      "objective": "Skill packages are installable, versioned, checksumed, and upgrade-reviewable.",
+      "current": "archive entries 42; install failures 0",
+      "command": "python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self && python3 scripts/yao.py registry-audit . --self",
+      "test": "python3 tests/verify_registry_audit.py",
+      "evidence": [
+        {
+          "path": "registry/index.schema.json",
+          "exists": false
+        },
+        {
+          "path": "registry/package.schema.json",
+          "exists": false
+        },
+        {
+          "path": "registry/packages/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/registry_audit.py",
+          "exists": false
+        },
+        {
+          "path": "reports/package_verification.json",
+          "exists": true
+        },
+        {
+          "path": "reports/install_simulation.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_registry_audit.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Regenerate registry metadata after package verification so source and archive checksums stay aligned."
+    },
+    {
+      "key": "review-studio",
+      "category": "core-module",
+      "label": "Review Studio",
+      "status": "missing",
+      "objective": "One HTML page supports first-pass production review across trigger, output, runtime, trust, release, and evidence actions.",
+      "current": "16 gates; decision review; warnings 4",
+      "command": "python3 scripts/yao.py review-studio . --self",
+      "test": "python3 tests/verify_review_studio.py",
+      "evidence": [
+        {
+          "path": "scripts/render_review_studio.py",
+          "exists": false
+        },
+        {
+          "path": "reports/review-studio.html",
+          "exists": true
+        },
+        {
+          "path": "reports/review-studio.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_review_studio.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Close pending human and external evidence before claiming full release readiness."
+    },
+    {
+      "key": "telemetry-drift",
+      "category": "core-module",
+      "label": "Telemetry Drift",
+      "status": "missing",
+      "objective": "Real usage feedback is captured as metadata-only local-first drift signals.",
+      "current": "events 1; recipes 0; risk low",
+      "command": "python3 scripts/yao.py telemetry-hooks . --self && python3 scripts/yao.py adoption-drift . --self",
+      "test": "python3 tests/verify_telemetry_hooks.py",
+      "evidence": [
+        {
+          "path": "scripts/emit_telemetry_event.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/import_telemetry_events.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/telemetry_native_host.py",
+          "exists": false
+        },
+        {
+          "path": "reports/adoption_drift_report.json",
+          "exists": true
+        },
+        {
+          "path": "reports/telemetry_hook_recipes.json",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_telemetry_hooks.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Install a real client and import production metadata-only events into the local drift loop."
+    }
+  ],
+  "recommended_prs": [
+    {
+      "key": "benchmark-methodology",
+      "category": "recommended-pr",
+      "label": "Benchmark Methodology",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "0 required artifacts checked",
+      "command": "make ci-test",
+      "test": "tests/verify_benchmark_reproducibility.py",
+      "evidence": [
+        {
+          "path": "reports/benchmark_methodology.md",
+          "exists": false
+        },
+        {
+          "path": "reports/benchmark_reproducibility.json",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_benchmark_reproducibility.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "output-eval-schema",
+      "category": "recommended-pr",
+      "label": "Output Eval Schema",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "7 output cases",
+      "command": "make ci-test",
+      "test": "tests/verify_output_eval_lab.py",
+      "evidence": [
+        {
+          "path": "evals/output/schema.json",
+          "exists": false
+        },
+        {
+          "path": "evals/output/cases.jsonl",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_output_eval_lab.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "output-eval-runner",
+      "category": "recommended-pr",
+      "label": "Output Eval Runner",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "delta 100.0",
+      "command": "make ci-test",
+      "test": "tests/verify_output_eval_lab.py",
+      "evidence": [
+        {
+          "path": "scripts/run_output_eval.py",
+          "exists": false
+        },
+        {
+          "path": "reports/output_quality_scorecard.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_output_eval_lab.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "output-quality-scorecard",
+      "category": "recommended-pr",
+      "label": "Output Quality Scorecard",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "gate pass True",
+      "command": "make ci-test",
+      "test": "tests/verify_output_eval_lab.py",
+      "evidence": [
+        {
+          "path": "reports/output_quality_scorecard.md",
+          "exists": true
+        },
+        {
+          "path": "reports/output_quality_scorecard.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_output_eval_lab.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "skill-ir-v0",
+      "category": "recommended-pr",
+      "label": "Skill IR V0",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "schema missing",
+      "command": "make ci-test",
+      "test": "tests/verify_skill_ir.py",
+      "evidence": [
+        {
+          "path": "skill-ir/schema.json",
+          "exists": false
+        },
+        {
+          "path": "skill-ir/examples/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_skill_ir.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "compiler-refactor",
+      "category": "recommended-pr",
+      "label": "Compiler Refactor",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "2/2 compiled targets",
+      "command": "make ci-test",
+      "test": "tests/verify_compile_skill.py",
+      "evidence": [
+        {
+          "path": "scripts/compile_skill.py",
+          "exists": false
+        },
+        {
+          "path": "reports/compiled_targets.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_compile_skill.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "agent-skills-conformance",
+      "category": "recommended-pr",
+      "label": "Agent Skills Conformance",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "agent-skills target present",
+      "command": "make ci-test",
+      "test": "tests/verify_conformance_suite.py",
+      "evidence": [
+        {
+          "path": "runtime/conformance/schema.json",
+          "exists": false
+        },
+        {
+          "path": "reports/conformance_matrix.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_conformance_suite.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "trust-check",
+      "category": "recommended-pr",
+      "label": "Trust Check",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "secret findings 0",
+      "command": "make ci-test",
+      "test": "tests/verify_trust_check.py",
+      "evidence": [
+        {
+          "path": "scripts/trust_check.py",
+          "exists": false
+        },
+        {
+          "path": "reports/security_trust_report.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_trust_check.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "skill-atlas-generator",
+      "category": "recommended-pr",
+      "label": "Skill Atlas Generator",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "1 scanned skills",
+      "command": "make ci-test",
+      "test": "tests/verify_skill_atlas.py",
+      "evidence": [
+        {
+          "path": "scripts/build_skill_atlas.py",
+          "exists": false
+        },
+        {
+          "path": "reports/skill_atlas.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_skill_atlas.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "registry-package-format",
+      "category": "recommended-pr",
+      "label": "Registry Package Format",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "registry ok True",
+      "command": "make ci-test",
+      "test": "tests/verify_registry_audit.py",
+      "evidence": [
+        {
+          "path": "registry/package.schema.json",
+          "exists": false
+        },
+        {
+          "path": "reports/registry_audit.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_registry_audit.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "review-studio-2",
+      "category": "recommended-pr",
+      "label": "Review Studio 2.0",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "16 review gates",
+      "command": "make ci-test",
+      "test": "tests/verify_review_studio.py",
+      "evidence": [
+        {
+          "path": "scripts/render_review_studio.py",
+          "exists": false
+        },
+        {
+          "path": "reports/review-studio.html",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_review_studio.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "migration-v2-docs",
+      "category": "recommended-pr",
+      "label": "Migration V2 Docs",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "migration guide present",
+      "command": "make ci-test",
+      "test": "docs review",
+      "evidence": [
+        {
+          "path": "docs/migration-v2.md",
+          "exists": false
+        },
+        {
+          "path": "reports/skill-os-2-review.md",
+          "exists": false
+        },
+        {
+          "path": "README.md",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    },
+    {
+      "key": "evidence-consistency",
+      "category": "recommended-pr",
+      "label": "Evidence Consistency",
+      "status": "missing",
+      "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
+      "current": "0 consistency checks",
+      "command": "make ci-test",
+      "test": "tests/verify_evidence_consistency.py",
+      "evidence": [
+        {
+          "path": "scripts/render_evidence_consistency.py",
+          "exists": false
+        },
+        {
+          "path": "reports/evidence_consistency.json",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_evidence_consistency.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep this item covered as the implementation evolves."
+    }
+  ],
+  "reference_extension_tracks": [
+    {
+      "key": "skill-interpretation-report",
+      "label": "Skill Interpretation Report",
+      "status": "partial",
+      "objective": "User-facing deep interpretation report explains use cases, triggers, inputs, outputs, workflow, principles, boundaries, quality gates, examples, and next iterations.",
+      "current": "Skill Overview v2 already covers much of the explainer experience, but dedicated skill-interpretation JSON/HTML artifacts are not first-class yet.",
+      "target": "Either keep skill-overview as the canonical interpretation report with an explicit contract, or split a dedicated reports/skill-interpretation.* renderer and tests.",
+      "evidence": [
+        {
+          "path": "reports/skill-overview.html",
+          "exists": true
+        },
+        {
+          "path": "reports/skill-overview.json",
+          "exists": true
+        },
+        {
+          "path": "scripts/render_skill_overview.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/render_skill_interpretation.py",
+          "exists": false
+        },
+        {
+          "path": "schemas/skill-interpretation.schema.json",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_skill_interpretation.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Decide whether overview v2 is the canonical interpretation surface; if not, add a dedicated schema, renderer, and CJK/path-safety tests."
+    },
+    {
+      "key": "adaptive-self-iteration",
+      "label": "Adaptive Self-Iteration",
+      "status": "planned",
+      "objective": "Local-first preference memory, repeated-signal extraction, adaptation proposals, approval, patch application, regression evidence, and rollback.",
+      "current": "The repo has feedback, iteration, telemetry, and review artifacts, but no adapt-scan/adapt-propose/adapt-apply approval loop and no user-memory policy.",
+      "target": "Proposal-only adaptation with explicit input source, redaction, allowlisted write targets, approval ledger, regression report, and rollback plan.",
+      "evidence": [
+        {
+          "path": "references/autonomous-adaptation.md",
+          "exists": false
+        },
+        {
+          "path": "references/user-memory-policy.md",
+          "exists": false
+        },
+        {
+          "path": "schemas/adaptation-proposal.schema.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/summarize_user_signals.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/propose_adaptation.py",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_adaptation_safety.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/apply_adaptation.py",
+          "exists": false
+        },
+        {
+          "path": "reports/adaptation_approval_ledger.json",
+          "exists": false
+        },
+        {
+          "path": "reports/adaptation_regression_report.json",
+          "exists": false
+        },
+        {
+          "path": "reports/user_patterns.json",
+          "exists": false
+        },
+        {
+          "path": "reports/adaptation_proposals.json",
+          "exists": false
+        },
+        {
+          "path": "reports/iteration-directions.md",
+          "exists": false
+        },
+        {
+          "path": "reports/adoption_drift_report.md",
+          "exists": true
+        }
+      ],
+      "next_action": "Start with policy and read-only scan tests; do not read shell history or private logs unless the user provides an explicit source path."
+    },
+    {
+      "key": "daily-skillops-report",
+      "label": "Daily SkillOps Report",
+      "status": "partial",
+      "objective": "Daily operations layer summarizes explicit-source conversation patterns, proposal-only adaptation work, approval state, release locks, and world-class evidence gaps.",
+      "current": "Adaptive scan/propose exists, but the daily operations report is not fully wired into scripts, tests, and evidence artifacts.",
+      "target": "Generate reports/skillops/daily/YYYY-MM-DD.* from explicit sources without private log scanning, source writes, auto-patching, or world-class overclaiming.",
+      "evidence": [
+        {
+          "path": "scripts/render_daily_skillops_report.py",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_daily_skillops.py",
+          "exists": false
+        },
+        {
+          "path": "reports/skillops/daily/YYYY-MM-DD.json",
+          "exists": false
+        },
+        {
+          "path": "reports/skillops/daily/YYYY-MM-DD.md",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep Daily SkillOps report aligned with proposal, approval, coverage, and world-class ledger contracts as the operations layer evolves."
+    },
+    {
+      "key": "weekly-curator-report",
+      "label": "Weekly Curator Report",
+      "status": "partial",
+      "objective": "Weekly curator layer aggregates Daily SkillOps opportunities, Skill Atlas portfolio signals, release locks, and world-class evidence gaps into a maintenance queue.",
+      "current": "Daily SkillOps and Skill Atlas exist, but weekly curator aggregation is not fully wired into scripts, tests, and evidence artifacts.",
+      "target": "Generate reports/skillops/weekly/YYYY-WNN.* without private log scanning, source writes, auto-patching, or world-class overclaiming.",
+      "evidence": [
+        {
+          "path": "scripts/render_weekly_curator_report.py",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_weekly_curator.py",
+          "exists": false
+        },
+        {
+          "path": "reports/skillops/weekly/YYYY-WNN.json",
+          "exists": false
+        },
+        {
+          "path": "reports/skillops/weekly/YYYY-WNN.md",
+          "exists": false
+        }
+      ],
+      "next_action": "Use weekly curator output as the Skill Librarian maintenance queue before approving any durable skill-library changes."
+    }
+  ],
+  "next_highest_leverage": [
+    "Close the four world-class evidence ledger entries with accepted human or external evidence.",
+    "Keep the first-class skill interpretation report and Skill Overview v2 contract synchronized as the report model evolves.",
+    "Use Daily SkillOps with explicit curated sources to review adaptation proposals without scanning private logs or auto-patching.",
+    "Keep the blueprint coverage report in CI so 2.0 plan drift is visible."
+  ],
+  "source_blueprint": {
+    "title": "Skill Overview / Skill OS 2.0 upgrade plan",
+    "core_module_count": 8,
+    "recommended_pr_count": 13,
+    "reference_extension_count": 4,
+    "reference_extensions": [
+      "Skill interpretation report",
+      "Adaptive self-iteration with local preference memory and approval gates",
+      "Daily SkillOps operations report"
+    ]
+  },
+  "artifacts": {
+    "json": "reports/skill_os2_coverage.json",
+    "markdown": "reports/skill_os2_coverage.md"
+  }
+}

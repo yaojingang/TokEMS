@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { useAsyncData } from '#app';
+import { useAsyncData, useRuntimeConfig } from '#app';
+import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import {
+  analyticsNavigationContext,
+  isPublicAnalyticsPath,
+  localAnalyticsBoundaryTarget,
+  publicAnalyticsHeadEntries,
+  requiresAnalyticsDocumentBoundary,
+  sendAnalyticsPageView,
+  shouldSendAnalyticsPageView,
+  type AnalyticsNavigationContext,
+} from '~/utils/public-analytics';
 
 const api = useConferenceApi();
 const customer = useCustomerSession();
 const route = useRoute();
+const router = useRouter();
+const runtimeConfig = useRuntimeConfig();
 const publicEventHome = computed(() => route.meta.publicEventHome === true);
 const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await useAsyncData(
   'public-site-configuration',
@@ -14,10 +27,16 @@ const { data: siteConfiguration, refresh: refreshSiteConfiguration } = await use
 
 useHead(() => {
   const website = siteConfiguration.value?.website;
+  const analytics = siteConfiguration.value?.analytics;
+  const analyticsAllowed = isPublicAnalyticsPath(
+    route.path,
+    Boolean(runtimeConfig.public.paymentSurface),
+  );
   return {
     titleTemplate: website?.seoTitle ? `%s · ${website.seoTitle}` : undefined,
     meta: website?.seoDescription ? [{ name: 'description', content: website.seoDescription }] : [],
     link: website?.faviconUrl ? [{ rel: 'icon', href: website.faviconUrl }] : [],
+    script: analyticsAllowed ? publicAnalyticsHeadEntries(analytics) : [],
   };
 });
 
@@ -37,12 +56,58 @@ function refreshPublicConfiguration() {
   );
 }
 
+let stopAnalyticsNavigation: (() => void) | undefined;
+let removeAnalyticsBoundaryGuard: (() => void) | undefined;
+let analyticsWasActiveInDocument = Boolean(
+  analyticsNavigationContext(
+    siteConfiguration.value?.analytics,
+    route.fullPath,
+    Boolean(runtimeConfig.public.paymentSurface),
+  ).identity,
+);
+
 onMounted(() => {
   void customer.refresh().catch(() => undefined);
+  removeAnalyticsBoundaryGuard = router.beforeEach((to, from) => {
+    if (
+      !requiresAnalyticsDocumentBoundary(
+        siteConfiguration.value?.analytics,
+        from.fullPath,
+        to.fullPath,
+        {
+          paymentSurface: Boolean(runtimeConfig.public.paymentSurface),
+          analyticsWasActiveInDocument,
+        },
+      )
+    ) {
+      return true;
+    }
+    window.location.assign(localAnalyticsBoundaryTarget(to.fullPath));
+    return false;
+  });
+  let previous: AnalyticsNavigationContext | null = null;
+  stopAnalyticsNavigation = watch(
+    () =>
+      analyticsNavigationContext(
+        siteConfiguration.value?.analytics,
+        route.fullPath,
+        Boolean(runtimeConfig.public.paymentSurface),
+      ),
+    (next) => {
+      if (next.identity) analyticsWasActiveInDocument = true;
+      if (shouldSendAnalyticsPageView(previous, next) && next.provider) {
+        sendAnalyticsPageView(next.provider, next.path);
+      }
+      previous = next;
+    },
+    { immediate: true, flush: 'post' },
+  );
   document.addEventListener('visibilitychange', refreshPublicConfiguration);
 });
 
 onBeforeUnmount(() => {
+  removeAnalyticsBoundaryGuard?.();
+  stopAnalyticsNavigation?.();
   document.removeEventListener('visibilitychange', refreshPublicConfiguration);
 });
 </script>

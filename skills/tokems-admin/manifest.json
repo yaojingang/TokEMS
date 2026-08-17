@@ -1,0 +1,29 @@
+{
+  "name": "tokems-admin",
+  "display_name": "TokEMS Admin",
+  "version": "0.1.1",
+  "owner": "TokEMS Maintainers",
+  "license": "AGPL-3.0-only",
+  "updated_at": "2026-08-17",
+  "review_due": "2026-09-17",
+  "review_cadence": "monthly",
+  "status": "experimental",
+  "category": "operations",
+  "complexity": "complex",
+  "maturity_tier": "governed",
+  "lifecycle_stage": "governed",
+  "context_budget_tier": "governed",
+  "skill_ir_source": "reports/skill-ir.json",
+  "target_platforms": ["openai", "generic"],
+  "supported_runtimes": ["Codex macOS", "Codex Linux desktop"],
+  "input_evidence": "file-backed fixture and live capability catalog from one approved TokEMS origin",
+  "input_files": [
+    {
+      "kind": "file-backed fixture",
+      "purpose": "Structured action parameters, request bodies, reasons, sensitive-read purposes, protected check-in tokens, and output-evaluation cases"
+    }
+  ],
+  "output_contract": "One redacted JSON object containing action, instance, organization, risk, target, operation state, verification, audit, artifacts, warnings, and rollback boundary.",
+  "rollback_boundary": "Uninstall or downgrade the local package and revoke its remote connection. Remote domain changes retain their native TokEMS release, refund, invoice, user, and notification rollback rules.",
+  "factory_components": ["references", "scripts", "evals", "security", "reports", "registry"]
+}

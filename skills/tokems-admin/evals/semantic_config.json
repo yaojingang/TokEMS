@@ -1,0 +1,117 @@
+{
+  "optimizer_hints": {
+    "capability": "Securely operate one authorized TokEMS administrator API through a governed Agent connection",
+    "inputs": [
+      "approved TokEMS origin",
+      "Device Authorization connection",
+      "catalog action identifier",
+      "structured parameter and body files",
+      "reason and required browser approval"
+    ],
+    "trigger_actions": [
+      "connect to TokEMS admin",
+      "inspect events, templates, users, orders, invoices, or audit",
+      "prepare, confirm, execute, verify, or reconcile a TokEMS action",
+      "manage content, templates, members, registrations, finance, notifications, check-in, exports, or integrations"
+    ],
+    "exclusions": [
+      "TokEMS source-code development",
+      "deployment, database, or SSH work",
+      "public attendee browsing",
+      "cookie or bearer-token extraction",
+      "direct payment fact or ledger mutation"
+    ],
+    "artifacts": [
+      "redacted operation envelope",
+      "approval URL",
+      "verification evidence",
+      "mode-0600 exported artifact with SHA-256"
+    ]
+  },
+  "fallback_positive_concepts": ["tokems_admin", "governed_operation", "admin_domain"],
+  "positive_concepts": {
+    "tokems_admin": {
+      "weight": 0.4,
+      "phrases": [
+        "tokems admin",
+        "tokems administrator",
+        "tokems 后台",
+        "tokems 超管",
+        "tokems 管理 skill"
+      ]
+    },
+    "governed_operation": {
+      "weight": 0.35,
+      "phrases": [
+        "connect",
+        "inspect",
+        "prepare",
+        "confirm",
+        "execute",
+        "verify",
+        "reconcile",
+        "连接",
+        "审批",
+        "执行",
+        "验证",
+        "核对"
+      ]
+    },
+    "admin_domain": {
+      "weight": 0.25,
+      "phrases": [
+        "conference",
+        "template",
+        "registration",
+        "order",
+        "refund",
+        "invoice",
+        "notification",
+        "check-in",
+        "integration",
+        "大会",
+        "模板",
+        "报名",
+        "订单",
+        "退款",
+        "发票",
+        "通知",
+        "签到"
+      ]
+    }
+  },
+  "negative_concepts": {
+    "code_development": {
+      "weight": 0.45,
+      "exclusive": true,
+      "phrases": ["source code", "typescript", "controller", "代码", "开发", "编译"]
+    },
+    "infrastructure": {
+      "weight": 0.45,
+      "exclusive": true,
+      "phrases": ["deploy", "database", "ssh", "nginx", "部署", "数据库", "服务器"]
+    },
+    "unsafe_secret": {
+      "weight": 0.5,
+      "exclusive": true,
+      "phrases": ["browser cookie", "bearer token", "refresh token", "数据库改金额", "支付流水"]
+    },
+    "documentation_only": {
+      "weight": 0.3,
+      "exclusive": true,
+      "phrases": ["do not execute", "without connecting", "不要执行", "不要连接", "只写文档"]
+    },
+    "attendee_browsing": {
+      "weight": 0.45,
+      "exclusive": true,
+      "phrases": [
+        "public conference agenda",
+        "as an attendee",
+        "public attendee",
+        "browse the public",
+        "参会者浏览",
+        "前台日程"
+      ]
+    }
+  }
+}

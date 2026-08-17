@@ -49,6 +49,7 @@ import {
   RequireGrant,
   type AuthenticatedUser,
 } from '../common/auth.guard.js';
+import { AgentSurface } from '../common/agent-operation-catalog.js';
 import { CustomerAccountService } from '../common/customer-account.service.js';
 import { CustomerAuthGuard, type CustomerRequest } from '../common/customer-auth.guard.js';
 import {
@@ -190,11 +191,7 @@ class CustomerAccountController {
   @Get('orders')
   orders(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
     const input = parse(CustomerRegistrationListQuerySchema, query, '订单分页参数校验失败');
-    return this.customerAccount.purchasedOrders(
-      request.customerSession,
-      input.cursor,
-      input.limit,
-    );
+    return this.customerAccount.purchasedOrders(request.customerSession, input.cursor, input.limit);
   }
 
   @Patch('orders/:orderId/attendee')
@@ -368,6 +365,9 @@ class CustomerAccountController {
 }
 
 @ApiTags('admin-customers')
+@AgentSurface({
+  defaultExclusionReason: 'Unlisted handlers remain human-only until added to the Agent catalog',
+})
 @Controller('admin/customers')
 @UseGuards(AuthGuard)
 class CustomerAdminController {
@@ -500,6 +500,9 @@ class CustomerAdminController {
 }
 
 @ApiTags('admin-attendee-showcases')
+@AgentSurface({
+  defaultExclusionReason: 'Unlisted handlers remain human-only until added to the Agent catalog',
+})
 @Controller('admin/events')
 @UseGuards(AuthGuard)
 class AdminAttendeeShowcaseController {

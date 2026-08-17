@@ -46,7 +46,7 @@ export interface HtmlTemplateVariableCatalogItem {
   required: boolean;
 }
 
-export const HTML_TEMPLATE_VARIABLE_CATALOG_VERSION = 1;
+export const HTML_TEMPLATE_VARIABLE_CATALOG_VERSION = 2;
 export const HTML_TEMPLATE_VARIABLE_CATALOG: HtmlTemplateVariableCatalogItem[] = [
   {
     path: 'event.name',
@@ -148,6 +148,7 @@ export const HTML_TEMPLATE_VARIABLE_CATALOG: HtmlTemplateVariableCatalogItem[] =
   ...(
     [
       ['routes.registration', '报名页链接', 'TokEMS 同源报名路径'],
+      ['routes.cooperation', '合作申请链接', 'TokEMS 同源合作申请路径'],
       ['routes.faq', '常见问题链接', 'TokEMS 同源常见问题路径'],
       ['routes.account', '个人中心链接', 'TokEMS 同源个人中心路径'],
     ] as const
@@ -768,13 +769,15 @@ export function suggestTemplateBindings(nodes: HtmlTemplateNode[]): HtmlTemplate
 
     if (node.tagName !== 'a') continue;
     const normalizedText = node.text.replace(/\s+/gu, '');
-    const route = /报名|注册|购票|参会/iu.test(normalizedText)
-      ? ('routes.registration' as const)
-      : /常见问题|FAQ/iu.test(normalizedText)
-        ? ('routes.faq' as const)
-        : /账户|个人中心|我的订单/iu.test(normalizedText)
-          ? ('routes.account' as const)
-          : null;
+    const route = /合作|赞助|媒体支持|团队购票/iu.test(normalizedText)
+      ? ('routes.cooperation' as const)
+      : /报名|注册|购票|参会/iu.test(normalizedText)
+        ? ('routes.registration' as const)
+        : /常见问题|FAQ/iu.test(normalizedText)
+          ? ('routes.faq' as const)
+          : /账户|个人中心|我的订单/iu.test(normalizedText)
+            ? ('routes.account' as const)
+            : null;
     if (!route) continue;
     proposals.push({
       proposalId: proposalId(node.id, 'attribute', route),
@@ -820,13 +823,16 @@ export function buildAiTemplateBindingProposals(
     const binding =
       kind === 'attribute' &&
       node.tagName === 'a' &&
-      ['routes.registration', 'routes.faq', 'routes.account'].includes(variablePath)
+      ['routes.registration', 'routes.cooperation', 'routes.faq', 'routes.account'].includes(
+        variablePath,
+      )
         ? {
             id: `ai-${runId.slice(0, 8)}-${index}`,
             kind: 'attribute' as const,
             nodeId,
             attributeName: 'href' as const,
-            variablePath: variablePath as 'routes.registration' | 'routes.faq' | 'routes.account',
+            variablePath: variablePath as
+              'routes.registration' | 'routes.cooperation' | 'routes.faq' | 'routes.account',
             missingPolicy: 'error' as const,
           }
         : {

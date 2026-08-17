@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    {
+      "name": "tokems-admin",
+      "path": "."
+    }
+  ],
+  "shared_resources": []
+}

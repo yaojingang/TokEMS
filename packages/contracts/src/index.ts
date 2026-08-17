@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import {
+  CURRENT_ANALYTICS_ACTIVATION_VERSION,
+  DEFAULT_ANALYTICS_SETTINGS,
+  MAX_ANALYTICS_SNIPPET_LENGTH,
+  isAnalyticsConfigurationSafe,
+} from './analytics.js';
+
+export * from './agent.js';
+export * from './analytics.js';
 
 export const BuildInfoSchema = z.object({
   service: z.string().regex(/^[a-z0-9-]+$/u),
@@ -69,6 +78,7 @@ export const RESERVED_PUBLIC_EVENT_SLUGS = [
   'account',
   'admin',
   'api',
+  'apply',
   'assets',
   'faq',
   'healthz',
@@ -246,11 +256,15 @@ export const WebsiteSettingsSchema = z.object({
 
 export const AnalyticsSettingsSchema = z
   .object({
-    enabled: z.boolean().default(false),
-    provider: z.enum(['baidu', 'google', 'umami']).default('baidu'),
-    trackingId: z.string().trim().max(160).default(''),
-    scriptUrl: z.union([z.url(), z.literal('')]).default(''),
-    siteId: z.string().trim().max(200).default(''),
+    enabled: z.boolean().default(DEFAULT_ANALYTICS_SETTINGS.enabled),
+    activationVersion: z
+      .literal(CURRENT_ANALYTICS_ACTIVATION_VERSION)
+      .nullable()
+      .default(DEFAULT_ANALYTICS_SETTINGS.activationVersion),
+    provider: z.enum(['baidu', 'google', 'umami']).default(DEFAULT_ANALYTICS_SETTINGS.provider),
+    trackingId: z.string().trim().max(160).default(DEFAULT_ANALYTICS_SETTINGS.trackingId),
+    scriptUrl: z.union([z.url(), z.literal('')]).default(DEFAULT_ANALYTICS_SETTINGS.scriptUrl),
+    siteId: z.string().trim().max(200).default(DEFAULT_ANALYTICS_SETTINGS.siteId),
   })
   .superRefine((value, context) => {
     if (!value.enabled) return;
@@ -280,6 +294,16 @@ export const AnalyticsSettingsSchema = z
         code: 'custom',
         path: ['scriptUrl'],
         message: '统计脚本必须使用 HTTPS 地址',
+      });
+    }
+    if (
+      value.activationVersion === CURRENT_ANALYTICS_ACTIVATION_VERSION &&
+      !isAnalyticsConfigurationSafe(value)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['provider'],
+        message: '已激活的统计配置结构无效，请重新粘贴平台标准代码',
       });
     }
   });
@@ -320,13 +344,7 @@ export const OrganizationSettingsSchema = z.object({
     icpNumber: '',
     supportEmail: '',
   }),
-  analytics: AnalyticsSettingsSchema.default({
-    enabled: false,
-    provider: 'baidu',
-    trackingId: '',
-    scriptUrl: '',
-    siteId: '',
-  }),
+  analytics: AnalyticsSettingsSchema.default(DEFAULT_ANALYTICS_SETTINGS),
 });
 
 export const TemplateHomeBlockSchema = z.object({
@@ -343,6 +361,7 @@ export const TemplateHomeBlockSchema = z.object({
     'agenda',
     'speakers',
     'members',
+    'cooperation',
     'tickets',
     'faq-summary',
     'organizer',
@@ -398,6 +417,22 @@ export const TemplateHomeSchema = z.object({
     indexable: z.boolean().default(true),
   }),
   blocks: z.array(TemplateHomeBlockSchema).min(1).max(30),
+});
+
+const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
+  nodeKey: 'home.cooperation',
+  type: 'cooperation',
+  label: '大会合作',
+  enabled: true,
+  variant: 'editorial-band',
+  content: {
+    kicker: 'PARTNERSHIP',
+    title: '让合作，成为大会内容的一部分',
+    subtitle: '品牌、媒体、内容与社群伙伴，都可以在这里提出合作设想。',
+    directions: '品牌赞助 · 展位展示 · 媒体合作 · 内容共创 · 社群渠道 · 团队购票',
+    actionLabel: '提交合作申请',
+    note: '提交后，大会团队将在 2 个工作日内与你联系。',
+  },
 });
 
 export const TemplateFaqSchema = z.object({
@@ -540,6 +575,7 @@ export const HtmlTemplateVariablePathSchema = z.enum([
   'faqs[].question',
   'faqs[].answer',
   'routes.registration',
+  'routes.cooperation',
   'routes.faq',
   'routes.account',
   'site.footerText',
@@ -588,7 +624,12 @@ const HtmlTemplateAttributeBindingSchema = z.object({
   kind: z.literal('attribute'),
   nodeId: HtmlTemplateNodeIdSchema,
   attributeName: z.literal('href'),
-  variablePath: z.enum(['routes.registration', 'routes.faq', 'routes.account']),
+  variablePath: z.enum([
+    'routes.registration',
+    'routes.cooperation',
+    'routes.faq',
+    'routes.account',
+  ]),
   missingPolicy: HtmlTemplateMissingPolicySchema.default('error'),
 });
 
@@ -778,14 +819,37 @@ export function normalizeConferenceTemplateDefinition(
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
   const v2 = ConferenceTemplateDefinitionSchema.safeParse(definition);
   if (v2.success) {
-    return v2.data;
+    return withCooperationHomeBlock(v2.data);
   }
   const legacy = LegacyConferenceTemplateDefinitionSchema.parse(definition);
+  return withCooperationHomeBlock(
+    ConferenceTemplateDefinitionSchema.parse({
+      presentation: { kind: 'structured', home: legacy.home },
+      faq: legacy.faq,
+      registrationFlow: legacy.registrationFlow,
+      initialization: legacy.initialization,
+    }),
+  );
+}
+
+function withCooperationHomeBlock(
+  definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
+): z.infer<typeof ConferenceTemplateDefinitionSchema> {
+  if (
+    definition.presentation.kind !== 'structured' ||
+    definition.presentation.home.blocks.some((block) => block.nodeKey === 'home.cooperation')
+  ) {
+    return definition;
+  }
+  const blocks = [...definition.presentation.home.blocks];
+  const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
+  blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
   return ConferenceTemplateDefinitionSchema.parse({
-    presentation: { kind: 'structured', home: legacy.home },
-    faq: legacy.faq,
-    registrationFlow: legacy.registrationFlow,
-    initialization: legacy.initialization,
+    ...definition,
+    presentation: {
+      ...definition.presentation,
+      home: { ...definition.presentation.home, blocks },
+    },
   });
 }
 
@@ -814,6 +878,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             agendaLabel: '议程',
             speakersLabel: '嘉宾',
             ticketsLabel: '门票',
+            cooperationLabel: '合作',
             faqLabel: 'FAQ',
             actionLabel: '立即报名',
           },
@@ -1289,8 +1354,21 @@ export const TicketTypeSchema = z.object({
   recommended: z.boolean().default(false),
 });
 
-export const SpeakerSchema = z.object({
-  id: z.string(),
+const PublicHttpUrlSchema = z
+  .url()
+  .max(500)
+  .refine(
+    (value) => ['http:', 'https:'].includes(new URL(value).protocol),
+    '仅支持 HTTP 或 HTTPS 地址',
+  );
+
+export const SpeakerSocialLinkSchema = z.object({
+  label: z.string().trim().min(1).max(40),
+  url: PublicHttpUrlSchema,
+});
+
+const SpeakerPublicFieldsSchema = z.object({
+  id: z.uuid(),
   name: z.string(),
   role: z.string(),
   topic: z.string(),
@@ -1298,6 +1376,84 @@ export const SpeakerSchema = z.object({
   accentFrom: z.string(),
   accentTo: z.string(),
   tags: z.array(z.string()),
+  avatarUrl: z.string().optional(),
+});
+
+export const SpeakerSchema = SpeakerPublicFieldsSchema;
+
+export function speakerAvatarText(name: string, initials?: string | null) {
+  const value = initials?.trim() || Array.from(name.trim())[0] || '嘉';
+  return Array.from(value).slice(0, 2).join('');
+}
+
+const SpeakerProfileFieldSchemas = {
+  name: z.string().trim().min(1).max(120),
+  role: z.string().trim().min(1).max(240),
+  topic: z.string().trim().min(1).max(240),
+  initials: z.string().trim().min(1).max(8).optional(),
+  accentFrom: z.string().regex(/^#[0-9a-f]{6}$/i),
+  accentTo: z.string().regex(/^#[0-9a-f]{6}$/i),
+  tags: z.array(z.string().trim().min(1).max(60)).max(12),
+  avatarAssetId: z.uuid().nullable().optional(),
+  bio: z.string().trim().max(5000).nullable().optional(),
+  topicAbstract: z.string().trim().max(5000).nullable().optional(),
+  websiteUrl: PublicHttpUrlSchema.nullable().optional(),
+  socialLinks: z.array(SpeakerSocialLinkSchema).max(6),
+  sortOrder: z.number().int().min(0),
+};
+
+export const CreateSpeakerSchema = z
+  .object({
+    ...SpeakerProfileFieldSchemas,
+    accentFrom: SpeakerProfileFieldSchemas.accentFrom.default('#2448a8'),
+    accentTo: SpeakerProfileFieldSchemas.accentTo.default('#102759'),
+    tags: SpeakerProfileFieldSchemas.tags.default([]),
+    socialLinks: SpeakerProfileFieldSchemas.socialLinks.default([]),
+    sortOrder: SpeakerProfileFieldSchemas.sortOrder.default(0),
+  })
+  .strict();
+
+export const UpdateSpeakerSchema = z
+  .object(SpeakerProfileFieldSchemas)
+  .partial()
+  .strict()
+  .refine(
+    (value) => Object.values(value).some((item) => item !== undefined),
+    '至少提交一个可修改字段',
+  );
+
+export const ReorderSpeakersSchema = z
+  .object({ speakerIds: z.array(z.uuid()).min(1).max(500) })
+  .strict()
+  .refine(
+    ({ speakerIds }) => new Set(speakerIds).size === speakerIds.length,
+    '嘉宾排序中不能包含重复项',
+  );
+
+export const AdminSpeakerSummarySchema = SpeakerPublicFieldsSchema.extend({
+  avatarAssetId: z.uuid().nullable(),
+  bio: z.string().nullable(),
+  topicAbstract: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  socialLinks: z.array(SpeakerSocialLinkSchema),
+  sortOrder: z.number().int().min(0),
+  avatarPreviewUrl: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+export const AdminSpeakerDetailSchema = AdminSpeakerSummarySchema;
+
+export const PublicEventSpeakerDetailSchema = SpeakerPublicFieldsSchema.extend({
+  eventName: z.string(),
+  eventSlug: z.string(),
+  eventStartsAt: z.string(),
+  eventEndsAt: z.string(),
+  eventTimezone: z.string(),
+  eventCity: z.string(),
+  bio: z.string().optional(),
+  topicAbstract: z.string().optional(),
+  websiteUrl: PublicHttpUrlSchema.optional(),
+  socialLinks: z.array(SpeakerSocialLinkSchema),
 });
 
 export const SessionSchema = z.object({
@@ -1762,6 +1918,107 @@ export const MainlandMobileSchema = z
   .string()
   .trim()
   .regex(/^(?:\+?86)?1[3-9]\d{9}$/, '请输入有效的中国大陆手机号');
+
+export const COOPERATION_TYPE_OPTIONS = [
+  { value: 'brand_sponsorship', label: '品牌赞助' },
+  { value: 'exhibition', label: '展位 / 产品展示' },
+  { value: 'media', label: '媒体合作' },
+  { value: 'content', label: '嘉宾 / 内容共创' },
+  { value: 'community', label: '社群 / 渠道合作' },
+  { value: 'group_ticket', label: '团队购票' },
+  { value: 'other', label: '其他合作' },
+] as const;
+
+export const CooperationTypeSchema = z.enum(
+  COOPERATION_TYPE_OPTIONS.map((item) => item.value) as [
+    (typeof COOPERATION_TYPE_OPTIONS)[number]['value'],
+    ...(typeof COOPERATION_TYPE_OPTIONS)[number]['value'][],
+  ],
+);
+
+export const CooperationRequestStatusSchema = z.enum(['new', 'contacted', 'converted', 'closed']);
+
+export const CreateCooperationRequestSchema = z
+  .object({
+    eventId: EventIdSchema,
+    cooperationTypes: z
+      .array(CooperationTypeSchema)
+      .min(1, '请选择至少一个合作方向')
+      .max(3, '最多选择三个合作方向')
+      .refine((items) => new Set(items).size === items.length, '合作方向不能重复'),
+    companyName: z.string().trim().min(2, '请填写公司或机构名称').max(160),
+    contactName: z.string().trim().min(2, '请填写联系人姓名').max(80),
+    contactTitle: z.string().trim().max(80).default(''),
+    mobile: z.union([MainlandMobileSchema, z.literal('')]).default(''),
+    email: z.union([z.email().max(255), z.literal('')]).default(''),
+    wechatId: z.string().trim().max(80).default(''),
+    message: z.string().trim().min(10, '请至少填写 10 个字的合作想法').max(1000),
+    consentAccepted: z.literal(true),
+  })
+  .strict()
+  .refine((input) => Boolean(input.mobile || input.email || input.wechatId), {
+    message: '手机、邮箱或微信号至少填写一项',
+    path: ['mobile'],
+  });
+
+export const PublicCooperationRequestResultSchema = z.object({
+  requestNo: z.string(),
+  eventName: z.string(),
+  submittedAt: z.string(),
+});
+
+export const AdminCooperationRequestSchema = z.object({
+  id: z.uuid(),
+  eventId: EventIdSchema,
+  requestNo: z.string(),
+  cooperationTypes: z.array(CooperationTypeSchema).min(1).max(3),
+  companyName: z.string(),
+  contactName: z.string(),
+  contactTitle: z.string(),
+  mobile: z.string(),
+  email: z.string(),
+  wechatId: z.string(),
+  message: z.string(),
+  status: CooperationRequestStatusSchema,
+  internalNote: z.string(),
+  firstContactedAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const AdminCooperationRequestListQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  status: CooperationRequestStatusSchema.optional(),
+  type: CooperationTypeSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const AdminCooperationRequestListSchema = z.object({
+  items: z.array(AdminCooperationRequestSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().min(1).max(100),
+  counts: z.object({
+    all: z.number().int().nonnegative(),
+    new: z.number().int().nonnegative(),
+    contacted: z.number().int().nonnegative(),
+    converted: z.number().int().nonnegative(),
+    closed: z.number().int().nonnegative(),
+  }),
+});
+
+export const UpdateCooperationRequestSchema = z
+  .object({
+    status: CooperationRequestStatusSchema.optional(),
+    internalNote: z.string().trim().max(2000).optional(),
+    expectedUpdatedAt: z.iso.datetime(),
+  })
+  .strict()
+  .refine((input) => input.status !== undefined || input.internalNote !== undefined, {
+    message: '至少提交一个可修改字段',
+  });
 
 export const ATTENDEE_INDUSTRY_OPTIONS = [
   { code: 'ai', label: 'AI / 大模型 / Agent' },
@@ -2810,7 +3067,7 @@ export const OrganizationSettingsResultSchema = z.object({
 export const UpdateOrganizationSettingsSchema = z
   .object({
     name: z.string().trim().min(1).max(160).optional(),
-    settings: OrganizationSettingsSchema.partial().optional(),
+    settings: OrganizationSettingsSchema.omit({ analytics: true }).partial().strict().optional(),
   })
   .strict()
   .refine(
@@ -2822,6 +3079,17 @@ export const UpdateOrganizationSettingsSchema = z
       message: '至少提交一个组织设置字段',
     },
   );
+
+export const UpdateOrganizationAnalyticsSchema = z
+  .object({
+    enabled: z.boolean(),
+    snippet: z.string().trim().max(MAX_ANALYTICS_SNIPPET_LENGTH),
+  })
+  .strict()
+  .refine((value) => !value.enabled || Boolean(value.snippet), {
+    path: ['snippet'],
+    message: '启用统计时必须填写统计代码',
+  });
 
 const IntegrationConnectionSchema = z.object({
   configured: z.boolean(),
@@ -3913,6 +4181,16 @@ export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 export type EventPaymentMode = z.infer<typeof EventPaymentModeSchema>;
 export type CustomerAccountMode = z.infer<typeof CustomerAccountModeSchema>;
 export type CustomerStatus = z.infer<typeof CustomerStatusSchema>;
+export type CooperationType = z.infer<typeof CooperationTypeSchema>;
+export type CooperationRequestStatus = z.infer<typeof CooperationRequestStatusSchema>;
+export type CreateCooperationRequest = z.infer<typeof CreateCooperationRequestSchema>;
+export type PublicCooperationRequestResult = z.infer<typeof PublicCooperationRequestResultSchema>;
+export type AdminCooperationRequest = z.infer<typeof AdminCooperationRequestSchema>;
+export type AdminCooperationRequestListQuery = z.infer<
+  typeof AdminCooperationRequestListQuerySchema
+>;
+export type AdminCooperationRequestList = z.infer<typeof AdminCooperationRequestListSchema>;
+export type UpdateCooperationRequest = z.infer<typeof UpdateCooperationRequestSchema>;
 export type TemplateSurface = z.infer<typeof TemplateSurfaceSchema>;
 export type TemplateFlowPreset = z.infer<typeof TemplateFlowPresetSchema>;
 export type TemplateFlowStep = z.infer<typeof TemplateFlowStepSchema>;
@@ -3933,6 +4211,13 @@ export type OrganizationSettings = z.infer<typeof OrganizationSettingsSchema>;
 export type ConferenceTemplateDefinition = z.infer<typeof ConferenceTemplateDefinitionSchema>;
 export type TicketType = z.infer<typeof TicketTypeSchema>;
 export type Speaker = z.infer<typeof SpeakerSchema>;
+export type SpeakerSocialLink = z.infer<typeof SpeakerSocialLinkSchema>;
+export type CreateSpeaker = z.infer<typeof CreateSpeakerSchema>;
+export type UpdateSpeaker = z.infer<typeof UpdateSpeakerSchema>;
+export type ReorderSpeakers = z.infer<typeof ReorderSpeakersSchema>;
+export type AdminSpeakerSummary = z.infer<typeof AdminSpeakerSummarySchema>;
+export type AdminSpeakerDetail = z.infer<typeof AdminSpeakerDetailSchema>;
+export type PublicEventSpeakerDetail = z.infer<typeof PublicEventSpeakerDetailSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type RegistrationField = z.infer<typeof RegistrationFieldSchema>;
 export type RegistrationFormPublish = z.infer<typeof RegistrationFormPublishSchema>;
@@ -4011,9 +4296,7 @@ export type CustomerPurchasedOrder = z.infer<typeof CustomerPurchasedOrderSchema
 export type CustomerPurchasedOrderList = z.infer<typeof CustomerPurchasedOrderListSchema>;
 export type AttendeeClaimInput = z.infer<typeof AttendeeClaimInputSchema>;
 export type AttendeeClaimResult = z.infer<typeof AttendeeClaimResultSchema>;
-export type UpdatePurchasedOrderAttendee = z.infer<
-  typeof UpdatePurchasedOrderAttendeeSchema
->;
+export type UpdatePurchasedOrderAttendee = z.infer<typeof UpdatePurchasedOrderAttendeeSchema>;
 export type ClaimCustomerRegistration = z.infer<typeof ClaimCustomerRegistrationSchema>;
 export type CustomerAdminDisplayNameSource = z.infer<typeof CustomerAdminDisplayNameSourceSchema>;
 export type CustomerAdminDisplayCompanySource = z.infer<
@@ -4054,6 +4337,7 @@ export type CreateOrganizationInvitationResult = z.infer<
 export type AcceptOrganizationInvitation = z.infer<typeof AcceptOrganizationInvitationSchema>;
 export type OrganizationSettingsResult = z.infer<typeof OrganizationSettingsResultSchema>;
 export type UpdateOrganizationSettings = z.infer<typeof UpdateOrganizationSettingsSchema>;
+export type UpdateOrganizationAnalytics = z.infer<typeof UpdateOrganizationAnalyticsSchema>;
 export type IntegrationStatus = z.infer<typeof IntegrationStatusSchema>;
 export type WeChatPayConfiguration = z.infer<typeof WeChatPayConfigurationSchema>;
 export type UpdateWeChatPayConfiguration = z.infer<typeof UpdateWeChatPayConfigurationSchema>;
@@ -4136,6 +4420,18 @@ export const API_ERROR_CODES = {
   REGISTRATION_IDENTITY_CONFLICT: 'REGISTRATION_IDENTITY_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   DUPLICATE_CHECKIN: 'DUPLICATE_CHECKIN',
+  AGENT_ACCESS_DISABLED: 'AGENT_ACCESS_DISABLED',
+  AGENT_CONNECTION_REVOKED: 'AGENT_CONNECTION_REVOKED',
+  AGENT_SCOPE_REQUIRED: 'AGENT_SCOPE_REQUIRED',
+  AGENT_ACTION_NOT_CLASSIFIED: 'AGENT_ACTION_NOT_CLASSIFIED',
+  AGENT_APPROVAL_REQUIRED: 'AGENT_APPROVAL_REQUIRED',
+  AGENT_OPERATION_STALE: 'AGENT_OPERATION_STALE',
+  AGENT_IDEMPOTENCY_CONFLICT: 'AGENT_IDEMPOTENCY_CONFLICT',
+  AGENT_DPOP_REPLAY: 'AGENT_DPOP_REPLAY',
+  AGENT_VERSION_UNSUPPORTED: 'AGENT_VERSION_UNSUPPORTED',
+  AGENT_RESULT_UNKNOWN: 'AGENT_RESULT_UNKNOWN',
+  AGENT_SECRET_HANDOFF_REQUIRED: 'AGENT_SECRET_HANDOFF_REQUIRED',
+  AGENT_OPERATION_LIMIT: 'AGENT_OPERATION_LIMIT',
 } as const;
 
 export const DEMO_IDS = {

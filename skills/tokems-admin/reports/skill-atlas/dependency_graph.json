@@ -1,0 +1,13 @@
+{
+  "nodes": [
+    {
+      "name": "tokems-admin",
+      "path": "tokems-admin/.build/install-root/simulate-tokems-admin/tokems-admin"
+    },
+    {
+      "name": "tokems-admin",
+      "path": "tokems-admin"
+    }
+  ],
+  "shared_resources": []
+}
