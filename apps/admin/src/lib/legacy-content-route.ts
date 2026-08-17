@@ -7,9 +7,9 @@ export function legacyContentWorkspaceRoute(
   hash: string,
 ) {
   return {
-    name: 'event-settings-general' as const,
+    name: 'event-speakers' as const,
     params,
     query,
-    hash: hash || '#public-page',
+    hash,
   };
 }

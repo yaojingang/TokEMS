@@ -64,6 +64,13 @@ const navigation = computed(() => [
     grants: ['event.registration.read'],
   },
   {
+    name: 'event-speakers',
+    match: '/speakers',
+    icon: '◎',
+    label: '嘉宾管理',
+    grants: ['event.content.manage'],
+  },
+  {
     name: 'event-invoices',
     match: '/invoices',
     icon: '¥',

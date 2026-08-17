@@ -5,6 +5,7 @@ import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   publicEventHomePath,
   publicEventScopedPath,
+  speakerAvatarText,
   type EventPurchaseContext,
   type PublicEvent,
   type PublicEventMemberList,
@@ -47,6 +48,7 @@ const purchaseContext = ref<EventPurchaseContext | null>(null);
 const purchaseContextLoading = ref(false);
 const purchaseContextFailed = ref(false);
 let purchaseContextLoadKey = '';
+
 const requestedEventSlug = computed(() => {
   const value = Array.isArray(route.params.eventSlug)
     ? route.params.eventSlug[0]
@@ -142,13 +144,14 @@ const registrationAction = computed(() => {
     eventSlug: event.value.slug,
     ticketId: primaryTicket.value.id,
     priceLabel: money(primaryTicket.value.price),
-    state: !customer.loaded.value || purchaseContextLoading.value
-      ? 'loading'
-      : !customer.session.value
-        ? 'anonymous'
-        : purchaseContextFailed.value
-          ? 'failed'
-          : 'ready',
+    state:
+      !customer.loaded.value || purchaseContextLoading.value
+        ? 'loading'
+        : !customer.session.value
+          ? 'anonymous'
+          : purchaseContextFailed.value
+            ? 'failed'
+            : 'ready',
     context: purchaseContext.value,
     ...(pendingOrderId && storedToken
       ? { resumePaymentHref: publicEventScopedPath(`/order/${pendingOrderId}`, event.value.slug) }
@@ -162,6 +165,9 @@ const registrationActionLabel = computed(() =>
 );
 const faqHref = computed(() =>
   experience.value.faq.mode === 'page' ? publicEventScopedPath('/faq', event.value.slug) : '#faq',
+);
+const cooperationHref = computed(() =>
+  publicEventScopedPath('/apply/cooperation', event.value.slug),
 );
 const homeBlock = (nodeKey: string) =>
   homeBlocks.value.find((block) => block.nodeKey === nodeKey) ??
@@ -664,9 +670,7 @@ onMounted(async () => {
   memberRefreshController = startMemberDirectoryAutoRefresh(
     refreshMemberDirectory,
     () =>
-      membersBlockEnabled.value &&
-      !membersPending.value &&
-      document.visibilityState === 'visible',
+      membersBlockEnabled.value && !membersPending.value && document.visibilityState === 'visible',
   );
   memberVisibilityHandler = () => {
     if (document.visibilityState === 'visible') memberRefreshController?.refreshIfNeeded();
@@ -746,6 +750,9 @@ onBeforeUnmount(() => {
           <a v-if="memberDirectoryState.visible" href="#members">报名会员</a>
           <a v-if="blockEnabled('home.tickets')" href="#tickets">{{
             blockCopy('home.navigation', 'ticketsLabel', '门票')
+          }}</a>
+          <a v-if="blockEnabled('home.cooperation')" :href="cooperationHref">{{
+            blockCopy('home.navigation', 'cooperationLabel', '合作')
           }}</a>
           <a v-if="blockEnabled('home.faq-summary')" :href="faqHref">{{
             blockCopy('home.navigation', 'faqLabel', 'FAQ')
@@ -1224,11 +1231,13 @@ onBeforeUnmount(() => {
           </p>
         </div>
         <div class="spk-grid">
-          <div
+          <NuxtLink
             v-for="(speaker, index) in event.speakers"
             :key="speaker.id"
             class="spk-card reveal"
             :data-d="index % 4 || undefined"
+            :to="publicEventScopedPath(`/speakers/${encodeURIComponent(speaker.id)}`, event.slug)"
+            :aria-label="`查看嘉宾 ${speaker.name} 的详情`"
           >
             <div class="spk-meta">
               <span class="spk-no">{{ String(index + 1).padStart(2, '0') }}</span>
@@ -1236,13 +1245,31 @@ onBeforeUnmount(() => {
                 index < 13 ? 'Speaker' : index < 15 ? 'To be announced' : 'More soon'
               }}</span>
             </div>
-            <h4>{{ speaker.name }}</h4>
-            <div class="role">{{ speaker.role }}</div>
+            <div class="spk-profile">
+              <div class="spk-avatar" :style="{ '--spk-accent': speaker.accentFrom }">
+                <img
+                  v-if="speaker.avatarUrl"
+                  :src="speaker.avatarUrl"
+                  :alt="`${speaker.name}的头像`"
+                  width="56"
+                  height="56"
+                  loading="lazy"
+                />
+                <span v-else aria-hidden="true">
+                  {{ speakerAvatarText(speaker.name, speaker.initials) }}
+                </span>
+              </div>
+              <div>
+                <h4>{{ speaker.name }}</h4>
+                <div class="role">{{ speaker.role }}</div>
+              </div>
+            </div>
             <div class="spk-talk">{{ speaker.topic }}</div>
             <div class="spk-tags">
               <span v-for="tag in speaker.tags" :key="tag">{{ tag }}</span>
             </div>
-          </div>
+            <span class="spk-open" aria-hidden="true">查看资料 →</span>
+          </NuxtLink>
         </div>
         <div class="spk-more reveal">
           {{ blockCopy('home.speakers', 'moreLabel', '嘉宾阵容持续更新中 · 最终议程以现场为准') }}
@@ -1407,6 +1434,47 @@ onBeforeUnmount(() => {
             <div class="host-bio">{{ host.bio }}</div>
             <div class="host-goal">{{ host.goal }}</div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── COOPERATION ── -->
+    <section
+      v-if="blockEnabled('home.cooperation')"
+      id="cooperation"
+      :data-template-variant="blockVariant('home.cooperation')"
+      :style="blockStyle('home.cooperation')"
+    >
+      <div class="wrap cooperation-band reveal">
+        <div class="cooperation-band__index" aria-hidden="true">PARTNER<br />WITH US</div>
+        <div class="cooperation-band__copy">
+          <span class="kicker">{{ blockCopy('home.cooperation', 'kicker', 'PARTNERSHIP') }}</span>
+          <h2>{{ blockCopy('home.cooperation', 'title', '让合作，成为大会内容的一部分') }}</h2>
+          <p>
+            {{
+              blockCopy(
+                'home.cooperation',
+                'subtitle',
+                '品牌、媒体、内容与社群伙伴，都可以在这里提出合作设想。',
+              )
+            }}
+          </p>
+          <small>{{
+            blockCopy(
+              'home.cooperation',
+              'directions',
+              '品牌赞助 · 展位展示 · 媒体合作 · 内容共创 · 社群渠道 · 团队购票',
+            )
+          }}</small>
+        </div>
+        <div class="cooperation-band__action">
+          <a :href="cooperationHref" class="btn cooperation-btn">
+            {{ blockCopy('home.cooperation', 'actionLabel', '提交合作申请') }}
+            <span class="arr">→</span>
+          </a>
+          <span>{{
+            blockCopy('home.cooperation', 'note', '提交后，大会团队将在 2 个工作日内与你联系。')
+          }}</span>
         </div>
       </div>
     </section>
@@ -1613,9 +1681,9 @@ onBeforeUnmount(() => {
         <span>© 2026 {{ blockCopy('home.footer', 'organizer', 'GEO大会组委会') }} ·
           {{ blockCopy('home.footer', 'eventLabel', '中国第二届GEO主题大会') }} ·
           {{ event.city }}</span>
-        <span>{{
-          blockCopy('home.footer', 'support', '合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员')
-        }}</span>
+        <a class="foot-cooperation" :href="cooperationHref">{{
+          blockCopy('home.footer', 'support', '合作咨询 / 团队购票 / 媒体支持：提交合作申请')
+        }}</a>
       </div>
     </footer>
 

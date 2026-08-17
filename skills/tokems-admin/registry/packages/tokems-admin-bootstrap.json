@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "name": "tokems-admin",
+  "version": "0.0.0",
+  "description": "Unreleased bootstrap record used as the upgrade baseline for the first experimental package.",
+  "targets": [],
+  "maturity": "scaffold",
+  "owner": "TokEMS Maintainers",
+  "review_cadence": "monthly",
+  "trust_level": "local",
+  "license": "AGPL-3.0-only",
+  "compatibility": {},
+  "checksums": {},
+  "distribution": {
+    "archive_verified": false,
+    "install_simulated": false
+  },
+  "release_status": "unreleased-bootstrap"
+}

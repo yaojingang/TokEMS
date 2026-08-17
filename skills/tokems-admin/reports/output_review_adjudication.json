@@ -1,0 +1,366 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "summary": {
+    "pair_count": 7,
+    "judgment_count": 0,
+    "pending_count": 7,
+    "agreement_count": 0,
+    "disagreement_count": 0,
+    "invalid_decision_count": 0,
+    "answer_revealed_count": 0,
+    "pending_answer_hidden_count": 7,
+    "agreement_rate": null,
+    "needs_review": true,
+    "reviewer_metadata_present": false,
+    "reason_required": true,
+    "blind_review_attested": false,
+    "blind_review_completed_before_answer_key": false,
+    "answer_key_not_opened_before_decisions": false,
+    "raw_content_excluded_attested": true,
+    "reviewer_reason_required_attested": true,
+    "ready_for_human_evidence": false,
+    "failure_count": 0,
+    "reviewer_checklist_count": 7,
+    "reviewer_checklist_pending_count": 7,
+    "reviewer_checklist_invalid_count": 0,
+    "reviewer_checklist_ready_count": 0
+  },
+  "reviewer": "",
+  "reviewed_at": "",
+  "review_integrity": {
+    "blind_pack_sha256": "52120f41f505b4bb13b188c43590cffef866ff32ebfb713adb422f06c78418db",
+    "case_count": 7,
+    "case_ids": [
+      "device-authorization-secret-boundary",
+      "published-template-bound-operation",
+      "refund-critical-boundary",
+      "file-backed-pii-export",
+      "prompt-injection-free-url",
+      "cross-organization-id",
+      "near-neighbor-code-development"
+    ],
+    "prompt_sha256_by_case": {
+      "device-authorization-secret-boundary": "2697219507a27ed498d36de4a78349eaf4e8dda0b4f18171feb941fbb42d35ec",
+      "published-template-bound-operation": "2c88ff0a0bcb2bc5ad7a668cb5b4ca69c25187a1f7301a82793aa41489c52364",
+      "refund-critical-boundary": "2345bc904cd8990ef35a2dcd9ba7b3f23f90f35a7ce5ad9bf58b4475141aaf9b",
+      "file-backed-pii-export": "7388f413fdd6cd5e8b965863270ab8db6e7f2f47072c9dd6322d90942227a68e",
+      "prompt-injection-free-url": "7e86d7e9df0503f41c44958492df85996ecea8b75964bfc1cab57032ac00527c",
+      "cross-organization-id": "29cb18b8f91ce81a66111f19f2d732b7f4077a36f68a658e760518addff7b958",
+      "near-neighbor-code-development": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43"
+    }
+  },
+  "reviewer_attestation": {
+    "blind_review_completed_before_answer_key": false,
+    "answer_key_not_opened_before_decisions": false,
+    "raw_content_excluded": true,
+    "reviewer_reason_required": true
+  },
+  "artifacts": {
+    "blind_pack": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+    "answer_key": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_answer_key.json",
+    "decisions": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+    "json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_adjudication.json",
+    "markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_adjudication.md"
+  },
+  "template_written": false,
+  "pairs": [
+    {
+      "case_id": "device-authorization-secret-boundary",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "2697219507a27ed498d36de4a78349eaf4e8dda0b4f18171feb941fbb42d35ec"
+    },
+    {
+      "case_id": "published-template-bound-operation",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "2c88ff0a0bcb2bc5ad7a668cb5b4ca69c25187a1f7301a82793aa41489c52364"
+    },
+    {
+      "case_id": "refund-critical-boundary",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "2345bc904cd8990ef35a2dcd9ba7b3f23f90f35a7ce5ad9bf58b4475141aaf9b"
+    },
+    {
+      "case_id": "file-backed-pii-export",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "7388f413fdd6cd5e8b965863270ab8db6e7f2f47072c9dd6322d90942227a68e"
+    },
+    {
+      "case_id": "prompt-injection-free-url",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "7e86d7e9df0503f41c44958492df85996ecea8b75964bfc1cab57032ac00527c"
+    },
+    {
+      "case_id": "cross-organization-id",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "29cb18b8f91ce81a66111f19f2d732b7f4077a36f68a658e760518addff7b958"
+    },
+    {
+      "case_id": "near-neighbor-code-development",
+      "status": "pending",
+      "expected_winner_variant": "",
+      "expected_revealed": false,
+      "reviewer_winner_variant": "",
+      "confidence": null,
+      "reason": "",
+      "prompt_sha256": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43"
+    }
+  ],
+  "reviewer_checklist": [
+    {
+      "case_id": "device-authorization-secret-boundary",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "2697219507a27ed498d36de4a78349eaf4e8dda0b4f18171feb941fbb42d35ec",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "published-template-bound-operation",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "2c88ff0a0bcb2bc5ad7a668cb5b4ca69c25187a1f7301a82793aa41489c52364",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "refund-critical-boundary",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "2345bc904cd8990ef35a2dcd9ba7b3f23f90f35a7ce5ad9bf58b4475141aaf9b",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "file-backed-pii-export",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "7388f413fdd6cd5e8b965863270ab8db6e7f2f47072c9dd6322d90942227a68e",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "prompt-injection-free-url",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "7e86d7e9df0503f41c44958492df85996ecea8b75964bfc1cab57032ac00527c",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "cross-organization-id",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "29cb18b8f91ce81a66111f19f2d732b7f4077a36f68a658e760518addff7b958",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    },
+    {
+      "case_id": "near-neighbor-code-development",
+      "readiness": "awaiting-decision",
+      "blocking_reason": "Reviewer has not selected A or B yet; answer key remains hidden.",
+      "status": "pending",
+      "reviewer_winner_variant": "",
+      "answer_key_visible": false,
+      "prompt_sha256": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43",
+      "blind_pack_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "decisions_path": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "commands": {
+        "prepare_review_kit": "python3 scripts/yao.py output-review-kit --self",
+        "write_template": "python3 scripts/adjudicate_output_review.py --write-template",
+        "import_decisions": "python3 scripts/yao.py output-review-import --input <reviewer-decisions.json> --blind-review-attested --run-adjudication --self",
+        "adjudicate": "python3 scripts/yao.py output-review --self",
+        "refresh_review_studio": "python3 scripts/yao.py review-studio . --self"
+      },
+      "required_fields": {
+        "winner_variant": "A or B after reading only the blind review pack.",
+        "confidence": "Optional number from 0 to 1.",
+        "reason": "Required rationale; do not reveal baseline or with-skill labels before adjudication.",
+        "reviewer": "Human reviewer name or review group at the decision-file top level.",
+        "reviewed_at": "Review date or timestamp at the decision-file top level.",
+        "reviewer_attestation.blind_review_completed_before_answer_key": "True only after the reviewer has completed choices before opening the answer key.",
+        "reviewer_attestation.answer_key_not_opened_before_decisions": "True only when the answer key was not opened before decisions were recorded."
+      },
+      "privacy_contract": [
+        "Do not paste raw private user data into the decision reason.",
+        "Do not open the answer key before reviewer choices are recorded.",
+        "Leave winner_variant blank when the reviewer is not ready to decide."
+      ]
+    }
+  ],
+  "failures": []
+}

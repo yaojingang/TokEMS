@@ -50,6 +50,7 @@ import {
   RequireGrant,
   type AuthenticatedUser,
 } from '../common/auth.guard.js';
+import { AgentSurface } from '../common/agent-operation-catalog.js';
 import { DomainError } from '../common/domain-error.js';
 import { EventIdPipe } from '../common/event-id.pipe.js';
 import {
@@ -207,6 +208,9 @@ const ApplyHtmlAiProposalsSchema = z.object({
 @ApiTags('conference-templates')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
+@AgentSurface({
+  defaultExclusionReason: 'Unlisted handlers remain human-only until added to the Agent catalog',
+})
 @Controller('admin')
 class TemplateController {
   constructor(
@@ -858,6 +862,9 @@ class TemplateController {
 @ApiTags('invoice-operations')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
+@AgentSurface({
+  defaultExclusionReason: 'Unlisted handlers remain human-only until added to the Agent catalog',
+})
 @Controller('admin/events/:eventId/invoices')
 class InvoiceController {
   constructor(

@@ -31,6 +31,7 @@ const identity = {
       },
       analytics: {
         enabled: false,
+        activationVersion: null,
         provider: 'baidu',
         trackingId: '',
         scriptUrl: '',

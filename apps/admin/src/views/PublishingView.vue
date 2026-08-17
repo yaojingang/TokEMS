@@ -251,7 +251,12 @@ onMounted(() => void load());
       <h1>大会公开页面设置</h1>
       <p>页面模板、首页与常见问题在同一页维护，保存后直接应用到当前大会。</p>
     </div>
-    <a class="button secondary" :href="publicEventPreviewUrl()" target="_blank" rel="noopener noreferrer">
+    <a
+      class="button secondary"
+      :href="publicEventPreviewUrl()"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       查看官网 ↗
     </a>
   </header>

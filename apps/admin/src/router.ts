@@ -44,6 +44,45 @@ export const router = createRouter({
       component: () => import('./views/AcceptInvitationView.vue'),
       meta: { public: true, title: '接受组织邀请' },
     },
+    {
+      path: '/agent-authorizations',
+      component: () => import('./components/ManagementShell.vue'),
+      meta: { scope: 'management' },
+      children: [
+        {
+          path: '',
+          name: 'agent-authorization-code',
+          component: () => import('./views/AgentAuthorizationView.vue'),
+          meta: { title: '批准 AI 管理连接', code: 'AGENT AUTHORIZATION' },
+        },
+      ],
+    },
+    {
+      path: '/agent-authorizations/:authorizationId',
+      component: () => import('./components/ManagementShell.vue'),
+      meta: { scope: 'management' },
+      children: [
+        {
+          path: '',
+          name: 'agent-authorization',
+          component: () => import('./views/AgentAuthorizationView.vue'),
+          meta: { title: '批准 AI 管理连接', code: 'AGENT AUTHORIZATION' },
+        },
+      ],
+    },
+    {
+      path: '/agent-operations/:operationId',
+      component: () => import('./components/ManagementShell.vue'),
+      meta: { scope: 'management' },
+      children: [
+        {
+          path: '',
+          name: 'agent-operation-approval',
+          component: () => import('./views/AgentOperationApprovalView.vue'),
+          meta: { title: '审核 AI 管理操作', code: 'AGENT OPERATION' },
+        },
+      ],
+    },
     { path: '/', redirect: { name: 'login' } },
     {
       path: '/manage',
@@ -169,7 +208,8 @@ export const router = createRouter({
             {
               path: 'analytics',
               name: 'manage-settings-analytics',
-              redirect: { name: 'manage-settings' },
+              component: () => import('./views/ManagementAnalyticsSettingsView.vue'),
+              meta: { requiredGrants: ['org.settings.read'] },
             },
             {
               path: 'integrations',
@@ -309,24 +349,60 @@ export const router = createRouter({
         {
           path: 'settings/content',
           name: 'event-content',
-          redirect: (to) =>
-            legacyContentWorkspaceRoute(to.params, to.query, to.hash),
+          redirect: (to) => legacyContentWorkspaceRoute(to.params, to.query, to.hash),
         },
         {
           path: 'content/ai',
           name: 'event-ai',
-          redirect: (to) =>
-            legacyContentWorkspaceRoute(to.params, to.query, to.hash || '#public-page'),
+          redirect: (to) => ({
+            name: 'event-settings-general',
+            params: to.params,
+            query: to.query,
+            hash: to.hash || '#public-page',
+          }),
         },
         {
           path: 'content',
-          redirect: (to) =>
-            legacyContentWorkspaceRoute(to.params, to.query, to.hash),
+          redirect: (to) => legacyContentWorkspaceRoute(to.params, to.query, to.hash),
         },
         {
           path: 'settings/content/ai',
-          redirect: (to) =>
-            legacyContentWorkspaceRoute(to.params, to.query, to.hash || '#public-page'),
+          redirect: (to) => ({
+            name: 'event-settings-general',
+            params: to.params,
+            query: to.query,
+            hash: to.hash || '#public-page',
+          }),
+        },
+        {
+          path: 'speakers',
+          name: 'event-speakers',
+          component: () => import('./views/SpeakersView.vue'),
+          meta: {
+            title: '嘉宾管理',
+            code: 'SPEAKERS',
+            requiredGrants: ['event.content.manage'],
+          },
+        },
+        {
+          path: 'speakers/new',
+          name: 'event-speaker-create',
+          component: () => import('./views/SpeakerEditorView.vue'),
+          meta: {
+            title: '新建嘉宾',
+            code: 'NEW SPEAKER',
+            requiredGrants: ['event.content.manage'],
+          },
+        },
+        {
+          path: 'speakers/:speakerId',
+          name: 'event-speaker-edit',
+          component: () => import('./views/SpeakerEditorView.vue'),
+          meta: {
+            title: '编辑嘉宾',
+            code: 'SPEAKER PROFILE',
+            requiredGrants: ['event.content.manage'],
+          },
         },
         {
           path: 'registrations',
@@ -335,6 +411,16 @@ export const router = createRouter({
           meta: {
             title: '报名管理',
             code: 'REGISTRATIONS',
+            requiredGrants: ['event.registration.read'],
+          },
+        },
+        {
+          path: 'registrations/cooperation-requests/:requestId?',
+          name: 'event-cooperation-requests',
+          component: () => import('./views/CooperationRequestsView.vue'),
+          meta: {
+            title: '合作申请',
+            code: 'COOPERATION REQUESTS',
             requiredGrants: ['event.registration.read'],
           },
         },
@@ -439,11 +525,7 @@ export const router = createRouter({
     {
       path: '/content',
       redirect: (to) =>
-        recentEventRoute(
-          'event-settings-general',
-          to.query as Record<string, string | string[]>,
-          to.hash || '#public-page',
-        ),
+        recentEventRoute('event-speakers', to.query as Record<string, string | string[]>),
     },
     {
       path: '/notifications',

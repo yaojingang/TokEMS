@@ -1,0 +1,1076 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "generated_at": "2026-08-17",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "summary": {
+    "target_count": 2,
+    "pass_count": 2,
+    "warn_count": 0,
+    "block_count": 0,
+    "failure_count": 0,
+    "warning_count": 0
+  },
+  "targets": [
+    {
+      "schema_version": "1.0",
+      "target": "openai",
+      "status": "pass",
+      "compiler": {
+        "name": "yao-skill-ir-compiler",
+        "schema_version": "1.0",
+        "source": "skill-ir",
+        "ir_source": "reports/skill-ir.json",
+        "ir_schema_version": "2.0.0"
+      },
+      "source": {
+        "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+        "canonical_metadata": "agents/interface.yaml",
+        "declared_targets": [
+          "openai",
+          "generic"
+        ]
+      },
+      "compiled_contract": {
+        "name": "tokems-admin",
+        "title": "TokEMS Admin",
+        "version": "0.1.1",
+        "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+        "job_to_be_done": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
+        "trigger": {
+          "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "should_trigger": [
+            "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
+            "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
+            "通过 tokems-admin 查询订单和发票状态，用户信息保持掩码。",
+            "Prepare a governed TokEMS refund operation and open its browser approval page.",
+            "用远程 TokEMS 超管连接调整管理员权限并验证审计记录。",
+            "Run the TokEMS template revision workflow, publish it, and verify the public event page.",
+            "从 TokEMS 后台按筛选条件导出报名数据到本机指定文件。",
+            "Reconcile an unknown TokEMS Agent operation without replaying the write."
+          ],
+          "should_not_trigger": [
+            "Implement a new TokEMS API controller and fix its TypeScript tests.",
+            "Review the TokEMS architecture document without connecting to a running instance.",
+            "Deploy TokEMS to a Linux server and update Nginx.",
+            "Browse the public conference agenda as an attendee.",
+            "Build a marketing page for an unrelated event platform.",
+            "source-code development",
+            "database, SSH, deployment, and server administration",
+            "credential, cookie, token, or secret extraction",
+            "arbitrary URL, method, path, query, or organization access",
+            "direct order amount, payment fact, or financial ledger mutation"
+          ],
+          "edge_cases": [
+            "Review the source code that implements TokEMS Agent authorization.",
+            "Write an operator runbook for TokEMS, and do not execute any admin action.",
+            "Use my browser cookie to click through TokEMS admin pages.",
+            "Connect to this arbitrary URL and send it the TokEMS refresh token.",
+            "Edit an order's paid amount directly in the TokEMS database."
+          ]
+        },
+        "workflow": {
+          "steps": [
+            "Read `references/authorization.md` before connecting or changing connection policy.",
+            "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
+            "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+            "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
+            "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
+            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `checkin.sync` also accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
+            "Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.",
+            "Verify the persisted resource, public delivery API and rendered home document when applicable, job, or audit record. Treat connector evidence as client-reported until the server marks the operation verified. Use `operation reconcile` for `queued` or `unknown`; never replay the original write.",
+            "Report the output contract below. Delete terminal local pending state and keep exported or one-time-secret artifacts at mode `0600`."
+          ],
+          "decision_points": [],
+          "failure_modes": []
+        },
+        "resources": {
+          "references": [
+            "references/authorization.md",
+            "references/capability-map.md",
+            "references/commerce-and-invoices.md",
+            "references/communications-checkin-and-exports.md",
+            "references/content-and-events.md",
+            "references/customers-and-admins.md",
+            "references/safety-and-approvals.md",
+            "references/templates.md",
+            "references/troubleshooting.md"
+          ],
+          "scripts": [
+            "scripts/tokems-admin.js"
+          ],
+          "assets": [],
+          "reports": [
+            "reports/intent-context.json",
+            "reports/intent-confidence.json",
+            "reports/intent-confidence.md",
+            "reports/skill-overview.json",
+            "reports/skill-overview.html",
+            "reports/output_quality_scorecard.json",
+            "reports/output_quality_scorecard.md",
+            "reports/output_execution_runs.json",
+            "reports/output_execution_runs.md",
+            "reports/output_blind_answer_key.json",
+            "reports/output_review_adjudication.json",
+            "reports/output_review_adjudication.md",
+            "reports/review_annotations.json",
+            "reports/review_annotations.md",
+            "reports/conformance_matrix.json",
+            "reports/conformance_matrix.md",
+            "reports/security_trust_report.json",
+            "reports/security_trust_report.md",
+            "reports/runtime_permission_probes.json",
+            "reports/runtime_permission_probes.md",
+            "reports/skill_atlas.json",
+            "reports/skill_atlas.html"
+          ],
+          "counts": {
+            "references": 9,
+            "scripts": 1,
+            "assets": 0,
+            "reports": 22
+          }
+        },
+        "eval_plan": {
+          "trigger": [
+            "evals/intent_context.json",
+            "evals/output/cases.jsonl",
+            "evals/output/fixtures/export-request.json",
+            "evals/packaging_expectations.json",
+            "evals/semantic_config.json",
+            "evals/trigger_cases.json"
+          ],
+          "output": [
+            "evals/output/cases.jsonl",
+            "evals/output/fixtures/export-request.json"
+          ],
+          "adversarial": [],
+          "baseline": "without_skill",
+          "counts": {
+            "trigger": 6,
+            "output": 2,
+            "adversarial": 0,
+            "baseline": 1
+          }
+        },
+        "risk": {
+          "output_risk": "low",
+          "execution_risk": "high",
+          "trust_boundary": "external"
+        },
+        "governance": {
+          "owner": "TokEMS Maintainers",
+          "maturity": "governed",
+          "review_cadence": "monthly",
+          "review_due": "2026-09-17"
+        },
+        "runtime": {
+          "activation": {
+            "mode": "manual",
+            "paths": []
+          },
+          "execution": {
+            "context": "inline",
+            "shell": "bash",
+            "runtime": "node>=24"
+          },
+          "trust": {
+            "source_tier": "local",
+            "remote_inline_execution": "forbid",
+            "remote_metadata_policy": "allow-metadata-only",
+            "credentials": "macOS Keychain or Linux Secret Service"
+          },
+          "adapter_targets": [
+            "openai",
+            "generic"
+          ],
+          "canonical_format": "agent-skills"
+        },
+        "permissions": {
+          "schema_version": "1.0",
+          "source": "reports/security_trust_report.json",
+          "source_available": true,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "review_required": true,
+          "capabilities": {
+            "network": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/http.mjs"
+              ],
+              "review_reason": "Outbound hosts must match security/network_policy.json."
+            },
+            "file_write": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/files.mjs"
+              ],
+              "review_reason": "Scripts write local files or generated artifacts."
+            },
+            "subprocess": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/credentials.mjs"
+              ],
+              "review_reason": "Scripts spawn local commands and need operator review."
+            },
+            "interactive": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/auth.mjs"
+              ],
+              "review_reason": "Scripts prompt for user input or credentials."
+            }
+          },
+          "network_policy": {
+            "source": "security/network_policy.json",
+            "covered_scripts": [
+              "scripts/lib/http.mjs"
+            ],
+            "missing_scripts": [],
+            "mismatches": []
+          },
+          "help_smoke": {
+            "enabled": true,
+            "checked_count": 1,
+            "failed_count": 0,
+            "failed_scripts": []
+          },
+          "trust_summary": {
+            "secret_findings": 0,
+            "network_script_count": 1,
+            "file_write_script_count": 1,
+            "subprocess_script_count": 1,
+            "interactive_script_count": 1,
+            "help_smoke_failed_count": 0
+          }
+        },
+        "source_files_count": 4,
+        "target": "openai",
+        "target_permission_contract": {
+          "schema_version": "1.0",
+          "target": "openai",
+          "permission_model": "metadata-only",
+          "native_enforcement": false,
+          "representation": "targets/openai/agents/openai.yaml::compatibility.permission_contract plus adapter.json",
+          "review_required": true,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "capability_counts": {
+            "network": 1,
+            "file_write": 1,
+            "subprocess": 1,
+            "interactive": 1
+          },
+          "evidence": "reports/security_trust_report.json",
+          "operator_note": "OpenAI target carries permission metadata for reviewer visibility; host enforcement remains outside the package."
+        },
+        "target_native_contract": {
+          "schema_version": "1.0",
+          "target": "openai",
+          "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
+          "activation": {
+            "policy": "Use frontmatter description for catalog routing and targets/openai/agents/openai.yaml for display name, default prompt, and compatibility metadata.",
+            "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+            "manual_activation_supported": true,
+            "automatic_activation_note": "Depends on the target client route/catalog implementation."
+          },
+          "resources": {
+            "strategy": "Ship the neutral source tree and expose OpenAI-facing interface metadata as a generated companion file.",
+            "counts": {
+              "references": 9,
+              "scripts": 1,
+              "assets": 0,
+              "reports": 22
+            },
+            "generated_files": [
+              "targets/openai/adapter.json",
+              "targets/openai/agents/openai.yaml"
+            ]
+          },
+          "scripts": {
+            "strategy": "Keep scripts as local package resources; expose help-smoke and permission metadata for reviewer approval before execution.",
+            "script_count": 1,
+            "help_smoke_failed_count": 0
+          },
+          "permissions": {
+            "enforcement": "metadata-only",
+            "native_enforcement": false,
+            "declared_capabilities": [
+              "network",
+              "file_write",
+              "subprocess",
+              "interactive"
+            ],
+            "review_required": true
+          },
+          "review": {
+            "artifacts": [
+              "targets/openai/agents/openai.yaml",
+              "targets/openai/adapter.json",
+              "reports/review-studio.html"
+            ],
+            "fallback_behavior": "If OpenAI-native metadata is ignored, the package remains readable as neutral Agent Skills source.",
+            "unsupported_native_features": [
+              "client-native permission prompts",
+              "provider-executed scripts",
+              "client-native script permission prompts are represented as permission contract metadata"
+            ]
+          },
+          "install_scope": "plugin or skill package consumer"
+        },
+        "degradation_strategy": "Codex desktop needs shell, outbound HTTPS, Node.js 24, and a supported credential store.",
+        "target_runtime": {
+          "adapter_mode": "metadata-adapter",
+          "generated_files": [
+            "targets/openai/adapter.json",
+            "targets/openai/agents/openai.yaml"
+          ],
+          "metadata_mapping": {
+            "display_name": "targets/openai/agents/openai.yaml::interface.display_name",
+            "default_prompt": "targets/openai/agents/openai.yaml::interface.default_prompt",
+            "activation": "targets/openai/agents/openai.yaml::compatibility.activation_mode",
+            "execution": "targets/openai/agents/openai.yaml::compatibility.execution_context",
+            "trust": "targets/openai/agents/openai.yaml::compatibility.trust_level",
+            "permissions": "targets/openai/agents/openai.yaml::compatibility.permission_contract",
+            "degradation": "targets/openai/agents/openai.yaml::compatibility.degradation_strategy"
+          },
+          "preserved_semantics": [
+            "trigger",
+            "workflow-counts",
+            "resources",
+            "eval-plan",
+            "risk",
+            "governance",
+            "runtime",
+            "trust",
+            "permissions"
+          ],
+          "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source"
+        }
+      },
+      "permission_contract": {
+        "schema_version": "1.0",
+        "source": "reports/security_trust_report.json",
+        "source_available": true,
+        "declared_capabilities": [
+          "network",
+          "file_write",
+          "subprocess",
+          "interactive"
+        ],
+        "review_required": true,
+        "capabilities": {
+          "network": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/http.mjs"
+            ],
+            "review_reason": "Outbound hosts must match security/network_policy.json."
+          },
+          "file_write": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/files.mjs"
+            ],
+            "review_reason": "Scripts write local files or generated artifacts."
+          },
+          "subprocess": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/credentials.mjs"
+            ],
+            "review_reason": "Scripts spawn local commands and need operator review."
+          },
+          "interactive": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/auth.mjs"
+            ],
+            "review_reason": "Scripts prompt for user input or credentials."
+          }
+        },
+        "network_policy": {
+          "source": "security/network_policy.json",
+          "covered_scripts": [
+            "scripts/lib/http.mjs"
+          ],
+          "missing_scripts": [],
+          "mismatches": []
+        },
+        "help_smoke": {
+          "enabled": true,
+          "checked_count": 1,
+          "failed_count": 0,
+          "failed_scripts": []
+        },
+        "trust_summary": {
+          "secret_findings": 0,
+          "network_script_count": 1,
+          "file_write_script_count": 1,
+          "subprocess_script_count": 1,
+          "interactive_script_count": 1,
+          "help_smoke_failed_count": 0
+        }
+      },
+      "target_permission_contract": {
+        "schema_version": "1.0",
+        "target": "openai",
+        "permission_model": "metadata-only",
+        "native_enforcement": false,
+        "representation": "targets/openai/agents/openai.yaml::compatibility.permission_contract plus adapter.json",
+        "review_required": true,
+        "declared_capabilities": [
+          "network",
+          "file_write",
+          "subprocess",
+          "interactive"
+        ],
+        "capability_counts": {
+          "network": 1,
+          "file_write": 1,
+          "subprocess": 1,
+          "interactive": 1
+        },
+        "evidence": "reports/security_trust_report.json",
+        "operator_note": "OpenAI target carries permission metadata for reviewer visibility; host enforcement remains outside the package."
+      },
+      "target_native_contract": {
+        "schema_version": "1.0",
+        "target": "openai",
+        "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
+        "activation": {
+          "policy": "Use frontmatter description for catalog routing and targets/openai/agents/openai.yaml for display name, default prompt, and compatibility metadata.",
+          "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "manual_activation_supported": true,
+          "automatic_activation_note": "Depends on the target client route/catalog implementation."
+        },
+        "resources": {
+          "strategy": "Ship the neutral source tree and expose OpenAI-facing interface metadata as a generated companion file.",
+          "counts": {
+            "references": 9,
+            "scripts": 1,
+            "assets": 0,
+            "reports": 22
+          },
+          "generated_files": [
+            "targets/openai/adapter.json",
+            "targets/openai/agents/openai.yaml"
+          ]
+        },
+        "scripts": {
+          "strategy": "Keep scripts as local package resources; expose help-smoke and permission metadata for reviewer approval before execution.",
+          "script_count": 1,
+          "help_smoke_failed_count": 0
+        },
+        "permissions": {
+          "enforcement": "metadata-only",
+          "native_enforcement": false,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "review_required": true
+        },
+        "review": {
+          "artifacts": [
+            "targets/openai/agents/openai.yaml",
+            "targets/openai/adapter.json",
+            "reports/review-studio.html"
+          ],
+          "fallback_behavior": "If OpenAI-native metadata is ignored, the package remains readable as neutral Agent Skills source.",
+          "unsupported_native_features": [
+            "client-native permission prompts",
+            "provider-executed scripts",
+            "client-native script permission prompts are represented as permission contract metadata"
+          ]
+        },
+        "install_scope": "plugin or skill package consumer"
+      },
+      "target_transform": {
+        "target": "openai",
+        "adapter_mode": "metadata-adapter",
+        "generated_files": [
+          "targets/openai/adapter.json",
+          "targets/openai/agents/openai.yaml"
+        ],
+        "metadata_mapping": {
+          "display_name": "targets/openai/agents/openai.yaml::interface.display_name",
+          "default_prompt": "targets/openai/agents/openai.yaml::interface.default_prompt",
+          "activation": "targets/openai/agents/openai.yaml::compatibility.activation_mode",
+          "execution": "targets/openai/agents/openai.yaml::compatibility.execution_context",
+          "trust": "targets/openai/agents/openai.yaml::compatibility.trust_level",
+          "permissions": "targets/openai/agents/openai.yaml::compatibility.permission_contract",
+          "degradation": "targets/openai/agents/openai.yaml::compatibility.degradation_strategy"
+        },
+        "preserved_semantics": [
+          "trigger",
+          "workflow-counts",
+          "resources",
+          "eval-plan",
+          "risk",
+          "governance",
+          "runtime",
+          "trust",
+          "permissions"
+        ],
+        "degradation_strategy": "Codex desktop needs shell, outbound HTTPS, Node.js 24, and a supported credential store.",
+        "permission_representation": "targets/openai/agents/openai.yaml::compatibility.permission_contract plus adapter.json",
+        "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
+        "activation_policy": "Use frontmatter description for catalog routing and targets/openai/agents/openai.yaml for display name, default prompt, and compatibility metadata.",
+        "resource_strategy": "Ship the neutral source tree and expose OpenAI-facing interface metadata as a generated companion file.",
+        "script_strategy": "Keep scripts as local package resources; expose help-smoke and permission metadata for reviewer approval before execution.",
+        "permission_enforcement": "metadata-only"
+      },
+      "unsupported_features": [
+        "client-native script permission prompts are represented as permission contract metadata"
+      ],
+      "warnings": [],
+      "failures": []
+    },
+    {
+      "schema_version": "1.0",
+      "target": "generic",
+      "status": "pass",
+      "compiler": {
+        "name": "yao-skill-ir-compiler",
+        "schema_version": "1.0",
+        "source": "skill-ir",
+        "ir_source": "reports/skill-ir.json",
+        "ir_schema_version": "2.0.0"
+      },
+      "source": {
+        "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+        "canonical_metadata": "agents/interface.yaml",
+        "declared_targets": [
+          "openai",
+          "generic"
+        ]
+      },
+      "compiled_contract": {
+        "name": "tokems-admin",
+        "title": "TokEMS Admin",
+        "version": "0.1.1",
+        "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+        "job_to_be_done": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
+        "trigger": {
+          "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "should_trigger": [
+            "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
+            "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
+            "通过 tokems-admin 查询订单和发票状态，用户信息保持掩码。",
+            "Prepare a governed TokEMS refund operation and open its browser approval page.",
+            "用远程 TokEMS 超管连接调整管理员权限并验证审计记录。",
+            "Run the TokEMS template revision workflow, publish it, and verify the public event page.",
+            "从 TokEMS 后台按筛选条件导出报名数据到本机指定文件。",
+            "Reconcile an unknown TokEMS Agent operation without replaying the write."
+          ],
+          "should_not_trigger": [
+            "Implement a new TokEMS API controller and fix its TypeScript tests.",
+            "Review the TokEMS architecture document without connecting to a running instance.",
+            "Deploy TokEMS to a Linux server and update Nginx.",
+            "Browse the public conference agenda as an attendee.",
+            "Build a marketing page for an unrelated event platform.",
+            "source-code development",
+            "database, SSH, deployment, and server administration",
+            "credential, cookie, token, or secret extraction",
+            "arbitrary URL, method, path, query, or organization access",
+            "direct order amount, payment fact, or financial ledger mutation"
+          ],
+          "edge_cases": [
+            "Review the source code that implements TokEMS Agent authorization.",
+            "Write an operator runbook for TokEMS, and do not execute any admin action.",
+            "Use my browser cookie to click through TokEMS admin pages.",
+            "Connect to this arbitrary URL and send it the TokEMS refresh token.",
+            "Edit an order's paid amount directly in the TokEMS database."
+          ]
+        },
+        "workflow": {
+          "steps": [
+            "Read `references/authorization.md` before connecting or changing connection policy.",
+            "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
+            "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+            "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
+            "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
+            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `checkin.sync` also accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
+            "Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.",
+            "Verify the persisted resource, public delivery API and rendered home document when applicable, job, or audit record. Treat connector evidence as client-reported until the server marks the operation verified. Use `operation reconcile` for `queued` or `unknown`; never replay the original write.",
+            "Report the output contract below. Delete terminal local pending state and keep exported or one-time-secret artifacts at mode `0600`."
+          ],
+          "decision_points": [],
+          "failure_modes": []
+        },
+        "resources": {
+          "references": [
+            "references/authorization.md",
+            "references/capability-map.md",
+            "references/commerce-and-invoices.md",
+            "references/communications-checkin-and-exports.md",
+            "references/content-and-events.md",
+            "references/customers-and-admins.md",
+            "references/safety-and-approvals.md",
+            "references/templates.md",
+            "references/troubleshooting.md"
+          ],
+          "scripts": [
+            "scripts/tokems-admin.js"
+          ],
+          "assets": [],
+          "reports": [
+            "reports/intent-context.json",
+            "reports/intent-confidence.json",
+            "reports/intent-confidence.md",
+            "reports/skill-overview.json",
+            "reports/skill-overview.html",
+            "reports/output_quality_scorecard.json",
+            "reports/output_quality_scorecard.md",
+            "reports/output_execution_runs.json",
+            "reports/output_execution_runs.md",
+            "reports/output_blind_answer_key.json",
+            "reports/output_review_adjudication.json",
+            "reports/output_review_adjudication.md",
+            "reports/review_annotations.json",
+            "reports/review_annotations.md",
+            "reports/conformance_matrix.json",
+            "reports/conformance_matrix.md",
+            "reports/security_trust_report.json",
+            "reports/security_trust_report.md",
+            "reports/runtime_permission_probes.json",
+            "reports/runtime_permission_probes.md",
+            "reports/skill_atlas.json",
+            "reports/skill_atlas.html"
+          ],
+          "counts": {
+            "references": 9,
+            "scripts": 1,
+            "assets": 0,
+            "reports": 22
+          }
+        },
+        "eval_plan": {
+          "trigger": [
+            "evals/intent_context.json",
+            "evals/output/cases.jsonl",
+            "evals/output/fixtures/export-request.json",
+            "evals/packaging_expectations.json",
+            "evals/semantic_config.json",
+            "evals/trigger_cases.json"
+          ],
+          "output": [
+            "evals/output/cases.jsonl",
+            "evals/output/fixtures/export-request.json"
+          ],
+          "adversarial": [],
+          "baseline": "without_skill",
+          "counts": {
+            "trigger": 6,
+            "output": 2,
+            "adversarial": 0,
+            "baseline": 1
+          }
+        },
+        "risk": {
+          "output_risk": "low",
+          "execution_risk": "high",
+          "trust_boundary": "external"
+        },
+        "governance": {
+          "owner": "TokEMS Maintainers",
+          "maturity": "governed",
+          "review_cadence": "monthly",
+          "review_due": "2026-09-17"
+        },
+        "runtime": {
+          "activation": {
+            "mode": "manual",
+            "paths": []
+          },
+          "execution": {
+            "context": "inline",
+            "shell": "bash",
+            "runtime": "node>=24"
+          },
+          "trust": {
+            "source_tier": "local",
+            "remote_inline_execution": "forbid",
+            "remote_metadata_policy": "allow-metadata-only",
+            "credentials": "macOS Keychain or Linux Secret Service"
+          },
+          "adapter_targets": [
+            "openai",
+            "generic"
+          ],
+          "canonical_format": "agent-skills"
+        },
+        "permissions": {
+          "schema_version": "1.0",
+          "source": "reports/security_trust_report.json",
+          "source_available": true,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "review_required": true,
+          "capabilities": {
+            "network": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/http.mjs"
+              ],
+              "review_reason": "Outbound hosts must match security/network_policy.json."
+            },
+            "file_write": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/files.mjs"
+              ],
+              "review_reason": "Scripts write local files or generated artifacts."
+            },
+            "subprocess": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/credentials.mjs"
+              ],
+              "review_reason": "Scripts spawn local commands and need operator review."
+            },
+            "interactive": {
+              "required": true,
+              "script_count": 1,
+              "scripts": [
+                "scripts/lib/auth.mjs"
+              ],
+              "review_reason": "Scripts prompt for user input or credentials."
+            }
+          },
+          "network_policy": {
+            "source": "security/network_policy.json",
+            "covered_scripts": [
+              "scripts/lib/http.mjs"
+            ],
+            "missing_scripts": [],
+            "mismatches": []
+          },
+          "help_smoke": {
+            "enabled": true,
+            "checked_count": 1,
+            "failed_count": 0,
+            "failed_scripts": []
+          },
+          "trust_summary": {
+            "secret_findings": 0,
+            "network_script_count": 1,
+            "file_write_script_count": 1,
+            "subprocess_script_count": 1,
+            "interactive_script_count": 1,
+            "help_smoke_failed_count": 0
+          }
+        },
+        "source_files_count": 4,
+        "target": "generic",
+        "target_permission_contract": {
+          "schema_version": "1.0",
+          "target": "generic",
+          "permission_model": "agent-skills-compatible-metadata",
+          "native_enforcement": false,
+          "representation": "targets/generic/adapter.json::target_permission_contract",
+          "review_required": true,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "capability_counts": {
+            "network": 1,
+            "file_write": 1,
+            "subprocess": 1,
+            "interactive": 1
+          },
+          "evidence": "reports/security_trust_report.json",
+          "operator_note": "Generic target exposes permission metadata for downstream clients to enforce or review."
+        },
+        "target_native_contract": {
+          "schema_version": "1.0",
+          "target": "generic",
+          "native_surface": "Agent Skills compatible neutral package",
+          "activation": {
+            "policy": "Use SKILL.md name and description; consumers decide automatic or manual activation.",
+            "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+            "manual_activation_supported": true,
+            "automatic_activation_note": "Depends on the target client route/catalog implementation."
+          },
+          "resources": {
+            "strategy": "Preserve references, scripts, assets, evals, reports, and adapter metadata as relative package resources.",
+            "counts": {
+              "references": 9,
+              "scripts": 1,
+              "assets": 0,
+              "reports": 22
+            },
+            "generated_files": [
+              "targets/generic/adapter.json"
+            ]
+          },
+          "scripts": {
+            "strategy": "Expose script and permission metadata for downstream clients or installers to enforce.",
+            "script_count": 1,
+            "help_smoke_failed_count": 0
+          },
+          "permissions": {
+            "enforcement": "consumer-enforced-or-metadata-only",
+            "native_enforcement": false,
+            "declared_capabilities": [
+              "network",
+              "file_write",
+              "subprocess",
+              "interactive"
+            ],
+            "review_required": true
+          },
+          "review": {
+            "artifacts": [
+              "targets/generic/adapter.json",
+              "reports/review-studio.html"
+            ],
+            "fallback_behavior": "Neutral source is the runtime fallback.",
+            "unsupported_native_features": []
+          },
+          "install_scope": "generic Agent Skills compatible root"
+        },
+        "degradation_strategy": "Stop before connection when the client cannot run scripts, preserve secrets, enforce the approved origin, or open browser approval URLs.",
+        "target_runtime": {
+          "adapter_mode": "agent-skills-compatible",
+          "generated_files": [
+            "targets/generic/adapter.json"
+          ],
+          "metadata_mapping": {
+            "display_name": "targets/generic/adapter.json::display_name",
+            "default_prompt": "targets/generic/adapter.json::default_prompt",
+            "activation": "targets/generic/adapter.json::activation_mode",
+            "execution": "targets/generic/adapter.json::execution_context",
+            "trust": "targets/generic/adapter.json::trust_level",
+            "permissions": "targets/generic/adapter.json::target_permission_contract",
+            "degradation": "targets/generic/adapter.json::degradation_strategy"
+          },
+          "preserved_semantics": [
+            "trigger",
+            "workflow-counts",
+            "resources",
+            "eval-plan",
+            "risk",
+            "governance",
+            "runtime",
+            "trust",
+            "permissions"
+          ],
+          "native_surface": "Agent Skills compatible neutral package"
+        }
+      },
+      "permission_contract": {
+        "schema_version": "1.0",
+        "source": "reports/security_trust_report.json",
+        "source_available": true,
+        "declared_capabilities": [
+          "network",
+          "file_write",
+          "subprocess",
+          "interactive"
+        ],
+        "review_required": true,
+        "capabilities": {
+          "network": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/http.mjs"
+            ],
+            "review_reason": "Outbound hosts must match security/network_policy.json."
+          },
+          "file_write": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/files.mjs"
+            ],
+            "review_reason": "Scripts write local files or generated artifacts."
+          },
+          "subprocess": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/credentials.mjs"
+            ],
+            "review_reason": "Scripts spawn local commands and need operator review."
+          },
+          "interactive": {
+            "required": true,
+            "script_count": 1,
+            "scripts": [
+              "scripts/lib/auth.mjs"
+            ],
+            "review_reason": "Scripts prompt for user input or credentials."
+          }
+        },
+        "network_policy": {
+          "source": "security/network_policy.json",
+          "covered_scripts": [
+            "scripts/lib/http.mjs"
+          ],
+          "missing_scripts": [],
+          "mismatches": []
+        },
+        "help_smoke": {
+          "enabled": true,
+          "checked_count": 1,
+          "failed_count": 0,
+          "failed_scripts": []
+        },
+        "trust_summary": {
+          "secret_findings": 0,
+          "network_script_count": 1,
+          "file_write_script_count": 1,
+          "subprocess_script_count": 1,
+          "interactive_script_count": 1,
+          "help_smoke_failed_count": 0
+        }
+      },
+      "target_permission_contract": {
+        "schema_version": "1.0",
+        "target": "generic",
+        "permission_model": "agent-skills-compatible-metadata",
+        "native_enforcement": false,
+        "representation": "targets/generic/adapter.json::target_permission_contract",
+        "review_required": true,
+        "declared_capabilities": [
+          "network",
+          "file_write",
+          "subprocess",
+          "interactive"
+        ],
+        "capability_counts": {
+          "network": 1,
+          "file_write": 1,
+          "subprocess": 1,
+          "interactive": 1
+        },
+        "evidence": "reports/security_trust_report.json",
+        "operator_note": "Generic target exposes permission metadata for downstream clients to enforce or review."
+      },
+      "target_native_contract": {
+        "schema_version": "1.0",
+        "target": "generic",
+        "native_surface": "Agent Skills compatible neutral package",
+        "activation": {
+          "policy": "Use SKILL.md name and description; consumers decide automatic or manual activation.",
+          "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "manual_activation_supported": true,
+          "automatic_activation_note": "Depends on the target client route/catalog implementation."
+        },
+        "resources": {
+          "strategy": "Preserve references, scripts, assets, evals, reports, and adapter metadata as relative package resources.",
+          "counts": {
+            "references": 9,
+            "scripts": 1,
+            "assets": 0,
+            "reports": 22
+          },
+          "generated_files": [
+            "targets/generic/adapter.json"
+          ]
+        },
+        "scripts": {
+          "strategy": "Expose script and permission metadata for downstream clients or installers to enforce.",
+          "script_count": 1,
+          "help_smoke_failed_count": 0
+        },
+        "permissions": {
+          "enforcement": "consumer-enforced-or-metadata-only",
+          "native_enforcement": false,
+          "declared_capabilities": [
+            "network",
+            "file_write",
+            "subprocess",
+            "interactive"
+          ],
+          "review_required": true
+        },
+        "review": {
+          "artifacts": [
+            "targets/generic/adapter.json",
+            "reports/review-studio.html"
+          ],
+          "fallback_behavior": "Neutral source is the runtime fallback.",
+          "unsupported_native_features": []
+        },
+        "install_scope": "generic Agent Skills compatible root"
+      },
+      "target_transform": {
+        "target": "generic",
+        "adapter_mode": "agent-skills-compatible",
+        "generated_files": [
+          "targets/generic/adapter.json"
+        ],
+        "metadata_mapping": {
+          "display_name": "targets/generic/adapter.json::display_name",
+          "default_prompt": "targets/generic/adapter.json::default_prompt",
+          "activation": "targets/generic/adapter.json::activation_mode",
+          "execution": "targets/generic/adapter.json::execution_context",
+          "trust": "targets/generic/adapter.json::trust_level",
+          "permissions": "targets/generic/adapter.json::target_permission_contract",
+          "degradation": "targets/generic/adapter.json::degradation_strategy"
+        },
+        "preserved_semantics": [
+          "trigger",
+          "workflow-counts",
+          "resources",
+          "eval-plan",
+          "risk",
+          "governance",
+          "runtime",
+          "trust",
+          "permissions"
+        ],
+        "degradation_strategy": "Stop before connection when the client cannot run scripts, preserve secrets, enforce the approved origin, or open browser approval URLs.",
+        "permission_representation": "targets/generic/adapter.json::target_permission_contract",
+        "native_surface": "Agent Skills compatible neutral package",
+        "activation_policy": "Use SKILL.md name and description; consumers decide automatic or manual activation.",
+        "resource_strategy": "Preserve references, scripts, assets, evals, reports, and adapter metadata as relative package resources.",
+        "script_strategy": "Expose script and permission metadata for downstream clients or installers to enforce.",
+        "permission_enforcement": "consumer-enforced-or-metadata-only"
+      },
+      "unsupported_features": [],
+      "warnings": [],
+      "failures": []
+    }
+  ],
+  "failures": [],
+  "warnings": [],
+  "artifacts": {
+    "json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/compiled_targets.json",
+    "markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/compiled_targets.md"
+  }
+}

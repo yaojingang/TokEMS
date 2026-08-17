@@ -4,6 +4,7 @@ import { isLoopbackHostname } from '@conference/security';
 import {
   ATTENDEE_SHOWCASE_CONSENT_VERSION,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  DEFAULT_ANALYTICS_SETTINGS,
   DEMO_EVENT,
   DEMO_EVENT_EXPERIENCE,
   DEMO_IDS,
@@ -78,13 +79,7 @@ const canonicalOrganizationSettings = {
     icpNumber: '',
     supportEmail: '',
   },
-  analytics: {
-    enabled: false,
-    provider: 'baidu',
-    trackingId: '',
-    scriptUrl: '',
-    siteId: '',
-  },
+  analytics: DEFAULT_ANALYTICS_SETTINGS,
 } as const;
 
 const DEMO_CUSTOMERS = [

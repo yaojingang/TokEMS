@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-17",
+  "summary": {
+    "promote": 0,
+    "keep_current": 1,
+    "blocked": 0
+  },
+  "targets": [
+    {
+      "name": "tokems-admin",
+      "decision": "keep_current",
+      "current_status": "experimental",
+      "target_status": "active",
+      "next_action": "Collect real model execution, independent blind review, remote production acceptance, and independent macOS/Linux installation evidence before active promotion.",
+      "evidence": "reports/evidence_status.md"
+    }
+  ],
+  "release_decision": "Publish version 0.1.0 as experimental with all remote feature flags disabled by default."
+}

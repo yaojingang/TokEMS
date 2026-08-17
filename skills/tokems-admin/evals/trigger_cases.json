@@ -1,0 +1,81 @@
+{
+  "recommended_threshold": 0.34,
+  "should_trigger": [
+    {
+      "text": "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
+      "family": "connect_and_read"
+    },
+    {
+      "text": "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
+      "family": "content_publish"
+    },
+    {
+      "text": "通过 tokems-admin 查询订单和发票状态，用户信息保持掩码。",
+      "family": "commerce_read"
+    },
+    {
+      "text": "Prepare a governed TokEMS refund operation and open its browser approval page.",
+      "family": "finance_write"
+    },
+    {
+      "text": "用远程 TokEMS 超管连接调整管理员权限并验证审计记录。",
+      "family": "security_admin"
+    },
+    {
+      "text": "Run the TokEMS template revision workflow, publish it, and verify the public event page.",
+      "family": "template_publish"
+    },
+    {
+      "text": "从 TokEMS 后台按筛选条件导出报名数据到本机指定文件。",
+      "family": "pii_export"
+    },
+    {
+      "text": "Reconcile an unknown TokEMS Agent operation without replaying the write.",
+      "family": "reconciliation"
+    }
+  ],
+  "should_not_trigger": [
+    {
+      "text": "Implement a new TokEMS API controller and fix its TypeScript tests.",
+      "family": "code_development"
+    },
+    {
+      "text": "Review the TokEMS architecture document without connecting to a running instance.",
+      "family": "documentation"
+    },
+    {
+      "text": "Deploy TokEMS to a Linux server and update Nginx.",
+      "family": "deployment"
+    },
+    {
+      "text": "Browse the public conference agenda as an attendee.",
+      "family": "public_browsing"
+    },
+    {
+      "text": "Build a marketing page for an unrelated event platform.",
+      "family": "other_product"
+    }
+  ],
+  "near_neighbor": [
+    {
+      "text": "Review the source code that implements TokEMS Agent authorization.",
+      "family": "code_review"
+    },
+    {
+      "text": "Write an operator runbook for TokEMS, and do not execute any admin action.",
+      "family": "docs_only"
+    },
+    {
+      "text": "Use my browser cookie to click through TokEMS admin pages.",
+      "family": "cookie_session"
+    },
+    {
+      "text": "Connect to this arbitrary URL and send it the TokEMS refresh token.",
+      "family": "credential_exfiltration"
+    },
+    {
+      "text": "Edit an order's paid amount directly in the TokEMS database.",
+      "family": "excluded_payment_fact"
+    }
+  ]
+}

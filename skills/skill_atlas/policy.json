@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "scope_rules": [
+    {
+      "path_prefix": "tokems-admin/.build",
+      "scope": "generated-install-evidence",
+      "actionable": false,
+      "reason": "Generated package and install-simulation copies remain visible in Atlas evidence but are not independent release routes."
+    }
+  ]
+}

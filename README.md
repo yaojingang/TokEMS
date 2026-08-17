@@ -33,7 +33,7 @@ TokEMS 沿着大会从内容发布到现场核验的完整流程设计。公开�
 
 | 公开站页面 | 管理端视图 | API Controllers | API Operations | 数据库表 | 数据库迁移 | 测试文件 |
 | ---------: | ---------: | --------------: | -------------: | -------: | ---------: | -------: |
-|         13 |         31 |              25 |            207 |       66 |         51 |      116 |
+|         15 |         36 |              30 |            239 |       71 |         54 |      126 |
 
 ### 端到端业务链路
 
@@ -81,15 +81,16 @@ flowchart TB
 
 | 产品域   | 当前能力                                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------ |
-| 大会官网 | 模板驱动页面、发布快照、议程、嘉宾、票种、FAQ、报名流程、个人中心和响应式布局                                |
+| 大会官网 | 模板驱动页面、发布快照、议程、嘉宾、票种、FAQ、合作申请、报名流程、个人中心和响应式布局                      |
 | 报名交易 | 版本化表单与条款、库存保留、幂等报名、订单访问令牌、微信 Native/JSAPI/H5 三通道支付、支付回调、退款和电子票  |
 | 支付入口 | 大会主站与 `PAYMENT_PUBLIC_URL`（如 `/pay/hui`）双入口；OAuth 与 H5 回跳走支付域，稳定 notify 固定在主站 API |
 | 候补队列 | 售罄入队、顺序邀约、限时名额保留、一次性购买令牌和过期递补                                                   |
-| 运营后台 | 大会、模板、用户、报名、订单、发票、通知、系统设置、发布回滚和审计管理                                       |
+| 运营后台 | 大会、模板、用户、报名、合作申请、订单、发票、通知、系统设置、发布回滚和审计管理                             |
 | 模板系统 | 结构化模板与 HTML 模板、草稿协作、不可变版本、图片资产、升级和发布快照                                       |
 | 发票管理 | 申请、资料补充、审核、开具、文件发送、作废、退款调整和异步导出                                               |
 | 现场运营 | 设备登记、设备令牌、二维码核销、离线批次同步和重复核销识别                                                   |
 | 平台基础 | 多组织隔离、细粒度 RBAC、Outbox、限流、对象存储、Swagger 和审计日志                                          |
+| Agent 管理 | 实验性 Device Authorization、DPoP 连接、动作目录、分级审批、操作审计与本地 `tokems-admin` Skill             |
 
 ## 技术栈
 
@@ -194,8 +195,12 @@ TokEMS 的产品定位面向全球大会运营团队。`v0.1.0` 的界面语言�
 - [后台默认大会入口与工作区升级计划](docs/admin-event-workspace-upgrade-plan.md)
 - [报名详情统一运营工作台最终方案](docs/admin-registration-detail-unified-operations-plan-final.md)
 - [REST API 摘要](docs/api.md)
+- [TokEMS Admin Skill 最终设计与开发方案](docs/tokems-admin-skill-design.md)
+- [TokEMS Admin Skill 实施说明与生产启用条件](docs/tokems-admin-skill-implementation.md)
 - [普通用户系统](docs/user-system.md)
 - [运行、迁移与发布](docs/operations.md)
+- [生产推送与 Docker 发布规范](docs/production-deployment-runbook.md)
+- [生产发布记录](docs/release-records/)
 - [国际化规划](docs/internationalization.md)
 - [安全策略](SECURITY.md)
 - [社区支持](SUPPORT.md)

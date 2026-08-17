@@ -192,8 +192,19 @@ async function save() {
       <p>维护大会名称、时间、地点和生命周期状态。</p>
     </div>
     <div class="admin-head-actions">
-      <a class="button secondary" :href="publicEventPreviewUrl()" target="_blank" rel="noopener noreferrer">预览前台 ↗</a>
-      <button v-if="canManageEvent" class="button" type="button" :disabled="pending" @click="requestSave">
+      <a
+        class="button secondary"
+        :href="publicEventPreviewUrl()"
+        target="_blank"
+        rel="noopener noreferrer"
+      >预览前台 ↗</a>
+      <button
+        v-if="canManageEvent"
+        class="button"
+        type="button"
+        :disabled="pending"
+        @click="requestSave"
+      >
         {{ pending ? '保存中…' : '保存修改' }}
       </button>
     </div>
@@ -209,7 +220,11 @@ async function save() {
       </div>
       <span class="status-badge">{{ statusLabels[event?.status ?? form.status] }}</span>
     </header>
-    <form class="event-form settings-form-spaced" :inert="!canManageEvent" @submit.prevent="requestSave">
+    <form
+      class="event-form settings-form-spaced"
+      :inert="!canManageEvent"
+      @submit.prevent="requestSave"
+    >
       <div class="form-grid">
         <div class="form-field">
           <label for="event-name">大会名称</label><input id="event-name" v-model="form.name" required />

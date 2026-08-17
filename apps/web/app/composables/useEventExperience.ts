@@ -17,6 +17,19 @@ export interface ResolvedStructuredExperience {
   initialization: ConferenceTemplateDefinition['initialization'];
 }
 
+function compatibleHome(
+  home: StructuredPresentation['home'],
+  fallback: StructuredPresentation['home'],
+) {
+  if (home.blocks.some((block) => block.nodeKey === 'home.cooperation')) return home;
+  const cooperation = fallback.blocks.find((block) => block.nodeKey === 'home.cooperation');
+  if (!cooperation) return home;
+  const blocks = [...home.blocks];
+  const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
+  blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, cooperation);
+  return { ...home, blocks };
+}
+
 function legacyStaticHome(home: StructuredPresentation['home']) {
   return {
     ...home,
@@ -32,7 +45,10 @@ export function resolveEventExperience(event: PublicEvent): ResolvedStructuredEx
     throw new Error('默认大会模板必须使用结构化首页');
   }
   return {
-    home: event.experience?.home ?? legacyStaticHome(fallback.presentation.home),
+    home: compatibleHome(
+      event.experience?.home ?? legacyStaticHome(fallback.presentation.home),
+      fallback.presentation.home,
+    ),
     faq: event.experience?.faq ?? {
       ...fallback.faq,
       items: event.faqs.map((item, index) => ({

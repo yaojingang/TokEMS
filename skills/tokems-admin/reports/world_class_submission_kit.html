@@ -1,0 +1,1812 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>World-Class Evidence Submission Kit</title>
+  <style>
+    :root { --ink:#1B365D; --text:#202124; --muted:#6f6a63; --line:#e8e1d8; --soft:#f8f6f2; --warn:#9b4d0f; --pass:#1f6f43; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#fff; color:var(--text); font:16px/1.55 Georgia, "Times New Roman", serif; }
+    .topbar { position:sticky; top:0; z-index:10; background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); }
+    .topbar-inner { max-width:1180px; margin:0 auto; padding:12px 24px; display:flex; justify-content:space-between; gap:16px; align-items:center; }
+    .brand, a { color:var(--ink); }
+    .links { display:flex; gap:14px; flex-wrap:wrap; }
+    .links a { text-decoration:none; }
+    .shell { max-width:1180px; margin:0 auto; padding:36px 24px 72px; }
+    .hero { border-bottom:1px solid var(--line); padding:32px 0 28px; }
+    .eyebrow { color:var(--ink); font-size:12px; text-transform:uppercase; font-weight:700; letter-spacing:0; }
+    h1 { margin:8px 0 12px; color:var(--ink); font-size:56px; line-height:1.04; letter-spacing:0; }
+    h2, h3, h4 { color:var(--ink); letter-spacing:0; }
+    h2 { margin:0 0 14px; font-size:30px; }
+    h3 { margin:4px 0 10px; font-size:22px; }
+    h4 { margin:0 0 8px; font-size:16px; }
+    .lede { max-width:800px; color:var(--muted); font-size:20px; }
+    .stats { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:12px; margin:26px 0 0; }
+    .stats article, .panel, .draft-card, .evidence-card { border:1px solid var(--line); border-radius:8px; background:#fff; }
+    .stats article { padding:16px; }
+    .stats span, .draft-card span, .evidence-card span, .muted { color:var(--muted); }
+    .stats strong { display:block; color:var(--ink); font-size:34px; line-height:1; }
+    .section { padding:32px 0; border-bottom:1px solid var(--line); }
+    .panel { padding:20px; }
+    .two-col { display:grid; grid-template-columns:minmax(0, .45fr) minmax(0, 1fr); gap:18px; align-items:start; }
+    .draft-grid, .evidence-grid, .artifact-grid, .source-grid, .matrix-grid, .repair-grid, .handoff-grid, .queue-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+    .draft-card, .evidence-card, .artifact-card, .source-card, .matrix-card, .repair-card, .handoff-card, .queue-card { padding:18px; min-width:0; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    .draft-card.written, .draft-card.exists { border-left:4px solid var(--pass); }
+    .draft-card.skipped { border-left:4px solid var(--warn); }
+    .matrix-card.collect-source, .matrix-card.prepare-draft, .matrix-card.fix-artifacts, .matrix-card.fix-draft { border-left:4px solid var(--warn); }
+    .matrix-card.validate-packet { border-left:4px solid var(--pass); }
+    .repair-card.blocked { border-left:4px solid var(--warn); }
+    .repair-card.ready { border-left:4px solid var(--pass); }
+    .queue-card.blocked { border-left:4px solid var(--warn); }
+    .queue-card.ready { border-left:4px solid var(--pass); }
+    .handoff-card.blocked, .handoff-card.fix-required { border-left:4px solid var(--warn); }
+    .handoff-card.ready { border-left:4px solid var(--pass); }
+    .evidence-card.awaiting-submission, .evidence-card.fix-submission, .evidence-card.fix-template, .artifact-card.missing, .artifact-card.glob-no-match, .artifact-card.unsafe-path, .artifact-card.raw-content-disallowed { border-left:4px solid var(--warn); }
+    .artifact-card.ready { border-left:4px solid var(--pass); }
+    .source-card.blocked { border-left:4px solid var(--warn); }
+    .source-card.pass { border-left:4px solid var(--pass); }
+    dl { display:grid; grid-template-columns:96px minmax(0,1fr); gap:8px 12px; }
+    dt { color:var(--ink); }
+    dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+    code { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; overflow-wrap:anywhere; }
+    ul, ol { padding-left:20px; }
+    .commands { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+    .commands li { padding:12px; background:var(--soft); border-radius:8px; }
+    .commands span { display:block; color:var(--ink); font-weight:700; margin-bottom:4px; }
+    .mini-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:14px; }
+    .mini-grid section, .runbook-panel { background:var(--soft); border-radius:8px; padding:14px; min-width:0; }
+    .mini-grid li, .runbook-panel li, .notice li { overflow-wrap:anywhere; }
+    .notice { background:var(--soft); border-left:4px solid var(--ink); padding:16px; border-radius:8px; }
+    .errors { color:var(--warn); }
+    @media (max-width:820px) { .stats, .two-col, .draft-grid, .evidence-grid, .artifact-grid, .source-grid, .matrix-grid, .repair-grid, .handoff-grid, .queue-grid, .mini-grid { grid-template-columns:1fr; } h1 { font-size:38px; } .topbar-inner { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <nav class="topbar"><div class="topbar-inner"><span class="brand">World-Class Kit</span><div class="links"><a href="#workflow">Workflow</a><a href="#handoff">Handoff</a><a href="#queue">Queue</a><a href="#matrix">Matrix</a><a href="#repair">Repair</a><a href="#drafts">Drafts</a><a href="#artifacts">Artifacts</a><a href="#source">Source</a><a href="#evidence">Evidence</a><a href="#safety">Safety</a></div></div></nav>
+  <main class="shell">
+    <section class="hero">
+      <span class="eyebrow">Evidence Intake</span>
+      <h1>World-Class Evidence Submission Kit</h1>
+      <p class="lede">Use this cockpit to prepare human and external evidence packets. Drafts are not accepted evidence, artifact prefill only inserts local SHA-256 digests, and this page never changes the ledger result.</p>
+      <div class="stats"><article><span>Requested</span><strong>4</strong></article><article><span>Written</span><strong>4</strong></article><article><span>Existing</span><strong>0</strong></article><article><span>Skipped</span><strong>0</strong></article><article><span>Submit refs</span><strong>3/7</strong></article><article><span>Support</span><strong>8/30</strong></article><article><span>Prefilled</span><strong>0</strong></article></div>
+    </section>
+    <section class="section two-col" id="workflow">
+      <article class="panel"><h2>Workflow</h2><ol><li>Run the real provider, human review, native permission, or native client telemetry work first.</li><li>Edit the matching JSON draft with aggregate artifact references and provenance metadata.</li><li>Set template_only to false only after real evidence exists.</li><li>Use prefilled SHA-256 values as convenience data, not evidence acceptance.</li><li>Validate intake, ask the ledger reviewer to approve explicitly, refresh the ledger, then guard public claims.</li></ol></article>
+      <aside class="panel"><h2>Commands</h2><ul class="commands"><li><span>prepare submission</span><code>python3 scripts/yao.py world-class-submission-kit . --output-dir evidence/world_class/submissions --self</code></li><li><span>validate intake</span><code>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</code></li><li><span>review submission</span><code>python3 scripts/yao.py world-class-submission-review . --submissions-dir evidence/world_class/submissions --self</code></li><li><span>refresh ledger</span><code>python3 scripts/yao.py world-class-ledger . --submissions-dir evidence/world_class/submissions --self</code></li><li><span>guard claim</span><code>python3 scripts/yao.py world-class-claim-guard . --self</code></li></ul></aside>
+    </section>
+    <section class="section" id="handoff"><h2>Operator Handoff</h2><p class="muted">These ordered steps make the operator-to-reviewer handoff auditable. They are procedural guardrails and never count as world-class evidence.</p><div class="handoff-grid">
+        <article class="handoff-card ready">
+          <header>
+            <span>ready</span>
+            <h3>Prepare editable drafts</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>prepare-drafts</code></dd>
+            <dt>Command</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --output-dir evidence/world_class/submissions --self</code></dd>
+            <dt>Signal</dt><dd>JSON drafts, submission_manifest.json, README.md, and index.html are present.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p></p>
+        </article>
+
+        <article class="handoff-card blocked">
+          <header>
+            <span>blocked</span>
+            <h3>Collect real external or human evidence</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>collect-source</code></dd>
+            <dt>Command</dt><dd><code>manual</code></dd>
+            <dt>Signal</dt><dd>Source aggregate reports satisfy the required provider, human, native, or telemetry checks.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>11 source check(s) still block ledger review.</p>
+        </article>
+
+        <article class="handoff-card manual">
+          <header>
+            <span>manual</span>
+            <h3>Edit submission packet</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>edit-submission</code></dd>
+            <dt>Command</dt><dd><code>manual</code></dd>
+            <dt>Signal</dt><dd>template_only is false only after real evidence exists; ledger_reviewer_approved, ledger_reviewer, and ledger_reviewed_at stay unset until reviewer approval.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>Raw prompts, outputs, transcripts, credentials, or private content must not be included.</p>
+        </article>
+
+        <article class="handoff-card pending">
+          <header>
+            <span>pending</span>
+            <h3>Validate intake contract</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>validate-intake</code></dd>
+            <dt>Command</dt><dd><code>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</code></dd>
+            <dt>Signal</dt><dd>world_class_evidence_intake reports valid submissions and no invalid packets before reviewer approval.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>A valid packet is ready for ledger review but is not accepted evidence by itself.</p>
+        </article>
+
+        <article class="handoff-card pending">
+          <header>
+            <span>pending</span>
+            <h3>Review submission queue</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>review-submission</code></dd>
+            <dt>Command</dt><dd><code>python3 scripts/yao.py world-class-submission-review . --submissions-dir evidence/world_class/submissions --self</code></dd>
+            <dt>Signal</dt><dd>world_class_submission_review shows ready-for-ledger-review before reviewer identity, timestamp, and approval are set.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>Reviewer queue output is advisory and cannot accept evidence.</p>
+        </article>
+
+        <article class="handoff-card pending">
+          <header>
+            <span>pending</span>
+            <h3>Refresh evidence ledger</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>refresh-ledger</code></dd>
+            <dt>Command</dt><dd><code>python3 scripts/yao.py world-class-ledger . --submissions-dir evidence/world_class/submissions --self</code></dd>
+            <dt>Signal</dt><dd>world_class_evidence_ledger accepts the evidence entry with valid source checks.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>Ledger remains the only world-class readiness source of truth.</p>
+        </article>
+
+        <article class="handoff-card pending">
+          <header>
+            <span>pending</span>
+            <h3>Guard public claim</h3>
+          </header>
+          <dl>
+            <dt>Step</dt><dd><code>guard-claim</code></dd>
+            <dt>Command</dt><dd><code>python3 scripts/yao.py world-class-claim-guard . --self</code></dd>
+            <dt>Signal</dt><dd>world_class_claim_guard allows the public readiness claim.</dd>
+            <dt>Evidence</dt><dd>does not count as completion</dd>
+          </dl>
+          <p>Public world-class claims stay blocked until every ledger entry is accepted.</p>
+        </article>
+        </div></section>
+    <section class="section" id="queue"><h2>Phase Queue</h2><p class="muted">Repair rows are grouped into execution phases so operators can clear the first blocker before moving to later evidence work. Queue rows remain procedural and never count as accepted evidence.</p><div class="queue-grid">
+        <article class="queue-card blocked">
+          <header>
+            <span>#30 · blocked</span>
+            <h3>Attach artifacts</h3>
+          </header>
+          <dl>
+            <dt>Phase</dt><dd><code>attach-artifacts</code></dd>
+            <dt>Rows</dt><dd>26/26 blocked</dd>
+            <dt>Owners</dt><dd>Browser/Chrome/IDE/provider client integrator, human reviewer, operator with provider credentials, target client or installer integrator</dd>
+            <dt>Evidence</dt><dd>human-adjudication, native-client-telemetry, native-permission-enforcement, provider-holdout</dd>
+            <dt>Next</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+            <dt>Counts</dt><dd>does not count as completion</dd>
+          </dl>
+        </article>
+
+        <article class="queue-card blocked">
+          <header>
+            <span>#40 · blocked</span>
+            <h3>Collect source</h3>
+          </header>
+          <dl>
+            <dt>Phase</dt><dd><code>collect-source</code></dd>
+            <dt>Rows</dt><dd>11/11 blocked</dd>
+            <dt>Owners</dt><dd>Browser/Chrome/IDE/provider client integrator, human reviewer, operator with provider credentials, target client or installer integrator</dd>
+            <dt>Evidence</dt><dd>human-adjudication, native-client-telemetry, native-permission-enforcement, provider-holdout</dd>
+            <dt>Next</dt><dd>Set reviewer_attestation only after choices are completed before opening the answer key.</dd>
+            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+            <dt>Counts</dt><dd>does not count as completion</dd>
+          </dl>
+        </article>
+        </div></section>
+    <section class="section" id="matrix"><h2>Evidence Matrix</h2><p class="muted">The matrix separates submission artifact_refs from supporting assets, then combines draft status, source checks, and the next operator action. It is guidance only and never counts as accepted evidence.</p><div class="matrix-grid">
+        <article class="matrix-card collect-source">
+          <header>
+            <span>collect-source</span>
+            <h3>provider-holdout</h3>
+          </header>
+          <dl>
+            <dt>Draft</dt><dd>written</dd>
+            <dt>Submission refs</dt><dd>0/1 ready</dd>
+            <dt>Supporting assets</dt><dd>1/8 ready</dd>
+            <dt>Source</dt><dd>0/3 pass</dd>
+            <dt>Owner</dt><dd>operator with provider credentials</dd>
+          </dl>
+          <p>Run provider-backed output-exec with real credentials.</p>
+        </article>
+
+        <article class="matrix-card collect-source">
+          <header>
+            <span>collect-source</span>
+            <h3>human-adjudication</h3>
+          </header>
+          <dl>
+            <dt>Draft</dt><dd>written</dd>
+            <dt>Submission refs</dt><dd>0/2 ready</dd>
+            <dt>Supporting assets</dt><dd>1/8 ready</dd>
+            <dt>Source</dt><dd>5/10 pass</dd>
+            <dt>Owner</dt><dd>human reviewer</dd>
+          </dl>
+          <p>Record a reviewer choice and reason for every pair.</p>
+        </article>
+
+        <article class="matrix-card collect-source">
+          <header>
+            <span>collect-source</span>
+            <h3>native-permission-enforcement</h3>
+          </header>
+          <dl>
+            <dt>Draft</dt><dd>written</dd>
+            <dt>Submission refs</dt><dd>2/2 ready</dd>
+            <dt>Supporting assets</dt><dd>4/8 ready</dd>
+            <dt>Source</dt><dd>2/3 pass</dd>
+            <dt>Owner</dt><dd>target client or installer integrator</dd>
+          </dl>
+          <p>Collect real target-client or external runtime guard proof.</p>
+        </article>
+
+        <article class="matrix-card collect-source">
+          <header>
+            <span>collect-source</span>
+            <h3>native-client-telemetry</h3>
+          </header>
+          <dl>
+            <dt>Draft</dt><dd>written</dd>
+            <dt>Submission refs</dt><dd>1/2 ready</dd>
+            <dt>Supporting assets</dt><dd>2/6 ready</dd>
+            <dt>Source</dt><dd>1/3 pass</dd>
+            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+          </dl>
+          <p>Import at least one metadata-only event from a real client.</p>
+        </article>
+        </div></section>
+    <section class="section" id="repair"><h2>Repair Checklist</h2><p class="muted">Each row names one concrete blocker and the next action required before ledger review. This checklist does not count as completion evidence.</p><div class="repair-grid">
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/provider_output_adjudication.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>submission-ref artifact is missing.</dd>
+	            <dt>Action</dt><dd>Create the required submission artifact or update artifact_refs to a concrete existing aggregate file.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/provider_output_blind_pack.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/provider_review_lineage.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/provider_reviewer_registry.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>submission-ref artifact is missing.</dd>
+	            <dt>Action</dt><dd>Create the required submission artifact or update artifact_refs to a concrete existing aggregate file.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>scripts/adjudicate_multi_reviewer.py</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · artifact</span>
+            <h3>scripts/finalize_provider_review.py</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key human-adjudication --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · artifact</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-client-telemetry --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · artifact</span>
+            <h3>reports/telemetry_hook_recipes.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>submission-ref artifact is missing.</dd>
+	            <dt>Action</dt><dd>Create the required submission artifact or update artifact_refs to a concrete existing aggregate file.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-client-telemetry --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · artifact</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-client-telemetry --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · artifact</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-client-telemetry --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · artifact</span>
+            <h3>scripts/telemetry_native_host.py</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-client-telemetry --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-permission-enforcement · artifact</span>
+            <h3>dist/targets/*/adapter.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>target client or installer integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is glob-no-match.</dd>
+	            <dt>Action</dt><dd>Replace the glob with concrete files, then reference the generated SHA-256 digests.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-permission-enforcement --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-permission-enforcement · artifact</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>target client or installer integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-permission-enforcement --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-permission-enforcement · artifact</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>target client or installer integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-permission-enforcement --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-permission-enforcement · artifact</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>target client or installer integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key native-permission-enforcement --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>evals/output/provider_matrix.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/provider_output_answer_commitment.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/provider_output_blind_pack.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/provider_output_evaluation.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>submission-ref artifact is missing.</dd>
+	            <dt>Action</dt><dd>Create the required submission artifact or update artifact_refs to a concrete existing aggregate file.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/skill_os2_audit.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · artifact</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>30</dd>
+	            <dt>Phase</dt><dd>attach-artifacts</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>supporting-evidence artifact is missing.</dd>
+	            <dt>Action</dt><dd>Add the supporting artifact if it is needed for reviewer audit.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · source-check</span>
+            <h3>blind_review_attested</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value False does not satisfy &#x27;true&#x27;.</dd>
+	            <dt>Action</dt><dd>Set reviewer_attestation only after choices are completed before opening the answer key.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · source-check</span>
+            <h3>judgment_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;==pair_count&#x27;.</dd>
+	            <dt>Action</dt><dd>Every pair needs one valid human judgment.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · source-check</span>
+            <h3>pending_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 7 does not satisfy &#x27;==0&#x27;.</dd>
+	            <dt>Action</dt><dd>Record a reviewer choice and reason for every pair.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · source-check</span>
+            <h3>ready_for_human_evidence</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value False does not satisfy &#x27;true&#x27;.</dd>
+	            <dt>Action</dt><dd>Complete all reviewer decisions with metadata and rationale, plus blind-review attestation and integrity fingerprints.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>human-adjudication · source-check</span>
+            <h3>reviewer_metadata_present</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>human reviewer</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value False does not satisfy &#x27;true&#x27;.</dd>
+	            <dt>Action</dt><dd>Record reviewer and reviewed_at before adjudication can count.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;A.json&gt; --decisions &lt;B.json&gt; --decisions &lt;C.json&gt; --reviewer-registry &lt;registry.json&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · source-check</span>
+            <h3>adoption_sample_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Telemetry must include adoption outcome evidence.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py telemetry-import . --input-jsonl .yao/telemetry_spool/external_events.jsonl --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-client-telemetry · source-check</span>
+            <h3>external_source_events</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Import at least one metadata-only event from a real client.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py telemetry-import . --input-jsonl .yao/telemetry_spool/external_events.jsonl --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>native-permission-enforcement · source-check</span>
+            <h3>native_enforcement_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>target client or installer integrator</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Collect real target-client or external runtime guard proof.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py runtime-permissions . --package-dir dist --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · source-check</span>
+            <h3>model_executed_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Run provider-backed output-exec with real credentials.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-build . --run-id &lt;PROVIDER_RUN_ID&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · source-check</span>
+            <h3>timing_observed_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Provider execution should record timing metadata.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-build . --run-id &lt;PROVIDER_RUN_ID&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+
+        <article class="repair-card blocked">
+          <header>
+            <span>provider-holdout · source-check</span>
+            <h3>token_observed_count</h3>
+	          </header>
+	          <dl>
+	            <dt>Priority</dt><dd>40</dd>
+	            <dt>Phase</dt><dd>collect-source</dd>
+	            <dt>Owner</dt><dd>operator with provider credentials</dd>
+	            <dt>Status</dt><dd>blocked</dd>
+	            <dt>Reason</dt><dd>Current value 0 does not satisfy &#x27;&gt;0&#x27;.</dd>
+	            <dt>Action</dt><dd>Provider execution should return non-estimated token usage.</dd>
+	            <dt>Verify</dt><dd><code>python3 scripts/yao.py evidence-build . --run-id &lt;PROVIDER_RUN_ID&gt; --self &amp;&amp; python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions --self</code></dd>
+	            <dt>Evidence</dt><dd>does not count as completion</dd>
+	          </dl>
+	        </article>
+	        </div></section>
+    <section class="section" id="drafts"><h2>Drafts</h2><div class="draft-grid">
+        <article class="draft-card written">
+          <div>
+            <span>written</span>
+            <h3>provider-holdout</h3>
+          </div>
+          <dl>
+            <dt>Template</dt><dd><code>evidence/world_class/templates/provider-holdout.intake.json</code></dd>
+            <dt>Draft</dt><dd><code>evidence/world_class/submissions/provider-holdout.json</code></dd>
+            <dt>Prefill</dt><dd>0 artifact refs</dd>
+          </dl>
+
+        </article>
+
+        <article class="draft-card written">
+          <div>
+            <span>written</span>
+            <h3>human-adjudication</h3>
+          </div>
+          <dl>
+            <dt>Template</dt><dd><code>evidence/world_class/templates/human-adjudication.intake.json</code></dd>
+            <dt>Draft</dt><dd><code>evidence/world_class/submissions/human-adjudication.json</code></dd>
+            <dt>Prefill</dt><dd>0 artifact refs</dd>
+          </dl>
+
+        </article>
+
+        <article class="draft-card written">
+          <div>
+            <span>written</span>
+            <h3>native-permission-enforcement</h3>
+          </div>
+          <dl>
+            <dt>Template</dt><dd><code>evidence/world_class/templates/native-permission-enforcement.intake.json</code></dd>
+            <dt>Draft</dt><dd><code>evidence/world_class/submissions/native-permission-enforcement.json</code></dd>
+            <dt>Prefill</dt><dd>0 artifact refs</dd>
+          </dl>
+
+        </article>
+
+        <article class="draft-card written">
+          <div>
+            <span>written</span>
+            <h3>native-client-telemetry</h3>
+          </div>
+          <dl>
+            <dt>Template</dt><dd><code>evidence/world_class/templates/native-client-telemetry.intake.json</code></dd>
+            <dt>Draft</dt><dd><code>evidence/world_class/submissions/native-client-telemetry.json</code></dd>
+            <dt>Prefill</dt><dd>0 artifact refs</dd>
+          </dl>
+
+        </article>
+        </div></section>
+    <section class="section" id="artifacts"><h2>Artifact Checklist</h2><p class="muted">Rows marked submission-ref are the paths expected in artifact_refs. Supporting-evidence rows help reviewers audit the packet but do not all need to be copied into the submission. Glob patterns are expanded for operator convenience only.</p><div class="artifact-grid">
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>evals/output/provider_matrix.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evals/output/provider_matrix.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/provider_output_evaluation.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_output_evaluation.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/provider_output_blind_pack.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_output_blind_pack.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/provider_output_answer_commitment.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_output_answer_commitment.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/skill_os2_audit.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/skill_os2_audit.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/intake.schema.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>provider-holdout</span>
+            <h3>evidence/world_class/templates/provider-holdout.intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/templates/provider-holdout.intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>4cbd530f0cf131bb0f89c3c5607322d085a78279d97b796a213d607eb60e925f</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>provider-holdout</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/provider_output_blind_pack.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_output_blind_pack.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/provider_reviewer_registry.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_reviewer_registry.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/provider_output_adjudication.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_output_adjudication.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/provider_review_lineage.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/provider_review_lineage.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>scripts/adjudicate_multi_reviewer.py</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>scripts/adjudicate_multi_reviewer.py</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>scripts/finalize_provider_review.py</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>scripts/finalize_provider_review.py</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/intake.schema.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>human-adjudication</span>
+            <h3>evidence/world_class/templates/human-adjudication.intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/templates/human-adjudication.intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>e4be62eaa71fba4b59f150fbec7f092abe68ca10a2da286e80fa14139c7dcd54</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>human-adjudication</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card glob-no-match">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>dist/targets/*/adapter.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>dist/targets/*/adapter.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>glob-no-match</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/runtime_permission_probes.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/runtime_permission_probes.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>6fdce750caffc3be7a49150cd26b105adc972bb9d7be8ffb9c8ccbe2dd469d80</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/runtime_permission_probes.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/runtime_permission_probes.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>c0b2cc323c9dc770b9ac1a022fe03c8f4540115a2b7cb71fbf0352938708bd7e</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/install_simulation.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/install_simulation.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>750b1003402652f5da1e4cf0cb5fe7622bad2b832d332a03ec2bae2cb20acce5</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/install_simulation.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/install_simulation.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>f0052f5c2c71102b3842b6fcd2bb380b0f58ce6987ca10db5f4a671abe445745</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>security/permission_policy.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>security/permission_policy.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>be1a0bb06794f80b30f3a396a2d0549c59a7e118f5c2f9c369dbae35338c7692</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/intake.schema.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>evidence/world_class/templates/native-permission-enforcement.intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/templates/native-permission-enforcement.intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>5ec64105eede7161785c227ae98f3bd4632296b4a2609bce06b9ea1b0a5b74fb</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>reports/adoption_drift_report.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/adoption_drift_report.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>8e8c47fce75ca671e1bdf399eae5ae46a28d353c0da978e28e4069bd7c48875e</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>reports/adoption_drift_report.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/adoption_drift_report.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>85326515e54955601fd81c009174b5534c28e963b7e3a93da5ec050b7d3d1043</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>reports/telemetry_hook_recipes.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/telemetry_hook_recipes.json</code></dd>
+            <dt>Role</dt><dd>submission-ref</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>scripts/telemetry_native_host.py</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>scripts/telemetry_native_host.py</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>evidence/world_class/intake.schema.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/intake.schema.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card ready">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>evidence/world_class/templates/native-client-telemetry.intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>evidence/world_class/templates/native-client-telemetry.intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>ready</dd>
+            <dt>SHA-256</dt><dd><code>4fcb9f1c596d45f2c6ad21b21ab29fdd856601d57c2ff922d5791f1aa6dabbe6</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>reports/world_class_evidence_intake.json</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.json</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+
+        <article class="artifact-card missing">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>reports/world_class_evidence_intake.md</h3>
+          </div>
+          <dl>
+            <dt>Pattern</dt><dd><code>reports/world_class_evidence_intake.md</code></dd>
+            <dt>Role</dt><dd>supporting-evidence</dd>
+            <dt>Status</dt><dd>missing</dd>
+            <dt>SHA-256</dt><dd><code>n/a</code></dd>
+          </dl>
+        </article>
+        </div></section>
+    <section class="section" id="source"><h2>Source Evidence Snapshot</h2><p class="muted">This section shows current aggregate source checks. It explains remaining blockers without changing the ledger.</p><div class="source-grid">
+        <article class="source-card blocked">
+          <div>
+            <span>provider-holdout</span>
+            <h3>Provider model run</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>model_executed_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Run provider-backed output-exec with real credentials.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>provider-holdout</span>
+            <h3>Timing observed</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>timing_observed_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Provider execution should record timing metadata.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>provider-holdout</span>
+            <h3>Token usage observed</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>token_observed_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Provider execution should return non-estimated token usage.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Review pairs exist</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>pair_count</code></dd>
+            <dt>Current</dt><dd><code>7</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Generate the blind A/B review pack.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>human-adjudication</span>
+            <h3>No pending decisions</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>pending_count</code></dd>
+            <dt>Current</dt><dd><code>7</code></dd>
+            <dt>Expected</dt><dd><code>==0</code></dd>
+            <dt>Action</dt><dd>Record a reviewer choice and reason for every pair.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Judgments complete</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>judgment_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>==pair_count</code></dd>
+            <dt>Action</dt><dd>Every pair needs one valid human judgment.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>human-adjudication</span>
+            <h3>No invalid decisions</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>invalid_decision_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>==0</code></dd>
+            <dt>Action</dt><dd>Fix malformed winner/confidence entries.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Reviewer metadata</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>reviewer_metadata_present</code></dd>
+            <dt>Current</dt><dd><code>False</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Record reviewer and reviewed_at before adjudication can count.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Reason required</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>reason_required</code></dd>
+            <dt>Current</dt><dd><code>True</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Keep reason mandatory for every imported or direct reviewer decision.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Blind review attested</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>blind_review_attested</code></dd>
+            <dt>Current</dt><dd><code>False</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Set reviewer_attestation only after choices are completed before opening the answer key.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Raw content attested</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>raw_content_excluded_attested</code></dd>
+            <dt>Current</dt><dd><code>True</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Attest that reviewer decisions exclude raw prompts, outputs, transcripts, messages, and private user content.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Raw content blocked</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>raw_content_allowed</code></dd>
+            <dt>Current</dt><dd><code>False</code></dd>
+            <dt>Expected</dt><dd><code>false</code></dd>
+            <dt>Action</dt><dd>Adjudication evidence should store prompt hashes and reviewer metadata, not raw prompts, outputs, transcripts, or messages.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>human-adjudication</span>
+            <h3>Human evidence ready</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>ready_for_human_evidence</code></dd>
+            <dt>Current</dt><dd><code>False</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Complete all reviewer decisions with metadata and rationale, plus blind-review attestation and integrity fingerprints.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>Native enforcement</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>native_enforcement_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Collect real target-client or external runtime guard proof.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>Probe failures</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>failure_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>==0</code></dd>
+            <dt>Action</dt><dd>Runtime permission probes must stay clean.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>native-permission-enforcement</span>
+            <h3>Installer support</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>installer_enforcement_ready</code></dd>
+            <dt>Current</dt><dd><code>True</code></dd>
+            <dt>Expected</dt><dd><code>true</code></dd>
+            <dt>Action</dt><dd>Installer enforcement is supporting evidence, not native proof.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>External events</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>external_source_events</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Import at least one metadata-only event from a real client.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card blocked">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>Adoption sample</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>adoption_sample_count</code></dd>
+            <dt>Current</dt><dd><code>0</code></dd>
+            <dt>Expected</dt><dd><code>&gt;0</code></dd>
+            <dt>Action</dt><dd>Telemetry must include adoption outcome evidence.</dd>
+          </dl>
+        </article>
+
+        <article class="source-card pass">
+          <div>
+            <span>native-client-telemetry</span>
+            <h3>Raw content blocked</h3>
+          </div>
+          <dl>
+            <dt>Field</dt><dd><code>raw_content_allowed</code></dd>
+            <dt>Current</dt><dd><code>False</code></dd>
+            <dt>Expected</dt><dd><code>false</code></dd>
+            <dt>Action</dt><dd>Telemetry must stay metadata-only.</dd>
+          </dl>
+        </article>
+        </div></section>
+    <section class="section" id="evidence"><h2>Evidence Requirements</h2><div class="evidence-grid">
+      <article class="evidence-card awaiting-submission">
+        <header>
+          <span>external · awaiting-submission</span>
+          <h3>Provider Holdout</h3>
+        </header>
+        <p>No real evidence submission has been provided yet.</p>
+        <dl>
+          <dt>Owner</dt><dd>operator with provider credentials</dd>
+          <dt>Evidence</dt><dd><code>provider-holdout</code></dd>
+          <dt>Submission</dt><dd><code>evidence/world_class/submissions/provider-holdout.json</code></dd>
+        </dl>
+        <section class="runbook-panel">
+          <h4>Execution Runbook</h4>
+          <ul><li>Set DEEPSEEK_API_KEY in the operator shell; never commit or print the value.</li><li>python3 scripts/yao.py evidence-build . --run-id &lt;PROVIDER_RUN_ID&gt; --self</li><li>Keep the generated private answer key and role-neutral review materials inside .yao/runs/&lt;PROVIDER_RUN_ID&gt;.</li><li>python3 scripts/yao.py skill-os2-audit . --generated-at &lt;YYYY-MM-DD&gt; --self</li><li>Copy evidence/world_class/templates/provider-holdout.intake.json to evidence/world_class/submissions/provider-holdout.json and fill only real evidence fields.</li><li>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</li></ul>
+        </section>
+        <div class="mini-grid">
+          <section>
+            <h4>Must Collect</h4>
+            <ul><li>provider-backed model run</li><li>observed timing</li><li>observed token metadata</li></ul>
+          </section>
+          <section>
+            <h4>Pass Checks</h4>
+            <ul><li>reports/provider_output_evaluation.json summary.call_count == 40</li><li>reports/provider_output_evaluation.json summary.model_executed_count == 40</li><li>reports/provider_output_evaluation.json summary.failure_count == 0</li><li>reports/provider_output_evaluation.json summary.total_tokens &lt;= 250000</li><li>reports/skill_os2_audit.json item provider-holdout status becomes pass</li></ul>
+          </section>
+          <section>
+            <h4>Privacy</h4>
+            <ul><li>Do not commit provider credentials or environment dumps.</li><li>The output execution report records output hashes and aggregate run metadata, not raw provider prompts.</li></ul>
+          </section>
+        </div>
+      </article>
+
+      <article class="evidence-card awaiting-submission">
+        <header>
+          <span>human · awaiting-submission</span>
+          <h3>Human Adjudication</h3>
+        </header>
+        <p>No real evidence submission has been provided yet.</p>
+        <dl>
+          <dt>Owner</dt><dd>human reviewer</dd>
+          <dt>Evidence</dt><dd><code>human-adjudication</code></dd>
+          <dt>Submission</dt><dd><code>evidence/world_class/submissions/human-adjudication.json</code></dd>
+        </dl>
+        <section class="runbook-panel">
+          <h4>Execution Runbook</h4>
+          <ul><li>Give each registered reviewer an independent copy of the matching provider_review_reviewer-*.json template and the role-neutral blind pack.</li><li>Collect all 20 A/B choices, reasons, controlled submission ids, timestamps, and truthful independent-review attestations.</li><li>Export an access-controlled reviewer registry that binds each reviewer id to the exact packet SHA256.</li><li>python3 scripts/yao.py evidence-finalize-review . --source-run &lt;PROVIDER_RUN_ID&gt; --decisions &lt;reviewer-a.json&gt; --decisions &lt;reviewer-b.json&gt; --decisions &lt;reviewer-c.json&gt; --reviewer-registry &lt;registry.json&gt; --run-id &lt;FINAL_RUN_ID&gt; --self</li><li>python3 scripts/yao.py skill-os2-audit . --generated-at &lt;YYYY-MM-DD&gt; --self</li><li>Copy evidence/world_class/templates/human-adjudication.intake.json to evidence/world_class/submissions/human-adjudication.json and fill only real evidence fields.</li><li>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</li></ul>
+        </section>
+        <div class="mini-grid">
+          <section>
+            <h4>Must Collect</h4>
+            <ul><li>real reviewer identity</li><li>blind A/B decisions</li><li>answer key unopened until decisions exist</li></ul>
+          </section>
+          <section>
+            <h4>Pass Checks</h4>
+            <ul><li>reports/provider_output_adjudication.json summary.reviewer_count == 3</li><li>reports/provider_output_adjudication.json summary.pair_count == 20</li><li>reports/provider_output_adjudication.json summary.failure_count == 0</li><li>reports/provider_output_adjudication.json evidence_binding.blind_pack_sha256 matches the source run</li><li>reports/skill_os2_audit.json item human-adjudication status becomes pass</li></ul>
+          </section>
+          <section>
+            <h4>Privacy</h4>
+            <ul><li>Reviewer packets contain choices, reasons, hashes, and controlled submission metadata without raw prompts or answer-key roles.</li><li>The private answer key remains under .yao/runs and is opened by the finalizer after all controlled packets are fixed.</li><li>The adjudication and lineage artifacts preserve blind_pack_sha256 and answer_key_sha256 commitments.</li></ul>
+          </section>
+        </div>
+      </article>
+
+      <article class="evidence-card awaiting-submission">
+        <header>
+          <span>external · awaiting-submission</span>
+          <h3>Native Permission Enforcement</h3>
+        </header>
+        <p>No real evidence submission has been provided yet.</p>
+        <dl>
+          <dt>Owner</dt><dd>target client or installer integrator</dd>
+          <dt>Evidence</dt><dd><code>native-permission-enforcement</code></dd>
+          <dt>Submission</dt><dd><code>evidence/world_class/submissions/native-permission-enforcement.json</code></dd>
+        </dl>
+        <section class="runbook-panel">
+          <h4>Execution Runbook</h4>
+          <ul><li>Implement or connect a real target client or external installer runtime guard that blocks undeclared network, file_write, or subprocess capabilities.</li><li>Update the generated target adapter only when the guard is actually enforced by that target.</li><li>python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self</li><li>python3 scripts/yao.py install-simulate . --package-dir dist --install-root dist/install-simulation --self</li><li>python3 scripts/yao.py runtime-permissions . --package-dir dist --self</li><li>python3 scripts/yao.py skill-os2-audit . --generated-at &lt;YYYY-MM-DD&gt; --self</li><li>Copy evidence/world_class/templates/native-permission-enforcement.intake.json to evidence/world_class/submissions/native-permission-enforcement.json and fill only real evidence fields.</li><li>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</li></ul>
+        </section>
+        <div class="mini-grid">
+          <section>
+            <h4>Must Collect</h4>
+            <ul><li>real target client or external installer runtime guard</li><li>native enforcement flag or externally accepted guard proof</li><li>residual risk retained for fallback targets</li></ul>
+          </section>
+          <section>
+            <h4>Pass Checks</h4>
+            <ul><li>reports/runtime_permission_probes.json summary.native_enforcement_count &gt; 0</li><li>reports/runtime_permission_probes.json summary.failure_count == 0</li><li>reports/runtime_permission_probes.json summary.installer_enforcement_pass_count records local installer enforcement but does not replace native evidence</li><li>reports/skill_os2_audit.json item native-permission-enforcement status becomes pass</li></ul>
+          </section>
+          <section>
+            <h4>Privacy</h4>
+            <ul><li>Do not mark native_enforcement true for metadata-only fallbacks.</li><li>Keep residual risks visible for targets that still rely on operator enforcement.</li></ul>
+          </section>
+        </div>
+      </article>
+
+      <article class="evidence-card awaiting-submission">
+        <header>
+          <span>external · awaiting-submission</span>
+          <h3>Native Client Telemetry</h3>
+        </header>
+        <p>No real evidence submission has been provided yet.</p>
+        <dl>
+          <dt>Owner</dt><dd>Browser/Chrome/IDE/provider client integrator</dd>
+          <dt>Evidence</dt><dd><code>native-client-telemetry</code></dd>
+          <dt>Submission</dt><dd><code>evidence/world_class/submissions/native-client-telemetry.json</code></dd>
+        </dl>
+        <section class="runbook-panel">
+          <h4>Execution Runbook</h4>
+          <ul><li>python3 scripts/telemetry_native_host.py . --write-launcher /tmp/yao-telemetry-host.sh --write-manifest /tmp/yao-telemetry-host.json --allowed-origin chrome-extension://&lt;extension-id&gt;/</li><li>Install the generated native messaging manifest for the real client and send at least one accepted skill_activation or skill_output event.</li><li>python3 scripts/yao.py telemetry-import . --input-jsonl .yao/telemetry_spool/external_events.jsonl --self</li><li>python3 scripts/yao.py skill-atlas --workspace-root . --self</li><li>python3 scripts/yao.py skill-os2-audit . --generated-at &lt;YYYY-MM-DD&gt; --self</li><li>Copy evidence/world_class/templates/native-client-telemetry.intake.json to evidence/world_class/submissions/native-client-telemetry.json and fill only real evidence fields.</li><li>python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self</li></ul>
+        </section>
+        <div class="mini-grid">
+          <section>
+            <h4>Must Collect</h4>
+            <ul><li>real external client source</li><li>metadata-only event</li><li>local-first import path</li></ul>
+          </section>
+          <section>
+            <h4>Pass Checks</h4>
+            <ul><li>reports/adoption_drift_report.json summary.source_types.external &gt; 0</li><li>reports/adoption_drift_report.json summary.adoption_sample_count &gt; 0</li><li>reports/skill_os2_audit.json item native-client-telemetry status becomes pass</li></ul>
+          </section>
+          <section>
+            <h4>Privacy</h4>
+            <ul><li>Telemetry must remain metadata-only and local-first.</li><li>Do not package reports/telemetry_events.jsonl or any raw prompt, output, transcript, note, or message field.</li></ul>
+          </section>
+        </div>
+      </article>
+    </div></section>
+    <section class="section" id="safety"><h2>Safety Boundary</h2><div class="notice"><ul><li>Drafts never count as accepted ledger evidence.</li><li>Valid intake means ready for ledger review, not world-class completion.</li><li>Do not include credentials, raw prompts, raw outputs, transcripts, notes, or private user content.</li></ul></div></section>
+  </main>
+</body>
+</html>

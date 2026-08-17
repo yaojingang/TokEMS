@@ -1,0 +1,196 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "generated_at": "2026-08-17",
+  "skill_dir": ".",
+  "summary": {
+    "python_file_count": 0,
+    "script_file_count": 10,
+    "test_file_count": 2,
+    "internal_module_count": 9,
+    "cli_script_count": 1,
+    "command_handler_count": 0,
+    "entrypoint_command_handler_count": 0,
+    "command_module_count": 0,
+    "warn_line_threshold": 900,
+    "watch_line_threshold": 720,
+    "early_watch_line_threshold": 600,
+    "block_line_threshold": 1500,
+    "largest_file_lines": 469,
+    "watchlist_count": 0,
+    "early_watchlist_count": 0,
+    "hotspot_count": 0,
+    "blocker_count": 0,
+    "decision": "pass",
+    "node_file_count": 12
+  },
+  "largest_files": [
+    {
+      "path": "scripts/lib/operations.mjs",
+      "lines": 469,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/tokems-admin.mjs",
+      "lines": 338,
+      "test": false,
+      "cli": true,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/auth.mjs",
+      "lines": 322,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/files.mjs",
+      "lines": 228,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/http.mjs",
+      "lines": 128,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/credentials.mjs",
+      "lines": 110,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/crypto.mjs",
+      "lines": 97,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/catalog.mjs",
+      "lines": 89,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/redaction.mjs",
+      "lines": 21,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/tokems-admin.js",
+      "lines": 13,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    }
+  ],
+  "watchlist": [],
+  "early_watchlist": [],
+  "hotspots": [],
+  "actions": [],
+  "artifacts": {
+    "json": "reports/architecture_maintainability.json",
+    "markdown": "reports/architecture_maintainability.md"
+  },
+  "runtime_inventory": {
+    "node": [
+      {
+        "path": "scripts/lib/auth.mjs",
+        "lines": 322,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/catalog.mjs",
+        "lines": 89,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/connector.test.mjs",
+        "lines": 148,
+        "test": true,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/credentials.mjs",
+        "lines": 110,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/credentials.test.mjs",
+        "lines": 14,
+        "test": true,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/crypto.mjs",
+        "lines": 97,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/files.mjs",
+        "lines": 228,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/http.mjs",
+        "lines": 128,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/operations.mjs",
+        "lines": 469,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/redaction.mjs",
+        "lines": 21,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/tokems-admin.js",
+        "lines": 13,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/tokems-admin.mjs",
+        "lines": 338,
+        "test": false,
+        "cli": true,
+        "command_handlers": 0
+      }
+    ],
+    "note": "Repository-local Node.js augmentation; the upstream architecture scanner currently inventories Python."
+  }
+}

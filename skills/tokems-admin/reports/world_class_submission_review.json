@@ -1,0 +1,511 @@
+{
+  "schema_version": "1.0",
+  "ok": false,
+  "generated_at": "2026-08-17",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "decision": "fix-submissions",
+  "ready_to_claim_world_class": false,
+  "review_item_count": 4,
+  "accepted_count": 0,
+  "awaiting_submission_count": 0,
+  "valid_packet_source_incomplete_count": 0,
+  "ready_for_ledger_review_count": 0,
+  "fix_submission_count": 4,
+  "unmatched_submission_count": 0,
+  "invalid_submission_count": 4,
+  "source_check_count": 19,
+  "source_pass_count": 8,
+  "source_blocked_count": 11,
+  "review_counts_submission_as_completion": false,
+  "summary": {
+    "review_item_count": 4,
+    "accepted_count": 0,
+    "awaiting_submission_count": 0,
+    "valid_packet_source_incomplete_count": 0,
+    "ready_for_ledger_review_count": 0,
+    "fix_submission_count": 4,
+    "unmatched_submission_count": 0,
+    "invalid_submission_count": 4,
+    "source_check_count": 19,
+    "source_pass_count": 8,
+    "source_blocked_count": 11,
+    "ready_to_claim_world_class": false,
+    "review_counts_submission_as_completion": false,
+    "decision": "fix-submissions"
+  },
+  "report_contract": {
+    "schema_version": "1.0",
+    "contract": "world-class-submission-review",
+    "top_level_mirrors_summary": true,
+    "summary_fields": [
+      "decision",
+      "ready_to_claim_world_class",
+      "review_item_count",
+      "accepted_count",
+      "awaiting_submission_count",
+      "valid_packet_source_incomplete_count",
+      "ready_for_ledger_review_count",
+      "fix_submission_count",
+      "unmatched_submission_count",
+      "invalid_submission_count",
+      "source_check_count",
+      "source_pass_count",
+      "source_blocked_count",
+      "review_counts_submission_as_completion"
+    ],
+    "source_of_truth": "summary"
+  },
+  "submissions": {
+    "directory": "evidence/world_class/submissions",
+    "review_counts_submission_as_completion": false
+  },
+  "items": [
+    {
+      "evidence_key": "provider-holdout",
+      "label": "Provider Holdout",
+      "category": "external",
+      "owner": "operator with provider credentials",
+      "ledger_status": "pending",
+      "submission_status": "invalid-contract",
+      "intake_status": "fail",
+      "source_accepted": false,
+      "review_state": "fix-submission",
+      "blocking_reason": "Submission exists but fails the ledger submission contract.",
+      "submission_path": "evidence/world_class/submissions/provider-holdout.json",
+      "submitted_by": "operator with provider credentials",
+      "submitted_at": "YYYY-MM-DD",
+      "artifact_ref_count": 1,
+      "intake_errors": [
+        "template_only must be false",
+        "submitted_by must not use template placeholder text",
+        "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "artifact_refs[0].path does not exist as a local file",
+        "all required evidence artifacts must have verified sha256 digests",
+        "attestation.real_external_or_human_evidence must be true for a real submission",
+        "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+        "attestation.artifact_refs_reviewed must be true for a real submission",
+        "attestation.privacy_contract_satisfied must be true for a real submission",
+        "attestation.ledger_reviewer_approved must be true for a real submission",
+        "attestation.ledger_reviewer is required",
+        "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "attestation.ledger_reviewer must be different from submitted_by",
+        "attestation.ledger_reviewed_at must be at or after submitted_at"
+      ],
+      "observed_state": {
+        "contract_version": "legacy",
+        "model_executed_count": 0,
+        "timing_observed_count": 0,
+        "token_observed_count": 0,
+        "accepted": false
+      },
+      "source_checklist": [
+        {
+          "evidence_key": "provider-holdout",
+          "label": "Provider model run",
+          "field": "model_executed_count",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Run provider-backed output-exec with real credentials."
+        },
+        {
+          "evidence_key": "provider-holdout",
+          "label": "Timing observed",
+          "field": "timing_observed_count",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Provider execution should record timing metadata."
+        },
+        {
+          "evidence_key": "provider-holdout",
+          "label": "Token usage observed",
+          "field": "token_observed_count",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Provider execution should return non-estimated token usage."
+        }
+      ],
+      "source_check_count": 3,
+      "source_pass_count": 0,
+      "source_blocked_count": 3,
+      "success_checks": [
+        "reports/provider_output_evaluation.json summary.call_count == 40",
+        "reports/provider_output_evaluation.json summary.model_executed_count == 40",
+        "reports/provider_output_evaluation.json summary.failure_count == 0",
+        "reports/provider_output_evaluation.json summary.total_tokens <= 250000",
+        "reports/skill_os2_audit.json item provider-holdout status becomes pass"
+      ],
+      "privacy_contract": [
+        "Do not commit provider credentials or environment dumps.",
+        "The output execution report records output hashes and aggregate run metadata, not raw provider prompts."
+      ],
+      "next_action": "Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory."
+    },
+    {
+      "evidence_key": "human-adjudication",
+      "label": "Human Adjudication",
+      "category": "human",
+      "owner": "human reviewer",
+      "ledger_status": "pending",
+      "submission_status": "invalid-contract",
+      "intake_status": "fail",
+      "source_accepted": false,
+      "review_state": "fix-submission",
+      "blocking_reason": "Submission exists but fails the ledger submission contract.",
+      "submission_path": "evidence/world_class/submissions/human-adjudication.json",
+      "submitted_by": "human reviewer",
+      "submitted_at": "YYYY-MM-DD",
+      "artifact_ref_count": 2,
+      "intake_errors": [
+        "template_only must be false",
+        "submitted_by must not use template placeholder text",
+        "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "artifact_refs[0].path does not exist as a local file",
+        "artifact_refs[1].path does not exist as a local file",
+        "all required evidence artifacts must have verified sha256 digests",
+        "attestation.real_external_or_human_evidence must be true for a real submission",
+        "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+        "attestation.artifact_refs_reviewed must be true for a real submission",
+        "attestation.privacy_contract_satisfied must be true for a real submission",
+        "attestation.ledger_reviewer_approved must be true for a real submission",
+        "attestation.ledger_reviewer is required",
+        "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "attestation.ledger_reviewer must be different from submitted_by",
+        "attestation.ledger_reviewed_at must be at or after submitted_at"
+      ],
+      "observed_state": {
+        "contract_version": "legacy",
+        "pair_count": 7,
+        "judgment_count": 0,
+        "pending_count": 7,
+        "invalid_decision_count": 0,
+        "answer_revealed_count": 0,
+        "reviewer_metadata_present": false,
+        "reason_required": true,
+        "blind_review_attested": false,
+        "raw_content_excluded_attested": true,
+        "reviewer_reason_required_attested": true,
+        "ready_for_human_evidence": false,
+        "raw_content_allowed": false,
+        "raw_content_path_count": 0,
+        "accepted": false
+      },
+      "source_checklist": [
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Review pairs exist",
+          "field": "pair_count",
+          "expected": ">0",
+          "actual": 7,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Generate the blind A/B review pack."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "No pending decisions",
+          "field": "pending_count",
+          "expected": "==0",
+          "actual": 7,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Record a reviewer choice and reason for every pair."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Judgments complete",
+          "field": "judgment_count",
+          "expected": "==pair_count",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Every pair needs one valid human judgment."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "No invalid decisions",
+          "field": "invalid_decision_count",
+          "expected": "==0",
+          "actual": 0,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Fix malformed winner/confidence entries."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Reviewer metadata",
+          "field": "reviewer_metadata_present",
+          "expected": "true",
+          "actual": false,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Record reviewer and reviewed_at before adjudication can count."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Reason required",
+          "field": "reason_required",
+          "expected": "true",
+          "actual": true,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Keep reason mandatory for every imported or direct reviewer decision."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Blind review attested",
+          "field": "blind_review_attested",
+          "expected": "true",
+          "actual": false,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Set reviewer_attestation only after choices are completed before opening the answer key."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Raw content attested",
+          "field": "raw_content_excluded_attested",
+          "expected": "true",
+          "actual": true,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Attest that reviewer decisions exclude raw prompts, outputs, transcripts, messages, and private user content."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Raw content blocked",
+          "field": "raw_content_allowed",
+          "expected": "false",
+          "actual": false,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Adjudication evidence should store prompt hashes and reviewer metadata, not raw prompts, outputs, transcripts, or messages."
+        },
+        {
+          "evidence_key": "human-adjudication",
+          "label": "Human evidence ready",
+          "field": "ready_for_human_evidence",
+          "expected": "true",
+          "actual": false,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Complete all reviewer decisions with metadata and rationale, plus blind-review attestation and integrity fingerprints."
+        }
+      ],
+      "source_check_count": 10,
+      "source_pass_count": 5,
+      "source_blocked_count": 5,
+      "success_checks": [
+        "reports/provider_output_adjudication.json summary.reviewer_count == 3",
+        "reports/provider_output_adjudication.json summary.pair_count == 20",
+        "reports/provider_output_adjudication.json summary.failure_count == 0",
+        "reports/provider_output_adjudication.json evidence_binding.blind_pack_sha256 matches the source run",
+        "reports/skill_os2_audit.json item human-adjudication status becomes pass"
+      ],
+      "privacy_contract": [
+        "Reviewer packets contain choices, reasons, hashes, and controlled submission metadata without raw prompts or answer-key roles.",
+        "The private answer key remains under .yao/runs and is opened by the finalizer after all controlled packets are fixed.",
+        "The adjudication and lineage artifacts preserve blind_pack_sha256 and answer_key_sha256 commitments."
+      ],
+      "next_action": "Collect three controlled reviewer packets and adjudicate them against the private run answer key."
+    },
+    {
+      "evidence_key": "native-permission-enforcement",
+      "label": "Native Permission Enforcement",
+      "category": "external",
+      "owner": "target client or installer integrator",
+      "ledger_status": "pending",
+      "submission_status": "invalid-contract",
+      "intake_status": "fail",
+      "source_accepted": false,
+      "review_state": "fix-submission",
+      "blocking_reason": "Submission exists but fails the ledger submission contract.",
+      "submission_path": "evidence/world_class/submissions/native-permission-enforcement.json",
+      "submitted_by": "target client or installer integrator",
+      "submitted_at": "YYYY-MM-DD",
+      "artifact_ref_count": 3,
+      "intake_errors": [
+        "template_only must be false",
+        "submitted_by must not use template placeholder text",
+        "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "artifact_refs[0].sha256 is required for a real submission",
+        "artifact_refs[1].sha256 is required for a real submission",
+        "artifact_refs[2].path artifact_refs path must be concrete, not a placeholder or glob",
+        "all required evidence artifacts must have verified sha256 digests",
+        "attestation.real_external_or_human_evidence must be true for a real submission",
+        "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+        "attestation.artifact_refs_reviewed must be true for a real submission",
+        "attestation.privacy_contract_satisfied must be true for a real submission",
+        "attestation.ledger_reviewer_approved must be true for a real submission",
+        "attestation.ledger_reviewer is required",
+        "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "attestation.ledger_reviewer must be different from submitted_by",
+        "attestation.ledger_reviewed_at must be at or after submitted_at",
+        "native-permission-enforcement runtime probe summary.native_enforcement_count must be >0",
+        "native-permission-enforcement native target rows must match summary.native_enforcement_count",
+        "native-permission-enforcement must include at least one native-enforced target row"
+      ],
+      "observed_state": {
+        "native_enforcement_count": 0,
+        "metadata_fallback_count": 2,
+        "installer_enforcement_pass_count": 2,
+        "installer_permission_failure_count": 0,
+        "installer_enforcement_ready": true,
+        "residual_risk_count": 2,
+        "failure_count": 0,
+        "accepted": false
+      },
+      "source_checklist": [
+        {
+          "evidence_key": "native-permission-enforcement",
+          "label": "Native enforcement",
+          "field": "native_enforcement_count",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Collect real target-client or external runtime guard proof."
+        },
+        {
+          "evidence_key": "native-permission-enforcement",
+          "label": "Probe failures",
+          "field": "failure_count",
+          "expected": "==0",
+          "actual": 0,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Runtime permission probes must stay clean."
+        },
+        {
+          "evidence_key": "native-permission-enforcement",
+          "label": "Installer support",
+          "field": "installer_enforcement_ready",
+          "expected": "true",
+          "actual": true,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Installer enforcement is supporting evidence, not native proof."
+        }
+      ],
+      "source_check_count": 3,
+      "source_pass_count": 2,
+      "source_blocked_count": 1,
+      "success_checks": [
+        "reports/runtime_permission_probes.json summary.native_enforcement_count > 0",
+        "reports/runtime_permission_probes.json summary.failure_count == 0",
+        "reports/runtime_permission_probes.json summary.installer_enforcement_pass_count records local installer enforcement but does not replace native evidence",
+        "reports/skill_os2_audit.json item native-permission-enforcement status becomes pass"
+      ],
+      "privacy_contract": [
+        "Do not mark native_enforcement true for metadata-only fallbacks.",
+        "Keep residual risks visible for targets that still rely on operator enforcement."
+      ],
+      "next_action": "Integrate a real target-client or external installer runtime guard before claiming native permission enforcement."
+    },
+    {
+      "evidence_key": "native-client-telemetry",
+      "label": "Native Client Telemetry",
+      "category": "external",
+      "owner": "Browser/Chrome/IDE/provider client integrator",
+      "ledger_status": "pending",
+      "submission_status": "invalid-contract",
+      "intake_status": "fail",
+      "source_accepted": false,
+      "review_state": "fix-submission",
+      "blocking_reason": "Submission exists but fails the ledger submission contract.",
+      "submission_path": "evidence/world_class/submissions/native-client-telemetry.json",
+      "submitted_by": "Browser/Chrome/IDE/provider client integrator",
+      "submitted_at": "YYYY-MM-DD",
+      "artifact_ref_count": 2,
+      "intake_errors": [
+        "template_only must be false",
+        "submitted_by must not use template placeholder text",
+        "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "artifact_refs[0].sha256 is required for a real submission",
+        "artifact_refs[1].path does not exist as a local file",
+        "all required evidence artifacts must have verified sha256 digests",
+        "attestation.real_external_or_human_evidence must be true for a real submission",
+        "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+        "attestation.artifact_refs_reviewed must be true for a real submission",
+        "attestation.privacy_contract_satisfied must be true for a real submission",
+        "attestation.ledger_reviewer_approved must be true for a real submission",
+        "attestation.ledger_reviewer is required",
+        "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+        "attestation.ledger_reviewer must be different from submitted_by",
+        "attestation.ledger_reviewed_at must be at or after submitted_at",
+        "native-client-telemetry adoption drift summary.source_types.external must be >0",
+        "native-client-telemetry adoption drift summary.adoption_sample_count must be >0",
+        "native-client-telemetry external event rows must cover summary.source_types.external",
+        "native-client-telemetry must include at least one external adoption event row",
+        "native-client-telemetry adoption event rows must cover summary.adoption_sample_count",
+        "native-client-telemetry adoption_by_skill must include at least one adoption event"
+      ],
+      "observed_state": {
+        "external_source_events": 0,
+        "adoption_sample_count": 0,
+        "raw_content_allowed": false,
+        "risk_band": "low",
+        "accepted": false
+      },
+      "source_checklist": [
+        {
+          "evidence_key": "native-client-telemetry",
+          "label": "External events",
+          "field": "external_source_events",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Import at least one metadata-only event from a real client."
+        },
+        {
+          "evidence_key": "native-client-telemetry",
+          "label": "Adoption sample",
+          "field": "adoption_sample_count",
+          "expected": ">0",
+          "actual": 0,
+          "status": "blocked",
+          "source_accepted": false,
+          "next_action": "Telemetry must include adoption outcome evidence."
+        },
+        {
+          "evidence_key": "native-client-telemetry",
+          "label": "Raw content blocked",
+          "field": "raw_content_allowed",
+          "expected": "false",
+          "actual": false,
+          "status": "pass",
+          "source_accepted": false,
+          "next_action": "Telemetry must stay metadata-only."
+        }
+      ],
+      "source_check_count": 3,
+      "source_pass_count": 1,
+      "source_blocked_count": 2,
+      "success_checks": [
+        "reports/adoption_drift_report.json summary.source_types.external > 0",
+        "reports/adoption_drift_report.json summary.adoption_sample_count > 0",
+        "reports/skill_os2_audit.json item native-client-telemetry status becomes pass"
+      ],
+      "privacy_contract": [
+        "Telemetry must remain metadata-only and local-first.",
+        "Do not package reports/telemetry_events.jsonl or any raw prompt, output, transcript, note, or message field."
+      ],
+      "next_action": "Install a real client against the native host and import production metadata-only events."
+    }
+  ],
+  "unmatched_submissions": [],
+  "source_reports": {
+    "ledger": "reports/world_class_evidence_ledger.json",
+    "intake": "reports/world_class_evidence_intake.json"
+  },
+  "artifacts": {
+    "json": "reports/world_class_submission_review.json",
+    "markdown": "reports/world_class_submission_review.md"
+  }
+}

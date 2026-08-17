@@ -1,0 +1,498 @@
+{
+  "schema_version": "1.0",
+  "ok": false,
+  "generated_at": "2026-08-17",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "summary": {
+    "item_count": 15,
+    "pass_count": 5,
+    "warn_count": 0,
+    "human_required_count": 1,
+    "external_required_count": 3,
+    "missing_count": 6,
+    "open_gap_count": 10,
+    "local_foundation_ready": false,
+    "world_class_ready": false,
+    "decision": "continue-iteration"
+  },
+  "status_counts": {
+    "pass": 5,
+    "warn": 0,
+    "human_required": 1,
+    "external_required": 3,
+    "missing": 6
+  },
+  "items": [
+    {
+      "key": "skill-ir",
+      "label": "Skill IR",
+      "status": "missing",
+      "current": "schema 2.0.0; targets 2",
+      "target": "2.0 schema, root export, and target-neutral contract evidence",
+      "evidence": [
+        {
+          "path": "skill-ir/schema.json",
+          "exists": false
+        },
+        {
+          "path": "skill-ir/examples/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "references/skill-ir-method.md",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep IR as the source before target packaging."
+    },
+    {
+      "key": "target-compiler",
+      "label": "Target Compiler",
+      "status": "missing",
+      "current": "2/2 targets pass",
+      "target": "OpenAI, Claude, generic, Agent Skills compatible, and VS Code contracts generated from IR",
+      "evidence": [
+        {
+          "path": "scripts/compile_skill.py",
+          "exists": false
+        },
+        {
+          "path": "reports/compiled_targets.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_compile_skill.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Deepen target-native transforms when provider clients expose stronger runtime APIs."
+    },
+    {
+      "key": "output-eval-lab",
+      "label": "Output Eval Lab",
+      "status": "pass",
+      "current": "7 cases; delta 100.0; exec 14; blind 7",
+      "target": "with-skill/baseline, assertions, execution evidence, blind A/B, failure taxonomy",
+      "evidence": [
+        {
+          "path": "evals/output/cases.jsonl",
+          "exists": true
+        },
+        {
+          "path": "scripts/run_output_eval.py",
+          "exists": false
+        },
+        {
+          "path": "scripts/run_output_execution.py",
+          "exists": false
+        },
+        {
+          "path": "reports/output_quality_scorecard.json",
+          "exists": true
+        },
+        {
+          "path": "reports/output_execution_runs.json",
+          "exists": true
+        },
+        {
+          "path": "reports/output_blind_review_pack.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Add more real-file and adversarial holdout cases as usage grows."
+    },
+    {
+      "key": "provider-holdout",
+      "label": "Provider Holdout",
+      "status": "external_required",
+      "current": "phase1 model-executed 0/40; calls 0/40; status pending",
+      "target": "The fixed DeepSeek Flash+Pro matrix completes 40 real calls within the governed token and timeout budgets",
+      "evidence": [
+        {
+          "path": "evals/output/provider_matrix.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/provider_output_eval_runner.py",
+          "exists": false
+        },
+        {
+          "path": "reports/provider_output_evaluation.json",
+          "exists": false
+        }
+      ],
+      "next_action": "Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory."
+    },
+    {
+      "key": "human-adjudication",
+      "label": "Human Adjudication",
+      "status": "human_required",
+      "current": "phase1 reviewers 0/3; pairs 0/20; promotion pending",
+      "target": "Three controlled, independent blind reviews are bound to the same 20-pair pack before quality promotion",
+      "evidence": [
+        {
+          "path": "reports/provider_output_blind_pack.json",
+          "exists": false
+        },
+        {
+          "path": "reports/provider_output_adjudication.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/adjudicate_multi_reviewer.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Collect three controlled reviewer packets and adjudicate them against the private run answer key."
+    },
+    {
+      "key": "benchmark-reproducibility",
+      "label": "Benchmark Reproducibility",
+      "status": "missing",
+      "current": "artifacts 0; missing n/a; failures 0",
+      "target": "Public methodology, reproducible commands, required artifacts, and failure disclosure are machine-checkable",
+      "evidence": [
+        {
+          "path": "reports/benchmark_methodology.md",
+          "exists": false
+        },
+        {
+          "path": "reports/benchmark_reproducibility.json",
+          "exists": false
+        },
+        {
+          "path": "reports/benchmark_reproducibility.md",
+          "exists": false
+        },
+        {
+          "path": "evals/failure-cases.md",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_benchmark_reproducibility.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep the manifest current with every benchmark, package, and release evidence change."
+    },
+    {
+      "key": "runtime-conformance",
+      "label": "Runtime Conformance",
+      "status": "missing",
+      "current": "2/2 targets pass",
+      "target": "Target package structure, metadata, relative paths, and degradation notes pass",
+      "evidence": [
+        {
+          "path": "runtime/conformance/schema.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/run_conformance_suite.py",
+          "exists": false
+        },
+        {
+          "path": "reports/conformance_matrix.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Keep target conformance fixtures updated as platform contracts change."
+    },
+    {
+      "key": "trust-security",
+      "label": "Trust Security",
+      "status": "pass",
+      "current": "secrets 0; scripts 10; help failures 0",
+      "target": "Secrets, scripts, dependencies, permissions, and package hash are reviewable",
+      "evidence": [
+        {
+          "path": "scripts/trust_check.py",
+          "exists": false
+        },
+        {
+          "path": "reports/security_trust_report.json",
+          "exists": true
+        },
+        {
+          "path": "security/permission_policy.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Keep high-permission approvals scoped, expiring, and target-mapped."
+    },
+    {
+      "key": "runtime-permission-metadata",
+      "label": "Permission Metadata",
+      "status": "missing",
+      "current": "2/2 target probes pass; metadata fallback 2; installer enforcement 2",
+      "target": "Packaged adapters expose explicit permission metadata, residual risks, and installer enforcement evidence when available",
+      "evidence": [
+        {
+          "path": "scripts/probe_runtime_permissions.py",
+          "exists": false
+        },
+        {
+          "path": "reports/runtime_permission_probes.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Preserve residual-risk notes until real native enforcement exists."
+    },
+    {
+      "key": "native-permission-enforcement",
+      "label": "Native Permission Enforcement",
+      "status": "external_required",
+      "current": "native-enforced targets 0; installer-enforced targets 2",
+      "target": "At least one target/client enforces approved permissions at runtime",
+      "evidence": [
+        {
+          "path": "reports/runtime_permission_probes.json",
+          "exists": true
+        },
+        {
+          "path": "reports/install_simulation.json",
+          "exists": true
+        },
+        {
+          "path": "security/permission_policy.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Integrate a real target-client or external installer runtime guard before claiming native permission enforcement."
+    },
+    {
+      "key": "skill-atlas",
+      "label": "Skill Atlas",
+      "status": "pass",
+      "current": "1 skills; actionable collisions 0",
+      "target": "Workspace catalog, route overlap, stale/owner gaps, drift, and no-route opportunities",
+      "evidence": [
+        {
+          "path": "scripts/build_skill_atlas.py",
+          "exists": false
+        },
+        {
+          "path": "skill_atlas/catalog.json",
+          "exists": false
+        },
+        {
+          "path": "reports/skill_atlas.json",
+          "exists": true
+        },
+        {
+          "path": "skill_atlas/policy.json",
+          "exists": false
+        }
+      ],
+      "next_action": "Feed real drift data into Atlas once client telemetry is installed."
+    },
+    {
+      "key": "registry-distribution",
+      "label": "Registry Distribution",
+      "status": "pass",
+      "current": "zip entries 42; install failures 0; permission failures 0",
+      "target": "Package metadata, archive checksum, package verification, and install simulation pass",
+      "evidence": [
+        {
+          "path": "registry/packages/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "reports/package_verification.json",
+          "exists": true
+        },
+        {
+          "path": "reports/install_simulation.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Regenerate registry after package verification so checksums stay aligned."
+    },
+    {
+      "key": "review-studio",
+      "label": "Review Studio",
+      "status": "pass",
+      "current": "decision review; warnings 4; score 89",
+      "target": "One page shows gates, evidence paths, blockers, warnings, actions, waivers, and annotations",
+      "evidence": [
+        {
+          "path": "scripts/render_review_studio.py",
+          "exists": false
+        },
+        {
+          "path": "reports/review-studio.json",
+          "exists": true
+        },
+        {
+          "path": "reports/review-studio.html",
+          "exists": true
+        }
+      ],
+      "next_action": "Resolve human/external warning gates before claiming full release readiness."
+    },
+    {
+      "key": "telemetry-drift",
+      "label": "Telemetry Drift",
+      "status": "missing",
+      "current": "events 1; risk low; recipes 0",
+      "target": "Local-first metadata-only event contract, aggregate drift report, hook recipes, and import path",
+      "evidence": [
+        {
+          "path": "reports/adoption_drift_report.json",
+          "exists": true
+        },
+        {
+          "path": "reports/telemetry_hook_recipes.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/import_telemetry_events.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep raw JSONL out of distributed packages and use aggregate reports for Atlas."
+    },
+    {
+      "key": "native-client-telemetry",
+      "label": "Native Client Telemetry",
+      "status": "external_required",
+      "current": "external source events 0; adoption samples 0",
+      "target": "A real Browser/Chrome/provider client sends production metadata events",
+      "evidence": [
+        {
+          "path": "scripts/telemetry_native_host.py",
+          "exists": false
+        },
+        {
+          "path": "reports/adoption_drift_report.json",
+          "exists": true
+        }
+      ],
+      "next_action": "Install a real client against the native host and import production metadata-only events."
+    }
+  ],
+  "next_highest_leverage": [
+    {
+      "key": "skill-ir",
+      "label": "Skill IR",
+      "status": "missing",
+      "current": "schema 2.0.0; targets 2",
+      "target": "2.0 schema, root export, and target-neutral contract evidence",
+      "evidence": [
+        {
+          "path": "skill-ir/schema.json",
+          "exists": false
+        },
+        {
+          "path": "skill-ir/examples/yao-meta-skill.json",
+          "exists": false
+        },
+        {
+          "path": "references/skill-ir-method.md",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep IR as the source before target packaging."
+    },
+    {
+      "key": "target-compiler",
+      "label": "Target Compiler",
+      "status": "missing",
+      "current": "2/2 targets pass",
+      "target": "OpenAI, Claude, generic, Agent Skills compatible, and VS Code contracts generated from IR",
+      "evidence": [
+        {
+          "path": "scripts/compile_skill.py",
+          "exists": false
+        },
+        {
+          "path": "reports/compiled_targets.json",
+          "exists": true
+        },
+        {
+          "path": "tests/verify_compile_skill.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Deepen target-native transforms when provider clients expose stronger runtime APIs."
+    },
+    {
+      "key": "provider-holdout",
+      "label": "Provider Holdout",
+      "status": "external_required",
+      "current": "phase1 model-executed 0/40; calls 0/40; status pending",
+      "target": "The fixed DeepSeek Flash+Pro matrix completes 40 real calls within the governed token and timeout budgets",
+      "evidence": [
+        {
+          "path": "evals/output/provider_matrix.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/provider_output_eval_runner.py",
+          "exists": false
+        },
+        {
+          "path": "reports/provider_output_evaluation.json",
+          "exists": false
+        }
+      ],
+      "next_action": "Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory."
+    },
+    {
+      "key": "human-adjudication",
+      "label": "Human Adjudication",
+      "status": "human_required",
+      "current": "phase1 reviewers 0/3; pairs 0/20; promotion pending",
+      "target": "Three controlled, independent blind reviews are bound to the same 20-pair pack before quality promotion",
+      "evidence": [
+        {
+          "path": "reports/provider_output_blind_pack.json",
+          "exists": false
+        },
+        {
+          "path": "reports/provider_output_adjudication.json",
+          "exists": false
+        },
+        {
+          "path": "scripts/adjudicate_multi_reviewer.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Collect three controlled reviewer packets and adjudicate them against the private run answer key."
+    },
+    {
+      "key": "benchmark-reproducibility",
+      "label": "Benchmark Reproducibility",
+      "status": "missing",
+      "current": "artifacts 0; missing n/a; failures 0",
+      "target": "Public methodology, reproducible commands, required artifacts, and failure disclosure are machine-checkable",
+      "evidence": [
+        {
+          "path": "reports/benchmark_methodology.md",
+          "exists": false
+        },
+        {
+          "path": "reports/benchmark_reproducibility.json",
+          "exists": false
+        },
+        {
+          "path": "reports/benchmark_reproducibility.md",
+          "exists": false
+        },
+        {
+          "path": "evals/failure-cases.md",
+          "exists": false
+        },
+        {
+          "path": "tests/verify_benchmark_reproducibility.py",
+          "exists": false
+        }
+      ],
+      "next_action": "Keep the manifest current with every benchmark, package, and release evidence change."
+    }
+  ],
+  "artifacts": {
+    "json": "reports/skill_os2_audit.json",
+    "markdown": "reports/skill_os2_audit.md",
+    "world_class_evidence_plan": "reports/world_class_evidence_plan.md"
+  }
+}

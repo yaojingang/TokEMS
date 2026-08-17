@@ -230,8 +230,12 @@ function addBinding() {
   let binding: HtmlTemplateBinding;
   if (operation.value === 'attribute') {
     const variable = selectedVariable.value;
-    if (!['routes.registration', 'routes.faq', 'routes.account'].includes(variable)) {
-      errorMessage.value = '链接绑定请选择报名、FAQ 或个人中心路由。';
+    if (
+      !['routes.registration', 'routes.cooperation', 'routes.faq', 'routes.account'].includes(
+        variable,
+      )
+    ) {
+      errorMessage.value = '链接绑定请选择报名、合作申请、FAQ 或个人中心路由。';
       return;
     }
     binding = {
@@ -239,7 +243,8 @@ function addBinding() {
       kind: 'attribute',
       nodeId: node.id,
       attributeName: 'href',
-      variablePath: variable as 'routes.registration' | 'routes.faq' | 'routes.account',
+      variablePath: variable as
+        'routes.registration' | 'routes.cooperation' | 'routes.faq' | 'routes.account',
       missingPolicy: 'error',
     };
   } else if (operation.value === 'conditional') {

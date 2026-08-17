@@ -4,6 +4,9 @@ node_modules/
 .nuxt/
 .output/
 dist/
+skills/*/.build/
+skills/*/reports/telemetry_events.jsonl
+.codex-artifacts/
 coverage/
 test-results/
 .env

@@ -1,0 +1,1989 @@
+{
+  "skill_summary": {
+    "name": "tokems-admin",
+    "title": "TokEMS Admin",
+    "display_name": "TokEMS Admin",
+    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "maturity": "governed",
+    "updated_at": "2026-08-17",
+    "core_value": "把一次性经验沉淀为可复用、可评估、可迁移的 Skill 包体。",
+    "audience": "Skill 作者、复用团队和后续 reviewer。",
+    "deliverables": [
+      "SKILL.md",
+      "agents/interface.yaml",
+      "reports/skill-ir.json",
+      "reports/compiled_targets.md",
+      "reports/output_quality_scorecard.md",
+      "reports/output_execution_runs.md",
+      "reports/output_blind_review_pack.md",
+      "reports/output_review_kit.md",
+      "reports/output_review_adjudication.md",
+      "reports/output_blind_answer_key.json",
+      "reports/conformance_matrix.md",
+      "reports/security_trust_report.md",
+      "reports/runtime_permission_probes.md",
+      "reports/skill_atlas.html",
+      "reports/registry_audit.md",
+      "reports/package_verification.md",
+      "reports/install_simulation.md",
+      "reports/upgrade_check.md",
+      "reports/adoption_drift_report.md",
+      "reports/review_waivers.md",
+      "reports/world_class_evidence_plan.md",
+      "reports/world_class_evidence_ledger.md",
+      "reports/review_annotations.md",
+      "reports/review-studio.html",
+      "reports/skill-interpretation.html",
+      "reports/skill-overview.html"
+    ],
+    "flow": [
+      "输入材料",
+      "Skill 包体",
+      "可复用能力"
+    ]
+  },
+  "scorecard": {
+    "completeness_score": {
+      "label": "完整度",
+      "score": 90,
+      "reasons": [
+        "SKILL.md 已存在，是 Skill 的入口。",
+        "README.md 未发现或为空，完整度扣分。",
+        "agents/interface.yaml 已存在，便于跨平台适配。",
+        "manifest.json 已存在，生命周期信息可追踪。",
+        "reports/ 已存在，生成证据可以随包体迁移。"
+      ]
+    },
+    "trigger_score": {
+      "label": "触发清晰",
+      "score": 100,
+      "reasons": [
+        "frontmatter description 已存在，具备基础路由面。",
+        "description 有足够长度说明任务边界。",
+        "description 已包含使用场景或排除边界信号。",
+        "evals/ 已存在，可承载触发样例或质量检查。",
+        "intent-confidence 报告已生成，可辅助判断触发稳定性。"
+      ]
+    },
+    "evidence_score": {
+      "label": "证据充分",
+      "score": 65,
+      "reasons": [
+        "已生成 13 / 20 类报告证据。",
+        "skill-ir.json 已存在。",
+        "compiled_targets.json 已存在。",
+        "intent-confidence.json 已存在。",
+        "证据不足：缺少 intent-dialogue.json, reference-synthesis.json, artifact-design-profile.json。"
+      ]
+    },
+    "maintainability_score": {
+      "label": "可维护性",
+      "score": 100,
+      "reasons": [
+        "SKILL.md 约 531 个词/字。",
+        "入口文件保持克制，可维护性较好。",
+        "references/ 已承载扩展指导。",
+        "scripts/ 已承载确定性逻辑。",
+        "evals/ 已承载可迁移检查。"
+      ]
+    },
+    "portability_score": {
+      "label": "可迁移性",
+      "score": 100,
+      "reasons": [
+        "agents/interface.yaml 已存在。",
+        "manifest.json 已存在。",
+        "目标平台或 adapter target 已声明。",
+        "入口文件未发现明显私有绝对路径。"
+      ]
+    },
+    "context_cost": {
+      "label": "上下文成本",
+      "score": 60,
+      "reasons": [
+        "入口约 531 个词/字，references 约 1659 个词/字。",
+        "分数越高代表上下文成本越低。",
+        "上下文成本偏高，建议压缩入口或拆分 references。"
+      ]
+    }
+  },
+  "capability_profile": {
+    "archetype": "governed",
+    "task_family": "Skill workflow",
+    "maturity": "governed",
+    "trigger_strength": "手动触发 + description 路由",
+    "reuse_scope": "跨平台",
+    "matrix": {
+      "execution_certainty": 72,
+      "knowledge_density": 62
+    }
+  },
+  "principle_model": {
+    "nodes": [
+      {
+        "title": "意图澄清",
+        "body": "先确认真实任务、输入材料和交付结果。"
+      },
+      {
+        "title": "边界路由",
+        "body": "用 frontmatter description 决定是否触发，并写明相邻非目标。"
+      },
+      {
+        "title": "资产分层",
+        "body": "把入口、参考、脚本、评估和报告拆到各自目录，避免 SKILL.md 膨胀。"
+      },
+      {
+        "title": "证据回路",
+        "body": "通过评估、报告和复盘把真实使用反馈变成下一轮改进。"
+      },
+      {
+        "title": "漂移观察",
+        "body": "持续观察触发漂移、输出漂移和治理漂移。"
+      },
+      {
+        "title": "杠杆升级",
+        "body": "优先改边界、触发和一个最小自修复检查。"
+      }
+    ],
+    "layers": [
+      "入口层",
+      "参考层",
+      "脚本层",
+      "评估层",
+      "报告层"
+    ]
+  },
+  "contract_boundary": {
+    "trigger": {
+      "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+      "activation": "manual",
+      "execution": "inline",
+      "shell": "bash"
+    },
+    "inputs": [
+      "exact HTTPS TokEMS origin or development loopback",
+      "Device Authorization connection approved by a current super administrator",
+      "catalog action ID and organization-scoped resource identifiers",
+      "file-backed parameter, request body, and reason inputs",
+      "browser approval for the effective risk policy"
+    ],
+    "outputs": [
+      "One redacted JSON envelope with action, connection, organization, risk, operation state, verification, artifact digest, warnings, rollback boundary, and trace ID.",
+      "结构化 Skill 目录，共 7 类关键资产。"
+    ],
+    "should_trigger": [
+      "团队复用前，需要明确触发边界、质量证据和维护责任。",
+      "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
+      "已有原始资料，但还没有清晰输入、输出和后续迭代路径。"
+    ],
+    "should_not_trigger": [
+      "只需要一次性回答、没有复用价值的临时请求。",
+      "要求直接执行相邻任务，而不是沉淀或使用这个 Skill。",
+      "缺少必要事实且用户不允许澄清的场景。"
+    ],
+    "boundary_cards": [
+      {
+        "label": "Owned",
+        "body": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service."
+      },
+      {
+        "label": "Adjacent",
+        "body": "相邻任务需要先确认是否应转为独立 Skill。"
+      },
+      {
+        "label": "Excluded",
+        "body": "不替代人工事实核查，也不静默扩大职责。"
+      }
+    ]
+  },
+  "quality_review": {
+    "strengths": [
+      "触发面保持精简，并锚定在 frontmatter description。",
+      "已生成 Skill IR，核心语义可先于平台打包被审查和迁移。",
+      "已生成目标编译报告，可审查 IR 到 OpenAI、Claude、generic 等目标契约的映射。",
+      "已生成 Output Eval Lab scorecard，可比较 with-skill 与 baseline 输出质量。",
+      "已生成 Output Execution Runs，可区分记录样本、命令执行和模型执行证据。",
+      "已生成 Output Review Adjudication，可记录盲评决策、一致率和待评审项。"
+    ],
+    "gaps": [
+      "证据充分需要补强：已生成 13 / 20 类报告证据。",
+      "上下文成本需要补强：入口约 531 个词/字，references 约 1659 个词/字。"
+    ],
+    "recommendations": [
+      "先改触发边界，再扩展工作流。",
+      "只把重复且稳定的步骤沉淀为脚本。",
+      "每次升级后重新生成报告并检查分数原因。"
+    ],
+    "artifact_design": {
+      "design_system": "content-led editorial",
+      "highlights": []
+    },
+    "prompt_quality": {
+      "overall_quality_score": "n/a",
+      "highlights": []
+    },
+    "system_model": {
+      "stability": {},
+      "highlights": []
+    }
+  },
+  "risk_governance": {
+    "risks": [
+      {
+        "name": "误触发风险",
+        "impact": 3,
+        "probability": 1,
+        "signal": "frontmatter description 已存在，具备基础路由面。",
+        "response": "先补证据和边界，再增加包体复杂度。"
+      },
+      {
+        "name": "输出漂移风险",
+        "impact": 2,
+        "probability": 2,
+        "signal": "已生成 13 / 20 类报告证据。",
+        "response": "先补证据和边界，再增加包体复杂度。"
+      },
+      {
+        "name": "证据不足风险",
+        "impact": 3,
+        "probability": 2,
+        "signal": "已生成 13 / 20 类报告证据。",
+        "response": "先补证据和边界，再增加包体复杂度。"
+      },
+      {
+        "name": "包体膨胀风险",
+        "impact": 2,
+        "probability": 1,
+        "signal": "SKILL.md 约 531 个词/字。",
+        "response": "先补证据和边界，再增加包体复杂度。"
+      },
+      {
+        "name": "跨平台迁移风险",
+        "impact": 3,
+        "probability": 1,
+        "signal": "agents/interface.yaml 已存在。",
+        "response": "先补证据和边界，再增加包体复杂度。"
+      }
+    ],
+    "risk_families": [],
+    "human_judgment_boundary": []
+  },
+  "world_class_readiness": {
+    "ready": false,
+    "decision": "evidence-pending",
+    "entry_count": 4,
+    "pending_count": 4,
+    "accepted_count": 0,
+    "external_pending_count": 3,
+    "human_pending_count": 1,
+    "source_check_count": 19,
+    "source_pass_count": 8,
+    "conclusion_zh": "世界级证据尚未完成：4 项待补，0 项已接受。",
+    "conclusion_en": "World-class evidence is not complete: 4 pending, 0 accepted.",
+    "entries": [
+      {
+        "key": "provider-holdout",
+        "label_zh": "提供商留出",
+        "label_en": "Provider Holdout",
+        "category": "external",
+        "category_zh": "外部证据",
+        "category_en": "External evidence",
+        "status": "pending",
+        "summary_zh": "缺少真实 provider 模型运行和 token metadata。",
+        "summary_en": "Missing a real provider model run and token metadata.",
+        "blocked_checks": [
+          "Provider model run",
+          "Timing observed",
+          "Token usage observed"
+        ]
+      },
+      {
+        "key": "human-adjudication",
+        "label_zh": "人工盲评",
+        "label_en": "Human Adjudication",
+        "category": "human",
+        "category_zh": "人工证据",
+        "category_en": "Human evidence",
+        "status": "pending",
+        "summary_zh": "盲评 pair 仍待真实 reviewer 决策。",
+        "summary_en": "Blind-review pairs still need real reviewer decisions.",
+        "blocked_checks": [
+          "No pending decisions",
+          "Judgments complete",
+          "Reviewer metadata"
+        ]
+      },
+      {
+        "key": "native-permission-enforcement",
+        "label_zh": "原生权限",
+        "label_en": "Native Permission",
+        "category": "external",
+        "category_zh": "外部证据",
+        "category_en": "External evidence",
+        "status": "pending",
+        "summary_zh": "原生 runtime enforcement 仍待目标客户端或外部安装器证明。",
+        "summary_en": "Native runtime enforcement still needs target-client or external-installer proof.",
+        "blocked_checks": [
+          "Native enforcement"
+        ]
+      },
+      {
+        "key": "native-client-telemetry",
+        "label_zh": "原生遥测",
+        "label_en": "Native Telemetry",
+        "category": "external",
+        "category_zh": "外部证据",
+        "category_en": "External evidence",
+        "status": "pending",
+        "summary_zh": "真实外部客户端 metadata-only 事件仍未导入。",
+        "summary_en": "Real external-client metadata-only events have not been imported yet.",
+        "blocked_checks": [
+          "External events",
+          "Adoption sample"
+        ]
+      }
+    ]
+  },
+  "package_assets": {
+    "entries": [
+      {
+        "path": "SKILL.md",
+        "label": "Skill entrypoint",
+        "kind": "file",
+        "file_count": 1
+      },
+      {
+        "path": "agents/interface.yaml",
+        "label": "Neutral interface metadata",
+        "kind": "file",
+        "file_count": 1
+      },
+      {
+        "path": "manifest.json",
+        "label": "Lifecycle and portability metadata",
+        "kind": "file",
+        "file_count": 1
+      },
+      {
+        "path": "references",
+        "label": "Extended guidance and reusable notes",
+        "kind": "folder",
+        "file_count": 9
+      },
+      {
+        "path": "scripts",
+        "label": "Deterministic helpers or local tooling",
+        "kind": "folder",
+        "file_count": 12
+      },
+      {
+        "path": "evals",
+        "label": "Trigger and quality checks",
+        "kind": "folder",
+        "file_count": 6
+      },
+      {
+        "path": "reports",
+        "label": "Generated evidence and overview artifacts",
+        "kind": "folder",
+        "file_count": 90
+      }
+    ],
+    "file_count": 120,
+    "folder_count": 4,
+    "distribution": [
+      {
+        "label": "SKILL.md",
+        "value": 1
+      },
+      {
+        "label": "agents/interface.yaml",
+        "value": 1
+      },
+      {
+        "label": "manifest.json",
+        "value": 1
+      },
+      {
+        "label": "references",
+        "value": 9
+      },
+      {
+        "label": "scripts",
+        "value": 12
+      },
+      {
+        "label": "evals",
+        "value": 6
+      },
+      {
+        "label": "reports",
+        "value": 90
+      }
+    ]
+  },
+  "iteration_roadmap": {
+    "items": [
+      {
+        "title": "补齐世界证据",
+        "why": "世界级证据仍有 4 项待补；公开完成态 claim 必须继续保持阻塞。",
+        "actions": [
+          "补齐提供商留出证据：缺少真实 provider 模型运行和 token metadata。",
+          "补齐人工盲评证据：盲评 pair 仍待真实 reviewer 决策。",
+          "按 ledger 总量继续补齐 4 项待补证据（外部 3 项、人工 1 项；未展开 2 项），并保持 claim guard 为 pending 状态。"
+        ],
+        "unlocks": "全部外部/人工证据被 ledger 接受后，才能进入公开 world-class claim 复核。",
+        "source": "world_class_evidence_ledger"
+      }
+    ]
+  },
+  "report_contract": {
+    "schema_version": "2.0",
+    "html_report": "reports/skill-overview.html",
+    "language": "zh-CN",
+    "default_language": "zh-CN",
+    "languages": [
+      "zh-CN",
+      "en"
+    ],
+    "layout": "kami-white-audit-v2",
+    "nav_labels": [
+      "技能概述",
+      "总览指标",
+      "能力画像",
+      "原理结构",
+      "契约边界",
+      "质量评估",
+      "风险治理",
+      "包体资产",
+      "迭代路线"
+    ],
+    "nav_labels_en": [
+      "Overview",
+      "Metrics",
+      "Profile",
+      "Principle",
+      "Contract",
+      "Quality",
+      "Risk",
+      "Assets",
+      "Roadmap"
+    ]
+  },
+  "name": "tokems-admin",
+  "title": "TokEMS Admin",
+  "display_name": "TokEMS Admin",
+  "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+  "logic_steps": [
+    "Read `references/authorization.md` before connecting or changing connection policy.",
+    "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
+    "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+    "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
+    "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions."
+  ],
+  "usage_steps": [
+    "Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
+    "Use this skill when the request matches: Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service."
+  ],
+  "package_map": [
+    {
+      "path": "SKILL.md",
+      "label": "Skill entrypoint",
+      "kind": "file",
+      "file_count": 1
+    },
+    {
+      "path": "agents/interface.yaml",
+      "label": "Neutral interface metadata",
+      "kind": "file",
+      "file_count": 1
+    },
+    {
+      "path": "manifest.json",
+      "label": "Lifecycle and portability metadata",
+      "kind": "file",
+      "file_count": 1
+    },
+    {
+      "path": "references",
+      "label": "Extended guidance and reusable notes",
+      "kind": "folder",
+      "file_count": 9
+    },
+    {
+      "path": "scripts",
+      "label": "Deterministic helpers or local tooling",
+      "kind": "folder",
+      "file_count": 12
+    },
+    {
+      "path": "evals",
+      "label": "Trigger and quality checks",
+      "kind": "folder",
+      "file_count": 6
+    },
+    {
+      "path": "reports",
+      "label": "Generated evidence and overview artifacts",
+      "kind": "folder",
+      "file_count": 90
+    }
+  ],
+  "strengths": [
+    "触发面保持精简，并锚定在 frontmatter description。",
+    "已生成 Skill IR，核心语义可先于平台打包被审查和迁移。",
+    "已生成目标编译报告，可审查 IR 到 OpenAI、Claude、generic 等目标契约的映射。",
+    "已生成 Output Eval Lab scorecard，可比较 with-skill 与 baseline 输出质量。",
+    "已生成 Output Execution Runs，可区分记录样本、命令执行和模型执行证据。",
+    "已生成 Output Review Adjudication，可记录盲评决策、一致率和待评审项。"
+  ],
+  "scenarios": [
+    "团队复用前，需要明确触发边界、质量证据和维护责任。",
+    "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
+    "已有原始资料，但还没有清晰输入、输出和后续迭代路径。"
+  ],
+  "trigger_contract": {
+    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "activation": "manual",
+    "execution": "inline",
+    "shell": "bash"
+  },
+  "io_contract": {
+    "inputs": [
+      "exact HTTPS TokEMS origin or development loopback",
+      "Device Authorization connection approved by a current super administrator",
+      "catalog action ID and organization-scoped resource identifiers",
+      "file-backed parameter, request body, and reason inputs",
+      "browser approval for the effective risk policy"
+    ],
+    "outputs": [
+      "One redacted JSON envelope with action, connection, organization, risk, operation state, verification, artifact digest, warnings, rollback boundary, and trace ID.",
+      "结构化 Skill 目录，共 7 类关键资产。"
+    ]
+  },
+  "principles": [
+    {
+      "title": "意图澄清",
+      "body": "先确认真实任务、输入材料和交付结果。"
+    },
+    {
+      "title": "边界路由",
+      "body": "用 frontmatter description 决定是否触发，并写明相邻非目标。"
+    },
+    {
+      "title": "资产分层",
+      "body": "把入口、参考、脚本、评估和报告拆到各自目录，避免 SKILL.md 膨胀。"
+    },
+    {
+      "title": "证据回路",
+      "body": "通过评估、报告和复盘把真实使用反馈变成下一轮改进。"
+    },
+    {
+      "title": "漂移观察",
+      "body": "持续观察触发漂移、输出漂移和治理漂移。"
+    },
+    {
+      "title": "杠杆升级",
+      "body": "优先改边界、触发和一个最小自修复检查。"
+    }
+  ],
+  "roadmap": [
+    {
+      "title": "补齐世界证据",
+      "why": "世界级证据仍有 4 项待补；公开完成态 claim 必须继续保持阻塞。",
+      "actions": [
+        "补齐提供商留出证据：缺少真实 provider 模型运行和 token metadata。",
+        "补齐人工盲评证据：盲评 pair 仍待真实 reviewer 决策。",
+        "按 ledger 总量继续补齐 4 项待补证据（外部 3 项、人工 1 项；未展开 2 项），并保持 claim guard 为 pending 状态。"
+      ],
+      "unlocks": "全部外部/人工证据被 ledger 接受后，才能进入公开 world-class claim 复核。",
+      "source": "world_class_evidence_ledger"
+    }
+  ],
+  "cards": [],
+  "introduction": [
+    "这份报告用于快速理解新生成 Skill 的定位、原理、触发边界和交付内容。",
+    "先确认重复任务、真实输入形态和可交付输出，再决定是否继续加 references、scripts 或 evals。",
+    "如果需求仍然模糊，优先回到 intent dialogue 收紧边界，再扩展包体结构。"
+  ],
+  "benchmark_highlights": [],
+  "skill_ir": {
+    "schema_version": "2.0.0",
+    "source_path": "reports/skill-ir.json",
+    "target_count": 2,
+    "trigger_samples": 8,
+    "output_eval_cases": 2
+  },
+  "compiled_targets": {
+    "ok": true,
+    "schema_version": "1.0",
+    "summary": {
+      "target_count": 2,
+      "pass_count": 2,
+      "warn_count": 0,
+      "block_count": 0,
+      "failure_count": 0,
+      "warning_count": 0
+    },
+    "targets": [
+      {
+        "target": "openai",
+        "status": "pass",
+        "adapter_mode": "metadata-adapter",
+        "degradation_strategy": "Codex desktop needs shell, outbound HTTPS, Node.js 24, and a supported credential store.",
+        "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
+        "permission_enforcement": "metadata-only",
+        "generated_files": [
+          "targets/openai/adapter.json",
+          "targets/openai/agents/openai.yaml"
+        ],
+        "unsupported_features": [
+          "client-native script permission prompts are represented as permission contract metadata"
+        ],
+        "warnings": []
+      },
+      {
+        "target": "generic",
+        "status": "pass",
+        "adapter_mode": "agent-skills-compatible",
+        "degradation_strategy": "Stop before connection when the client cannot run scripts, preserve secrets, enforce the approved origin, or open browser approval URLs.",
+        "native_surface": "Agent Skills compatible neutral package",
+        "permission_enforcement": "consumer-enforced-or-metadata-only",
+        "generated_files": [
+          "targets/generic/adapter.json"
+        ],
+        "unsupported_features": [],
+        "warnings": []
+      }
+    ],
+    "failures": [],
+    "warnings": []
+  },
+  "output_quality": {
+    "case_count": 7,
+    "file_backed_case_count": 1,
+    "near_neighbor_case_count": 1,
+    "boundary_case_count": 2,
+    "baseline_pass_rate": 0.0,
+    "with_skill_pass_rate": 100.0,
+    "delta": 100.0,
+    "regression_count": 0,
+    "gate_pass": true,
+    "failure_taxonomy": [],
+    "blind_pair_count": 7
+  },
+  "output_execution": {
+    "ok": true,
+    "summary": {
+      "case_count": 7,
+      "variant_run_count": 14,
+      "command_executed_count": 0,
+      "model_executed_count": 0,
+      "recorded_fixture_count": 14,
+      "timing_observed_count": 0,
+      "token_observed_count": 0,
+      "token_estimated_count": 14,
+      "baseline_pass_rate": 0.0,
+      "with_skill_pass_rate": 100.0,
+      "delta": 100.0,
+      "regression_count": 0,
+      "failure_count": 0,
+      "gate_pass": true
+    },
+    "runner": {
+      "mode": "recorded_fixture",
+      "command": [],
+      "timeout_seconds": null
+    },
+    "failures": []
+  },
+  "output_blind_review": {
+    "summary": {
+      "pair_count": 7,
+      "answer_key_separate": true,
+      "with_skill_hidden_count": 7
+    },
+    "seed": "yao-output-eval-blind-v1",
+    "pair_count": 7,
+    "answer_key_separate": true
+  },
+  "output_review_kit": {
+    "ok": true,
+    "summary": {
+      "case_count": 7,
+      "ready_for_adjudication_count": 0,
+      "pending_decision_count": 7,
+      "invalid_decision_count": 0,
+      "reviewer_metadata_present": false,
+      "answer_key_hidden": true,
+      "answer_key_path_exposed": false,
+      "ready_to_run_adjudication": false,
+      "failure_count": 0
+    },
+    "artifacts": {
+      "reviewer_kit_json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_kit.json",
+      "reviewer_kit_markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_kit.md",
+      "reviewer_kit_html": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_kit.html",
+      "blind_pack_json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.json",
+      "blind_pack_markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.md",
+      "decisions": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json",
+      "adjudication_json": "reports/output_review_adjudication.json",
+      "adjudication_markdown": "reports/output_review_adjudication.md"
+    },
+    "failures": []
+  },
+  "output_review_adjudication": {
+    "ok": true,
+    "summary": {
+      "pair_count": 7,
+      "judgment_count": 0,
+      "pending_count": 7,
+      "agreement_count": 0,
+      "disagreement_count": 0,
+      "invalid_decision_count": 0,
+      "answer_revealed_count": 0,
+      "pending_answer_hidden_count": 7,
+      "agreement_rate": null,
+      "needs_review": true,
+      "reviewer_metadata_present": false,
+      "reason_required": true,
+      "blind_review_attested": false,
+      "blind_review_completed_before_answer_key": false,
+      "answer_key_not_opened_before_decisions": false,
+      "raw_content_excluded_attested": true,
+      "reviewer_reason_required_attested": true,
+      "ready_for_human_evidence": false,
+      "failure_count": 0,
+      "reviewer_checklist_count": 7,
+      "reviewer_checklist_pending_count": 7,
+      "reviewer_checklist_invalid_count": 0,
+      "reviewer_checklist_ready_count": 0
+    },
+    "reviewer": "",
+    "reviewed_at": "",
+    "failures": []
+  },
+  "benchmark_reproducibility": {
+    "ok": false,
+    "summary": {},
+    "commit": "",
+    "missing_artifacts": [],
+    "limitations": []
+  },
+  "runtime_conformance": {
+    "target_count": 2,
+    "pass_count": 2,
+    "fail_count": 0
+  },
+  "runtime_permissions": {
+    "ok": true,
+    "summary": {
+      "target_count": 2,
+      "pass_count": 2,
+      "fail_count": 0,
+      "native_enforcement_count": 0,
+      "metadata_fallback_count": 2,
+      "residual_risk_count": 2,
+      "required_capability_count": 4,
+      "failure_count": 0,
+      "installer_enforcement_source_status": "present",
+      "installer_enforcement_target_count": 2,
+      "installer_enforcement_pass_count": 2,
+      "installer_permission_enforced_count": 8,
+      "installer_permission_failure_count": 0,
+      "installer_permission_capability_count": 4,
+      "world_class_native_evidence_ready": false,
+      "installer_enforcement_ready": true
+    },
+    "expected_capabilities": [
+      "file_write",
+      "interactive",
+      "network",
+      "subprocess"
+    ],
+    "targets": [
+      {
+        "target": "openai",
+        "status": "pass",
+        "assurance": "metadata-fallback-explicit",
+        "native_enforcement": false,
+        "metadata_fallback_explicit": true,
+        "residual_risks": [
+          "Client-native permission enforcement is not provided by this target; installer or operator must honor metadata."
+        ]
+      },
+      {
+        "target": "generic",
+        "status": "pass",
+        "assurance": "metadata-fallback-explicit",
+        "native_enforcement": false,
+        "metadata_fallback_explicit": true,
+        "residual_risks": [
+          "Client-native permission enforcement is not provided by this target; installer or operator must honor metadata."
+        ]
+      }
+    ],
+    "failures": []
+  },
+  "trust_security": {
+    "scanned_files": 22,
+    "script_count": 10,
+    "internal_module_count": 9,
+    "secret_findings": 0,
+    "dependency_files": [],
+    "network_script_count": 1,
+    "network_policy_covered_count": 1,
+    "network_policy_missing_count": 0,
+    "file_write_script_count": 1,
+    "permission_required_count": 4,
+    "permission_approved_count": 4,
+    "permission_missing_count": 0,
+    "permission_invalid_count": 0,
+    "permission_expired_count": 0,
+    "help_smoke_checked_count": 1,
+    "help_smoke_failed_count": 0,
+    "interactive_script_count": 1,
+    "package_hash_scope": "source-contract-without-generated-reports",
+    "package_hash_file_count": 22,
+    "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+  },
+  "skill_atlas": {
+    "skill_count": 1,
+    "actionable_skill_count": 1,
+    "route_collision_count": 0,
+    "actionable_route_collision_count": 0,
+    "owner_gap_count": 0,
+    "actionable_owner_gap_count": 0,
+    "stale_count": 0,
+    "actionable_stale_count": 0,
+    "shared_resource_count": 0,
+    "no_route_opportunity_count": 0,
+    "telemetry_report_count": 1,
+    "drift_signal_count": 0,
+    "actionable_drift_signal_count": 0,
+    "non_actionable_issue_count": 0
+  },
+  "registry_distribution": {
+    "ok": true,
+    "package": {
+      "schema_version": "2.0",
+      "name": "tokems-admin",
+      "version": "0.1.1",
+      "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+      "targets": [
+        "openai",
+        "generic"
+      ],
+      "maturity": "governed",
+      "owner": "TokEMS Maintainers",
+      "review_cadence": "monthly",
+      "trust_level": "local",
+      "license": "AGPL-3.0-only",
+      "checksums": {
+        "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9",
+        "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe"
+      },
+      "compatibility": {
+        "openai": "pass",
+        "generic": "pass"
+      },
+      "source": {
+        "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+        "skill_ir": "reports/skill-ir.json",
+        "ir_schema_version": "2.0.0",
+        "canonical_metadata": "agents/interface.yaml"
+      },
+      "artifacts": {
+        "overview_html": "reports/skill-overview.html",
+        "review_studio_html": "reports/review-studio.html",
+        "trust_report": "reports/security_trust_report.md",
+        "conformance_matrix": "reports/conformance_matrix.md",
+        "compiled_targets": "reports/compiled_targets.md",
+        "package_verification": "reports/package_verification.md",
+        "install_simulation": "reports/install_simulation.md",
+        "adoption_drift": "reports/adoption_drift_report.md",
+        "review_waivers": "reports/review_waivers.md",
+        "review_annotations": "reports/review_annotations.md",
+        "package_metadata": "registry/packages/tokems-admin.json"
+      },
+      "distribution": {
+        "archive_verified": true,
+        "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe",
+        "package_verification": "reports/package_verification.json",
+        "install_simulated": true,
+        "install_simulation": "reports/install_simulation.json"
+      },
+      "generated_at": "2026-08-17"
+    },
+    "failures": [],
+    "warnings": []
+  },
+  "package_verification": {
+    "ok": true,
+    "summary": {
+      "target_count": 2,
+      "adapter_count": 2,
+      "archive_present": true,
+      "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe",
+      "archive_entry_count": 42,
+      "nested_skill_entry_count": 0,
+      "failure_count": 0,
+      "warning_count": 0
+    },
+    "failures": [],
+    "warnings": []
+  },
+  "install_simulation": {
+    "ok": true,
+    "summary": {
+      "archive_present": true,
+      "archive_entry_count": 42,
+      "nested_skill_entry_count": 0,
+      "archive_extracted": true,
+      "entrypoint_loaded": true,
+      "manifest_loaded": true,
+      "interface_loaded": true,
+      "adapter_count": 2,
+      "installer_permission_enforced_count": 8,
+      "installer_permission_failure_count": 0,
+      "permission_target_count": 2,
+      "permission_capability_count": 4,
+      "install_root_is_temp": false,
+      "failure_count": 0,
+      "warning_count": 0
+    },
+    "failures": [],
+    "warnings": []
+  },
+  "upgrade_check": {
+    "ok": true,
+    "summary": {
+      "declared_bump": "patch",
+      "recommended_bump": "patch",
+      "breaking_change_count": 0,
+      "added_target_count": 0,
+      "metadata_change_count": 0,
+      "checksum_change_count": 2,
+      "failure_count": 0,
+      "warning_count": 0
+    },
+    "upgrade_diff": {
+      "name_changed": false,
+      "added_targets": [],
+      "removed_targets": [],
+      "compatibility_changes": [],
+      "metadata_changes": [],
+      "checksum_changes": [
+        {
+          "field": "archive_sha256",
+          "from": "97c750d450aae79bbe066caa5c1d322f215875a55f15b2f4fa3ac3fb969d9ac6",
+          "to": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe"
+        },
+        {
+          "field": "package_sha256",
+          "from": "86500de67126b4c33be1a8a2a3294ea168ee87434181fe809796abdf578fc608",
+          "to": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+        }
+      ]
+    },
+    "release_notes": [
+      "Recommended version bump: patch.",
+      "Package or archive checksum changed; reviewers should verify package artifacts before release.",
+      "Package verification evidence: reports/package_verification.md."
+    ],
+    "failures": [],
+    "warnings": []
+  },
+  "adoption_drift": {
+    "ok": true,
+    "summary": {
+      "event_count": 1,
+      "adoption_sample_count": 0,
+      "activation_count": 0,
+      "accepted_count": 0,
+      "edited_count": 0,
+      "rejected_count": 0,
+      "missed_count": 0,
+      "failed_count": 0,
+      "adoption_rate": 0,
+      "missed_trigger_count": 0,
+      "wrong_trigger_count": 0,
+      "bad_output_count": 0,
+      "script_error_count": 0,
+      "missing_resource_count": 0,
+      "review_overdue_count": 0,
+      "risk_band": "low",
+      "event_types": {
+        "script_run": 1
+      },
+      "failure_types": {},
+      "source_types": {
+        "yao_cli": 1
+      },
+      "command_counts": {
+        "pnpm-test-tokems-admin-skill": 1
+      }
+    },
+    "next_iteration_candidates": [],
+    "privacy_contract": {
+      "storage": "local-first",
+      "event_scope": "metadata-only",
+      "raw_content_allowed": false,
+      "raw_event_log_packaged": false,
+      "blocked_fields": [
+        "content",
+        "input",
+        "inputs",
+        "message",
+        "messages",
+        "note",
+        "output",
+        "outputs",
+        "prompt",
+        "raw",
+        "text",
+        "transcript"
+      ]
+    },
+    "failures": []
+  },
+  "review_waivers": {
+    "ok": true,
+    "summary": {
+      "waiver_count": 0,
+      "active_count": 0,
+      "expired_count": 0,
+      "invalid_count": 0,
+      "covered_gate_count": 0,
+      "covered_gate_keys": [],
+      "waiver_candidate_count": 1,
+      "waiverable_open_count": 1,
+      "non_waivable_count": 0
+    },
+    "policy": {
+      "blocker_waivers_allowed": false,
+      "minimum_reason_chars": 20,
+      "expires_required": true,
+      "review_studio_gate_keys": [
+        "architecture-maintainability",
+        "context-budget",
+        "intent-canvas",
+        "operations-loop",
+        "output-lab",
+        "permission-gates",
+        "permission-runtime",
+        "python-compat",
+        "registry-audit",
+        "release-notes",
+        "review-waivers",
+        "runtime-matrix",
+        "skill-atlas",
+        "trigger-lab",
+        "trust-report",
+        "world-class-evidence"
+      ],
+      "known_gate_keys": [
+        "architecture-maintainability",
+        "context-budget",
+        "intent-canvas",
+        "operations-loop",
+        "output-lab",
+        "permission-gates",
+        "permission-runtime",
+        "python-compat",
+        "registry-audit",
+        "release-notes",
+        "runtime-matrix",
+        "skill-atlas",
+        "trigger-lab",
+        "trust-report"
+      ],
+      "waiverable_gate_keys": [
+        "architecture-maintainability",
+        "context-budget",
+        "intent-canvas",
+        "operations-loop",
+        "output-lab",
+        "permission-gates",
+        "permission-runtime",
+        "python-compat",
+        "registry-audit",
+        "release-notes",
+        "runtime-matrix",
+        "skill-atlas",
+        "trigger-lab",
+        "trust-report"
+      ],
+      "non_waivable_gate_keys": [
+        "review-waivers",
+        "world-class-evidence"
+      ]
+    },
+    "failures": [],
+    "warnings": []
+  },
+  "review_annotations": {
+    "ok": true,
+    "summary": {
+      "annotation_count": 0,
+      "open_count": 0,
+      "resolved_count": 0,
+      "deferred_count": 0,
+      "open_blocker_count": 0,
+      "open_warning_count": 0,
+      "linked_gate_count": 0,
+      "target_missing_count": 0,
+      "failure_count": 0
+    },
+    "annotations": [],
+    "failures": []
+  },
+  "world_class_evidence_plan": {
+    "ok": false,
+    "summary": {
+      "audit_decision": "continue-iteration",
+      "world_class_ready": false,
+      "audit_world_class_ready": false,
+      "ready_to_claim_world_class": false,
+      "ledger_completion_required": true,
+      "evidence_requirement_count": 4,
+      "task_count": 4,
+      "human_task_count": 1,
+      "external_task_count": 3,
+      "review_task_count": 0,
+      "decision": "collect-external-evidence"
+    },
+    "tasks": [
+      {
+        "key": "provider-holdout",
+        "label": "Provider Holdout",
+        "status": "external_required",
+        "category": "external",
+        "owner": "operator with provider credentials",
+        "current": "phase1 model-executed 0/40; calls 0/40; status pending",
+        "objective": "Complete the fixed 10-case DeepSeek Flash+Pro matrix with 40 real calls and governed budget evidence.",
+        "runbook": [
+          "Set DEEPSEEK_API_KEY in the operator shell; never commit or print the value.",
+          "python3 scripts/yao.py evidence-build . --run-id <PROVIDER_RUN_ID> --self",
+          "Keep the generated private answer key and role-neutral review materials inside .yao/runs/<PROVIDER_RUN_ID>.",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/provider-holdout.intake.json to evidence/world_class/submissions/provider-holdout.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "success_checks": [
+          "reports/provider_output_evaluation.json summary.call_count == 40",
+          "reports/provider_output_evaluation.json summary.model_executed_count == 40",
+          "reports/provider_output_evaluation.json summary.failure_count == 0",
+          "reports/provider_output_evaluation.json summary.total_tokens <= 250000",
+          "reports/skill_os2_audit.json item provider-holdout status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "evals/output/provider_matrix.json",
+          "reports/provider_output_evaluation.json",
+          "reports/provider_output_blind_pack.json",
+          "reports/provider_output_answer_commitment.json",
+          "reports/skill_os2_audit.json",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/provider-holdout.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Do not commit provider credentials or environment dumps.",
+          "The output execution report records output hashes and aggregate run metadata, not raw provider prompts."
+        ],
+        "audit_next_action": "Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory."
+      },
+      {
+        "key": "human-adjudication",
+        "label": "Human Adjudication",
+        "status": "human_required",
+        "category": "human",
+        "owner": "human reviewer",
+        "current": "phase1 reviewers 0/3; pairs 0/20; promotion pending",
+        "objective": "Collect three controlled, independent reviews of the same 20-pair provider blind pack.",
+        "runbook": [
+          "Give each registered reviewer an independent copy of the matching provider_review_reviewer-*.json template and the role-neutral blind pack.",
+          "Collect all 20 A/B choices, reasons, controlled submission ids, timestamps, and truthful independent-review attestations.",
+          "Export an access-controlled reviewer registry that binds each reviewer id to the exact packet SHA256.",
+          "python3 scripts/yao.py evidence-finalize-review . --source-run <PROVIDER_RUN_ID> --decisions <reviewer-a.json> --decisions <reviewer-b.json> --decisions <reviewer-c.json> --reviewer-registry <registry.json> --run-id <FINAL_RUN_ID> --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/human-adjudication.intake.json to evidence/world_class/submissions/human-adjudication.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "success_checks": [
+          "reports/provider_output_adjudication.json summary.reviewer_count == 3",
+          "reports/provider_output_adjudication.json summary.pair_count == 20",
+          "reports/provider_output_adjudication.json summary.failure_count == 0",
+          "reports/provider_output_adjudication.json evidence_binding.blind_pack_sha256 matches the source run",
+          "reports/skill_os2_audit.json item human-adjudication status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "reports/provider_output_blind_pack.json",
+          "reports/provider_reviewer_registry.json",
+          "reports/provider_output_adjudication.json",
+          "reports/provider_review_lineage.json",
+          "scripts/adjudicate_multi_reviewer.py",
+          "scripts/finalize_provider_review.py",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/human-adjudication.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Reviewer packets contain choices, reasons, hashes, and controlled submission metadata without raw prompts or answer-key roles.",
+          "The private answer key remains under .yao/runs and is opened by the finalizer after all controlled packets are fixed.",
+          "The adjudication and lineage artifacts preserve blind_pack_sha256 and answer_key_sha256 commitments."
+        ],
+        "audit_next_action": "Collect three controlled reviewer packets and adjudicate them against the private run answer key."
+      },
+      {
+        "key": "native-permission-enforcement",
+        "label": "Native Permission Enforcement",
+        "status": "external_required",
+        "category": "external",
+        "owner": "target client or installer integrator",
+        "current": "native-enforced targets 0; installer-enforced targets 2",
+        "objective": "Prove at least one real target client or external installer runtime guard enforces approved high-permission capabilities.",
+        "runbook": [
+          "Implement or connect a real target client or external installer runtime guard that blocks undeclared network, file_write, or subprocess capabilities.",
+          "Update the generated target adapter only when the guard is actually enforced by that target.",
+          "python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self",
+          "python3 scripts/yao.py install-simulate . --package-dir dist --install-root dist/install-simulation --self",
+          "python3 scripts/yao.py runtime-permissions . --package-dir dist --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/native-permission-enforcement.intake.json to evidence/world_class/submissions/native-permission-enforcement.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "success_checks": [
+          "reports/runtime_permission_probes.json summary.native_enforcement_count > 0",
+          "reports/runtime_permission_probes.json summary.failure_count == 0",
+          "reports/runtime_permission_probes.json summary.installer_enforcement_pass_count records local installer enforcement but does not replace native evidence",
+          "reports/skill_os2_audit.json item native-permission-enforcement status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "dist/targets/*/adapter.json",
+          "reports/runtime_permission_probes.json",
+          "reports/runtime_permission_probes.md",
+          "reports/install_simulation.json",
+          "reports/install_simulation.md",
+          "security/permission_policy.json",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/native-permission-enforcement.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Do not mark native_enforcement true for metadata-only fallbacks.",
+          "Keep residual risks visible for targets that still rely on operator enforcement."
+        ],
+        "audit_next_action": "Integrate a real target-client or external installer runtime guard before claiming native permission enforcement."
+      },
+      {
+        "key": "native-client-telemetry",
+        "label": "Native Client Telemetry",
+        "status": "external_required",
+        "category": "external",
+        "owner": "Browser/Chrome/IDE/provider client integrator",
+        "current": "external source events 0; adoption samples 0",
+        "objective": "Import production metadata-only events from a real external client into the local drift loop.",
+        "runbook": [
+          "python3 scripts/telemetry_native_host.py . --write-launcher /tmp/yao-telemetry-host.sh --write-manifest /tmp/yao-telemetry-host.json --allowed-origin chrome-extension://<extension-id>/",
+          "Install the generated native messaging manifest for the real client and send at least one accepted skill_activation or skill_output event.",
+          "python3 scripts/yao.py telemetry-import . --input-jsonl .yao/telemetry_spool/external_events.jsonl --self",
+          "python3 scripts/yao.py skill-atlas --workspace-root . --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/native-client-telemetry.intake.json to evidence/world_class/submissions/native-client-telemetry.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "success_checks": [
+          "reports/adoption_drift_report.json summary.source_types.external > 0",
+          "reports/adoption_drift_report.json summary.adoption_sample_count > 0",
+          "reports/skill_os2_audit.json item native-client-telemetry status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "reports/adoption_drift_report.json",
+          "reports/adoption_drift_report.md",
+          "reports/telemetry_hook_recipes.json",
+          "scripts/telemetry_native_host.py",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/native-client-telemetry.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Telemetry must remain metadata-only and local-first.",
+          "Do not package reports/telemetry_events.jsonl or any raw prompt, output, transcript, note, or message field."
+        ],
+        "audit_next_action": "Install a real client against the native host and import production metadata-only events."
+      }
+    ],
+    "source_audit": {
+      "json": "reports/skill_os2_audit.json",
+      "markdown": "reports/skill_os2_audit.md",
+      "open_gap_count": 11
+    }
+  },
+  "world_class_evidence_ledger": {
+    "ok": true,
+    "summary": {
+      "ledger_entry_count": 4,
+      "source_accepted_count": 0,
+      "accepted_count": 0,
+      "pending_count": 4,
+      "human_pending_count": 1,
+      "external_pending_count": 3,
+      "submitted_entry_count": 0,
+      "reviewer_approved_submission_count": 0,
+      "missing_submission_count": 0,
+      "invalid_submission_count": 4,
+      "source_check_count": 19,
+      "source_pass_count": 8,
+      "source_blocked_count": 11,
+      "submitted_but_pending_count": 0,
+      "source_accepted_without_valid_submission_count": 0,
+      "overclaim_guard_active": true,
+      "ready_to_claim_world_class": false,
+      "decision": "evidence-pending"
+    },
+    "entries": [
+      {
+        "key": "provider-holdout",
+        "label": "Provider Holdout",
+        "category": "external",
+        "owner": "operator with provider credentials",
+        "status": "pending",
+        "source_status": "external_required",
+        "source_accepted": false,
+        "current": "phase1 model-executed 0/40; calls 0/40; status pending",
+        "objective": "Complete the fixed 10-case DeepSeek Flash+Pro matrix with 40 real calls and governed budget evidence.",
+        "runbook": [
+          "Set DEEPSEEK_API_KEY in the operator shell; never commit or print the value.",
+          "python3 scripts/yao.py evidence-build . --run-id <PROVIDER_RUN_ID> --self",
+          "Keep the generated private answer key and role-neutral review materials inside .yao/runs/<PROVIDER_RUN_ID>.",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/provider-holdout.intake.json to evidence/world_class/submissions/provider-holdout.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "provenance_requirements": [
+          "provider-backed model run",
+          "observed timing",
+          "observed token metadata"
+        ],
+        "success_checks": [
+          "reports/provider_output_evaluation.json summary.call_count == 40",
+          "reports/provider_output_evaluation.json summary.model_executed_count == 40",
+          "reports/provider_output_evaluation.json summary.failure_count == 0",
+          "reports/provider_output_evaluation.json summary.total_tokens <= 250000",
+          "reports/skill_os2_audit.json item provider-holdout status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "evals/output/provider_matrix.json",
+          "reports/provider_output_evaluation.json",
+          "reports/provider_output_blind_pack.json",
+          "reports/provider_output_answer_commitment.json",
+          "reports/skill_os2_audit.json",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/provider-holdout.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Do not commit provider credentials or environment dumps.",
+          "The output execution report records output hashes and aggregate run metadata, not raw provider prompts."
+        ],
+        "observed_state": {
+          "contract_version": "legacy",
+          "model_executed_count": 0,
+          "timing_observed_count": 0,
+          "token_observed_count": 0,
+          "accepted": false
+        },
+        "source_checklist": [
+          {
+            "evidence_key": "provider-holdout",
+            "label": "Provider model run",
+            "field": "model_executed_count",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Run provider-backed output-exec with real credentials."
+          },
+          {
+            "evidence_key": "provider-holdout",
+            "label": "Timing observed",
+            "field": "timing_observed_count",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Provider execution should record timing metadata."
+          },
+          {
+            "evidence_key": "provider-holdout",
+            "label": "Token usage observed",
+            "field": "token_observed_count",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Provider execution should return non-estimated token usage."
+          }
+        ],
+        "source_check_count": 3,
+        "source_pass_count": 0,
+        "source_blocked_count": 3,
+        "submission_state": {
+          "status": "invalid-contract",
+          "path": "evidence/world_class/submissions/provider-holdout.json",
+          "submitted_by": "operator with provider credentials",
+          "submitted_at": "YYYY-MM-DD",
+          "artifact_ref_count": 1,
+          "artifact_existing_count": 0,
+          "artifact_sha256_verified_count": 0,
+          "attested_real_evidence": false,
+          "reviewer_or_operator_identity_present": false,
+          "privacy_contract_satisfied": false,
+          "ledger_reviewer_approved": false,
+          "ledger_reviewer": "",
+          "ledger_reviewed_at": "",
+          "errors": [
+            "template_only must be false",
+            "submitted_by must not use template placeholder text",
+            "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "artifact_refs[0].path does not exist as a local file",
+            "all required evidence artifacts must have verified sha256 digests",
+            "attestation.real_external_or_human_evidence must be true for a real submission",
+            "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+            "attestation.artifact_refs_reviewed must be true for a real submission",
+            "attestation.privacy_contract_satisfied must be true for a real submission",
+            "attestation.ledger_reviewer_approved must be true for a real submission",
+            "attestation.ledger_reviewer is required",
+            "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "attestation.ledger_reviewer must be different from submitted_by",
+            "attestation.ledger_reviewed_at must be at or after submitted_at"
+          ],
+          "ledger_counts_as_completion": false
+        },
+        "anti_overclaim": {
+          "planned_work_counts_as_evidence": false,
+          "metadata_fallback_counts_as_native_enforcement": false,
+          "pending_review_counts_as_human_decision": false,
+          "local_command_runner_counts_as_provider_model": false
+        },
+        "next_action": "Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory."
+      },
+      {
+        "key": "human-adjudication",
+        "label": "Human Adjudication",
+        "category": "human",
+        "owner": "human reviewer",
+        "status": "pending",
+        "source_status": "human_required",
+        "source_accepted": false,
+        "current": "phase1 reviewers 0/3; pairs 0/20; promotion pending",
+        "objective": "Collect three controlled, independent reviews of the same 20-pair provider blind pack.",
+        "runbook": [
+          "Give each registered reviewer an independent copy of the matching provider_review_reviewer-*.json template and the role-neutral blind pack.",
+          "Collect all 20 A/B choices, reasons, controlled submission ids, timestamps, and truthful independent-review attestations.",
+          "Export an access-controlled reviewer registry that binds each reviewer id to the exact packet SHA256.",
+          "python3 scripts/yao.py evidence-finalize-review . --source-run <PROVIDER_RUN_ID> --decisions <reviewer-a.json> --decisions <reviewer-b.json> --decisions <reviewer-c.json> --reviewer-registry <registry.json> --run-id <FINAL_RUN_ID> --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/human-adjudication.intake.json to evidence/world_class/submissions/human-adjudication.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "provenance_requirements": [
+          "real reviewer identity",
+          "blind A/B decisions",
+          "answer key unopened until decisions exist"
+        ],
+        "success_checks": [
+          "reports/provider_output_adjudication.json summary.reviewer_count == 3",
+          "reports/provider_output_adjudication.json summary.pair_count == 20",
+          "reports/provider_output_adjudication.json summary.failure_count == 0",
+          "reports/provider_output_adjudication.json evidence_binding.blind_pack_sha256 matches the source run",
+          "reports/skill_os2_audit.json item human-adjudication status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "reports/provider_output_blind_pack.json",
+          "reports/provider_reviewer_registry.json",
+          "reports/provider_output_adjudication.json",
+          "reports/provider_review_lineage.json",
+          "scripts/adjudicate_multi_reviewer.py",
+          "scripts/finalize_provider_review.py",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/human-adjudication.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Reviewer packets contain choices, reasons, hashes, and controlled submission metadata without raw prompts or answer-key roles.",
+          "The private answer key remains under .yao/runs and is opened by the finalizer after all controlled packets are fixed.",
+          "The adjudication and lineage artifacts preserve blind_pack_sha256 and answer_key_sha256 commitments."
+        ],
+        "observed_state": {
+          "contract_version": "legacy",
+          "pair_count": 7,
+          "judgment_count": 0,
+          "pending_count": 7,
+          "invalid_decision_count": 0,
+          "answer_revealed_count": 0,
+          "reviewer_metadata_present": false,
+          "reason_required": true,
+          "blind_review_attested": false,
+          "raw_content_excluded_attested": true,
+          "reviewer_reason_required_attested": true,
+          "ready_for_human_evidence": false,
+          "raw_content_allowed": false,
+          "raw_content_path_count": 0,
+          "accepted": false
+        },
+        "source_checklist": [
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Review pairs exist",
+            "field": "pair_count",
+            "expected": ">0",
+            "actual": 7,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Generate the blind A/B review pack."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "No pending decisions",
+            "field": "pending_count",
+            "expected": "==0",
+            "actual": 7,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Record a reviewer choice and reason for every pair."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Judgments complete",
+            "field": "judgment_count",
+            "expected": "==pair_count",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Every pair needs one valid human judgment."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "No invalid decisions",
+            "field": "invalid_decision_count",
+            "expected": "==0",
+            "actual": 0,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Fix malformed winner/confidence entries."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Reviewer metadata",
+            "field": "reviewer_metadata_present",
+            "expected": "true",
+            "actual": false,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Record reviewer and reviewed_at before adjudication can count."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Reason required",
+            "field": "reason_required",
+            "expected": "true",
+            "actual": true,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Keep reason mandatory for every imported or direct reviewer decision."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Blind review attested",
+            "field": "blind_review_attested",
+            "expected": "true",
+            "actual": false,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Set reviewer_attestation only after choices are completed before opening the answer key."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Raw content attested",
+            "field": "raw_content_excluded_attested",
+            "expected": "true",
+            "actual": true,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Attest that reviewer decisions exclude raw prompts, outputs, transcripts, messages, and private user content."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Raw content blocked",
+            "field": "raw_content_allowed",
+            "expected": "false",
+            "actual": false,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Adjudication evidence should store prompt hashes and reviewer metadata, not raw prompts, outputs, transcripts, or messages."
+          },
+          {
+            "evidence_key": "human-adjudication",
+            "label": "Human evidence ready",
+            "field": "ready_for_human_evidence",
+            "expected": "true",
+            "actual": false,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Complete all reviewer decisions with metadata and rationale, plus blind-review attestation and integrity fingerprints."
+          }
+        ],
+        "source_check_count": 10,
+        "source_pass_count": 5,
+        "source_blocked_count": 5,
+        "submission_state": {
+          "status": "invalid-contract",
+          "path": "evidence/world_class/submissions/human-adjudication.json",
+          "submitted_by": "human reviewer",
+          "submitted_at": "YYYY-MM-DD",
+          "artifact_ref_count": 2,
+          "artifact_existing_count": 0,
+          "artifact_sha256_verified_count": 0,
+          "attested_real_evidence": false,
+          "reviewer_or_operator_identity_present": false,
+          "privacy_contract_satisfied": false,
+          "ledger_reviewer_approved": false,
+          "ledger_reviewer": "",
+          "ledger_reviewed_at": "",
+          "errors": [
+            "template_only must be false",
+            "submitted_by must not use template placeholder text",
+            "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "artifact_refs[0].path does not exist as a local file",
+            "artifact_refs[1].path does not exist as a local file",
+            "all required evidence artifacts must have verified sha256 digests",
+            "attestation.real_external_or_human_evidence must be true for a real submission",
+            "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+            "attestation.artifact_refs_reviewed must be true for a real submission",
+            "attestation.privacy_contract_satisfied must be true for a real submission",
+            "attestation.ledger_reviewer_approved must be true for a real submission",
+            "attestation.ledger_reviewer is required",
+            "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "attestation.ledger_reviewer must be different from submitted_by",
+            "attestation.ledger_reviewed_at must be at or after submitted_at"
+          ],
+          "ledger_counts_as_completion": false
+        },
+        "anti_overclaim": {
+          "planned_work_counts_as_evidence": false,
+          "metadata_fallback_counts_as_native_enforcement": false,
+          "pending_review_counts_as_human_decision": false,
+          "local_command_runner_counts_as_provider_model": false
+        },
+        "next_action": "Collect three controlled reviewer packets and adjudicate them against the private run answer key."
+      },
+      {
+        "key": "native-permission-enforcement",
+        "label": "Native Permission Enforcement",
+        "category": "external",
+        "owner": "target client or installer integrator",
+        "status": "pending",
+        "source_status": "external_required",
+        "source_accepted": false,
+        "current": "native-enforced targets 0; installer-enforced targets 2",
+        "objective": "Prove at least one real target client or external installer runtime guard enforces approved high-permission capabilities.",
+        "runbook": [
+          "Implement or connect a real target client or external installer runtime guard that blocks undeclared network, file_write, or subprocess capabilities.",
+          "Update the generated target adapter only when the guard is actually enforced by that target.",
+          "python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self",
+          "python3 scripts/yao.py install-simulate . --package-dir dist --install-root dist/install-simulation --self",
+          "python3 scripts/yao.py runtime-permissions . --package-dir dist --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/native-permission-enforcement.intake.json to evidence/world_class/submissions/native-permission-enforcement.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "provenance_requirements": [
+          "real target client or external installer runtime guard",
+          "native enforcement flag or externally accepted guard proof",
+          "residual risk retained for fallback targets"
+        ],
+        "success_checks": [
+          "reports/runtime_permission_probes.json summary.native_enforcement_count > 0",
+          "reports/runtime_permission_probes.json summary.failure_count == 0",
+          "reports/runtime_permission_probes.json summary.installer_enforcement_pass_count records local installer enforcement but does not replace native evidence",
+          "reports/skill_os2_audit.json item native-permission-enforcement status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "dist/targets/*/adapter.json",
+          "reports/runtime_permission_probes.json",
+          "reports/runtime_permission_probes.md",
+          "reports/install_simulation.json",
+          "reports/install_simulation.md",
+          "security/permission_policy.json",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/native-permission-enforcement.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Do not mark native_enforcement true for metadata-only fallbacks.",
+          "Keep residual risks visible for targets that still rely on operator enforcement."
+        ],
+        "observed_state": {
+          "native_enforcement_count": 0,
+          "metadata_fallback_count": 2,
+          "installer_enforcement_pass_count": 2,
+          "installer_permission_failure_count": 0,
+          "installer_enforcement_ready": true,
+          "residual_risk_count": 2,
+          "failure_count": 0,
+          "accepted": false
+        },
+        "source_checklist": [
+          {
+            "evidence_key": "native-permission-enforcement",
+            "label": "Native enforcement",
+            "field": "native_enforcement_count",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Collect real target-client or external runtime guard proof."
+          },
+          {
+            "evidence_key": "native-permission-enforcement",
+            "label": "Probe failures",
+            "field": "failure_count",
+            "expected": "==0",
+            "actual": 0,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Runtime permission probes must stay clean."
+          },
+          {
+            "evidence_key": "native-permission-enforcement",
+            "label": "Installer support",
+            "field": "installer_enforcement_ready",
+            "expected": "true",
+            "actual": true,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Installer enforcement is supporting evidence, not native proof."
+          }
+        ],
+        "source_check_count": 3,
+        "source_pass_count": 2,
+        "source_blocked_count": 1,
+        "submission_state": {
+          "status": "invalid-contract",
+          "path": "evidence/world_class/submissions/native-permission-enforcement.json",
+          "submitted_by": "target client or installer integrator",
+          "submitted_at": "YYYY-MM-DD",
+          "artifact_ref_count": 3,
+          "artifact_existing_count": 2,
+          "artifact_sha256_verified_count": 0,
+          "attested_real_evidence": false,
+          "reviewer_or_operator_identity_present": false,
+          "privacy_contract_satisfied": false,
+          "ledger_reviewer_approved": false,
+          "ledger_reviewer": "",
+          "ledger_reviewed_at": "",
+          "errors": [
+            "template_only must be false",
+            "submitted_by must not use template placeholder text",
+            "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "artifact_refs[0].sha256 is required for a real submission",
+            "artifact_refs[1].sha256 is required for a real submission",
+            "artifact_refs[2].path artifact_refs path must be concrete, not a placeholder or glob",
+            "all required evidence artifacts must have verified sha256 digests",
+            "attestation.real_external_or_human_evidence must be true for a real submission",
+            "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+            "attestation.artifact_refs_reviewed must be true for a real submission",
+            "attestation.privacy_contract_satisfied must be true for a real submission",
+            "attestation.ledger_reviewer_approved must be true for a real submission",
+            "attestation.ledger_reviewer is required",
+            "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "attestation.ledger_reviewer must be different from submitted_by",
+            "attestation.ledger_reviewed_at must be at or after submitted_at",
+            "native-permission-enforcement runtime probe summary.native_enforcement_count must be >0",
+            "native-permission-enforcement native target rows must match summary.native_enforcement_count",
+            "native-permission-enforcement must include at least one native-enforced target row"
+          ],
+          "ledger_counts_as_completion": false
+        },
+        "anti_overclaim": {
+          "planned_work_counts_as_evidence": false,
+          "metadata_fallback_counts_as_native_enforcement": false,
+          "pending_review_counts_as_human_decision": false,
+          "local_command_runner_counts_as_provider_model": false
+        },
+        "next_action": "Integrate a real target-client or external installer runtime guard before claiming native permission enforcement."
+      },
+      {
+        "key": "native-client-telemetry",
+        "label": "Native Client Telemetry",
+        "category": "external",
+        "owner": "Browser/Chrome/IDE/provider client integrator",
+        "status": "pending",
+        "source_status": "external_required",
+        "source_accepted": false,
+        "current": "external source events 0; adoption samples 0",
+        "objective": "Import production metadata-only events from a real external client into the local drift loop.",
+        "runbook": [
+          "python3 scripts/telemetry_native_host.py . --write-launcher /tmp/yao-telemetry-host.sh --write-manifest /tmp/yao-telemetry-host.json --allowed-origin chrome-extension://<extension-id>/",
+          "Install the generated native messaging manifest for the real client and send at least one accepted skill_activation or skill_output event.",
+          "python3 scripts/yao.py telemetry-import . --input-jsonl .yao/telemetry_spool/external_events.jsonl --self",
+          "python3 scripts/yao.py skill-atlas --workspace-root . --self",
+          "python3 scripts/yao.py skill-os2-audit . --generated-at <YYYY-MM-DD> --self",
+          "Copy evidence/world_class/templates/native-client-telemetry.intake.json to evidence/world_class/submissions/native-client-telemetry.json and fill only real evidence fields.",
+          "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions --self"
+        ],
+        "provenance_requirements": [
+          "real external client source",
+          "metadata-only event",
+          "local-first import path"
+        ],
+        "success_checks": [
+          "reports/adoption_drift_report.json summary.source_types.external > 0",
+          "reports/adoption_drift_report.json summary.adoption_sample_count > 0",
+          "reports/skill_os2_audit.json item native-client-telemetry status becomes pass"
+        ],
+        "evidence_artifacts": [
+          "reports/adoption_drift_report.json",
+          "reports/adoption_drift_report.md",
+          "reports/telemetry_hook_recipes.json",
+          "scripts/telemetry_native_host.py",
+          "evidence/world_class/intake.schema.json",
+          "evidence/world_class/templates/native-client-telemetry.intake.json",
+          "reports/world_class_evidence_intake.json",
+          "reports/world_class_evidence_intake.md"
+        ],
+        "privacy_contract": [
+          "Telemetry must remain metadata-only and local-first.",
+          "Do not package reports/telemetry_events.jsonl or any raw prompt, output, transcript, note, or message field."
+        ],
+        "observed_state": {
+          "external_source_events": 0,
+          "adoption_sample_count": 0,
+          "raw_content_allowed": false,
+          "risk_band": "no-data",
+          "accepted": false
+        },
+        "source_checklist": [
+          {
+            "evidence_key": "native-client-telemetry",
+            "label": "External events",
+            "field": "external_source_events",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Import at least one metadata-only event from a real client."
+          },
+          {
+            "evidence_key": "native-client-telemetry",
+            "label": "Adoption sample",
+            "field": "adoption_sample_count",
+            "expected": ">0",
+            "actual": 0,
+            "status": "blocked",
+            "source_accepted": false,
+            "next_action": "Telemetry must include adoption outcome evidence."
+          },
+          {
+            "evidence_key": "native-client-telemetry",
+            "label": "Raw content blocked",
+            "field": "raw_content_allowed",
+            "expected": "false",
+            "actual": false,
+            "status": "pass",
+            "source_accepted": false,
+            "next_action": "Telemetry must stay metadata-only."
+          }
+        ],
+        "source_check_count": 3,
+        "source_pass_count": 1,
+        "source_blocked_count": 2,
+        "submission_state": {
+          "status": "invalid-contract",
+          "path": "evidence/world_class/submissions/native-client-telemetry.json",
+          "submitted_by": "Browser/Chrome/IDE/provider client integrator",
+          "submitted_at": "YYYY-MM-DD",
+          "artifact_ref_count": 2,
+          "artifact_existing_count": 1,
+          "artifact_sha256_verified_count": 0,
+          "attested_real_evidence": false,
+          "reviewer_or_operator_identity_present": false,
+          "privacy_contract_satisfied": false,
+          "ledger_reviewer_approved": false,
+          "ledger_reviewer": "",
+          "ledger_reviewed_at": "",
+          "errors": [
+            "template_only must be false",
+            "submitted_by must not use template placeholder text",
+            "submitted_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "artifact_refs[0].sha256 is required for a real submission",
+            "artifact_refs[1].path does not exist as a local file",
+            "all required evidence artifacts must have verified sha256 digests",
+            "attestation.real_external_or_human_evidence must be true for a real submission",
+            "attestation.reviewer_or_operator_identity_present must be true for a real submission",
+            "attestation.artifact_refs_reviewed must be true for a real submission",
+            "attestation.privacy_contract_satisfied must be true for a real submission",
+            "attestation.ledger_reviewer_approved must be true for a real submission",
+            "attestation.ledger_reviewer is required",
+            "attestation.ledger_reviewed_at must use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ",
+            "attestation.ledger_reviewer must be different from submitted_by",
+            "attestation.ledger_reviewed_at must be at or after submitted_at",
+            "native-client-telemetry adoption drift summary.source_types.external must be >0",
+            "native-client-telemetry adoption drift summary.adoption_sample_count must be >0",
+            "native-client-telemetry adoption drift recent_events must not be empty",
+            "native-client-telemetry external event rows must cover summary.source_types.external",
+            "native-client-telemetry must include at least one external adoption event row",
+            "native-client-telemetry adoption event rows must cover summary.adoption_sample_count",
+            "native-client-telemetry adoption_by_skill must include at least one adoption event"
+          ],
+          "ledger_counts_as_completion": false
+        },
+        "anti_overclaim": {
+          "planned_work_counts_as_evidence": false,
+          "metadata_fallback_counts_as_native_enforcement": false,
+          "pending_review_counts_as_human_decision": false,
+          "local_command_runner_counts_as_provider_model": false
+        },
+        "next_action": "Install a real client against the native host and import production metadata-only events."
+      }
+    ],
+    "source_plan": {
+      "json": "reports/world_class_evidence_plan.json",
+      "markdown": "reports/world_class_evidence_plan.md",
+      "task_count": 4,
+      "evidence_requirement_count": 4
+    }
+  },
+  "synthesis_highlights": [],
+  "artifact_design": {
+    "design_system": "content-led editorial",
+    "highlights": []
+  },
+  "prompt_quality": {
+    "overall_quality_score": "n/a",
+    "highlights": []
+  },
+  "system_model": {
+    "stability": {},
+    "highlights": []
+  },
+  "metadata": {
+    "canonical_format": "agent-skills",
+    "targets": [
+      "openai",
+      "generic"
+    ],
+    "maturity_tier": "governed",
+    "skill_archetype": "governed",
+    "updated_at": "2026-08-17"
+  }
+}

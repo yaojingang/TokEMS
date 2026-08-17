@@ -6,6 +6,7 @@ import {
   DEMO_IDS,
   PUBLIC_EVENT_STATUSES,
   isPublicEventStatus,
+  speakerAvatarText,
   type AdminDashboard,
   type AdminDashboardQuery,
   type AdminOrderList,
@@ -22,12 +23,14 @@ import {
   type Order,
   type PublicEvent,
   type PublicEventMetrics,
+  type PublicEventSpeakerDetail,
   type PublicEventViewResult,
   type Registration,
   type RegistrationBusinessStatus,
   type RegistrationField,
   type RegistrationCheckout,
   type ReviewRegistration,
+  type SpeakerSocialLink,
   type Ticket,
   type UpdateEvent,
   type WaitlistEntry,
@@ -164,6 +167,11 @@ interface ReleaseSpeakerSnapshot {
   accentFrom?: string;
   accentTo?: string;
   tags?: string[];
+  avatarAssetId?: string | null;
+  bio?: string | null;
+  topicAbstract?: string | null;
+  websiteUrl?: string | null;
+  socialLinks?: SpeakerSocialLink[];
 }
 
 interface ReleaseSessionSnapshot {
@@ -749,10 +757,13 @@ export class ConferenceRepository {
             name: row.name,
             role: row.role ?? '',
             topic: row.topic ?? '',
-            initials: row.initials ?? row.name.slice(0, 2),
+            initials: speakerAvatarText(row.name, row.initials),
             accentFrom: row.accentFrom ?? '#2448a8',
             accentTo: row.accentTo ?? '#102759',
             tags: row.tags ?? [],
+            ...(row.avatarAssetId
+              ? { avatarUrl: `/assets/templates/${encodeURIComponent(row.avatarAssetId)}` }
+              : {}),
           }))
       : speakerRows.map((row) => ({
           id: row.id,
@@ -763,6 +774,9 @@ export class ConferenceRepository {
           accentFrom: row.accentFrom,
           accentTo: row.accentTo,
           tags: row.tags,
+          ...(row.avatarAssetId
+            ? { avatarUrl: `/assets/templates/${encodeURIComponent(row.avatarAssetId)}` }
+            : {}),
         }));
     const snapshotSessions = releaseSnapshot?.sessions;
     const publicSessions = snapshotSessions?.length
@@ -1064,6 +1078,86 @@ export class ConferenceRepository {
       pageViews: Number(counter?.pageViews ?? 0),
       trackingStartedAt: counter?.trackingStartedAt.toISOString() ?? null,
       updatedAt: counter?.updatedAt.toISOString() ?? null,
+    };
+  }
+
+  async getPublicSpeaker(
+    slug: string,
+    organizationSlug: string,
+    speakerId: string,
+  ): Promise<PublicEventSpeakerDetail> {
+    const event = await this.getPublicEvent(slug, organizationSlug);
+    const speaker = event.speakers.find((item) => item.id === speakerId);
+    if (!speaker) {
+      throw new DomainError(
+        API_ERROR_CODES.NOT_FOUND,
+        '嘉宾不存在或已停止公开',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    let profile: ReleaseSpeakerSnapshot | undefined;
+    let releasedEvent: ReleaseEventSnapshot | undefined;
+    const db = this.database.db;
+    if (db) {
+      const [eventRow] = await db
+        .select({ settings: events.settings })
+        .from(events)
+        .where(eq(events.id, event.id))
+        .limit(1);
+      const currentReleaseId = (eventRow?.settings as { currentReleaseId?: string } | undefined)
+        ?.currentReleaseId;
+      if (!currentReleaseId) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或发布版本已失效',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const [release] = await db
+        .select({ snapshot: eventReleases.snapshot })
+        .from(eventReleases)
+        .where(and(eq(eventReleases.id, currentReleaseId), eq(eventReleases.eventId, event.id)))
+        .limit(1);
+      const snapshot = release?.snapshot as EventReleaseSnapshot | undefined;
+      releasedEvent = snapshot?.event;
+      profile = snapshot?.speakers?.find((item) => item.id === speakerId);
+      if (!profile) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '嘉宾不存在或已停止公开',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+    }
+
+    const releasedSpeaker = profile
+      ? {
+          ...speaker,
+          name: profile.name ?? speaker.name,
+          role: profile.role ?? speaker.role,
+          topic: profile.topic ?? speaker.topic,
+          initials: profile.initials ?? speaker.initials,
+          accentFrom: profile.accentFrom ?? speaker.accentFrom,
+          accentTo: profile.accentTo ?? speaker.accentTo,
+          tags: profile.tags ?? speaker.tags,
+          ...(profile.avatarAssetId
+            ? { avatarUrl: `/assets/templates/${encodeURIComponent(profile.avatarAssetId)}` }
+            : { avatarUrl: undefined }),
+        }
+      : speaker;
+    return {
+      ...releasedSpeaker,
+      eventName: releasedEvent?.name ?? event.name,
+      eventSlug: event.slug,
+      eventStartsAt: releasedEvent?.startsAt ?? event.startsAt,
+      eventEndsAt: releasedEvent?.endsAt ?? event.endsAt,
+      eventTimezone: releasedEvent?.timezone ?? event.timezone,
+      eventCity: releasedEvent?.city ?? event.city,
+      ...(profile?.bio ? { bio: profile.bio } : {}),
+      ...(profile?.topicAbstract ? { topicAbstract: profile.topicAbstract } : {}),
+      ...(profile?.websiteUrl ? { websiteUrl: profile.websiteUrl } : {}),
+      socialLinks: profile?.socialLinks ?? [],
     };
   }
 

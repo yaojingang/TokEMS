@@ -24,4 +24,14 @@ describe('event experience compatibility', () => {
 
     expect(hasEnabledEventFlowStep(disabledEvent, 'member-profile')).toBe(false);
   });
+
+  it('adds the cooperation block to an older published experience snapshot', () => {
+    const olderEvent = structuredClone(DEMO_EVENT);
+    const home = olderEvent.experience?.home;
+    if (!home) throw new Error('expected demo experience');
+    home.blocks = home.blocks.filter((block) => block.nodeKey !== 'home.cooperation');
+
+    const experience = resolveEventExperience(olderEvent);
+    expect(experience.home.blocks.some((block) => block.nodeKey === 'home.cooperation')).toBe(true);
+  });
 });

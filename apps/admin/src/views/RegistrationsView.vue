@@ -8,6 +8,7 @@ import type {
 } from '@conference/contracts';
 import { useRoute } from 'vue-router';
 import { conferenceApi, publicEventUrl, session, type AdminRegistrationRow } from '../lib/api';
+import RegistrationOperationsTabs from '../components/RegistrationOperationsTabs.vue';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
 
 const rows = ref<AdminRegistrationRow[]>([]);
@@ -245,6 +246,7 @@ watch(
       </div>
     </form>
   </header>
+  <RegistrationOperationsTabs />
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
   <section class="admin-panel registration-list-panel reveal is-visible">

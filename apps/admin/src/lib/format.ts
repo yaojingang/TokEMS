@@ -32,6 +32,9 @@ const statusLabels: Record<string, string> = {
   completed: '已完成',
   cancelled: '已取消',
   closed: '已关闭',
+  new: '待跟进',
+  contacted: '已联系',
+  converted: '已达成',
   refunded: '已退款',
   partially_refunded: '部分退款',
   waiting: '候补中',
@@ -68,8 +71,14 @@ export function statusLabel(status: string) {
 }
 
 export function statusClass(status: string) {
-  if (['pending_review', 'processing', 'payment_processing', 'prepublished', 'queued'].includes(status)) return 'pending';
-  if (['cancelled', 'closed', 'refunded', 'rejected', 'failed', 'payment_failed'].includes(status)) return 'issue';
+  if (
+    ['pending_review', 'processing', 'payment_processing', 'prepublished', 'queued'].includes(
+      status,
+    )
+  )
+    return 'pending';
+  if (['cancelled', 'closed', 'refunded', 'rejected', 'failed', 'payment_failed'].includes(status))
+    return 'issue';
   if (['pending_payment', 'draft', 'configuring'].includes(status)) return 'draft';
   if (['ended', 'archived'].includes(status)) return 'muted';
   return '';

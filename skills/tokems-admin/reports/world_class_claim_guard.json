@@ -1,0 +1,507 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "generated_at": "2026-08-17",
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "summary": {
+    "ledger_ready_to_claim_world_class": false,
+    "ledger_pending_count": 4,
+    "claim_surface_count": 113,
+    "json_claim_surface_count": 67,
+    "metadata_claim_surface_count": 68,
+    "package_claim_surface_count": 5,
+    "violation_count": 0,
+    "overclaim_guard_active": true,
+    "decision": "claim-guard-pass-evidence-pending"
+  },
+  "rules": [
+    {
+      "key": "ready-to-claim-true",
+      "reason": "ready_to_claim_world_class cannot be true while ledger evidence is pending.",
+      "pattern": "ready[\\s_-]*to[\\s_-]*claim[\\s_-]*world[\\s_-]*class\\s*[:=]\\s*`?true`?"
+    },
+    {
+      "key": "world-class-ready-true",
+      "reason": "world-class readiness cannot be claimed before accepted external and human evidence exists.",
+      "pattern": "(public\\s+)?world[\\s_-]*class[\\s_-]*ready\\s*[:=]\\s*`?true`?"
+    },
+    {
+      "key": "json-world-class-ready-true",
+      "reason": "machine-readable claim fields must remain false until the ledger is ready.",
+      "pattern": "\"(?:ready_to_claim_world_class|world_class_ready|public_world_class_ready)\"\\s*:\\s*true"
+    },
+    {
+      "key": "completion-phrase",
+      "reason": "completion language is blocked until the world-class ledger is accepted.",
+      "pattern": "(public\\s+)?world[\\s_-]*class\\s+(?:complete|completed|achieved|certified)"
+    },
+    {
+      "key": "zh-completion-phrase",
+      "reason": "中文完成态表述必须等到 ledger ready 后才能出现。",
+      "pattern": "世界级(?:已完成|完成|已达成|达成|准备就绪|可声明|认证通过)"
+    }
+  ],
+  "scanned_surfaces": [
+    {
+      "path": "SKILL.md",
+      "violation_count": 0
+    },
+    {
+      "path": "agents/interface.yaml",
+      "violation_count": 0
+    },
+    {
+      "path": "evidence/world_class/templates/human-adjudication.intake.json",
+      "violation_count": 0
+    },
+    {
+      "path": "evidence/world_class/templates/native-client-telemetry.intake.json",
+      "violation_count": 0
+    },
+    {
+      "path": "evidence/world_class/templates/native-permission-enforcement.intake.json",
+      "violation_count": 0
+    },
+    {
+      "path": "evidence/world_class/templates/provider-holdout.intake.json",
+      "violation_count": 0
+    },
+    {
+      "path": "manifest.json",
+      "violation_count": 0
+    },
+    {
+      "path": "registry/index.json",
+      "violation_count": 0
+    },
+    {
+      "path": "registry/packages/tokems-admin-bootstrap.json",
+      "violation_count": 0
+    },
+    {
+      "path": "registry/packages/tokems-admin.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/adoption_drift_report.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/adoption_drift_report.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/architecture_maintainability.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/architecture_maintainability.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/catalog.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/compiled_targets.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/compiled_targets.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_generic.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_generic.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_matrix.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_matrix.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_openai.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/conformance_openai.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/context_budget.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/context_budget.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/dependency_graph.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/drift_signals.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/evidence_status.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/install_simulation.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/install_simulation.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/intent-confidence.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/intent-confidence.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/intent-context.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/no_route_opportunities.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_blind_answer_key.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_blind_pack.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_blind_pack.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_blind_review_pack.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_blind_review_pack.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_eval.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_execution_runs.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_execution_runs.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_quality_scorecard.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_quality_scorecard.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_adjudication.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_adjudication.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_decisions.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_kit.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_kit.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/output_review_kit.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/owner_review_gaps.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/package_verification.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/package_verification.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/promotion_decisions.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/promotion_decisions.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/python_compatibility.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/python_compatibility.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/registry_audit.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/registry_audit.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review-studio.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review-studio.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review_annotations.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review_annotations.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review_annotations_source.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review_waivers.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/review_waivers.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/route_scorecard.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/route_scorecard.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/runtime_permission_probes.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/runtime_permission_probes.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/security_trust_report.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/security_trust_report.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/catalog.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/dependency_graph.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/drift_signals.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/no_route_opportunities.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/owner_review_gaps.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-atlas/stale_skills.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-ir.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-overview.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill-overview.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_atlas.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_atlas.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_os2_audit.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_os2_audit.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_os2_coverage.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/skill_os2_coverage.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/stale_skills.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/trigger_eval_summary.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/upgrade_check.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/upgrade_check.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_claim_guard.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_intake.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_intake.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_ledger.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_ledger.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_plan.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_plan.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_preflight.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_preflight.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_evidence_preflight.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_operator_runbook.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_operator_runbook.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_operator_runbook.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_runbook.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_runbook.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_runbook.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_submission_kit.html",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_submission_review.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/world_class_submission_review.md",
+      "violation_count": 0
+    },
+    {
+      "path": "security/network_policy.json",
+      "violation_count": 0
+    },
+    {
+      "path": "security/permission_policy.json",
+      "violation_count": 0
+    },
+    {
+      "path": "security/permission_policy.md",
+      "violation_count": 0
+    }
+  ],
+  "violations": [],
+  "source_ledger": {
+    "json": "reports/world_class_evidence_ledger.json",
+    "markdown": "reports/world_class_evidence_ledger.md"
+  },
+  "artifacts": {
+    "json": "reports/world_class_claim_guard.json",
+    "markdown": "reports/world_class_claim_guard.md"
+  }
+}

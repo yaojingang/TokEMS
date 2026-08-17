@@ -19,6 +19,12 @@ import { HtmlTemplateOperationsService } from './html-template-operations.servic
 import { RedisService } from './redis.service.js';
 import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
+import { CooperationRequestService } from './cooperation-request.service.js';
+import { AgentAuthorizationService } from './agent-authorization.service.js';
+import { AgentOperationService } from './agent-operation.service.js';
+import { AgentPolicyService } from './agent-policy.service.js';
+import { AgentPrincipalService } from './agent-principal.service.js';
+import { AgentOperationInterceptor } from './agent-operation.interceptor.js';
 import { EventPublicMetricsService } from './event-public-metrics.service.js';
 
 @Global()
@@ -44,6 +50,12 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    CooperationRequestService,
+    AgentAuthorizationService,
+    AgentOperationService,
+    AgentPolicyService,
+    AgentPrincipalService,
+    AgentOperationInterceptor,
     EventPublicMetricsService,
   ],
   exports: [
@@ -67,6 +79,12 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    CooperationRequestService,
+    AgentAuthorizationService,
+    AgentOperationService,
+    AgentPolicyService,
+    AgentPrincipalService,
+    AgentOperationInterceptor,
     EventPublicMetricsService,
   ],
 })

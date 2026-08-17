@@ -1,5 +1,7 @@
 import {
+  DEFAULT_ANALYTICS_SETTINGS,
   DEMO_EVENT,
+  type CreateCooperationRequest,
   type CreateRegistration,
   type CustomerOrderAccess,
   type Order,
@@ -8,6 +10,8 @@ import {
   type PublicEventViewResult,
   type PublicEventMemberDetail,
   type PublicEventMemberList,
+  type PublicEventSpeakerDetail,
+  type PublicCooperationRequestResult,
   type RegistrationCheckout,
   type SubmitInvoiceDetails,
   type Ticket,
@@ -138,6 +142,20 @@ export function useConferenceApi() {
     };
   }
 
+  async function getEventSpeaker(slug: string, speakerId: string) {
+    const result = await $fetch<PublicEventSpeakerDetail>(
+      `/events/${encodeURIComponent(slug)}/speakers/${encodeURIComponent(speakerId)}`,
+      {
+        baseURL,
+        headers: { 'X-Organization-Slug': organizationSlug },
+      },
+    );
+    return {
+      ...result,
+      ...(result.avatarUrl ? { avatarUrl: publicApiResourceUrl(result.avatarUrl) } : {}),
+    };
+  }
+
   async function getSiteConfiguration(): Promise<PublicSiteConfiguration> {
     try {
       return await $fetch<PublicSiteConfiguration>('/site-config', {
@@ -157,13 +175,7 @@ export function useConferenceApi() {
           icpNumber: '',
           supportEmail: '',
         },
-        analytics: {
-          enabled: false,
-          provider: 'baidu',
-          trackingId: '',
-          scriptUrl: '',
-          siteId: '',
-        },
+        analytics: { ...DEFAULT_ANALYTICS_SETTINGS },
         customerAccounts: {
           termsUrl: '',
           termsVersion: '',
@@ -191,6 +203,21 @@ export function useConferenceApi() {
       if (import.meta.dev && isNetworkFailure(error)) return createLocalCheckout(input);
       throw error;
     }
+  }
+
+  async function createCooperationRequest(
+    input: CreateCooperationRequest,
+    idempotencyKey: string,
+  ): Promise<PublicCooperationRequestResult> {
+    return $fetch<PublicCooperationRequestResult>('/cooperation-requests', {
+      method: 'POST',
+      baseURL,
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'X-Organization-Slug': organizationSlug,
+      },
+      body: input,
+    });
   }
 
   async function joinWaitlist(input: WaitlistJoin): Promise<WaitlistEntry> {
@@ -638,8 +665,10 @@ export function useConferenceApi() {
     recordPublicEventView,
     getEventMembers,
     getEventMember,
+    getEventSpeaker,
     getSiteConfiguration,
     createRegistration,
+    createCooperationRequest,
     joinWaitlist,
     confirmPayment,
     localPaymentSimulationCapability,

@@ -6,6 +6,9 @@ import {
   type AiRun,
   type AdminDashboard,
   type AdminDashboardQuery,
+  type AdminCooperationRequest,
+  type AdminCooperationRequestList,
+  type AdminCooperationRequestListQuery,
   type AdminOrderList,
   type AdminOrderListQuery,
   type AdminOrderRow,
@@ -15,6 +18,8 @@ import {
   type AdminRegistrationList,
   type AdminRegistrationListQuery,
   type AdminRegistrationRow,
+  type AdminSpeakerDetail,
+  type AdminSpeakerSummary,
   type AliyunSmsConfiguration,
   type AliyunSmsConnectionTest,
   type AuthMe,
@@ -28,6 +33,7 @@ import {
   type CreateCustomerAdminResult,
   type CreateOrganizationAdministrator,
   type CreateRegistrationNote,
+  type CreateSpeaker,
   type CreateOrganizationInvitation,
   type CreateOrganizationInvitationResult,
   type CreateEvent,
@@ -79,10 +85,13 @@ import {
   type UpdateAliyunSmsConfiguration,
   type UpdateCustomerAdmin,
   type UpdateEvent,
+  type UpdateCooperationRequest,
   type UpdateEventTemplateBinding,
   type UpdateOrganizationAdministrator,
+  type UpdateOrganizationAnalytics,
   type UpdateOrganizationMember,
   type UpdateOrganizationSettings,
+  type UpdateSpeaker,
   type UpdateWeChatPayConfiguration,
   type WaitlistEntry,
   type WeChatPayConfiguration,
@@ -106,6 +115,8 @@ import {
 import { routeEventId } from './route-scope.js';
 
 export type {
+  AdminCooperationRequest,
+  AdminCooperationRequestList,
   AdminOrderRow,
   AdminRegistrationDetail,
   AdminRegistrationOperationsDetail,
@@ -122,6 +133,62 @@ export interface CheckInResult {
   };
   checkedInAt: string;
   message: string;
+}
+
+export interface AgentConnectionSummary {
+  id: string;
+  name: string;
+  clientId: string;
+  scopes: string[];
+  approvalPolicy: 'controlled-and-critical' | 'critical-only';
+  status: 'active' | 'revoked' | 'expired';
+  dpopThumbprint: string;
+  catalogVersion: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface AgentSecurityMetrics {
+  generatedAt: string;
+  window: '24h';
+  connections: Record<string, number>;
+  authorizations: Record<string, number>;
+  operations: Record<string, number>;
+  refreshReuseRevocations: number;
+  alerts: Array<{
+    code: string;
+    severity: 'warning' | 'critical';
+    count: number;
+  }>;
+}
+
+export interface AgentAuthorizationDetail {
+  id: string;
+  clientId: string;
+  clientName: string;
+  skillVersion: string;
+  resource: string;
+  requestedScopes: string[];
+  dpopThumbprint: string;
+  status: 'pending' | 'approved' | 'denied' | 'consumed' | 'expired';
+  expiresAt: string;
+}
+
+export interface AgentOperationDetail {
+  id: string;
+  actionId: string;
+  target: Record<string, unknown>;
+  dataClass: string;
+  risk: string;
+  reason: string;
+  requestHash: string;
+  beforeFingerprint: string;
+  redactedDiff: Record<string, unknown>;
+  impactSummary: Record<string, unknown>;
+  status: string;
+  expiresAt: string;
 }
 
 export interface TemplateAsset {
@@ -463,6 +530,20 @@ const baseURL =
   import.meta.env.VITE_API_BASE ??
   (import.meta.env.DEV ? 'http://localhost:4100/api/v1' : '/api/v1');
 
+function apiResourceUrl(path: string | null | undefined) {
+  if (!path) return null;
+  if (/^https?:\/\//u.test(path)) return path;
+  return `${baseURL.replace(/\/$/u, '')}/${path.replace(/^\//u, '')}`;
+}
+
+function normalizeAdminSpeaker<T extends AdminSpeakerSummary>(speaker: T): T {
+  return {
+    ...speaker,
+    ...(speaker.avatarUrl ? { avatarUrl: apiResourceUrl(speaker.avatarUrl) ?? undefined } : {}),
+    avatarPreviewUrl: apiResourceUrl(speaker.avatarPreviewUrl),
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseURL}${path}`, {
     ...init,
@@ -495,6 +576,94 @@ const adminPreferenceWriter = createLatestPreferenceWriter(async (lastEventId) =
 });
 
 export const conferenceApi = {
+  getAgentAuthorization(authorizationId: string) {
+    return request<AgentAuthorizationDetail>(
+      `/admin/agent-authorizations/${encodeURIComponent(authorizationId)}`,
+    );
+  },
+  resolveAgentAuthorization(userCode: string) {
+    return request<AgentAuthorizationDetail>(
+      `/admin/agent-authorizations?userCode=${encodeURIComponent(userCode)}`,
+    );
+  },
+  stepUp(input: { password: string; purpose: string; targetId: string; requestHash: string }) {
+    return request<{ stepUpToken: string; expiresIn: number }>('/auth/step-up', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  approveAgentAuthorization(
+    authorizationId: string,
+    input: {
+      scopes: string[];
+      approvalPolicy: AgentConnectionSummary['approvalPolicy'];
+      userCode: string;
+      stepUpToken: string;
+      requestHash: string;
+    },
+  ) {
+    return request<{ id: string; status: string }>(
+      `/admin/agent-authorizations/${encodeURIComponent(authorizationId)}/approve`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
+  },
+  denyAgentAuthorization(authorizationId: string) {
+    return request<{ id: string; status: string }>(
+      `/admin/agent-authorizations/${encodeURIComponent(authorizationId)}/deny`,
+      { method: 'POST' },
+    );
+  },
+  getAgentConnections() {
+    return request<AgentConnectionSummary[]>('/admin/agent-connections');
+  },
+  getAgentSecurityMetrics() {
+    return request<AgentSecurityMetrics>('/admin/agent-security-metrics');
+  },
+  updateAgentConnectionPolicy(
+    connectionId: string,
+    input: {
+      approvalPolicy: AgentConnectionSummary['approvalPolicy'];
+      stepUpToken: string;
+      requestHash: string;
+    },
+  ) {
+    return request<Pick<AgentConnectionSummary, 'id' | 'approvalPolicy'>>(
+      `/admin/agent-connections/${encodeURIComponent(connectionId)}/policy`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  revokeAgentConnection(connectionId: string) {
+    return request<{ id: string; status: string }>(
+      `/admin/agent-connections/${encodeURIComponent(connectionId)}/revoke`,
+      { method: 'POST' },
+    );
+  },
+  revokeAllAgentConnections(input: { stepUpToken: string; requestHash: string }) {
+    return request<{ revoked: number }>('/admin/agent-connections/revoke-all', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  getAgentOperation(operationId: string) {
+    return request<AgentOperationDetail>(
+      `/admin/agent-operations/${encodeURIComponent(operationId)}`,
+    );
+  },
+  approveAgentOperation(
+    operationId: string,
+    input: { requestHash: string; beforeFingerprint: string; stepUpToken?: string },
+  ) {
+    return request<AgentOperationDetail>(
+      `/admin/agent-operations/${encodeURIComponent(operationId)}/approve`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
+  },
+  denyAgentOperation(operationId: string) {
+    return request<AgentOperationDetail>(
+      `/admin/agent-operations/${encodeURIComponent(operationId)}/deny`,
+      { method: 'POST' },
+    );
+  },
   login(username: string, password: string, organizationSlug?: string) {
     return request<LoginResult>('/auth/login', {
       method: 'POST',
@@ -563,6 +732,31 @@ export const conferenceApi = {
     if (filters.page) query.set('page', String(filters.page));
     if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
     return request<AdminRegistrationList>(`/admin/registrations?${query}`);
+  },
+  getCooperationRequests(
+    filters: Partial<AdminCooperationRequestListQuery> = {},
+    eventId?: EventId,
+  ) {
+    const query = new URLSearchParams();
+    if (filters.q) query.set('q', filters.q);
+    if (filters.status) query.set('status', filters.status);
+    if (filters.type) query.set('type', filters.type);
+    if (filters.page) query.set('page', String(filters.page));
+    if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
+    return request<AdminCooperationRequestList>(
+      `/admin/events/${eventScope(eventId)}/cooperation-requests?${query}`,
+    );
+  },
+  getCooperationRequest(requestId: string, eventId?: EventId) {
+    return request<AdminCooperationRequest>(
+      `/admin/events/${eventScope(eventId)}/cooperation-requests/${encodeURIComponent(requestId)}`,
+    );
+  },
+  updateCooperationRequest(requestId: string, input: UpdateCooperationRequest, eventId?: EventId) {
+    return request<AdminCooperationRequest>(
+      `/admin/events/${eventScope(eventId)}/cooperation-requests/${encodeURIComponent(requestId)}`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
   },
   getRegistration(registrationId: string, eventId?: EventId) {
     return request<AdminRegistrationDetail>(
@@ -749,6 +943,12 @@ export const conferenceApi = {
   updateOrganizationSettings(input: UpdateOrganizationSettings) {
     return request<OrganizationSettingsResult>('/admin/organization/settings', {
       method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  updateOrganizationAnalytics(input: UpdateOrganizationAnalytics) {
+    return request<OrganizationSettingsResult>('/admin/organization/analytics', {
+      method: 'PUT',
       body: JSON.stringify(input),
     });
   },
@@ -1179,6 +1379,18 @@ export const conferenceApi = {
       `/admin/events/${eventScope(eventId)}/content`,
     );
   },
+  async getSpeakers(eventId?: EventId) {
+    const result = await request<AdminSpeakerSummary[]>(
+      `/admin/events/${eventScope(eventId)}/speakers`,
+    );
+    return result.map(normalizeAdminSpeaker);
+  },
+  async getSpeaker(speakerId: string, eventId?: EventId) {
+    const result = await request<AdminSpeakerDetail>(
+      `/admin/events/${eventScope(eventId)}/speakers/${speakerId}`,
+    );
+    return normalizeAdminSpeaker(result);
+  },
   createTicketType(
     input: {
       code: string;
@@ -1218,24 +1430,74 @@ export const conferenceApi = {
       method: 'DELETE',
     });
   },
-  createSpeaker(
-    input: Omit<PublicEvent['speakers'][number], 'id'> & { sortOrder?: number },
-    eventId?: EventId,
-  ) {
-    return request(`/admin/events/${eventScope(eventId)}/speakers`, {
+  createSpeaker(input: CreateSpeaker, eventId?: EventId) {
+    return request<AdminSpeakerDetail>(`/admin/events/${eventScope(eventId)}/speakers`, {
       method: 'POST',
       body: JSON.stringify(input),
-    });
+    }).then(normalizeAdminSpeaker);
   },
-  updateSpeaker(
-    speakerId: string,
-    patch: Partial<PublicEvent['speakers'][number]>,
+  updateSpeaker(speakerId: string, patch: UpdateSpeaker, eventId?: EventId) {
+    return request<AdminSpeakerDetail>(
+      `/admin/events/${eventScope(eventId)}/speakers/${speakerId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      },
+    ).then(normalizeAdminSpeaker);
+  },
+  reorderSpeakers(speakerIds: string[], eventId?: EventId) {
+    return request<Array<{ id: string; sortOrder: number }>>(
+      `/admin/events/${eventScope(eventId)}/speakers/order`,
+      { method: 'PUT', body: JSON.stringify({ speakerIds }) },
+    );
+  },
+  async uploadSpeakerImage(
+    file: File,
+    altText: string,
+    dimensions?: { width: number; height: number },
     eventId?: EventId,
   ) {
-    return request(`/admin/events/${eventScope(eventId)}/speakers/${speakerId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
+    const digestBuffer = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    const contentDigest = [...new Uint8Array(digestBuffer)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const prepared = await request<{
+      uploadUrl: string;
+      headers: Record<string, string>;
+      storageKey: string;
+    }>(`/admin/events/${eventScope(eventId)}/speaker-images/uploads`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': `speaker-image-upload-${crypto.randomUUID()}` },
+      body: JSON.stringify({
+        fileName: file.name,
+        mediaType: file.type,
+        size: file.size,
+        contentDigest,
+        altText,
+      }),
     });
+    const uploaded = await fetch(prepared.uploadUrl, {
+      method: 'PUT',
+      headers: prepared.headers,
+      body: file,
+    });
+    if (!uploaded.ok) throw new Error('嘉宾头像上传失败，请重新选择文件');
+    const asset = await request<TemplateAsset>(
+      `/admin/events/${eventScope(eventId)}/speaker-images`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': `speaker-image-create-${crypto.randomUUID()}` },
+        body: JSON.stringify({
+          storageKey: prepared.storageKey,
+          mediaType: file.type,
+          size: file.size,
+          contentDigest,
+          altText,
+          ...(dimensions ?? {}),
+        }),
+      },
+    );
+    return { ...asset, previewUrl: apiResourceUrl(`/assets/templates/${asset.id}`) };
   },
   deleteSpeaker(speakerId: string, eventId?: EventId) {
     return request(`/admin/events/${eventScope(eventId)}/speakers/${speakerId}`, {

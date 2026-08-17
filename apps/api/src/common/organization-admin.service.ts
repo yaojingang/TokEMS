@@ -21,14 +21,21 @@ import type {
   UpdateAdminPreferences,
   UpdateMembershipStatus,
   UpdateOrganizationAdministrator,
+  UpdateOrganizationAnalytics,
   UpdateOrganizationMember,
   UpdateOrganizationSettings,
 } from '@conference/contracts';
 import {
   AnalyticsSettingsSchema,
+  AnalyticsSnippetError,
   AdminPreferencesSchema,
   API_ERROR_CODES,
+  CURRENT_ANALYTICS_ACTIVATION_VERSION,
+  DEFAULT_ANALYTICS_SETTINGS,
   DEMO_IDS,
+  analyticsResourceOrigins,
+  analyticsSettingsFromSnippet,
+  analyticsSnippetFromSettings,
   isPublicEventStatus,
   OrganizationSettingsSchema,
   WebsiteSettingsSchema,
@@ -86,14 +93,40 @@ const DEFAULT_ORGANIZATION_SETTINGS: OrganizationSettings = {
     icpNumber: '',
     supportEmail: '',
   },
-  analytics: {
-    enabled: false,
-    provider: 'baidu',
-    trackingId: '',
-    scriptUrl: '',
-    siteId: '',
-  },
+  analytics: { ...DEFAULT_ANALYTICS_SETTINGS },
 };
+
+export function analyticsAuditSnapshot(settings: OrganizationSettings['analytics']) {
+  const snippet = analyticsSnippetFromSettings(settings);
+  const resourceSettings = snippet
+    ? {
+        ...settings,
+        enabled: true,
+        activationVersion: CURRENT_ANALYTICS_ACTIVATION_VERSION,
+      }
+    : settings;
+  return {
+    enabled:
+      settings.enabled && settings.activationVersion === CURRENT_ANALYTICS_ACTIVATION_VERSION,
+    provider: snippet ? settings.provider : null,
+    codeDigest: snippet ? createHash('sha256').update(snippet).digest('hex') : null,
+    scriptDomains: analyticsResourceOrigins(resourceSettings).script.map(
+      (origin) => new URL(origin).hostname,
+    ),
+  };
+}
+
+function generalSettingsAuditSnapshot(settings: OrganizationSettings) {
+  return {
+    brandName: settings.brandName,
+    defaultTimezone: settings.defaultTimezone,
+    defaultCurrency: settings.defaultCurrency,
+    defaultBlueprintId: settings.defaultBlueprintId,
+    defaultTemplateId: settings.defaultTemplateId,
+    customerAccounts: settings.customerAccounts,
+    website: settings.website,
+  };
+}
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -2223,12 +2256,83 @@ export class OrganizationAdminService {
         action: 'organization.settings.update',
         resourceType: 'organization',
         resourceId: organizationId,
-        before: { name: organization.name, settings: before },
-        after: { name: updated!.name, settings },
+        before: { name: organization.name, settings: generalSettingsAuditSnapshot(before) },
+        after: { name: updated!.name, settings: generalSettingsAuditSnapshot(settings) },
         traceId: crypto.randomUUID(),
       });
       return updated!;
     });
+    return {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      settings: normalizeOrganizationSettings(row.name, row.settings),
+    };
+  }
+
+  async updateAnalytics(
+    organizationId: string,
+    actorId: string,
+    input: UpdateOrganizationAnalytics,
+  ): Promise<OrganizationSettingsResult> {
+    let analytics: OrganizationSettings['analytics'];
+    try {
+      analytics = input.snippet
+        ? AnalyticsSettingsSchema.parse(analyticsSettingsFromSnippet(input.snippet, input.enabled))
+        : AnalyticsSettingsSchema.parse({
+            ...DEFAULT_ORGANIZATION_SETTINGS.analytics,
+            enabled: false,
+            activationVersion: CURRENT_ANALYTICS_ACTIVATION_VERSION,
+          });
+    } catch (error) {
+      if (error instanceof AnalyticsSnippetError) {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          error.message,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      throw error;
+    }
+
+    const row = await this.db().transaction(async (tx) => {
+      const [organization] = await tx
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .for('update')
+        .limit(1);
+      if (!organization) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '组织不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      const before = normalizeOrganizationSettings(organization.name, organization.settings);
+      const settings: OrganizationSettings = { ...before, analytics };
+      const [updated] = await tx
+        .update(organizations)
+        .set({
+          settings: { ...organization.settings, ...settings },
+          updatedAt: new Date(),
+        })
+        .where(eq(organizations.id, organizationId))
+        .returning();
+      await tx.insert(auditLogs).values({
+        organizationId,
+        actorId,
+        action: 'organization.analytics.update',
+        resourceType: 'organization_analytics',
+        resourceId: organizationId,
+        before: analyticsAuditSnapshot(before.analytics),
+        after: analyticsAuditSnapshot(analytics),
+        traceId: crypto.randomUUID(),
+      });
+      return updated!;
+    });
+
     return {
       id: row.id,
       slug: row.slug,
@@ -2378,16 +2482,16 @@ export class OrganizationAdminService {
         Object.values(smsConfig.templates).some(
           (template) => template.enabled && template.status === 'verified',
         )) ||
-        process.env.NOTIFICATION_WEBHOOK_URL ||
-        process.env.SMTP_URL ||
-        process.env.RESEND_API_KEY,
+      process.env.NOTIFICATION_WEBHOOK_URL ||
+      process.env.SMTP_URL ||
+      process.env.RESEND_API_KEY,
     );
     const hasAi = Boolean(process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
     const hasStorage = Boolean(
       process.env.S3_ENDPOINT &&
-        process.env.S3_ACCESS_KEY &&
-        process.env.S3_SECRET_KEY &&
-        process.env.S3_BUCKET,
+      process.env.S3_ACCESS_KEY &&
+      process.env.S3_SECRET_KEY &&
+      process.env.S3_BUCKET,
     );
     return {
       payment: configured(hasPayment),

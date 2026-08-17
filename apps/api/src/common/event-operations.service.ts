@@ -1,6 +1,9 @@
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import type {
+  AdminSpeakerDetail,
+  AdminSpeakerSummary,
   ConferenceTemplateDefinition,
+  CreateSpeaker,
   CreateEvent,
   EventBlueprint,
   EventContextOption,
@@ -13,6 +16,7 @@ import type {
   RegistrationField,
   RegistrationForm,
   TemplatePackage,
+  UpdateSpeaker,
   UpdateEventSlug,
   UpdateOrganizationMember,
 } from '@conference/contracts';
@@ -20,6 +24,7 @@ import {
   API_ERROR_CODES,
   DEMO_IDS,
   normalizeConferenceTemplateDefinition,
+  speakerAvatarText,
 } from '@conference/contracts';
 import {
   auditLogs,
@@ -43,22 +48,30 @@ import {
   registrations,
   sessions,
   speakers,
+  templateAssets,
   templatePackages,
   ticketTypes,
   users,
   waitlistEntries,
 } from '@conference/database';
-import { and, asc, count, desc, eq, gt, isNull, max, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, isNull, max, sql, sum } from 'drizzle-orm';
 import { customAlphabet, nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
-import { EventReleaseActivationService } from './event-release-activation.service.js';
+import {
+  EventReleaseActivationService,
+  type EventMutationTransaction,
+} from './event-release-activation.service.js';
 import { requirePublicUserId } from './public-user-id.js';
 import { mergeTemplateDefinition } from './template-definition.js';
 
 type Database = NonNullable<DatabaseService['db']>;
 
 const generateEventShortSlug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 6);
+
+function speakerAssetPath(assetId: string) {
+  return `/assets/templates/${encodeURIComponent(assetId)}`;
+}
 
 function isConfiguredSuperAdministrator(
   user: { id: string },
@@ -177,6 +190,52 @@ export class EventOperationsService {
       );
     }
     return event;
+  }
+
+  private async assertSpeakerAsset(
+    tx: EventMutationTransaction,
+    organizationId: string,
+    assetId: string | null | undefined,
+  ) {
+    if (!assetId) return;
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`template-assets:${organizationId}`}, 0))`,
+    );
+    const [asset] = await tx
+      .select({ id: templateAssets.id, mediaType: templateAssets.mediaType })
+      .from(templateAssets)
+      .where(and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)))
+      .limit(1);
+    if (!asset || !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mediaType)) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '嘉宾头像不存在或不属于当前组织',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  private adminSpeaker(row: typeof speakers.$inferSelect): AdminSpeakerSummary {
+    const avatarUrl = row.avatarAssetId ? speakerAssetPath(row.avatarAssetId) : undefined;
+    return {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      topic: row.topic,
+      initials: row.initials,
+      accentFrom: row.accentFrom,
+      accentTo: row.accentTo,
+      tags: row.tags,
+      ...(avatarUrl ? { avatarUrl } : {}),
+      avatarAssetId: row.avatarAssetId,
+      bio: row.bio,
+      topicAbstract: row.topicAbstract,
+      websiteUrl: row.websiteUrl,
+      socialLinks: row.socialLinks,
+      sortOrder: row.sortOrder,
+      avatarPreviewUrl: avatarUrl ?? null,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 
   private releaseFromRow(
@@ -1290,9 +1349,7 @@ export class EventOperationsService {
           maxActiveSeatsPerPurchaser:
             typeof snapshot.event?.settings?.registration?.maxActiveSeatsPerPurchaser ===
               'number' &&
-            Number.isInteger(
-              snapshot.event.settings.registration.maxActiveSeatsPerPurchaser,
-            ) &&
+            Number.isInteger(snapshot.event.settings.registration.maxActiveSeatsPerPurchaser) &&
             snapshot.event.settings.registration.maxActiveSeatsPerPurchaser >= 1 &&
             snapshot.event.settings.registration.maxActiveSeatsPerPurchaser <= 20
               ? snapshot.event.settings.registration.maxActiveSeatsPerPurchaser
@@ -1347,6 +1404,33 @@ export class EventOperationsService {
         .orderBy(asc(sessions.day), asc(sessions.sortOrder)),
     ]);
     return { speakers: speakerRows, sessions: sessionRows };
+  }
+
+  async listSpeakers(organizationId: string, eventId: EventId): Promise<AdminSpeakerSummary[]> {
+    await this.scopedEvent(organizationId, eventId);
+    const rows = await this.db()
+      .select()
+      .from(speakers)
+      .where(eq(speakers.eventId, eventId))
+      .orderBy(asc(speakers.sortOrder), asc(speakers.createdAt));
+    return rows.map((row) => this.adminSpeaker(row));
+  }
+
+  async getSpeaker(
+    organizationId: string,
+    eventId: EventId,
+    speakerId: string,
+  ): Promise<AdminSpeakerDetail> {
+    await this.scopedEvent(organizationId, eventId);
+    const [row] = await this.db()
+      .select()
+      .from(speakers)
+      .where(and(eq(speakers.id, speakerId), eq(speakers.eventId, eventId)))
+      .limit(1);
+    if (!row) {
+      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '嘉宾不存在', HttpStatus.NOT_FOUND);
+    }
+    return this.adminSpeaker(row);
   }
 
   async createTicketType(
@@ -1556,10 +1640,7 @@ export class EventOperationsService {
     organizationId: string,
     eventId: EventId,
     actorId: string,
-    input: Omit<
-      typeof speakers.$inferInsert,
-      'id' | 'organizationId' | 'eventId' | 'createdAt' | 'updatedAt'
-    >,
+    input: CreateSpeaker,
   ) {
     const result = await this.releases().mutate(
       {
@@ -1570,9 +1651,15 @@ export class EventOperationsService {
         changeSummary: `新增嘉宾“${input.name}”`,
       },
       async (tx) => {
+        await this.assertSpeakerAsset(tx, organizationId, input.avatarAssetId);
         const [row] = await tx
           .insert(speakers)
-          .values({ ...input, organizationId, eventId })
+          .values({
+            ...input,
+            organizationId,
+            eventId,
+            initials: input.initials ?? speakerAvatarText(input.name),
+          })
           .returning();
         await tx.insert(auditLogs).values({
           organizationId,
@@ -1587,7 +1674,7 @@ export class EventOperationsService {
         return row!;
       },
     );
-    return result.value;
+    return this.adminSpeaker(result.value);
   }
 
   async updateSpeaker(
@@ -1595,7 +1682,7 @@ export class EventOperationsService {
     eventId: EventId,
     speakerId: string,
     actorId: string,
-    patch: Record<string, unknown>,
+    patch: UpdateSpeaker,
   ) {
     const result = await this.releases().mutate(
       {
@@ -1606,6 +1693,7 @@ export class EventOperationsService {
         changeSummary: '更新嘉宾资料',
       },
       async (tx) => {
+        await this.assertSpeakerAsset(tx, organizationId, patch.avatarAssetId);
         const [before] = await tx
           .select()
           .from(speakers)
@@ -1618,7 +1706,7 @@ export class EventOperationsService {
         const [row] = await tx
           .update(speakers)
           .set({
-            ...(patch as Partial<typeof speakers.$inferInsert>),
+            ...patch,
             organizationId: before.organizationId,
             eventId,
             updatedAt: new Date(),
@@ -1637,6 +1725,63 @@ export class EventOperationsService {
           traceId: crypto.randomUUID(),
         });
         return row!;
+      },
+    );
+    return this.adminSpeaker(result.value);
+  }
+
+  async reorderSpeakers(
+    organizationId: string,
+    eventId: EventId,
+    actorId: string,
+    speakerIds: string[],
+  ) {
+    const result = await this.releases().mutate(
+      {
+        organizationId,
+        eventId,
+        actorId,
+        changeScope: 'content',
+        changeSummary: '调整嘉宾展示顺序',
+      },
+      async (tx) => {
+        const rows = await tx
+          .select()
+          .from(speakers)
+          .where(eq(speakers.eventId, eventId))
+          .orderBy(asc(speakers.sortOrder))
+          .for('update');
+        const currentIds = rows.map((row) => row.id).sort();
+        const requestedIds = [...speakerIds].sort();
+        if (
+          currentIds.length !== requestedIds.length ||
+          currentIds.some((id, index) => id !== requestedIds[index])
+        ) {
+          throw new DomainError(
+            API_ERROR_CODES.VALIDATION_ERROR,
+            '嘉宾排序必须包含当前大会的全部嘉宾',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        for (const [sortOrder, id] of speakerIds.entries()) {
+          await tx
+            .update(speakers)
+            .set({ sortOrder, updatedAt: new Date() })
+            .where(and(eq(speakers.id, id), eq(speakers.eventId, eventId)));
+        }
+        const reordered = speakerIds.map((id, sortOrder) => ({ id, sortOrder }));
+        await tx.insert(auditLogs).values({
+          organizationId,
+          eventId,
+          actorId,
+          action: 'speaker.reorder',
+          resourceType: 'speaker',
+          resourceId: String(eventId),
+          before: { order: rows.map((row) => ({ id: row.id, sortOrder: row.sortOrder })) },
+          after: { order: reordered },
+          traceId: crypto.randomUUID(),
+        });
+        return reordered;
       },
     );
     return result.value;

@@ -1,0 +1,271 @@
+{
+  "ok": true,
+  "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
+  "summary": {
+    "scanned_files": 22,
+    "script_count": 10,
+    "internal_module_count": 9,
+    "secret_findings": 0,
+    "dependency_files": [],
+    "network_script_count": 1,
+    "network_policy_covered_count": 1,
+    "network_policy_missing_count": 0,
+    "file_write_script_count": 1,
+    "permission_required_count": 4,
+    "permission_approved_count": 4,
+    "permission_missing_count": 0,
+    "permission_invalid_count": 0,
+    "permission_expired_count": 0,
+    "help_smoke_checked_count": 1,
+    "help_smoke_failed_count": 0,
+    "interactive_script_count": 1,
+    "package_hash_scope": "source-contract-without-generated-reports",
+    "package_hash_file_count": 22,
+    "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+  },
+  "failures": [],
+  "warnings": [
+    "No dependency or lock file detected",
+    "Node.js inventory was added by tooling/tokems-admin-node-trust.mjs because the upstream scanner inventories Python entrypoints only."
+  ],
+  "secrets": [],
+  "scripts": [
+    {
+      "path": "scripts/lib/auth.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": true,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/catalog.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/credentials.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": true,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/crypto.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/files.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": true,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/http.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": true,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/operations.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/lib/redaction.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/tokems-admin.js",
+      "runtime": "node",
+      "interface": "cli",
+      "interface_declared": true,
+      "interface_reason": "Node.js CLI with a stable --help and one-JSON stdout contract.",
+      "has_argparse": true,
+      "has_main_guard": true,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    },
+    {
+      "path": "scripts/tokems-admin.mjs",
+      "runtime": "node",
+      "interface": "internal-module",
+      "interface_declared": true,
+      "interface_reason": "Connector implementation module imported by the TokEMS Admin CLI.",
+      "has_argparse": false,
+      "has_main_guard": false,
+      "uses_input": false,
+      "uses_network": false,
+      "uses_file_write": false,
+      "uses_subprocess": false,
+      "network_urls": [],
+      "network_hosts": []
+    }
+  ],
+  "dependencies": {
+    "present": [],
+    "pinned": [],
+    "unpinned": []
+  },
+  "network_policy": {
+    "present": true,
+    "path": "security/network_policy.json",
+    "schema_version": "1.0",
+    "network_script_count": 1,
+    "covered_scripts": [
+      "scripts/lib/http.mjs"
+    ],
+    "missing_scripts": [],
+    "mismatches": [],
+    "default_policy": {
+      "require_https": true,
+      "custom_hosts": "explicit-user-approval",
+      "review_rule": "One exact user-approved TokEMS origin is accepted at connection time, then pinned to the secure connection profile. Redirects and host changes are denied."
+    }
+  },
+  "help_smoke": {
+    "enabled": true,
+    "timeout_seconds": 10,
+    "checked_count": 1,
+    "passed_count": 1,
+    "failed_count": 0,
+    "failed_scripts": [],
+    "results": [
+      {
+        "path": "scripts/tokems-admin.js",
+        "ok": true,
+        "returncode": 0,
+        "stdout_contains_help": true
+      }
+    ]
+  },
+  "permission_governance": {
+    "present": true,
+    "path": "security/permission_policy.json",
+    "schema_version": "1.0",
+    "reviewed_at": "2026-08-17",
+    "required_capabilities": [
+      "network",
+      "file_write",
+      "subprocess",
+      "interactive"
+    ],
+    "approved_capabilities": [
+      "network",
+      "file_write",
+      "subprocess",
+      "interactive"
+    ],
+    "missing_capabilities": [],
+    "invalid_capabilities": [],
+    "expired_capabilities": [],
+    "approval_count": 4,
+    "required_count": 4,
+    "missing_count": 0,
+    "invalid_count": 0,
+    "expired_count": 0,
+    "approvals": [],
+    "node_connector_capabilities": {
+      "network": [
+        "scripts/lib/http.mjs"
+      ],
+      "file_write": [
+        "scripts/lib/files.mjs"
+      ],
+      "subprocess": [
+        "scripts/lib/credentials.mjs"
+      ],
+      "interactive": [
+        "scripts/lib/auth.mjs"
+      ]
+    }
+  },
+  "trust_metadata": {
+    "source_tier": "local",
+    "remote_inline_execution": "forbid",
+    "remote_metadata_policy": "allow-metadata-only"
+  },
+  "artifacts": {
+    "json": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/security_trust_report.json",
+    "markdown": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/security_trust_report.md"
+  }
+}

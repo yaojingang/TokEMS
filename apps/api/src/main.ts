@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import type { IncomingMessage } from 'node:http';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
-import { Logger } from '@nestjs/common';
+import { Logger, RequestMethod } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -70,7 +70,13 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
+      'DPoP',
       'Idempotency-Key',
+      'X-Agent-Operation-Id',
+      'X-Agent-Request-Hash',
+      'X-Agent-Before-Fingerprint',
+      'X-Agent-Current-State-Token',
+      'X-Agent-Purpose',
       'X-Request-Id',
       'X-Organization-Slug',
       'X-Device-Token',
@@ -80,9 +86,14 @@ async function bootstrap() {
       'X-Wechat-OAuth-Session',
       'X-Payment-Channel',
     ],
-    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count'],
+    exposedHeaders: ['Content-Disposition', 'X-Export-Row-Count', 'X-Agent-State-Token'],
   });
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: '.well-known/tokems-agent', method: RequestMethod.GET },
+      { path: '.well-known/oauth-authorization-server', method: RequestMethod.GET },
+    ],
+  });
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableShutdownHooks();
 
