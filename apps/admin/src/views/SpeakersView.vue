@@ -372,7 +372,7 @@ onMounted(() => void load());
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .speaker-completeness > div {
@@ -484,7 +484,7 @@ onMounted(() => void load());
     color: var(--muted);
     content: '演讲主题';
     font-family: var(--mono);
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 0.06em;
   }
 

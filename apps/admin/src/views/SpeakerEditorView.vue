@@ -618,7 +618,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   justify-content: space-between;
   color: var(--blue);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -664,7 +664,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnl
   background: var(--blue-soft);
   color: var(--blue);
   border-radius: var(--radius-pill);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 @media (max-width: 980px) {

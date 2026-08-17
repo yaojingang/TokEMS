@@ -125,6 +125,10 @@ export class AgentAuthorizationService {
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
+    return this.governanceDb();
+  }
+
+  private governanceDb() {
     if (!this.database.db) {
       throw new DomainError(
         API_ERROR_CODES.AGENT_ACCESS_DISABLED,
@@ -935,7 +939,7 @@ export class AgentAuthorizationService {
 
   async listConnections(actor: AuthenticatedUser) {
     this.assertGovernanceActor(actor);
-    return this.db()
+    return this.governanceDb()
       .select({
         id: agentConnections.id,
         name: agentConnections.name,
@@ -957,7 +961,7 @@ export class AgentAuthorizationService {
 
   async securityMetrics(actor: AuthenticatedUser) {
     this.assertGovernanceActor(actor);
-    const db = this.db();
+    const db = this.governanceDb();
     const since = new Date(Date.now() - 24 * 60 * 60_000);
     const [connectionRows, authorizationRows, operationRows, revocationRows] = await Promise.all([
       db
