@@ -139,6 +139,8 @@ ALTER TABLE "speakers" ADD COLUMN "bio" text;--> statement-breakpoint
 ALTER TABLE "speakers" ADD COLUMN "topic_abstract" text;--> statement-breakpoint
 ALTER TABLE "speakers" ADD COLUMN "website_url" varchar(500);--> statement-breakpoint
 ALTER TABLE "speakers" ADD COLUMN "social_links" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "memberships_id_org_user_unique" ON "memberships" USING btree ("id","organization_id","user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_connections_id_org_user_unique" ON "agent_connections" USING btree ("id","organization_id","delegated_user_id");--> statement-breakpoint
 ALTER TABLE "agent_connections" ADD CONSTRAINT "agent_connections_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_connections" ADD CONSTRAINT "agent_connections_delegated_user_id_users_id_fk" FOREIGN KEY ("delegated_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_connections" ADD CONSTRAINT "agent_connections_membership_id_memberships_id_fk" FOREIGN KEY ("membership_id") REFERENCES "public"."memberships"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -161,7 +163,6 @@ ALTER TABLE "cooperation_requests" ADD CONSTRAINT "cooperation_requests_event_sc
 CREATE INDEX "agent_connections_org_status_idx" ON "agent_connections" USING btree ("organization_id","status","expires_at");--> statement-breakpoint
 CREATE INDEX "agent_connections_membership_idx" ON "agent_connections" USING btree ("membership_id","status");--> statement-breakpoint
 CREATE INDEX "agent_connections_last_used_idx" ON "agent_connections" USING btree ("last_used_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "agent_connections_id_org_user_unique" ON "agent_connections" USING btree ("id","organization_id","delegated_user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "agent_device_authorizations_device_code_unique" ON "agent_device_authorizations" USING btree ("device_code_hash");--> statement-breakpoint
 CREATE UNIQUE INDEX "agent_device_authorizations_user_code_unique" ON "agent_device_authorizations" USING btree ("user_code_hmac");--> statement-breakpoint
 CREATE INDEX "agent_device_authorizations_status_expiry_idx" ON "agent_device_authorizations" USING btree ("status","expires_at");--> statement-breakpoint
@@ -177,4 +178,3 @@ CREATE UNIQUE INDEX "cooperation_requests_request_no_unique" ON "cooperation_req
 CREATE INDEX "cooperation_requests_event_status_time_idx" ON "cooperation_requests" USING btree ("organization_id","event_id","status","created_at");--> statement-breakpoint
 CREATE INDEX "cooperation_requests_event_time_idx" ON "cooperation_requests" USING btree ("organization_id","event_id","created_at");--> statement-breakpoint
 ALTER TABLE "speakers" ADD CONSTRAINT "speakers_avatar_asset_id_template_assets_id_fk" FOREIGN KEY ("avatar_asset_id") REFERENCES "public"."template_assets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "memberships_id_org_user_unique" ON "memberships" USING btree ("id","organization_id","user_id");
