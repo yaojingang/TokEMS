@@ -48,6 +48,7 @@ flowchart TB
 | Experience     | 共享模板、草稿、版本、资产、大会绑定与覆盖 | conference_templates, conference_template_versions, template_assets, event_template_bindings      |
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
 | Registration   | 版本化表单、条款同意和参会人               | registration_forms, registrations                                                                 |
+| Public Metrics | 大会访问累计与公开参会聚合                 | event_public_metrics, registrations                                                               |
 | Commerce       | 票种、库存保留、订单、支付、退款和状态日志 | ticket_types, inventory_reservations, orders, payments, refunds                                   |
 | Invoice        | 发票申请、文件、状态、访问凭证与导出任务   | invoice_requests, invoice_documents, invoice_state_logs, order_access_tokens, invoice_export_jobs |
 | Waitlist       | 售罄排队、顺序邀约、占位和一次性领取       | waitlist_entries                                                                                  |
@@ -120,7 +121,7 @@ capacity - sold - active reservations - active waitlist offers
 - 500 错误不会把堆栈、SQL 或内部异常文本返回客户端。
 - AI 输出先进入草稿，只有人工审批后的内容才能排队发送。
 
-单实例限流使用 NestJS 内存存储。公开报名限制为每 IP 每分钟 60 次。多实例生产环境需要在 API 网关或共享 Redis 限流存储中执行同等策略；大型公开活动建议额外启用验证码或联系方式验证。
+单实例限流使用 NestJS 内存存储。公开报名限制为每 IP 每分钟 60 次，首页访问登记限制为每 IP 每分钟 30 次。页面级随机 UUID 只在 Redis 中保留 10 分钟用于幂等，访问总量通过 PostgreSQL 原子自增；持久层不保存访客 Cookie、原始 IP 或 User-Agent。多实例生产环境需要在 API 网关或共享 Redis 限流存储中执行同等策略；大型公开活动建议额外启用验证码或联系方式验证。
 
 ## 视觉系统
 

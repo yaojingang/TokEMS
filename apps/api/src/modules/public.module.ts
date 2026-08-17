@@ -26,6 +26,7 @@ import {
   isPublicEventStatus,
   PaymentCallbackSchema,
   PublicEventMemberListQuerySchema,
+  RecordPublicEventViewSchema,
   publicEventHomePath,
   publicEventScopedPath,
   WaitlistJoinSchema,
@@ -42,6 +43,7 @@ import { CustomerAuthService } from '../common/customer-auth.service.js';
 import { HtmlTemplateOperationsService } from '../common/html-template-operations.service.js';
 import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
 import { resolveLocalPaymentSimulationPolicy } from '../common/local-payment-simulation.js';
+import { EventPublicMetricsService } from '../common/event-public-metrics.service.js';
 
 const WeChatSwitchChannelBodySchema = z
   .object({
@@ -115,6 +117,20 @@ function idempotencyKey(value: string | undefined) {
     );
   }
   return value;
+}
+
+function publicOrganizationSlug(value: string | undefined) {
+  const parsed = PublicOrganizationSlugSchema.safeParse(
+    value ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+  );
+  if (!parsed.success) {
+    throw new DomainError(
+      API_ERROR_CODES.VALIDATION_ERROR,
+      '组织标识格式不正确',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return parsed.data;
 }
 
 function orderAccessToken(authorization: string | undefined) {
@@ -278,13 +294,15 @@ async function servePublishedHomeDocument(
 
 @ApiTags('public-events')
 @Controller('events')
-class EventsController {
+export class EventsController {
   constructor(
     @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
     @Inject(HtmlTemplateOperationsService)
     private readonly htmlTemplates: HtmlTemplateOperationsService,
     @Inject(AttendeeShowcaseService)
     private readonly showcases: AttendeeShowcaseService,
+    @Inject(EventPublicMetricsService)
+    private readonly publicMetrics: EventPublicMetricsService,
   ) {}
 
   @Get(':slug/home-document')
@@ -305,6 +323,34 @@ class EventsController {
       organizationSlug,
       ifNoneMatch,
       reply,
+    );
+  }
+
+  @Post(':slug/public-metrics/view')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  async recordPublicView(
+    @Param('slug') slug: string,
+    @Body() body: unknown,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const parsed = RecordPublicEventViewSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '访问登记参数校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    reply.header('Cache-Control', 'no-store');
+    return this.publicMetrics.recordView(
+      slug,
+      publicOrganizationSlug(organizationSlugValue),
+      parsed.data,
+      userAgent,
     );
   }
 

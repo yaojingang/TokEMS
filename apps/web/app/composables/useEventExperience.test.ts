@@ -5,8 +5,12 @@ import { hasEnabledEventFlowStep, resolveEventExperience } from './useEventExper
 describe('event experience compatibility', () => {
   it('keeps the legacy four-step flow when an old release has no experience snapshot', () => {
     const legacyEvent = { ...DEMO_EVENT, experience: undefined };
+    const experience = resolveEventExperience(legacyEvent);
 
-    expect(resolveEventExperience(legacyEvent).registrationFlow.steps).toHaveLength(4);
+    expect(experience.registrationFlow.steps).toHaveLength(4);
+    expect(experience.home.blocks.find((block) => block.nodeKey === 'home.stats')?.variant).toBe(
+      'inline',
+    );
     expect(hasEnabledEventFlowStep(legacyEvent, 'member-profile')).toBe(false);
   });
 

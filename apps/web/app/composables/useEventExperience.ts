@@ -17,13 +17,22 @@ export interface ResolvedStructuredExperience {
   initialization: ConferenceTemplateDefinition['initialization'];
 }
 
+function legacyStaticHome(home: StructuredPresentation['home']) {
+  return {
+    ...home,
+    blocks: home.blocks.map((block) =>
+      block.nodeKey === 'home.stats' ? { ...block, variant: 'inline' } : block,
+    ),
+  };
+}
+
 export function resolveEventExperience(event: PublicEvent): ResolvedStructuredExperience {
   const fallback = DEFAULT_CONFERENCE_TEMPLATE_DEFINITION;
   if (fallback.presentation.kind !== 'structured') {
     throw new Error('默认大会模板必须使用结构化首页');
   }
   return {
-    home: event.experience?.home ?? fallback.presentation.home,
+    home: event.experience?.home ?? legacyStaticHome(fallback.presentation.home),
     faq: event.experience?.faq ?? {
       ...fallback.faq,
       items: event.faqs.map((item, index) => ({

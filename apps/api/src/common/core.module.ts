@@ -19,6 +19,7 @@ import { HtmlTemplateOperationsService } from './html-template-operations.servic
 import { RedisService } from './redis.service.js';
 import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
+import { EventPublicMetricsService } from './event-public-metrics.service.js';
 
 @Global()
 @Module({
@@ -43,6 +44,7 @@ import { AttendeeShowcaseService } from './attendee-showcase.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    EventPublicMetricsService,
   ],
   exports: [
     DatabaseService,
@@ -65,6 +67,7 @@ import { AttendeeShowcaseService } from './attendee-showcase.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    EventPublicMetricsService,
   ],
 })
 export class CoreModule {}

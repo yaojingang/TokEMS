@@ -24,6 +24,7 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 | GET    | `/homepage/home-document`                                 | 获取首页默认大会的已发布 HTML 首页          |
 | GET    | `/events/:slug`                                           | 获取当前发布快照及实时库存                  |
 | GET    | `/events/:slug/home-document`                             | 获取指定大会的已发布 HTML 首页              |
+| POST   | `/events/:slug/public-metrics/view`                       | 登记结构化首页单次页面访问                  |
 | POST   | `/registrations`                                          | 创建报名、订单和库存保留，可领取候补资格    |
 | POST   | `/waitlist`                                               | 售罄票种加入候补队列                        |
 | GET    | `/orders/:identifier`                                     | 使用订单访问凭证按订单 ID 或订单号查询      |
@@ -37,6 +38,8 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 | GET    | `/tickets/:codeOrRegistrationId`                          | 按票号或报名 ID 查询电子票                  |
 | POST   | `/checkins`                                               | 需要 `event.checkin.execute` 授权的在线核销 |
 | GET    | `/health`                                                 | API、数据库和运行模式健康状态               |
+
+公开大会响应的 `publicMetrics` 包含累计访问、统计起始时间、已确认参会人数、去重企业数和去重城市数。访问登记请求体为 `{ "pageViewId": "<UUID>" }`，同一大会与页面 UUID 在 Redis 中保持 10 分钟幂等，每 IP 每分钟最多登记 30 次。已知机器人不会增加计数；Redis 暂时不可用时由 PostgreSQL 原子自增继续服务。持久层不保存访客 Cookie、原始 IP、User-Agent 或个人资料。
 
 报名请求示例：
 

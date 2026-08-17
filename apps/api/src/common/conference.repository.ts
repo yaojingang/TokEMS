@@ -21,6 +21,8 @@ import {
   type EventId,
   type Order,
   type PublicEvent,
+  type PublicEventMetrics,
+  type PublicEventViewResult,
   type Registration,
   type RegistrationBusinessStatus,
   type RegistrationField,
@@ -41,6 +43,7 @@ import {
   customerProfiles,
   customerUsers,
   eventReleases,
+  eventPublicMetrics,
   eventSlugAliases,
   events,
   idempotencyKeys,
@@ -316,6 +319,10 @@ export class ConferenceRepository {
     eventType: string;
     payload: Record<string, unknown>;
   }> = [];
+  private readonly memoryPublicMetrics = new Map<
+    EventId,
+    { pageViews: number; trackingStartedAt: Date; updatedAt: Date }
+  >();
   private demoEvent = structuredClone(DEMO_EVENT);
 
   constructor(
@@ -553,6 +560,10 @@ export class ConferenceRepository {
       }
       return {
         ...this.demoEvent,
+        publicMetrics: await this.getPublicMetrics(
+          this.demoEvent.id,
+          this.demoEvent.organizationId,
+        ),
         tickets: this.demoEvent.tickets.map((ticket) => ({
           ...ticket,
           remaining: this.memory.ticketRemaining.get(ticket.id) ?? ticket.remaining,
@@ -838,6 +849,7 @@ export class ConferenceRepository {
     if (publicExperience?.home && shareAssetId) {
       publicExperience.home.seo.shareAssetUrl = `/assets/templates/${encodeURIComponent(shareAssetId)}`;
     }
+    const publicMetrics = await this.getPublicMetrics(event.id, event.organizationId);
 
     return {
       id: event.id,
@@ -856,12 +868,202 @@ export class ConferenceRepository {
       address: snapshotEvent?.address ?? event.address,
       registration: registrationSettings,
       stats: snapshotStats ?? settings.stats ?? DEMO_EVENT.stats,
+      publicMetrics,
       tickets: publicTickets,
       speakers: publicSpeakers,
       sessions: publicSessions,
       faqs: snapshotFaqs ?? settings.faqs ?? DEMO_EVENT.faqs,
       ...(publicForm ? { registrationForm: publicForm } : {}),
       ...(publicExperience ? { experience: publicExperience } : {}),
+    };
+  }
+
+  async getPublicMetrics(eventId: EventId, organizationId: string): Promise<PublicEventMetrics> {
+    const db = this.database.db;
+    if (!db) {
+      if (eventId !== this.demoEvent.id || organizationId !== this.demoEvent.organizationId) {
+        return {
+          pageViews: 0,
+          trackingStartedAt: null,
+          confirmedAttendees: 0,
+          organizationCount: 0,
+          cityCount: 0,
+        };
+      }
+      const registrationsForEvent = [...this.memory.registrations.values()].filter(
+        (registration) =>
+          registration.eventId === eventId &&
+          ['confirmed', 'checked_in', 'completed'].includes(registration.status),
+      );
+      const normalizeDimension = (value: string) =>
+        value.trim().replaceAll(/\s+/gu, ' ').toLocaleLowerCase('zh-CN');
+      const distinctNonEmpty = (values: string[]) =>
+        new Set(values.map(normalizeDimension).filter(Boolean)).size;
+      const counter = this.memoryPublicMetrics.get(eventId);
+      return {
+        pageViews: counter?.pageViews ?? 0,
+        trackingStartedAt: counter?.trackingStartedAt.toISOString() ?? null,
+        confirmedAttendees: registrationsForEvent.length,
+        organizationCount: distinctNonEmpty(
+          registrationsForEvent.map((registration) => registration.attendee.company),
+        ),
+        cityCount: distinctNonEmpty(
+          registrationsForEvent.map((registration) => registration.attendee.city),
+        ),
+      };
+    }
+
+    const [counterRows, aggregateRows] = await Promise.all([
+      db
+        .select({
+          pageViews: eventPublicMetrics.pageViews,
+          trackingStartedAt: eventPublicMetrics.trackingStartedAt,
+        })
+        .from(eventPublicMetrics)
+        .where(
+          and(
+            eq(eventPublicMetrics.organizationId, organizationId),
+            eq(eventPublicMetrics.eventId, eventId),
+          ),
+        )
+        .limit(1),
+      db
+        .select({
+          confirmedAttendees: sql<number>`count(*)::int`,
+          organizationCount: sql<number>`count(distinct nullif(lower(regexp_replace(btrim(coalesce(${registrations.attendee}->>'company', '')), '[[:space:]]+', ' ', 'g')), ''))::int`,
+          cityCount: sql<number>`count(distinct nullif(lower(regexp_replace(btrim(coalesce(${registrations.attendee}->>'city', '')), '[[:space:]]+', ' ', 'g')), ''))::int`,
+        })
+        .from(registrations)
+        .where(
+          and(
+            eq(registrations.organizationId, organizationId),
+            eq(registrations.eventId, eventId),
+            inArray(registrations.status, ['confirmed', 'checked_in', 'completed']),
+            isNull(registrations.supersededAt),
+          ),
+        ),
+    ]);
+    const counter = counterRows[0];
+    const aggregates = aggregateRows[0];
+    return {
+      pageViews: Number(counter?.pageViews ?? 0),
+      trackingStartedAt: counter?.trackingStartedAt.toISOString() ?? null,
+      confirmedAttendees: Number(aggregates?.confirmedAttendees ?? 0),
+      organizationCount: Number(aggregates?.organizationCount ?? 0),
+      cityCount: Number(aggregates?.cityCount ?? 0),
+    };
+  }
+
+  async recordPublicEventView(
+    eventId: EventId,
+    organizationId: string,
+  ): Promise<PublicEventViewResult> {
+    const now = new Date();
+    const db = this.database.db;
+    if (!db) {
+      if (eventId !== this.demoEvent.id || organizationId !== this.demoEvent.organizationId) {
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或尚未发布',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const previous = this.memoryPublicMetrics.get(eventId);
+      const next = {
+        pageViews: (previous?.pageViews ?? 0) + 1,
+        trackingStartedAt: previous?.trackingStartedAt ?? now,
+        updatedAt: now,
+      };
+      this.memoryPublicMetrics.set(eventId, next);
+      return {
+        pageViews: next.pageViews,
+        trackingStartedAt: next.trackingStartedAt.toISOString(),
+        updatedAt: next.updatedAt.toISOString(),
+      };
+    }
+
+    const [event] = await db
+      .select({ status: events.status })
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+      .limit(1);
+    if (!event || !isPublicEventStatus(event.status)) {
+      throw new DomainError(
+        API_ERROR_CODES.NOT_FOUND,
+        '大会不存在或尚未发布',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const [counter] = await db
+      .insert(eventPublicMetrics)
+      .values({
+        organizationId,
+        eventId,
+        pageViews: 1,
+        trackingStartedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [eventPublicMetrics.organizationId, eventPublicMetrics.eventId],
+        set: {
+          pageViews: sql`${eventPublicMetrics.pageViews} + 1`,
+          updatedAt: now,
+        },
+      })
+      .returning({
+        pageViews: eventPublicMetrics.pageViews,
+        trackingStartedAt: eventPublicMetrics.trackingStartedAt,
+        updatedAt: eventPublicMetrics.updatedAt,
+      });
+    if (!counter) {
+      throw new DomainError(
+        API_ERROR_CODES.INVALID_STATE_TRANSITION,
+        '大会访问量登记失败',
+        HttpStatus.CONFLICT,
+      );
+    }
+    return {
+      pageViews: Number(counter.pageViews),
+      trackingStartedAt: counter.trackingStartedAt.toISOString(),
+      updatedAt: counter.updatedAt.toISOString(),
+    };
+  }
+
+  async getPublicEventViewResult(
+    eventId: EventId,
+    organizationId: string,
+  ): Promise<PublicEventViewResult> {
+    const db = this.database.db;
+    if (!db) {
+      if (eventId !== this.demoEvent.id || organizationId !== this.demoEvent.organizationId) {
+        return { pageViews: 0, trackingStartedAt: null, updatedAt: null };
+      }
+      const counter = this.memoryPublicMetrics.get(eventId);
+      return {
+        pageViews: counter?.pageViews ?? 0,
+        trackingStartedAt: counter?.trackingStartedAt.toISOString() ?? null,
+        updatedAt: counter?.updatedAt.toISOString() ?? null,
+      };
+    }
+    const [counter] = await db
+      .select({
+        pageViews: eventPublicMetrics.pageViews,
+        trackingStartedAt: eventPublicMetrics.trackingStartedAt,
+        updatedAt: eventPublicMetrics.updatedAt,
+      })
+      .from(eventPublicMetrics)
+      .where(
+        and(
+          eq(eventPublicMetrics.organizationId, organizationId),
+          eq(eventPublicMetrics.eventId, eventId),
+        ),
+      )
+      .limit(1);
+    return {
+      pageViews: Number(counter?.pageViews ?? 0),
+      trackingStartedAt: counter?.trackingStartedAt.toISOString() ?? null,
+      updatedAt: counter?.updatedAt.toISOString() ?? null,
     };
   }
 

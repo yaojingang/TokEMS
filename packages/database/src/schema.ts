@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   check,
   foreignKey,
@@ -587,6 +588,28 @@ export const events = pgTable(
     uniqueIndex('events_org_id_unique').on(table.organizationId, table.id),
     uniqueIndex('events_id_org_unique').on(table.id, table.organizationId),
     index('events_org_status_idx').on(table.organizationId, table.status),
+  ],
+);
+
+export const eventPublicMetrics = pgTable(
+  'event_public_metrics',
+  {
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    pageViews: bigint('page_views', { mode: 'number' }).notNull().default(0),
+    trackingStartedAt: timestamp('tracking_started_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.eventId] }),
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_public_metrics_event_scope_fk',
+    }).onDelete('cascade'),
+    check('event_public_metrics_page_views_nonnegative', sql`${table.pageViews} >= 0`),
   ],
 );
 

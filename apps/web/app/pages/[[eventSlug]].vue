@@ -23,6 +23,12 @@ import { attendeeAvatarInitial } from '~/utils/attendee-poster';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { resolveHomeRegistrationCta } from '~/utils/purchase-journey';
+import {
+  createPublicViewRecorder,
+  formatTrackingStartDate,
+  resolvePublicMetricFallbacks,
+  splitMetricNumber,
+} from '~/utils/public-event-metrics';
 
 definePageMeta({ publicEventHome: true });
 
@@ -65,6 +71,7 @@ if (eventLoadError.value) {
   });
 }
 if (loadedEvent.value) event.value = loadedEvent.value;
+const livePublicMetrics = ref({ ...event.value.publicMetrics });
 const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
 const experience = computed(() => resolveEventExperience(event.value));
@@ -172,6 +179,74 @@ const blockCopy = (nodeKey: string, key: string, fallback: string) => {
   const defaultValue = defaultHomeBlocks.find((block) => block.nodeKey === nodeKey)?.content[key];
   return typeof defaultValue === 'string' ? defaultValue : fallback;
 };
+const liveStatsEnabled = computed(
+  () => blockEnabled('home.stats') && blockVariant('home.stats') === 'live',
+);
+const staticSessionCount = computed(() => {
+  const configured = Number.parseInt(blockCopy('home.stats', 'sessionsValue', '30'), 10);
+  return Number.isFinite(configured) && configured >= 0 ? configured : event.value.sessions.length;
+});
+const liveMetricFallbacks = computed(() =>
+  resolvePublicMetricFallbacks(livePublicMetrics.value, {
+    speakers: event.value.stats.speakers,
+    sessions: staticSessionCount.value,
+  }),
+);
+const trackingStartDate = computed(() =>
+  formatTrackingStartDate(livePublicMetrics.value.trackingStartedAt, event.value.timezone),
+);
+const pageViewDigits = computed(() => splitMetricNumber(livePublicMetrics.value.pageViews));
+const liveStatsItems = computed(() => [
+  {
+    key: 'views',
+    value: livePublicMetrics.value.pageViews,
+    unit: '次',
+    label: trackingStartDate.value
+      ? `自 ${trackingStartDate.value} 起累计访问`
+      : '大会官网累计访问',
+  },
+  {
+    key: 'attendees',
+    value: livePublicMetrics.value.confirmedAttendees,
+    unit: '人',
+    label: blockCopy('home.stats', 'confirmedAttendeesLabel', '已确认参会'),
+  },
+  {
+    key: 'organizations',
+    value: liveMetricFallbacks.value.organization.value,
+    unit: liveMetricFallbacks.value.organization.unit,
+    label: liveMetricFallbacks.value.organization.fallback
+      ? blockCopy('home.stats', 'speakersLabel', '一线专家与操盘手')
+      : blockCopy('home.stats', 'organizationsLabel', '参会企业与机构'),
+  },
+  {
+    key: 'cities',
+    value: liveMetricFallbacks.value.city.value,
+    unit: liveMetricFallbacks.value.city.unit,
+    label: liveMetricFallbacks.value.city.fallback
+      ? blockCopy('home.stats', 'sessionsLabel', '主题分享与实战议程')
+      : blockCopy('home.stats', 'citiesLabel', '参会者覆盖城市'),
+  },
+]);
+const formatMetricNumber = (value: number) =>
+  Math.max(0, Math.trunc(value)).toLocaleString('zh-CN');
+const recordPublicViewOnce = createPublicViewRecorder((slug, pageViewId) =>
+  api.recordPublicEventView(slug, pageViewId),
+);
+let publicMetricsMounted = false;
+async function recordLivePublicView() {
+  const result = await recordPublicViewOnce({
+    slug: event.value.slug,
+    variant: blockVariant('home.stats'),
+    preview: route.query.preview,
+  });
+  if (!result) return;
+  livePublicMetrics.value = {
+    ...livePublicMetrics.value,
+    pageViews: result.pageViews,
+    trackingStartedAt: result.trackingStartedAt,
+  };
+}
 const emptyMemberList = (): PublicEventMemberList => ({
   items: [],
   total: 0,
@@ -491,11 +566,13 @@ useHead(() => ({
 watch(loadedEvent, async (loaded) => {
   if (!loaded) return;
   event.value = loaded;
+  livePublicMetrics.value = { ...loaded.publicMetrics };
   membersPage.value = 1;
   membersIndustry.value = '';
   activeDay.value = days.value[0] ?? 1;
   await nextTick();
   document.querySelectorAll('.reveal:not(.in)').forEach((element) => observer?.observe(element));
+  if (publicMetricsMounted) void recordLivePublicView();
 });
 
 watch(memberDirectory, async (directory) => {
@@ -548,6 +625,8 @@ watch(
 );
 
 onMounted(async () => {
+  publicMetricsMounted = true;
+  void recordLivePublicView();
   await customer.refresh().catch(() => null);
   await loadPurchaseContext();
   activeDay.value = days.value[0] ?? 1;
@@ -621,6 +700,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  publicMetricsMounted = false;
   if (scrollHandler) window.removeEventListener('scroll', scrollHandler);
   if (accentClickHandler) document.removeEventListener('click', accentClickHandler);
   if (countdown) clearInterval(countdown);
@@ -815,30 +895,63 @@ onBeforeUnmount(() => {
       :style="blockStyle('home.stats')"
     >
       <div class="stats-grid">
-        <div class="stat-item reveal">
-          <div class="stat-num">{{ event.stats.days }}<em>天</em></div>
-          <div class="stat-lbl">
-            {{ blockCopy('home.stats', 'daysLabel', '密集分享 + 实战工作坊') }}
+        <template v-if="liveStatsEnabled">
+          <div
+            v-for="(item, index) in liveStatsItems"
+            :key="item.key"
+            class="stat-item reveal"
+            :data-d="index || undefined"
+          >
+            <div
+              v-if="item.key === 'views'"
+              class="stat-num stat-num-live"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              :aria-label="`${item.value} 次，${item.label}`"
+            >
+              <span aria-hidden="true">{{ pageViewDigits.prefix }}</span>
+              <span class="stat-digit-slot" aria-hidden="true">
+                <Transition name="stat-digit">
+                  <span :key="item.value" class="stat-digit">{{ pageViewDigits.lastDigit }}</span>
+                </Transition>
+              </span>
+              <em aria-hidden="true">{{ item.unit }}</em>
+            </div>
+            <div v-else class="stat-num">
+              {{ formatMetricNumber(item.value) }}<em>{{ item.unit }}</em>
+            </div>
+            <div class="stat-lbl">{{ item.label }}</div>
           </div>
-        </div>
-        <div class="stat-item reveal" data-d="1">
-          <div class="stat-num">{{ event.stats.speakers }}<em>+</em></div>
-          <div class="stat-lbl">
-            {{ blockCopy('home.stats', 'speakersLabel', '一线专家与操盘手') }}
+        </template>
+        <template v-else>
+          <div class="stat-item reveal">
+            <div class="stat-num">{{ event.stats.days }}<em>天</em></div>
+            <div class="stat-lbl">
+              {{ blockCopy('home.stats', 'daysLabel', '密集分享 + 实战工作坊') }}
+            </div>
           </div>
-        </div>
-        <div class="stat-item reveal" data-d="2">
-          <div class="stat-num">{{ blockCopy('home.stats', 'sessionsValue', '30') }}<em>+</em></div>
-          <div class="stat-lbl">
-            {{ blockCopy('home.stats', 'sessionsLabel', '主题分享与实战议程') }}
+          <div class="stat-item reveal" data-d="1">
+            <div class="stat-num">{{ event.stats.speakers }}<em>+</em></div>
+            <div class="stat-lbl">
+              {{ blockCopy('home.stats', 'speakersLabel', '一线专家与操盘手') }}
+            </div>
           </div>
-        </div>
-        <div class="stat-item reveal" data-d="3">
-          <div class="stat-num">{{ primaryTicket.benefits.length }}<em>项</em></div>
-          <div class="stat-lbl">
-            {{ blockCopy('home.stats', 'benefitsLabel', '参会权益打包带走') }}
+          <div class="stat-item reveal" data-d="2">
+            <div class="stat-num">
+              {{ blockCopy('home.stats', 'sessionsValue', '30') }}<em>+</em>
+            </div>
+            <div class="stat-lbl">
+              {{ blockCopy('home.stats', 'sessionsLabel', '主题分享与实战议程') }}
+            </div>
           </div>
-        </div>
+          <div class="stat-item reveal" data-d="3">
+            <div class="stat-num">{{ primaryTicket.benefits.length }}<em>项</em></div>
+            <div class="stat-lbl">
+              {{ blockCopy('home.stats', 'benefitsLabel', '参会权益打包带走') }}
+            </div>
+          </div>
+        </template>
       </div>
     </div>
     <div v-if="blockEnabled('home.stats')" class="marquee" :style="blockStyle('home.stats')">

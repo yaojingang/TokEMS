@@ -4,7 +4,7 @@ import type { EventStatus, PublicEvent, UpdateEvent } from '@conference/contract
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import PublishingView from './PublishingView.vue';
-import { conferenceApi, publicEventUrl, session } from '../lib/api';
+import { conferenceApi, publicEventPreviewUrl, session } from '../lib/api';
 
 const event = ref<PublicEvent>();
 const pending = ref(false);
@@ -192,7 +192,7 @@ async function save() {
       <p>维护大会名称、时间、地点和生命周期状态。</p>
     </div>
     <div class="admin-head-actions">
-      <a class="button secondary" :href="publicEventUrl()" target="_blank" rel="noopener noreferrer">预览前台 ↗</a>
+      <a class="button secondary" :href="publicEventPreviewUrl()" target="_blank" rel="noopener noreferrer">预览前台 ↗</a>
       <button v-if="canManageEvent" class="button" type="button" :disabled="pending" @click="requestSave">
         {{ pending ? '保存中…' : '保存修改' }}
       </button>
