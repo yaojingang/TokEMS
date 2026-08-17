@@ -861,8 +861,11 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           type: 'stats',
           label: '大会数据',
           enabled: true,
-          variant: 'inline',
+          variant: 'live',
           content: {
+            confirmedAttendeesLabel: '已确认参会',
+            organizationsLabel: '参会企业与机构',
+            citiesLabel: '参会者覆盖城市',
             daysLabel: '密集分享 + 实战工作坊',
             speakersLabel: '一线专家与操盘手',
             sessionsValue: '30',
@@ -1390,6 +1393,27 @@ export const RegistrationFormSchema = z.object({
   publishedAt: z.string().nullable(),
 });
 
+export const PublicEventMetricsSchema = z.object({
+  pageViews: z.number().int().nonnegative().safe(),
+  trackingStartedAt: z.iso.datetime().nullable(),
+  confirmedAttendees: z.number().int().nonnegative().safe(),
+  organizationCount: z.number().int().nonnegative().safe(),
+  cityCount: z.number().int().nonnegative().safe(),
+});
+
+export const RecordPublicEventViewSchema = z
+  .object({
+    pageViewId: z.uuid(),
+  })
+  .strict();
+
+export const PublicEventViewResultSchema = PublicEventMetricsSchema.pick({
+  pageViews: true,
+  trackingStartedAt: true,
+}).extend({
+  updatedAt: z.iso.datetime().nullable(),
+});
+
 export const RegistrationAnswersSchema = z
   .record(z.string().min(1).max(80), z.string().trim().max(2000))
   .refine((answers) => Object.keys(answers).length <= 60, '表单回答字段不能超过 60 个');
@@ -1416,6 +1440,7 @@ export const PublicEventSchema = z.object({
     days: z.number().int(),
     attendeeSatisfaction: z.number(),
   }),
+  publicMetrics: PublicEventMetricsSchema,
   tickets: z.array(TicketTypeSchema),
   speakers: z.array(SpeakerSchema),
   sessions: z.array(SessionSchema),
@@ -3912,6 +3937,9 @@ export type Session = z.infer<typeof SessionSchema>;
 export type RegistrationField = z.infer<typeof RegistrationFieldSchema>;
 export type RegistrationFormPublish = z.infer<typeof RegistrationFormPublishSchema>;
 export type RegistrationForm = z.infer<typeof RegistrationFormSchema>;
+export type PublicEventMetrics = z.infer<typeof PublicEventMetricsSchema>;
+export type RecordPublicEventView = z.infer<typeof RecordPublicEventViewSchema>;
+export type PublicEventViewResult = z.infer<typeof PublicEventViewResultSchema>;
 export type PublicEvent = z.infer<typeof PublicEventSchema>;
 export type CreateRegistration = z.infer<typeof CreateRegistrationSchema>;
 export type Registration = z.infer<typeof RegistrationSchema>;
@@ -4180,6 +4208,13 @@ export const DEMO_EVENT: PublicEvent = {
     speakers: 40,
     days: 2,
     attendeeSatisfaction: 96.8,
+  },
+  publicMetrics: {
+    pageViews: 0,
+    trackingStartedAt: null,
+    confirmedAttendees: 6,
+    organizationCount: 6,
+    cityCount: 2,
   },
   tickets: [
     {

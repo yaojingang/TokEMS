@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 13,
   "adminViews": 31,
-  "migrations": 51,
-  "latestMigration": "0050_flimsy_thunderbolt_ross.sql",
-  "databaseTables": 66,
+  "migrations": 52,
+  "latestMigration": "0051_goofy_skaar.sql",
+  "databaseTables": 67,
   "apiControllers": 25,
-  "apiOperations": 207,
-  "testFiles": 116
+  "apiOperations": 208,
+  "testFiles": 121
 }

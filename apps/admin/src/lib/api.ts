@@ -425,6 +425,14 @@ export function publicEventHomeUrl(eventSlug = activeEventSlug.value): string | 
   return new URL(publicEventHomePath(eventSlug), publicWebURL).toString();
 }
 
+export function publicEventPreviewUrl(eventSlug = activeEventSlug.value): string | undefined {
+  const homeUrl = publicEventHomeUrl(eventSlug);
+  if (!homeUrl) return undefined;
+  const url = new URL(homeUrl);
+  url.searchParams.set('preview', '1');
+  return url.toString();
+}
+
 export function publicEventUrl(path = '/', eventSlug = activeEventSlug.value) {
   if (!eventSlug) return undefined;
   if (path === '/') return publicEventHomeUrl(eventSlug);

@@ -9,7 +9,7 @@ import {
 } from '@conference/contracts';
 import { useRouter } from 'vue-router';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
-import { conferenceApi, publicEventHomeUrl, session } from '../lib/api';
+import { conferenceApi, publicEventHomeUrl, publicEventPreviewUrl, session } from '../lib/api';
 import { dateTime, statusClass, statusLabel } from '../lib/format';
 import { localDateTimeToIso } from '../lib/timezone';
 
@@ -109,6 +109,10 @@ function basicInformationValid() {
 
 function eventPublicUrl(item: EventSummary) {
   return publicEventHomeUrl(item.slug) ?? '';
+}
+
+function eventPreviewUrl(item: EventSummary) {
+  return publicEventPreviewUrl(item.slug) ?? '';
 }
 
 function homepageEligible(item: EventSummary) {
@@ -435,7 +439,7 @@ onMounted(() => void load());
                 </button>
                 <a
                   v-if="isPublicEventStatus(item.status)"
-                  :href="eventPublicUrl(item)"
+                  :href="eventPreviewUrl(item)"
                   target="_blank"
                   rel="noopener noreferrer"
                 >

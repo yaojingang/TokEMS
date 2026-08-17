@@ -5,6 +5,7 @@ import {
   type Order,
   type PublicSiteConfiguration,
   type PublicEvent,
+  type PublicEventViewResult,
   type PublicEventMemberDetail,
   type PublicEventMemberList,
   type RegistrationCheckout,
@@ -89,6 +90,19 @@ export function useConferenceApi() {
       if (import.meta.dev && isNetworkFailure(error)) return getEvent(DEMO_EVENT.slug);
       throw error;
     }
+  }
+
+  function recordPublicEventView(slug: string, pageViewId: string): Promise<PublicEventViewResult> {
+    return $fetch<PublicEventViewResult>(
+      `/events/${encodeURIComponent(slug)}/public-metrics/view`,
+      {
+        method: 'POST',
+        baseURL,
+        timeout: 4_000,
+        headers: { 'X-Organization-Slug': organizationSlug },
+        body: { pageViewId },
+      },
+    );
   }
 
   async function getEventMembers(slug: string, page = 1, industry?: string) {
@@ -621,6 +635,7 @@ export function useConferenceApi() {
     eventState,
     getEvent,
     getHomepageEvent,
+    recordPublicEventView,
     getEventMembers,
     getEventMember,
     getSiteConfiguration,

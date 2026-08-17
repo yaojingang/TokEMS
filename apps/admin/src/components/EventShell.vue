@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { isPublicEventStatus, type EventContextOption } from '@conference/contracts';
 import { useRoute, useRouter } from 'vue-router';
-import { publicEventHomeUrl, session } from '../lib/api';
+import { publicEventPreviewUrl, session } from '../lib/api';
 import { parseEventId } from '../lib/route-scope';
 import AdminFrame from './AdminFrame.vue';
 import EventSwitcher from './EventSwitcher.vue';
@@ -26,7 +26,7 @@ const activeEvent = computed(() =>
 );
 const publicEntryUrl = computed(() => {
   const event = activeEvent.value;
-  return event && isPublicEventStatus(event.status) ? publicEventHomeUrl(event.slug) : undefined;
+  return event && isPublicEventStatus(event.status) ? publicEventPreviewUrl(event.slug) : undefined;
 });
 const contextUnavailable = computed(
   () => !loading.value && (loadFailed.value || !activeEvent.value),

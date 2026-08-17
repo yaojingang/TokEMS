@@ -91,6 +91,25 @@ describe('ConferenceRepository in-memory operational loop', () => {
     });
   });
 
+  it('returns live public aggregates and increments page views from the first load', async () => {
+    const before = await repository.getPublicEvent();
+    const first = await repository.recordPublicEventView(DEMO_EVENT.id, DEMO_EVENT.organizationId);
+    const second = await repository.recordPublicEventView(DEMO_EVENT.id, DEMO_EVENT.organizationId);
+    const after = await repository.getPublicEvent();
+
+    expect(before.publicMetrics).toMatchObject({
+      pageViews: 0,
+      trackingStartedAt: null,
+      confirmedAttendees: 6,
+      organizationCount: 6,
+      cityCount: 2,
+    });
+    expect(first.pageViews).toBe(1);
+    expect(second.pageViews).toBe(2);
+    expect(second.trackingStartedAt).toBe(first.trackingStartedAt);
+    expect(after.publicMetrics.pageViews).toBe(2);
+  });
+
   it('returns one checkout for repeated registration idempotency keys', async () => {
     const before = await repository.getPublicEvent();
     const first = await repository.createCheckout(
