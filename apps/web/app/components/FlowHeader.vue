@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { useNuxtData } from '#app';
-import { publicEventHomePath, type PublicSiteConfiguration } from '@conference/contracts';
+import type { PublicSiteConfiguration } from '@conference/contracts';
 
-const route = useRoute();
 const api = useConferenceApi();
 const { data: siteConfiguration } = useNuxtData<PublicSiteConfiguration>(
   'public-site-configuration',
 );
-const eventSlug = computed(() => String(route.query.event ?? ''));
 const paymentSurface = computed(() => api.isPaymentSurface());
 
 /**
@@ -17,8 +15,7 @@ const paymentSurface = computed(() => api.isPaymentSurface());
  * @returns Home href for the brand link
  */
 const homeHref = computed(() => {
-  const path = eventSlug.value ? publicEventHomePath(eventSlug.value) : '/';
-  return api.resolveConferenceUrl(path);
+  return api.resolveConferenceUrl('/');
 });
 </script>
 
