@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateSpeakerSchema,
+  encodeSpeakerRouteCode,
+  publicSpeakerPath,
   PublicEventSpeakerDetailSchema,
   ReorderSpeakersSchema,
   speakerAvatarText,
+  SpeakerRouteCodeSchema,
   SpeakerSocialLinkSchema,
   UpdateSpeakerSchema,
 } from './index.js';
@@ -11,6 +14,19 @@ import {
 const speakerId = '55555555-5555-4555-8555-555555555551';
 
 describe('speaker profile contracts', () => {
+  it('creates stable four-letter speaker routes without exposing sequential identifiers', () => {
+    expect(encodeSpeakerRouteCode(1)).toBe('tyzb');
+    expect(encodeSpeakerRouteCode(2)).toBe('zxxc');
+    expect(
+      new Set(Array.from({ length: 1_000 }, (_, index) => encodeSpeakerRouteCode(index + 1))),
+    ).toHaveLength(1_000);
+    expect(SpeakerRouteCodeSchema.safeParse('abcd').success).toBe(true);
+    expect(SpeakerRouteCodeSchema.safeParse('a1cd').success).toBe(false);
+    expect(SpeakerRouteCodeSchema.safeParse('ABCd').success).toBe(false);
+    expect(publicSpeakerPath('tyzb')).toBe('/speakers/tyzb');
+    expect(() => publicSpeakerPath('../a')).toThrow();
+  });
+
   it('accepts a complete professional speaker profile', () => {
     const result = CreateSpeakerSchema.parse({
       name: '姚金刚',
@@ -60,6 +76,7 @@ describe('speaker profile contracts', () => {
   it('parses a public speaker detail from a released snapshot', () => {
     const result = PublicEventSpeakerDetailSchema.parse({
       id: speakerId,
+      publicCode: 'tyzb',
       name: '姚金刚',
       role: '大会发起人',
       topic: '如何在 AI 世界占领消费者心智',
@@ -77,6 +94,7 @@ describe('speaker profile contracts', () => {
     });
 
     expect(result.eventSlug).toBe('geo-conference-2026');
+    expect(result.publicCode).toBe('tyzb');
     expect(result.eventCity).toBe('深圳');
     expect(result.avatarUrl).toBeUndefined();
   });

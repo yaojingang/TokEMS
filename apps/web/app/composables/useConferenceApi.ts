@@ -156,6 +156,20 @@ export function useConferenceApi() {
     };
   }
 
+  async function getSpeakerByCode(publicCode: string) {
+    const result = await $fetch<PublicEventSpeakerDetail>(
+      `/speakers/${encodeURIComponent(publicCode)}`,
+      {
+        baseURL,
+        headers: { 'X-Organization-Slug': organizationSlug },
+      },
+    );
+    return {
+      ...result,
+      ...(result.avatarUrl ? { avatarUrl: publicApiResourceUrl(result.avatarUrl) } : {}),
+    };
+  }
+
   async function getSiteConfiguration(): Promise<PublicSiteConfiguration> {
     try {
       return await $fetch<PublicSiteConfiguration>('/site-config', {
@@ -666,6 +680,7 @@ export function useConferenceApi() {
     getEventMembers,
     getEventMember,
     getEventSpeaker,
+    getSpeakerByCode,
     getSiteConfiguration,
     createRegistration,
     createCooperationRequest,

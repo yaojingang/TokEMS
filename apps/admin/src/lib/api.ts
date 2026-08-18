@@ -98,6 +98,7 @@ import {
   type WeChatPayConnectionTest,
   publicEventHomePath,
   publicEventScopedPath,
+  publicSpeakerPath,
 } from '@conference/contracts';
 import { adminOrderExportTable } from './order-export';
 import {
@@ -509,6 +510,10 @@ export function publicEventUrl(path = '/', eventSlug = activeEventSlug.value) {
     return url.toString();
   }
   return new URL(publicEventScopedPath(path, eventSlug), publicWebURL).toString();
+}
+
+export function publicSpeakerUrl(publicCode: string) {
+  return new URL(publicSpeakerPath(publicCode), publicWebURL).toString();
 }
 
 function downloadCsv(filename: string, headers: string[], rows: Array<Array<unknown>>) {
