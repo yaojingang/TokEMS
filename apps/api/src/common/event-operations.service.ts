@@ -47,6 +47,7 @@ import {
   registrationForms,
   registrations,
   sessions,
+  speakerPublicRoutes,
   speakers,
   templateAssets,
   templatePackages,
@@ -68,6 +69,7 @@ import { mergeTemplateDefinition } from './template-definition.js';
 type Database = NonNullable<DatabaseService['db']>;
 
 const generateEventShortSlug = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 6);
+const generateSpeakerPublicCode = customAlphabet('abcdefghijklmnopqrstuvwxyz', 4);
 
 function speakerAssetPath(assetId: string) {
   return `/assets/templates/${encodeURIComponent(assetId)}`;
@@ -215,10 +217,11 @@ export class EventOperationsService {
     }
   }
 
-  private adminSpeaker(row: typeof speakers.$inferSelect): AdminSpeakerSummary {
+  private adminSpeaker(row: typeof speakers.$inferSelect, publicCode: string): AdminSpeakerSummary {
     const avatarUrl = row.avatarAssetId ? speakerAssetPath(row.avatarAssetId) : undefined;
     return {
       id: row.id,
+      publicCode,
       name: row.name,
       role: row.role,
       topic: row.topic,
@@ -1409,11 +1412,19 @@ export class EventOperationsService {
   async listSpeakers(organizationId: string, eventId: EventId): Promise<AdminSpeakerSummary[]> {
     await this.scopedEvent(organizationId, eventId);
     const rows = await this.db()
-      .select()
+      .select({ speaker: speakers, publicCode: speakerPublicRoutes.publicCode })
       .from(speakers)
-      .where(eq(speakers.eventId, eventId))
+      .innerJoin(
+        speakerPublicRoutes,
+        and(
+          eq(speakerPublicRoutes.organizationId, speakers.organizationId),
+          eq(speakerPublicRoutes.eventId, speakers.eventId),
+          eq(speakerPublicRoutes.speakerId, speakers.id),
+        ),
+      )
+      .where(and(eq(speakers.eventId, eventId), eq(speakers.organizationId, organizationId)))
       .orderBy(asc(speakers.sortOrder), asc(speakers.createdAt));
-    return rows.map((row) => this.adminSpeaker(row));
+    return rows.map((row) => this.adminSpeaker(row.speaker, row.publicCode));
   }
 
   async getSpeaker(
@@ -1423,14 +1434,28 @@ export class EventOperationsService {
   ): Promise<AdminSpeakerDetail> {
     await this.scopedEvent(organizationId, eventId);
     const [row] = await this.db()
-      .select()
+      .select({ speaker: speakers, publicCode: speakerPublicRoutes.publicCode })
       .from(speakers)
-      .where(and(eq(speakers.id, speakerId), eq(speakers.eventId, eventId)))
+      .innerJoin(
+        speakerPublicRoutes,
+        and(
+          eq(speakerPublicRoutes.organizationId, speakers.organizationId),
+          eq(speakerPublicRoutes.eventId, speakers.eventId),
+          eq(speakerPublicRoutes.speakerId, speakers.id),
+        ),
+      )
+      .where(
+        and(
+          eq(speakers.id, speakerId),
+          eq(speakers.eventId, eventId),
+          eq(speakers.organizationId, organizationId),
+        ),
+      )
       .limit(1);
     if (!row) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '嘉宾不存在', HttpStatus.NOT_FOUND);
     }
-    return this.adminSpeaker(row);
+    return this.adminSpeaker(row.speaker, row.publicCode);
   }
 
   async createTicketType(
@@ -1661,6 +1686,27 @@ export class EventOperationsService {
             initials: input.initials ?? speakerAvatarText(input.name),
           })
           .returning();
+        let publicRoute: { publicCode: string } | undefined;
+        for (let attempt = 0; attempt < 16 && !publicRoute; attempt += 1) {
+          const [candidate] = await tx
+            .insert(speakerPublicRoutes)
+            .values({
+              organizationId,
+              eventId,
+              speakerId: row!.id,
+              publicCode: generateSpeakerPublicCode(),
+            })
+            .onConflictDoNothing()
+            .returning({ publicCode: speakerPublicRoutes.publicCode });
+          publicRoute = candidate;
+        }
+        if (!publicRoute) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '嘉宾短地址生成失败，请重试',
+            HttpStatus.CONFLICT,
+          );
+        }
         await tx.insert(auditLogs).values({
           organizationId,
           eventId,
@@ -1671,10 +1717,10 @@ export class EventOperationsService {
           after: row as unknown as Record<string, unknown>,
           traceId: crypto.randomUUID(),
         });
-        return row!;
+        return { speaker: row!, publicCode: publicRoute.publicCode };
       },
     );
-    return this.adminSpeaker(result.value);
+    return this.adminSpeaker(result.value.speaker, result.value.publicCode);
   }
 
   async updateSpeaker(
@@ -1724,10 +1770,28 @@ export class EventOperationsService {
           after: row as unknown as Record<string, unknown>,
           traceId: crypto.randomUUID(),
         });
-        return row!;
+        const [publicRoute] = await tx
+          .select({ publicCode: speakerPublicRoutes.publicCode })
+          .from(speakerPublicRoutes)
+          .where(
+            and(
+              eq(speakerPublicRoutes.organizationId, organizationId),
+              eq(speakerPublicRoutes.eventId, eventId),
+              eq(speakerPublicRoutes.speakerId, speakerId),
+            ),
+          )
+          .limit(1);
+        if (!publicRoute) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '嘉宾公开地址尚未初始化',
+            HttpStatus.CONFLICT,
+          );
+        }
+        return { speaker: row!, publicCode: publicRoute.publicCode };
       },
     );
-    return this.adminSpeaker(result.value);
+    return this.adminSpeaker(result.value.speaker, result.value.publicCode);
   }
 
   async reorderSpeakers(

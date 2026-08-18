@@ -5,6 +5,7 @@ import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   publicEventHomePath,
   publicEventScopedPath,
+  publicSpeakerPath,
   speakerAvatarText,
   type EventPurchaseContext,
   type PublicEvent,
@@ -1236,7 +1237,10 @@ onBeforeUnmount(() => {
             :key="speaker.id"
             class="spk-card reveal"
             :data-d="index % 4 || undefined"
-            :to="publicEventScopedPath(`/speakers/${encodeURIComponent(speaker.id)}`, event.slug)"
+            :to="speaker.publicCode
+              ? publicSpeakerPath(speaker.publicCode)
+              : publicEventScopedPath(`/speakers/${encodeURIComponent(speaker.id)}`, event.slug)"
+            external
             :aria-label="`查看嘉宾 ${speaker.name} 的详情`"
           >
             <div class="spk-meta">

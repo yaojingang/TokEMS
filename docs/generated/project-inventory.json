@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 15,
   "adminViews": 37,
-  "migrations": 53,
-  "latestMigration": "0052_hard_rafael_vega.sql",
-  "databaseTables": 72,
-  "apiControllers": 30,
-  "apiOperations": 246,
-  "testFiles": 138
+  "migrations": 54,
+  "latestMigration": "0053_mute_vulcan.sql",
+  "databaseTables": 73,
+  "apiControllers": 31,
+  "apiOperations": 247,
+  "testFiles": 139
 }

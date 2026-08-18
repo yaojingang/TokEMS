@@ -1367,8 +1367,37 @@ export const SpeakerSocialLinkSchema = z.object({
   url: PublicHttpUrlSchema,
 });
 
+export const SpeakerRouteCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z]{4}$/u, '嘉宾短地址必须是 4 位小写字母');
+
+const SPEAKER_ROUTE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
+const SPEAKER_ROUTE_CAPACITY = SPEAKER_ROUTE_ALPHABET.length ** 4;
+const SPEAKER_ROUTE_MULTIPLIER = 104_729;
+const SPEAKER_ROUTE_OFFSET = 350_819;
+
+export function encodeSpeakerRouteCode(value: number) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > SPEAKER_ROUTE_CAPACITY) {
+    throw new RangeError('嘉宾短地址编号无效');
+  }
+  let encoded =
+    ((value - 1) * SPEAKER_ROUTE_MULTIPLIER + SPEAKER_ROUTE_OFFSET) % SPEAKER_ROUTE_CAPACITY;
+  let code = '';
+  for (let index = 0; index < 4; index += 1) {
+    code = SPEAKER_ROUTE_ALPHABET[encoded % SPEAKER_ROUTE_ALPHABET.length] + code;
+    encoded = Math.floor(encoded / SPEAKER_ROUTE_ALPHABET.length);
+  }
+  return code;
+}
+
+export function publicSpeakerPath(publicCode: string) {
+  return `/speakers/${SpeakerRouteCodeSchema.parse(publicCode)}`;
+}
+
 const SpeakerPublicFieldsSchema = z.object({
   id: z.uuid(),
+  publicCode: SpeakerRouteCodeSchema.optional(),
   name: z.string(),
   role: z.string(),
   topic: z.string(),
@@ -1431,6 +1460,7 @@ export const ReorderSpeakersSchema = z
   );
 
 export const AdminSpeakerSummarySchema = SpeakerPublicFieldsSchema.extend({
+  publicCode: SpeakerRouteCodeSchema,
   avatarAssetId: z.uuid().nullable(),
   bio: z.string().nullable(),
   topicAbstract: z.string().nullable(),
@@ -1444,6 +1474,7 @@ export const AdminSpeakerSummarySchema = SpeakerPublicFieldsSchema.extend({
 export const AdminSpeakerDetailSchema = AdminSpeakerSummarySchema;
 
 export const PublicEventSpeakerDetailSchema = SpeakerPublicFieldsSchema.extend({
+  publicCode: SpeakerRouteCodeSchema,
   eventName: z.string(),
   eventSlug: z.string(),
   eventStartsAt: z.string(),
@@ -4449,6 +4480,96 @@ export const DEMO_IDS = {
   },
   checkinList: '44444444-4444-4444-8444-444444444444',
 } as const;
+
+export const DEMO_SPEAKER_PROFILES: Record<
+  string,
+  {
+    bio: string;
+    topicAbstract: string;
+    websiteUrl?: string;
+    socialLinks?: SpeakerSocialLink[];
+  }
+> = {
+  '55555555-5555-4555-8555-555555555551': {
+    bio: '长期研究搜索增长、品牌内容与生成式引擎优化，持续服务企业建立可被 AI 理解和引用的内容资产，也是本届大会发起人。',
+    topicAbstract:
+      '从用户提问、品牌证据与内容供给三个层面拆解 GEO，说明企业如何形成稳定的 AI 心智占位，并给出可执行的内容建设路径。',
+  },
+  '55555555-5555-4555-8555-555555555552': {
+    bio: '专注企业数字增长、品牌战略与产业连接，持续推动 GEO 从行业讨论走向企业经营实践，也是本届大会发起人。',
+    topicAbstract:
+      '回顾中国 GEO 一年的关键变化，梳理平台、品牌方、服务商与内容生态的最新进展，给出下一阶段的行业判断。',
+  },
+  '55555555-5555-4555-8555-555555555553': {
+    bio: 'QuickCreator 创始人，长期关注 AI 内容生产、全球化营销和搜索增长，拥有丰富的产品与海外市场实践经验。',
+    topicAbstract:
+      '结合海外市场变化，分析 ChatGPT、Gemini 与 Perplexity 等入口的内容引用趋势，并提炼面向 2027 年的出海 GEO 策略。',
+  },
+  '55555555-5555-4555-8555-555555555554': {
+    bio: '负责移山科技海外 GEO 研究与项目实践，专注大规模引用样本分析、可信来源识别和增长效果评估。',
+    topicAbstract:
+      '基于百万级引用样本，拆解不同 AI 平台的来源偏好、内容结构与引用路径，帮助企业建立可监测、可优化的 GEO 方法。',
+  },
+  '55555555-5555-4555-8555-555555555555': {
+    bio: 'AI 内容创作者与产品推广实践者，长期观察新产品冷启动、用户传播和社区增长，也是一位摇滚乐爱好者。',
+    topicAbstract:
+      '围绕产品定位、首批用户和持续传播三个阶段，分享 2026 年 AI 产品推广的完整方法，以及不同增长阶段的关键动作。',
+  },
+  '55555555-5555-4555-8555-555555555556': {
+    bio: '兼具 AI 产品、内容创作与设计背景，持续研究新工具的产品体验、信息表达和用户决策路径。',
+    topicAbstract:
+      '从产品视角解释 GEO 如何进入用户体验与增长体系，并通过信息结构、内容设计和可信证据提升品牌被 AI 推荐的概率。',
+  },
+  '55555555-5555-4555-8555-555555555557': {
+    bio: 'ListenHub 创始人兼 CEO，专注 AI 音频、Agent 产品和新一代内容消费方式，持续探索内容生产与分发的新链路。',
+    topicAbstract:
+      '分析 Agent 介入内容发现、理解与分发后的结构变化，讨论创作者和品牌如何构建适合智能体消费的内容资产。',
+  },
+  '55555555-5555-4555-8555-555555555558': {
+    bio: 'WaytoAGI 创始人，长期建设 AI 学习与实践社区，连接开发者、产品经理、创业者和企业创新团队。',
+    topicAbstract:
+      '结合 AGI 社区实践，讨论品牌在智能体时代如何形成长期信任、持续贡献知识，并进入用户和 AI 的共同认知。',
+  },
+  '55555555-5555-4555-8555-555555555559': {
+    bio: '海外营销增长实践者与 AI 产品经理，关注国际市场进入策略、内容本地化和产品驱动增长。',
+    topicAbstract:
+      '从市场选择、问题词研究、内容供给和效果追踪四个环节，建立适用于海外业务的 GEO 增长框架。',
+  },
+  '55555555-5555-4555-8555-555555555560': {
+    bio: 'AIDSO 爱搜AI 合伙人，专注 AI 搜索数据、品牌引用监测和企业 GEO 增长体系建设。',
+    topicAbstract:
+      '介绍从数据采集、引用归因到内容优化的完整闭环，说明企业如何用统一数据底座持续评估 GEO 投入与增长结果。',
+  },
+  '55555555-5555-4555-8555-555555555561': {
+    bio: '克莱普斯创始人，长期参与企业知识库、内容资产与 AI 可见度项目，关注工程能力如何转化为品牌信任。',
+    topicAbstract:
+      '拆解企业信息被 AI 看见、理解和推荐的关键条件，并给出知识库结构、证据建设与持续更新的实施方法。',
+  },
+  '55555555-5555-4555-8555-555555555562': {
+    bio: '赛博禅心与 AGIBar 主理人，持续组织 AI 社区活动，连接产品实践者、创业者和内容创作者。',
+    topicAbstract:
+      '通过社区案例说明高质量讨论、成员共创和公开内容如何沉淀为可信信号，并进一步增强品牌的 GEO 表现。',
+  },
+  '55555555-5555-4555-8555-555555555563': {
+    bio: '一招科技创始人，专注企业 AI 应用与 GEO 落地，拥有从业务诊断到内容执行的一线项目经验。',
+    topicAbstract:
+      '复盘企业 GEO 项目的目标设定、团队协作、内容生产与效果评估，分享常见问题和可直接借鉴的落地步骤。',
+  },
+  '55555555-5555-4555-8555-555555555564': {
+    bio: '来自国内头部 AI 平台的产品与技术嘉宾，具体姓名和完整职业信息将在大会正式官宣后更新。',
+    topicAbstract:
+      '从平台视角介绍 AI 搜索的检索增强、来源选择与答案组织机制，帮助内容生产者理解高质量信息进入答案的条件。',
+  },
+  '55555555-5555-4555-8555-555555555565': {
+    bio: '来自标杆上市企业的品牌负责人，拥有长期品牌建设与 GEO 项目管理经验，完整嘉宾信息将在官宣后更新。',
+    topicAbstract:
+      '公开复盘 12 个月 GEO 项目的预算、人力、内容量与引用率变化，并总结管理层评估投入产出的关键指标。',
+  },
+  '55555555-5555-4555-8555-555555555566': {
+    bio: '大会嘉宾阵容仍在持续更新，后续官宣嘉宾的姓名、职业信息与分享主题会同步补充到这里。',
+    topicAbstract: '关注大会首页与官方通知，及时获取新增嘉宾、主题分享和最终议程安排。',
+  },
+};
 
 export const DEMO_EVENT_EXPERIENCE: NonNullable<PublicEvent['experience']> = {
   renderer: {

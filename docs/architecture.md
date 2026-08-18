@@ -44,7 +44,7 @@ flowchart TB
 | 上下文         | 责任                                       | 关键实体                                                                                          |
 | -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | Organization   | 组织、用户、成员、角色、授权与首页默认大会 | organizations, users, memberships, organization_homepage_events                                   |
-| Event Planning | 大会、蓝图、内容草稿与生命周期             | events, event_blueprints, speakers, sessions                                                      |
+| Event Planning | 大会、蓝图、内容草稿与生命周期             | events, event_blueprints, speakers, speaker_public_routes, sessions                               |
 | Experience     | 共享模板、草稿、版本、资产、大会绑定与覆盖 | conference_templates, conference_template_versions, template_assets, event_template_bindings      |
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
 | Registration   | 版本化表单、条款同意和参会人               | registration_forms, registrations                                                                 |

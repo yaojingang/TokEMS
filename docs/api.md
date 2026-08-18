@@ -56,6 +56,8 @@ Scope 包含 `tokems:read`、`tokems:pii`、`tokems:write`、`tokems:finance`、
 | GET    | `/homepage/home-document`                                 | 获取首页默认大会的已发布 HTML 首页          |
 | GET    | `/events/:slug`                                           | 获取当前发布快照及实时库存                  |
 | GET    | `/events/:slug/home-document`                             | 获取指定大会的已发布 HTML 首页              |
+| GET    | `/speakers/:publicCode`                                   | 按稳定四字母短编号获取当前公开嘉宾详情      |
+| GET    | `/events/:slug/speakers/:speakerId`                       | 兼容按大会与嘉宾 UUID 获取公开详情          |
 | POST   | `/events/:slug/public-metrics/view`                       | 登记结构化首页单次页面访问                  |
 | POST   | `/cooperation-requests`                                   | 匿名提交单场公开大会的合作申请              |
 | POST   | `/registrations`                                          | 创建报名、订单和库存保留，可领取候补资格    |
@@ -221,6 +223,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 每场大会的规范前台地址为 `/{eventSlug}`。新地址使用 3–24 位小写字母、数字或连字符，推荐 4–12 位；创建大会时可以自定义，留空会生成 `e` 加 6 位随机字符的短地址。修改地址后，旧地址记录在 `event_slug_aliases` 并使用 308 永久跳转到新地址，历史链接持续可用。系统保留路径和当前组织内其他大会的现用、历史地址均不可占用。
 
 前台根地址 `/` 从数据库读取组织首页默认大会并保持根地址展示；兼容地址 `/?event={eventSlug}` 使用 308 跳转到规范地址。报名、FAQ、订单、电子票、发票和账号等共享流程继续通过 `event` 查询参数携带大会范围。
+
+嘉宾详情页使用 `/speakers/{publicCode}` 作为规范地址。`publicCode` 是持久化的四位小写字母随机编号，嘉宾改名、删除和发布版本回滚不会改变地址；公开接口仍以大会当前生效快照作为可见性边界。历史 `/speakers/{speakerId}?event={eventSlug}` 与 `/s/{publicCode}` 页面使用 308 永久跳转到对应短地址。
 
 首页默认大会按组织保存，一次只能选择一场。目标大会必须处于预发布、报名开放、进行中或已结束状态，并且存在当前发布版本。默认大会切换会写入审计记录；当前默认大会在切换到另一场可用大会前不能转为非公开状态。
 

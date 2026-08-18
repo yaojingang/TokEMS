@@ -472,6 +472,26 @@ export class EventsController {
   }
 }
 
+@ApiTags('speakers')
+@Controller('speakers')
+export class SpeakersController {
+  constructor(@Inject(ConferenceRepository) private readonly repository: ConferenceRepository) {}
+
+  @Get(':publicCode')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async getSpeaker(
+    @Param('publicCode') publicCode: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.repository.getPublicSpeakerByCode(
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+      publicCode,
+    );
+  }
+}
+
 @ApiTags('public-homepage')
 @Controller('homepage')
 class HomepageController {
@@ -1116,6 +1136,7 @@ class CheckInController {
 @Module({
   controllers: [
     EventsController,
+    SpeakersController,
     HomepageController,
     SiteConfigurationController,
     TemplateAssetsController,

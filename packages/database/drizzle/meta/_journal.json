@@ -372,6 +372,13 @@
       "when": 1786954695407,
       "tag": "0052_hard_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1787014769987,
+      "tag": "0053_mute_vulcan",
+      "breakpoints": true
     }
   ]
 }

@@ -1841,6 +1841,35 @@ export const speakers = pgTable(
   (table) => [index('speakers_event_order_idx').on(table.eventId, table.sortOrder)],
 );
 
+export const speakerPublicRoutes = pgTable(
+  'speaker_public_routes',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id').notNull(),
+    speakerId: uuid('speaker_id').notNull(),
+    publicCode: varchar('public_code', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'speaker_public_routes_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('speaker_public_routes_speaker_unique').on(
+      table.organizationId,
+      table.eventId,
+      table.speakerId,
+    ),
+    uniqueIndex('speaker_public_routes_code_unique').on(table.organizationId, table.publicCode),
+    check('speaker_public_routes_code_format', sql`${table.publicCode} ~ '^[a-z]{4}$'`),
+    index('speaker_public_routes_event_idx').on(table.organizationId, table.eventId),
+  ],
+);
+
 export const cooperationRequests = pgTable(
   'cooperation_requests',
   {
