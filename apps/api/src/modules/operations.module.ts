@@ -27,6 +27,7 @@ import {
   CreateOrganizationInvitationSchema,
   CreateEventSchema,
   EventShortSlugSchema,
+  FeishuDigestTestMessageSchema,
   OfflineCheckInSyncSchema,
   PublishEventSchema,
   QueueNotificationSchema,
@@ -35,6 +36,8 @@ import {
   RegistrationFormPublishSchema,
   SetOrganizationHomepageEventSchema,
   TestAliyunSmsConfigurationSchema,
+  UpdateFeishuBotConfigurationSchema,
+  UpdateFeishuDigestSubscriptionSchema,
   UpdateAliyunSmsConfigurationSchema,
   UpdateMembershipStatusSchema,
   UpdateEventSlugSchema,
@@ -60,6 +63,7 @@ import { DomainError } from '../common/domain-error.js';
 import { EngagementOperationsService } from '../common/engagement-operations.service.js';
 import { EventIdPipe, OptionalEventIdPipe } from '../common/event-id.pipe.js';
 import { EventOperationsService } from '../common/event-operations.service.js';
+import { FeishuDigestService } from '../common/feishu-digest.service.js';
 import { IdempotencyService } from '../common/idempotency.service.js';
 import { OrganizationAdminService } from '../common/organization-admin.service.js';
 import { TemplateOperationsService } from '../common/template-operations.service.js';
@@ -186,6 +190,8 @@ export class OrganizationEventsController {
     private readonly weChatPay: WeChatPayService,
     @Inject(AliyunSmsService)
     private readonly aliyunSms: AliyunSmsService,
+    @Inject(FeishuDigestService)
+    private readonly feishuDigest: FeishuDigestService,
   ) {}
 
   @Get('organization/members')
@@ -404,6 +410,139 @@ export class OrganizationEventsController {
           request.user.organizationId,
           request.user.sub,
           input,
+          requestKey,
+        ),
+      60 * 60_000,
+    );
+  }
+
+  @Get('integrations/feishu-bot')
+  @RequireGrant('org.settings.read')
+  feishuBotConfiguration(@Req() request: AuthenticatedRequest) {
+    return this.feishuDigest.getConfiguration(request.user.organizationId);
+  }
+
+  @Patch('integrations/feishu-bot')
+  @RequireGrant('org.settings.manage')
+  updateFeishuBotConfiguration(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.feishuDigest.updateConfiguration(
+      request.user.organizationId,
+      request.user.sub,
+      parse(UpdateFeishuBotConfigurationSchema, body),
+    );
+  }
+
+  @Post('integrations/feishu-bot/verify')
+  @RequireGrant('org.settings.manage')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
+  verifyFeishuBot(@Req() request: AuthenticatedRequest) {
+    return this.feishuDigest.verify(request.user.organizationId, request.user.sub);
+  }
+
+  @Get('integrations/feishu-bot/chats')
+  @RequireGrant('org.settings.manage')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  feishuBotChats(@Req() request: AuthenticatedRequest) {
+    return this.feishuDigest.listChats(request.user.organizationId);
+  }
+
+  @Post('integrations/feishu-bot/chats/refresh')
+  @RequireGrant('org.settings.manage')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  refreshFeishuBotChats(@Req() request: AuthenticatedRequest) {
+    return this.feishuDigest.refreshChats(request.user.organizationId, request.user.sub);
+  }
+
+  @Get('events/:eventId/feishu-digest')
+  @RequireGrant('org.settings.read')
+  feishuDigestSubscription(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.feishuDigest.getSubscription(request.user.organizationId, eventId);
+  }
+
+  @Patch('events/:eventId/feishu-digest')
+  @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
+  updateFeishuDigestSubscription(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.feishuDigest.updateSubscription(
+      request.user.organizationId,
+      eventId,
+      request.user.sub,
+      parse(UpdateFeishuDigestSubscriptionSchema, body),
+    );
+  }
+
+  @Get('events/:eventId/feishu-digest/preview')
+  @RequireAllGrants('org.settings.read', 'event.dashboard.read')
+  feishuDigestPreview(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.feishuDigest.preview(request.user.organizationId, eventId);
+  }
+
+  @Post('events/:eventId/feishu-digest/send-test')
+  @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
+  sendFeishuDigestTest(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parse(FeishuDigestTestMessageSchema, body);
+    const requestKey = idempotencyKey(key);
+    return this.idempotency.execute(
+      `feishu-digest:test:${request.user.organizationId}:${eventId}:${request.user.sub}`,
+      requestKey,
+      input,
+      () =>
+        this.feishuDigest.sendTest(
+          request.user.organizationId,
+          eventId,
+          request.user.sub,
+          input,
+          requestKey,
+        ),
+      60 * 60_000,
+    );
+  }
+
+  @Get('events/:eventId/feishu-digest/deliveries')
+  @RequireGrant('org.settings.read')
+  feishuDigestDeliveries(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.feishuDigest.listDeliveries(request.user.organizationId, eventId);
+  }
+
+  @Post('events/:eventId/feishu-digest/deliveries/:deliveryId/resend')
+  @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
+  resendFeishuDigestDelivery(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('deliveryId') deliveryId: string,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const requestKey = idempotencyKey(key);
+    const input = { deliveryId };
+    return this.idempotency.execute(
+      `feishu-digest:resend:${request.user.organizationId}:${eventId}:${request.user.sub}`,
+      requestKey,
+      input,
+      () =>
+        this.feishuDigest.resendDelivery(
+          request.user.organizationId,
+          eventId,
+          deliveryId,
+          request.user.sub,
           requestKey,
         ),
       60 * 60_000,

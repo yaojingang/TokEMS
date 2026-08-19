@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { EventId } from '@conference/contracts';
 import {
+  eventPublicMetricDays,
   eventPublicMetrics,
   events,
   organizations,
@@ -116,6 +117,16 @@ describePersistent('PostgreSQL public event metrics', () => {
     expect(first.pageViews).toBe(1);
     expect(second.pageViews).toBe(2);
     expect(second.trackingStartedAt).toBe(first.trackingStartedAt);
+    const [metric] = await database
+      .db!.select({ dailyTrackingStartedAt: eventPublicMetrics.dailyTrackingStartedAt })
+      .from(eventPublicMetrics)
+      .where(
+        and(
+          eq(eventPublicMetrics.organizationId, organizationId),
+          eq(eventPublicMetrics.eventId, eventId),
+        ),
+      );
+    expect(metric?.dailyTrackingStartedAt?.toISOString()).toBe(first.trackingStartedAt);
   });
 
   it('increments atomically under concurrency', async () => {
@@ -127,6 +138,17 @@ describePersistent('PostgreSQL public event metrics', () => {
     await expect(
       repository.getPublicEventViewResult(eventId, organizationId),
     ).resolves.toMatchObject({ pageViews: 22 });
+
+    const [daily] = await database
+      .db!.select({ pageViews: eventPublicMetricDays.pageViews })
+      .from(eventPublicMetricDays)
+      .where(
+        and(
+          eq(eventPublicMetricDays.organizationId, organizationId),
+          eq(eventPublicMetricDays.eventId, eventId),
+        ),
+      );
+    expect(daily).toMatchObject({ pageViews: 22 });
   });
 
   it('aggregates confirmed registrations and normalized non-empty dimensions', async () => {

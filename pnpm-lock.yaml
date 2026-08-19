@@ -357,6 +357,9 @@ importers:
       '@alicloud/openapi-client':
         specifier: 0.4.15
         version: 0.4.15
+      '@conference/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@darabonba/typescript':
         specifier: 1.0.5
         version: 1.0.5
