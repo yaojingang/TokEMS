@@ -6,6 +6,8 @@ import type {
 import * as $OpenApi from '@alicloud/openapi-client';
 import type { RuntimeOptions } from '@darabonba/typescript';
 
+export * from './feishu.js';
+
 export const ALIYUN_SMS_ENDPOINT = 'dysmsapi.aliyuncs.com';
 
 const require = createRequire(import.meta.url);

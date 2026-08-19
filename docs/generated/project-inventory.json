@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 15,
   "adminViews": 37,
-  "migrations": 54,
-  "latestMigration": "0053_mute_vulcan.sql",
-  "databaseTables": 73,
+  "migrations": 56,
+  "latestMigration": "0055_thankful_sharon_carter.sql",
+  "databaseTables": 76,
   "apiControllers": 31,
-  "apiOperations": 247,
-  "testFiles": 139
+  "apiOperations": 258,
+  "testFiles": 144
 }

@@ -48,13 +48,14 @@ flowchart TB
 | Experience     | 共享模板、草稿、版本、资产、大会绑定与覆盖 | conference_templates, conference_template_versions, template_assets, event_template_bindings      |
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
 | Registration   | 版本化表单、条款同意和参会人               | registration_forms, registrations                                                                 |
-| Public Metrics | 大会访问累计与公开参会聚合                 | event_public_metrics, registrations                                                               |
+| Public Metrics | 大会访问累计、按日访问与公开参会聚合       | event_public_metrics, event_public_metric_days, registrations                                     |
 | Cooperation    | 大会合作意向、联系方式与运营跟进           | cooperation_requests                                                                              |
 | Commerce       | 票种、库存保留、订单、支付、退款和状态日志 | ticket_types, inventory_reservations, orders, payments, refunds                                   |
 | Invoice        | 发票申请、文件、状态、访问凭证与导出任务   | invoice_requests, invoice_documents, invoice_state_logs, order_access_tokens, invoice_export_jobs |
 | Waitlist       | 售罄排队、顺序邀约、占位和一次性领取       | waitlist_entries                                                                                  |
 | Fulfillment    | 电子票、签到列表、设备和核销记录           | tickets, checkin_lists, checkin_devices, checkin_records                                          |
 | Engagement     | AI 草稿、审批、通知模板和投递              | ai_runs, notification_templates, notification_deliveries                                          |
+| Integrations   | 第三方凭据、飞书群日报订阅与投递账本       | organization_integrations, event_feishu_digest_subscriptions, feishu_digest_deliveries            |
 | Platform       | 幂等、事件投递和审计                       | idempotency_keys, outbox_events, audit_logs                                                       |
 
 ## 发布快照
