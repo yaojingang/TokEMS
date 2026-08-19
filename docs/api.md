@@ -305,6 +305,24 @@ Dashboard 指标口径：`paidOrders` 为 `paid` 或 `partially_refunded` 订单
 
 订单分页查询支持 `q`、`status` 和 `page`，固定每页 20 条，响应为 `{ items, total, page, pageSize }`。`q` 会匹配订单号、参会人姓名、手机号和公司。
 
+## 飞书运营日报
+
+| Method | Path                                                                 | 授权或说明                                     |
+| ------ | -------------------------------------------------------------------- | ---------------------------------------------- |
+| GET    | `/admin/integrations/feishu-bot`                                     | `org.settings.read`，读取脱敏后的机器人配置    |
+| PATCH  | `/admin/integrations/feishu-bot`                                     | `org.settings.manage`，保存凭据或启停连接      |
+| POST   | `/admin/integrations/feishu-bot/verify`                              | `org.settings.manage`，校验机器人与群读取能力  |
+| GET    | `/admin/integrations/feishu-bot/chats`                               | `org.settings.manage`，只读查询机器人所在群    |
+| POST   | `/admin/integrations/feishu-bot/chats/refresh`                       | `org.settings.manage`，刷新群并协调失效订阅    |
+| GET    | `/admin/events/:eventId/feishu-digest`                               | `org.settings.read`，读取大会日报订阅          |
+| PATCH  | `/admin/events/:eventId/feishu-digest`                               | `org.settings.manage` + `event.dashboard.read` |
+| GET    | `/admin/events/:eventId/feishu-digest/preview`                       | `org.settings.read` + `event.dashboard.read`   |
+| POST   | `/admin/events/:eventId/feishu-digest/send-test`                     | `org.settings.manage` + `event.dashboard.read` |
+| GET    | `/admin/events/:eventId/feishu-digest/deliveries`                    | `org.settings.read`，查询最近 100 条投递记录   |
+| POST   | `/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/resend` | `org.settings.manage` + `event.dashboard.read` |
+
+测试发送和人工补发必须提供 8–160 字符且每次操作唯一的 `Idempotency-Key`。测试发送请求需要提交 `dataVisibilityConfirmed: true`，确认目标群成员可以查看聚合经营数据。目标群只能从机器人所在群列表中选择；目标群变化后需要重新试发，试发成功后才能开启自动推送。`GET .../chats` 仅读取飞书当前群列表；管理员点击“刷新群列表”时调用 `POST .../chats/refresh`，系统会停用已离开或已解散群对应的自动推送，并保留脱敏审计记录。完整指标口径、调度状态机和飞书管理员拉群流程见 [飞书运营日报方案](./feishu-operations-digest-design.md)。
+
 ## AI 与通知
 
 | Method | Path                             | 说明                   |

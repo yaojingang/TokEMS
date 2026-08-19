@@ -8,6 +8,7 @@ import {
 
 export * from './agent.js';
 export * from './analytics.js';
+export * from './feishu.js';
 
 export const BuildInfoSchema = z.object({
   service: z.string().regex(/^[a-z0-9-]+$/u),

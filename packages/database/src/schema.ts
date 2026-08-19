@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -28,6 +29,7 @@ import type {
   ConferenceTemplateDefinition,
   CooperationType,
   EventSettings,
+  FeishuDigestSnapshot,
   HtmlTemplateBindingManifest,
   OrganizationRole,
   OrganizationSettings,
@@ -470,6 +472,7 @@ export const organizationIntegrations = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
     encryptedCredentials: text('encrypted_credentials'),
     keyVersion: integer('key_version').notNull().default(1),
+    revision: integer('revision').notNull().default(0),
     lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
     lastError: text('last_error'),
     updatedBy: uuid('updated_by').references(() => users.id),
@@ -604,6 +607,7 @@ export const eventPublicMetrics = pgTable(
     trackingStartedAt: timestamp('tracking_started_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    dailyTrackingStartedAt: timestamp('daily_tracking_started_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -614,6 +618,126 @@ export const eventPublicMetrics = pgTable(
       name: 'event_public_metrics_event_scope_fk',
     }).onDelete('cascade'),
     check('event_public_metrics_page_views_nonnegative', sql`${table.pageViews} >= 0`),
+  ],
+);
+
+export const eventPublicMetricDays = pgTable(
+  'event_public_metric_days',
+  {
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    localDate: date('local_date').notNull(),
+    pageViews: bigint('page_views', { mode: 'number' }).notNull().default(0),
+    timezoneSnapshot: varchar('timezone_snapshot', { length: 80 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.eventId, table.localDate] }),
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_public_metric_days_event_scope_fk',
+    }).onDelete('cascade'),
+    check('event_public_metric_days_page_views_nonnegative', sql`${table.pageViews} >= 0`),
+  ],
+);
+
+export const eventFeishuDigestSubscriptions = pgTable(
+  'event_feishu_digest_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    digestType: varchar('digest_type', { length: 40 }).notNull().default('daily_operations'),
+    enabled: boolean('enabled').notNull().default(false),
+    chatId: varchar('chat_id', { length: 160 }),
+    chatNameSnapshot: varchar('chat_name_snapshot', { length: 200 }),
+    sendLocalTime: varchar('send_local_time', { length: 5 }).notNull().default('09:00'),
+    timezoneSnapshot: varchar('timezone_snapshot', { length: 80 }).notNull(),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    lastSuccessfulAt: timestamp('last_successful_at', { withTimezone: true }),
+    testVerifiedAt: timestamp('test_verified_at', { withTimezone: true }),
+    testVerifiedChatId: varchar('test_verified_chat_id', { length: 160 }),
+    revision: integer('revision').notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_feishu_digest_subscriptions_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('event_feishu_digest_subscriptions_scope_unique').on(
+      table.organizationId,
+      table.eventId,
+      table.digestType,
+    ),
+    index('event_feishu_digest_subscriptions_due_idx').on(table.enabled, table.nextRunAt),
+    check(
+      'event_feishu_digest_subscriptions_type_check',
+      sql`${table.digestType} in ('daily_operations')`,
+    ),
+    check(
+      'event_feishu_digest_subscriptions_time_check',
+      sql`${table.sendLocalTime} ~ '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+  ],
+);
+
+export const feishuDigestDeliveries = pgTable(
+  'feishu_digest_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    subscriptionId: uuid('subscription_id').references(() => eventFeishuDigestSubscriptions.id, {
+      onDelete: 'set null',
+    }),
+    sourceDeliveryId: uuid('source_delivery_id').references(
+      (): AnyPgColumn => feishuDigestDeliveries.id,
+      { onDelete: 'set null' },
+    ),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    kind: varchar('kind', { length: 24 }).notNull(),
+    reportDate: date('report_date').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    windowEnd: timestamp('window_end', { withTimezone: true }).notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }),
+    aggregateSnapshot: jsonb('aggregate_snapshot').$type<FeishuDigestSnapshot>(),
+    cardDigest: varchar('card_digest', { length: 64 }),
+    chatIdSnapshot: varchar('chat_id_snapshot', { length: 160 }).notNull(),
+    chatNameSnapshot: varchar('chat_name_snapshot', { length: 200 }).notNull(),
+    status: varchar('status', { length: 24 }).notNull().default('queued'),
+    providerMessageId: varchar('provider_message_id', { length: 160 }),
+    attempts: integer('attempts').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    lastError: text('last_error'),
+    dedupKey: varchar('dedup_key', { length: 240 }).notNull(),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'feishu_digest_deliveries_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('feishu_digest_deliveries_dedup_unique').on(table.dedupKey),
+    index('feishu_digest_deliveries_event_time_idx').on(
+      table.organizationId,
+      table.eventId,
+      table.createdAt,
+    ),
+    index('feishu_digest_deliveries_status_time_idx').on(table.status, table.updatedAt),
+    check(
+      'feishu_digest_deliveries_kind_check',
+      sql`${table.kind} in ('scheduled', 'manual_test', 'manual_resend')`,
+    ),
+    check(
+      'feishu_digest_deliveries_status_check',
+      sql`${table.status} in ('queued', 'generating', 'sending', 'retrying', 'sent', 'unknown', 'failed', 'skipped', 'cancelled')`,
+    ),
+    check('feishu_digest_deliveries_attempts_nonnegative', sql`${table.attempts} >= 0`),
   ],
 );
 

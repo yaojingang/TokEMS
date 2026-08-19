@@ -45,7 +45,9 @@ import {
   checkinRecords,
   customerProfiles,
   customerUsers,
+  eventFeishuDigestSubscriptions,
   eventReleases,
+  eventPublicMetricDays,
   eventPublicMetrics,
   eventSlugAliases,
   events,
@@ -997,7 +999,7 @@ export class ConferenceRepository {
     }
 
     const [event] = await db
-      .select({ status: events.status })
+      .select({ status: events.status, timezone: events.timezone })
       .from(events)
       .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
       .limit(1);
@@ -1009,27 +1011,61 @@ export class ConferenceRepository {
       );
     }
 
-    const [counter] = await db
-      .insert(eventPublicMetrics)
-      .values({
-        organizationId,
-        eventId,
-        pageViews: 1,
-        trackingStartedAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [eventPublicMetrics.organizationId, eventPublicMetrics.eventId],
-        set: {
-          pageViews: sql`${eventPublicMetrics.pageViews} + 1`,
+    let metricTimeZone = event.timezone;
+    let localDate: string;
+    try {
+      localDate = dateInTimeZone(now, metricTimeZone);
+    } catch {
+      metricTimeZone = 'UTC';
+      localDate = dateInTimeZone(now, metricTimeZone);
+    }
+    const counter = await db.transaction(async (tx) => {
+      const [updatedCounter] = await tx
+        .insert(eventPublicMetrics)
+        .values({
+          organizationId,
+          eventId,
+          pageViews: 1,
+          trackingStartedAt: now,
+          dailyTrackingStartedAt: now,
           updatedAt: now,
-        },
-      })
-      .returning({
-        pageViews: eventPublicMetrics.pageViews,
-        trackingStartedAt: eventPublicMetrics.trackingStartedAt,
-        updatedAt: eventPublicMetrics.updatedAt,
-      });
+        })
+        .onConflictDoUpdate({
+          target: [eventPublicMetrics.organizationId, eventPublicMetrics.eventId],
+          set: {
+            pageViews: sql`${eventPublicMetrics.pageViews} + 1`,
+            dailyTrackingStartedAt: sql`coalesce(${eventPublicMetrics.dailyTrackingStartedAt}, ${now})`,
+            updatedAt: now,
+          },
+        })
+        .returning({
+          pageViews: eventPublicMetrics.pageViews,
+          trackingStartedAt: eventPublicMetrics.trackingStartedAt,
+          updatedAt: eventPublicMetrics.updatedAt,
+        });
+      await tx
+        .insert(eventPublicMetricDays)
+        .values({
+          organizationId,
+          eventId,
+          localDate,
+          pageViews: 1,
+          timezoneSnapshot: metricTimeZone,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            eventPublicMetricDays.organizationId,
+            eventPublicMetricDays.eventId,
+            eventPublicMetricDays.localDate,
+          ],
+          set: {
+            pageViews: sql`${eventPublicMetricDays.pageViews} + 1`,
+            updatedAt: now,
+          },
+        });
+      return updatedCounter;
+    });
     if (!counter) {
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -5857,6 +5893,7 @@ export class ConferenceRepository {
           ),
         ) as Partial<typeof events.$inferInsert>;
         if (nextStatus !== current.status) updateFields.status = nextStatus;
+        const changedAt = new Date();
         const [row] = await tx
           .update(events)
           .set({
@@ -5864,10 +5901,53 @@ export class ConferenceRepository {
             ...(patch.startsAt ? { startsAt } : {}),
             ...(patch.endsAt ? { endsAt } : {}),
             ...(registrationChanged ? { settings: nextSettings } : {}),
-            updatedAt: new Date(),
+            updatedAt: changedAt,
           })
           .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
           .returning();
+        if (row && row.timezone !== current.timezone) {
+          await tx
+            .update(eventPublicMetrics)
+            .set({ dailyTrackingStartedAt: changedAt, updatedAt: changedAt })
+            .where(
+              and(
+                eq(eventPublicMetrics.organizationId, organizationId),
+                eq(eventPublicMetrics.eventId, eventId),
+              ),
+            );
+        }
+        if (row && (patch.timezone !== undefined || nextStatus === 'archived')) {
+          const [digest] = await tx
+            .select({
+              id: eventFeishuDigestSubscriptions.id,
+              enabled: eventFeishuDigestSubscriptions.enabled,
+              sendLocalTime: eventFeishuDigestSubscriptions.sendLocalTime,
+            })
+            .from(eventFeishuDigestSubscriptions)
+            .where(
+              and(
+                eq(eventFeishuDigestSubscriptions.organizationId, organizationId),
+                eq(eventFeishuDigestSubscriptions.eventId, eventId),
+              ),
+            )
+            .limit(1);
+          if (digest) {
+            const archived = nextStatus === 'archived';
+            await tx
+              .update(eventFeishuDigestSubscriptions)
+              .set({
+                timezoneSnapshot: row.timezone,
+                enabled: archived ? false : digest.enabled,
+                nextRunAt:
+                  archived || !digest.enabled
+                    ? null
+                    : nextFeishuDigestRun(changedAt, row.timezone, digest.sendLocalTime),
+                revision: sql`${eventFeishuDigestSubscriptions.revision} + 1`,
+                updatedAt: changedAt,
+              })
+              .where(eq(eventFeishuDigestSubscriptions.id, digest.id));
+          }
+        }
         await tx.insert(auditLogs).values({
           organizationId: current.organizationId,
           eventId,
