@@ -28,7 +28,7 @@
     "postcss": "8.5.26"
   },
   "devDependencies": {
-    "@types/jsdom": "28.0.3",
+    "@types/jsdom": "30.0.0",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   }
