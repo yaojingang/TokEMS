@@ -129,12 +129,12 @@ export function useConferenceApi() {
     };
   }
 
-  function getEventAttendeeNeeds(slug: string, page = 1) {
+  function getEventAttendeeNeeds(slug: string, page = 1, snapshotAt?: string) {
     return $fetch<PublicAttendeeNeedList>(`/events/${encodeURIComponent(slug)}/attendee-needs`, {
       baseURL,
       timeout: 4_000,
       headers: { 'X-Organization-Slug': organizationSlug },
-      query: { page },
+      query: { page, ...(snapshotAt ? { snapshotAt } : {}) },
     });
   }
 

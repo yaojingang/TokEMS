@@ -9,6 +9,8 @@ import {
   type AdminCooperationRequest,
   type AdminCooperationRequestList,
   type AdminCooperationRequestListQuery,
+  type AdminAttendeeNeedItem,
+  type AdminAttendeeNeedList,
   type AdminAttendeeNeedListQuery,
   type AdminOrderList,
   type AdminOrderListQuery,
@@ -121,57 +123,13 @@ import { routeEventId } from './route-scope.js';
 export type {
   AdminCooperationRequest,
   AdminCooperationRequestList,
+  AdminAttendeeNeedItem,
+  AdminAttendeeNeedList,
   AdminOrderRow,
   AdminRegistrationDetail,
   AdminRegistrationOperationsDetail,
   AdminRegistrationRow,
 };
-
-export interface AdminAttendeeNeedItem {
-  id: string;
-  submissionId: string;
-  registrationId: string;
-  registrationCode: string;
-  attendeeName: string;
-  registrationStatus: string;
-  orderStatus: string;
-  ticketStatus: string | null;
-  customerUserId: string;
-  content: string;
-  tagCodes: string[];
-  isPublic: boolean;
-  isAnonymous: boolean;
-  attributionName: string | null;
-  effectivePublic: boolean;
-  qualificationReason: string | null;
-  adminEdited: boolean;
-  adminEditReason: string | null;
-  adminHidden: boolean;
-  adminHiddenReason: string | null;
-  deleted: boolean;
-  deletedByType: 'customer' | 'admin' | null;
-  deletedReason: string | null;
-  version: number;
-  firstPublishedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AdminAttendeeNeedList {
-  items: AdminAttendeeNeedItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  counts: {
-    submitters: number;
-    total: number;
-    public: number;
-    anonymous: number;
-    hidden: number;
-    deleted: number;
-  };
-}
 
 export interface CheckInResult {
   result: 'accepted' | 'duplicate' | 'invalid' | 'forbidden' | 'manual_review';

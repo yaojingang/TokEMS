@@ -17,6 +17,7 @@ import { dateTime } from '../lib/format';
 
 const route = useRoute();
 const canManage = computed(() => session.can('event.registration.manage'));
+const canExport = computed(() => session.can('event.registration.export'));
 const list = ref<AdminAttendeeNeedList>();
 const selected = ref<AdminAttendeeNeedItem>();
 const query = ref('');
@@ -221,7 +222,7 @@ async function moderate(action: ModerateAttendeeNeedQuestion['action']) {
 }
 
 async function exportCsv(variant: 'speaker' | 'internal') {
-  if (!canManage.value || exporting.value) return;
+  if (!canExport.value || exporting.value) return;
   exporting.value = true;
   errorMessage.value = '';
   try {
@@ -261,7 +262,7 @@ watch(
         {{ loading ? '正在刷新…' : '刷新数据' }}
       </button>
       <button
-        v-if="canManage"
+        v-if="canExport"
         class="button secondary"
         type="button"
         :disabled="exporting"
@@ -270,7 +271,7 @@ watch(
         导出嘉宾版
       </button>
       <button
-        v-if="canManage"
+        v-if="canExport"
         class="button subtle"
         type="button"
         :disabled="exporting"

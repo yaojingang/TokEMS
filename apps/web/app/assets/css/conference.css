@@ -2260,6 +2260,29 @@ h1.hero-h .accent {
   cursor: default;
   opacity: 0.5;
 }
+.attendee-needs-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  padding: 36px 24px;
+  border-top: 2px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+.attendee-needs-empty span {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.attendee-needs-empty strong {
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 24px);
+  letter-spacing: -0.02em;
+}
 .attendee-needs-list {
   scroll-margin-top: 92px;
   border-top: 2px solid var(--ink);

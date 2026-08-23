@@ -14,6 +14,7 @@ import {
 import QRCode from 'qrcode.vue';
 import { useAttendeePosterRefresh } from '~/composables/useAttendeePosterRefresh';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
 import {
   activeFlowStep,
   enabledFlowSteps,
@@ -46,6 +47,7 @@ const validationDialogOpen = ref(false);
 const validationIssues = ref<AttendeeShowcaseValidationIssue[]>([]);
 const profile = ref<AttendeeShowcaseProfile | null>(null);
 const attendeeNeedsProfile = ref<AttendeeNeedsProfile | null>(null);
+const attendeeNeedsLoadFailed = ref(false);
 const privateAvatarUrl = ref<string | null>(null);
 const posterCanvas = ref<HTMLCanvasElement | null>(null);
 const qrHolder = ref<HTMLElement | null>(null);
@@ -98,9 +100,13 @@ const needsHref = computed(() =>
       )
     : `/account/registrations/${encodeURIComponent(registrationId)}/needs`,
 );
-const attendeeNeedsEntryEnabled = computed(
-  () => Boolean(attendeeNeedsProfile.value?.id) || Boolean(attendeeNeedsProfile.value?.canCreate),
-);
+const attendeeNeedsEntryEnabled = computed(() => {
+  const state = resolveAttendeeNeedsAccountState(
+    attendeeNeedsProfile.value ?? undefined,
+    attendeeNeedsLoadFailed.value,
+  );
+  return state.canEdit || state.canRetry;
+});
 
 const publicPreviewHref = computed(() => {
   if (!profile.value?.publicSlug) return '';
@@ -194,10 +200,15 @@ async function load() {
     }
     profile.value = value;
     syncForm(value);
-    [event.value, attendeeNeedsProfile.value] = await Promise.all([
+    const [eventResult, attendeeNeedsResult] = await Promise.all([
       conferenceApi.getEvent(value.eventSlug),
-      customer.attendeeNeeds(registrationId).catch(() => null),
+      customer.attendeeNeeds(registrationId).catch(() => {
+        attendeeNeedsLoadFailed.value = true;
+        return null;
+      }),
     ]);
+    event.value = eventResult;
+    attendeeNeedsProfile.value = attendeeNeedsResult;
     await syncPrivateAvatar();
   } catch (error) {
     const failure = error as { data?: { message?: string } };

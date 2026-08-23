@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
-  useCustomerSession,
-} from './useCustomerSession';
+import { CUSTOMER_SESSION_REQUEST_TIMEOUT_MS, useCustomerSession } from './useCustomerSession';
 
 describe('useCustomerSession refresh', () => {
   beforeEach(() => {
@@ -35,7 +32,7 @@ describe('useCustomerSession refresh', () => {
     );
   });
 
-  it('allows a forced retry after a failed session request', async () => {
+  it('automatically retries after a failed session request', async () => {
     const request = vi
       .fn()
       .mockRejectedValueOnce(new Error('temporary failure'))
@@ -44,7 +41,7 @@ describe('useCustomerSession refresh', () => {
     const customer = useCustomerSession();
 
     await expect(customer.refresh()).rejects.toThrow('temporary failure');
-    await expect(customer.refresh(true)).resolves.toBeNull();
+    await expect(customer.refresh()).resolves.toBeNull();
 
     expect(request).toHaveBeenCalledTimes(2);
     expect(customer.loaded.value).toBe(true);
@@ -60,6 +57,19 @@ describe('useCustomerSession refresh', () => {
 
     expect(request).toHaveBeenCalledWith(
       '/customer/events/14/purchase-context',
+      expect.objectContaining({ timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS }),
+    );
+  });
+
+  it('bounds attendee-needs enrichment requests in the personal center', async () => {
+    const request = vi.fn().mockResolvedValue({});
+    vi.stubGlobal('$fetch', request);
+    const customer = useCustomerSession();
+
+    await customer.attendeeNeeds('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+    expect(request).toHaveBeenCalledWith(
+      '/customer/registrations/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/needs',
       expect.objectContaining({ timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS }),
     );
   });

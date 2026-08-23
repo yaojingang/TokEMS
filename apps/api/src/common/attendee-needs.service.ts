@@ -4,6 +4,8 @@ import {
   API_ERROR_CODES,
   ATTENDEE_NEED_CONSENT_VERSION,
   ATTENDEE_NEED_TOPIC_OPTIONS,
+  AdminAttendeeNeedItemSchema,
+  AdminAttendeeNeedListSchema,
   AttendeeNeedsProfileSchema,
   PUBLIC_EVENT_STATUSES,
   PublicAttendeeNeedListSchema,
@@ -52,15 +54,21 @@ import { DomainError } from './domain-error.js';
 import { escapeCsvCell } from './registration-export-csv.js';
 import {
   ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE,
+  attendeeNeedAdminEditAuditFacts,
+  attendeeNeedAdminEditMetadata,
   attendeeNeedModerationStateError,
   attendeeNeedQuestionIsVisible,
   attendeeNeedsCanCreate,
   attendeeNeedsConsentMetadata,
   attendeeNeedsFlowEnabled,
+  attendeeNeedsForcedAnonymityFromAudit,
+  attendeeNeedsReplacementRequiresReview,
+  attendeeNeedsSnapshotCutoff,
   attendeeNeedsHomeEnabled,
   attendeeNeedsQualification,
   attendeeNeedsTotalPages,
   attendeeNeedsVersionMatches,
+  resolveAttendeeNeedPublicationIdentity,
 } from './attendee-needs-policy.js';
 import {
   PUBLIC_ORDER_STATUSES,
@@ -71,6 +79,10 @@ import {
 const topicLabels = new Map<string, string>(
   ATTENDEE_NEED_TOPIC_OPTIONS.map((item) => [item.code, item.label]),
 );
+const ATTENDEE_NEEDS_EXPORT_MAX_ROWS = 5_000;
+
+type Database = NonNullable<DatabaseService['db']>;
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 function asIso(value: Date | null | undefined) {
   return value?.toISOString() ?? null;
@@ -79,7 +91,7 @@ function asIso(value: Date | null | undefined) {
 function submissionEligibilitySql() {
   return and(
     eq(attendeeNeedSubmissions.isPublic, true),
-    isNotNull(attendeeNeedSubmissions.consentVersion),
+    eq(attendeeNeedSubmissions.consentVersion, ATTENDEE_NEED_CONSENT_VERSION),
     isNotNull(attendeeNeedSubmissions.consentAt),
     inArray(events.status, [...PUBLIC_EVENT_STATUSES]),
     eq(customerUsers.status, 'active'),
@@ -206,11 +218,77 @@ export class AttendeeNeedsService {
       .orderBy(asc(attendeeNeedQuestions.position), asc(attendeeNeedQuestions.id));
   }
 
+  private async adminForcedAnonymity(
+    submissionId: string,
+    organizationId: string,
+    eventId: number,
+  ) {
+    const rows = await this.db()
+      .select({ after: auditLogs.after })
+      .from(auditLogs)
+      .innerJoin(
+        attendeeNeedQuestions,
+        sql`${auditLogs.resourceId} = ${attendeeNeedQuestions.id}::text`,
+      )
+      .where(
+        and(
+          eq(attendeeNeedQuestions.submissionId, submissionId),
+          eq(auditLogs.organizationId, organizationId),
+          eq(auditLogs.eventId, eventId),
+          eq(auditLogs.resourceType, 'attendee_need_question'),
+          inArray(auditLogs.action, [
+            'attendee_needs.admin_edit',
+            'attendee_needs.anonymize',
+          ]),
+          sql`${auditLogs.after}->>'forcedAnonymous' = 'true'`,
+        ),
+      )
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(1);
+    return attendeeNeedsForcedAnonymityFromAudit(rows);
+  }
+
+  private forcedAnonymityBySubmission(
+    database: Database | Transaction,
+    organizationId: string,
+    eventId: number,
+  ) {
+    return database
+      .select({
+        submissionId: attendeeNeedQuestions.submissionId,
+        reason: sql<string | null>`(
+          array_agg(${auditLogs.after}->>'reason' order by ${auditLogs.createdAt} desc)
+        )[1]`,
+      })
+      .from(auditLogs)
+      .innerJoin(
+        attendeeNeedQuestions,
+        sql`${auditLogs.resourceId} = ${attendeeNeedQuestions.id}::text`,
+      )
+      .where(
+        and(
+          eq(auditLogs.organizationId, organizationId),
+          eq(auditLogs.eventId, eventId),
+          eq(auditLogs.resourceType, 'attendee_need_question'),
+          inArray(auditLogs.action, [
+            'attendee_needs.admin_edit',
+            'attendee_needs.anonymize',
+          ]),
+          sql`${auditLogs.after}->>'forcedAnonymous' = 'true'`,
+        ),
+      )
+      .groupBy(attendeeNeedQuestions.submissionId)
+      .as('attendee_needs_forced_anonymity');
+  }
+
   private async profileResponse(
     row: Awaited<ReturnType<AttendeeNeedsService['ownedContext']>>,
   ): Promise<AttendeeNeedsProfile> {
     const submission = row.submission;
     const questions = submission ? await this.activeQuestions(submission.id) : [];
+    const forcedAnonymity = submission
+      ? await this.adminForcedAnonymity(submission.id, submission.organizationId, submission.eventId)
+      : { forced: false, reason: null };
     const [adminRemoved] = submission
       ? await this.db()
           .select({ total: count() })
@@ -227,7 +305,9 @@ export class AttendeeNeedsService {
     const publicDisplayEnabled = attendeeNeedsHomeEnabled(row.releaseSnapshot);
     const effectivePublic = questions.some((question) =>
       attendeeNeedQuestionIsVisible({
-        qualified: Boolean(submission?.isPublic) && status.qualified && publicDisplayEnabled,
+        qualified: Boolean(submission?.isPublic) && status.qualified,
+        publicationEnabled: publicDisplayEnabled,
+        consentVersionCurrent: submission?.consentVersion === ATTENDEE_NEED_CONSENT_VERSION,
         firstPublishedAt: question.firstPublishedAt,
         adminHiddenAt: question.adminHiddenAt,
         deletedAt: question.deletedAt,
@@ -285,8 +365,10 @@ export class AttendeeNeedsService {
       adminRemovedCount: Number(adminRemoved?.total ?? 0),
       isPublic: submission?.isPublic ?? true,
       effectivePublic,
-      isAnonymous: submission?.isAnonymous ?? true,
-      attributionName: submission?.attributionName ?? defaultName,
+      isAnonymous: Boolean(submission?.isAnonymous ?? true) || forcedAnonymity.forced,
+      adminForcedAnonymous: forcedAnonymity.forced,
+      adminForcedAnonymousReason: forcedAnonymity.reason,
+      attributionName: forcedAnonymity.forced ? null : defaultName,
       consentVersion: submission?.consentVersion ?? null,
       consentAt: asIso(submission?.consentAt),
       qualified: status.qualified,
@@ -346,6 +428,14 @@ export class AttendeeNeedsService {
     const currentQuestions = existingSubmission
       ? await this.activeQuestions(existingSubmission.id)
       : [];
+    const providedIds = input.questions.flatMap((question) => (question.id ? [question.id] : []));
+    if (new Set(providedIds).size !== providedIds.length) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '同一问题不能重复保存',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     const currentIds = new Set(currentQuestions.map((question) => question.id));
     if (input.questions.some((question) => question.id && !currentIds.has(question.id))) {
       throw new DomainError(
@@ -354,12 +444,56 @@ export class AttendeeNeedsService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    const governedQuestions = existingSubmission
+      ? await this.db()
+          .select({ content: attendeeNeedQuestions.content })
+          .from(attendeeNeedQuestions)
+          .where(
+            and(
+              eq(attendeeNeedQuestions.submissionId, existingSubmission.id),
+              or(
+                and(
+                  isNotNull(attendeeNeedQuestions.adminHiddenAt),
+                  isNull(attendeeNeedQuestions.deletedAt),
+                ),
+                and(
+                  isNotNull(attendeeNeedQuestions.deletedAt),
+                  eq(attendeeNeedQuestions.deletedByType, 'admin'),
+                ),
+              ),
+            ),
+          )
+      : [];
+    const replacementRequiresReview = attendeeNeedsReplacementRequiresReview(
+      governedQuestions.map((question) => question.content),
+      input.questions,
+    );
     const nextQualification = this.qualification(owned, input.isPublic);
     if (input.isPublic && !nextQualification.qualified) {
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
         nextQualification.reason ?? '当前报名暂时不能公开参会需求',
         HttpStatus.CONFLICT,
+      );
+    }
+    const forcedAnonymity = existingSubmission
+      ? await this.adminForcedAnonymity(
+          existingSubmission.id,
+          existingSubmission.organizationId,
+          existingSubmission.eventId,
+        )
+      : { forced: false, reason: null };
+    const publicationIdentity = resolveAttendeeNeedPublicationIdentity({
+      requestedAnonymous: input.isAnonymous,
+      requestedAttributionName: input.attributionName,
+      canonicalAttributionName: owned.registration.attendee.name || null,
+      adminForcedAnonymous: forcedAnonymity.forced,
+    });
+    if (input.isPublic && publicationIdentity.validationError) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        publicationIdentity.validationError,
+        HttpStatus.BAD_REQUEST,
       );
     }
     const now = new Date();
@@ -409,8 +543,8 @@ export class AttendeeNeedsService {
         .update(attendeeNeedSubmissions)
         .set({
           isPublic: input.isPublic,
-          isAnonymous: input.isAnonymous,
-          attributionName: input.isAnonymous ? null : input.attributionName,
+          isAnonymous: publicationIdentity.isAnonymous,
+          attributionName: publicationIdentity.attributionName,
           consentVersion: consent.consentVersion,
           consentAt: consent.consentAt,
           version: sql`${attendeeNeedSubmissions.version} + 1`,
@@ -447,13 +581,25 @@ export class AttendeeNeedsService {
         );
 
       for (const [index, question] of input.questions.entries()) {
+        const currentQuestion = question.id
+          ? currentQuestions.find((item) => item.id === question.id)
+          : undefined;
+        const adminEditMetadata = currentQuestion
+          ? attendeeNeedAdminEditMetadata({
+              currentContent: currentQuestion.content,
+              currentTagCodes: currentQuestion.tagCodes,
+              currentEditedAt: currentQuestion.adminEditedAt,
+              currentEditReason: currentQuestion.adminEditReason,
+              nextContent: question.content,
+              nextTagCodes: [...question.tagCodes],
+            })
+          : { adminEditedAt: null, adminEditReason: null };
         const values = {
           position: index + 1,
           content: question.content,
           tagCodes: [...question.tagCodes],
           firstPublishedAt: input.isPublic ? now : null,
-          adminEditedAt: null,
-          adminEditReason: null,
+          ...adminEditMetadata,
           deletedAt: null,
           deletedByType: null,
           deletedReason: null,
@@ -478,6 +624,12 @@ export class AttendeeNeedsService {
           await tx.insert(attendeeNeedQuestions).values({
             submissionId: submission.id,
             ...values,
+            ...(replacementRequiresReview
+              ? {
+                  adminHiddenAt: now,
+                  adminHiddenReason: '管理员治理后新增的问题需要重新审核',
+                }
+              : {}),
           });
         }
       }
@@ -493,7 +645,7 @@ export class AttendeeNeedsService {
         before: { isPublic: submission.isPublic, isAnonymous: submission.isAnonymous },
         after: {
           isPublic: input.isPublic,
-          isAnonymous: input.isAnonymous,
+          isAnonymous: publicationIdentity.isAnonymous,
           questionCount: input.questions.length,
         },
         traceId: randomUUID(),
@@ -574,10 +726,14 @@ export class AttendeeNeedsService {
     organizationSlug: string,
     query: PublicAttendeeNeedListQuery,
   ): Promise<PublicAttendeeNeedList> {
+    const snapshotAt = attendeeNeedsSnapshotCutoff(query.snapshotAt, new Date());
     const event = await this.conference.getPublicEventScope(eventSlug, organizationSlug);
     const [release] = this.database.db
       ? await this.db()
-          .select({ snapshot: eventReleases.snapshot })
+          .select({
+            snapshot: eventReleases.snapshot,
+            organizationId: events.organizationId,
+          })
           .from(events)
           .innerJoin(
             eventReleases,
@@ -596,12 +752,22 @@ export class AttendeeNeedsService {
         page: query.page,
         pageSize: ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE,
         totalPages: 1,
+        snapshotAt: snapshotAt.toISOString(),
       });
     }
-    const condition = and(eq(attendeeNeedSubmissions.eventId, event.id), publicEligibilitySql())!;
+    const condition = and(
+      eq(attendeeNeedSubmissions.eventId, event.id),
+      publicEligibilitySql(),
+      lte(attendeeNeedQuestions.firstPublishedAt, snapshotAt),
+    )!;
     const [totalRows, rows] = await this.db().transaction(
-      async (tx) =>
-        Promise.all([
+      async (tx) => {
+        const forcedAnonymity = this.forcedAnonymityBySubmission(
+          tx,
+          release!.organizationId,
+          event.id,
+        );
+        return Promise.all([
           tx
             .select({ value: count(attendeeNeedQuestions.id) })
             .from(attendeeNeedQuestions)
@@ -616,7 +782,12 @@ export class AttendeeNeedsService {
             .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
             .where(condition),
           tx
-            .select({ question: attendeeNeedQuestions, submission: attendeeNeedSubmissions })
+            .select({
+              question: attendeeNeedQuestions,
+              submission: attendeeNeedSubmissions,
+              attendeeName: sql<string>`${registrations.attendee}->>'name'`,
+              forcedAnonymous: sql<boolean>`${forcedAnonymity.submissionId} is not null`,
+            })
             .from(attendeeNeedQuestions)
             .innerJoin(
               attendeeNeedSubmissions,
@@ -627,28 +798,37 @@ export class AttendeeNeedsService {
             .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
             .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
             .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+            .leftJoin(
+              forcedAnonymity,
+              eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id),
+            )
             .where(condition)
             .orderBy(desc(attendeeNeedQuestions.firstPublishedAt), asc(attendeeNeedQuestions.id))
             .limit(ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE)
             .offset((query.page - 1) * ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE),
-        ]),
+        ]);
+      },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     );
     const total = Number(totalRows[0]?.value ?? 0);
     return PublicAttendeeNeedListSchema.parse({
-      items: rows.map(({ question, submission }) => ({
-        questionId: question.id,
-        content: question.content,
-        tags: question.tagCodes.map((code) => ({ code, label: topicLabels.get(code) ?? code })),
-        ...(!submission.isAnonymous && submission.attributionName
-          ? { attribution: submission.attributionName }
-          : {}),
-        firstPublishedAt: question.firstPublishedAt!.toISOString(),
-      })),
+      items: rows.map(({ question, submission, attendeeName, forcedAnonymous }) => {
+        const effectivelyAnonymous = submission.isAnonymous || forcedAnonymous;
+        return {
+          questionId: question.id,
+          content: question.content,
+          tags: question.tagCodes.map((code) => ({ code, label: topicLabels.get(code) ?? code })),
+          ...(!effectivelyAnonymous && submission.attributionName === attendeeName
+            ? { attribution: attendeeName }
+            : {}),
+          firstPublishedAt: question.firstPublishedAt!.toISOString(),
+        };
+      }),
       total,
       page: query.page,
       pageSize: ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE,
       totalPages: attendeeNeedsTotalPages(total),
+      snapshotAt: snapshotAt.toISOString(),
     });
   }
 
@@ -710,8 +890,17 @@ export class AttendeeNeedsService {
     )!;
   }
 
-  private adminQuery() {
-    return this.db()
+  private adminQuery(
+    organizationId: string,
+    eventId: number,
+    database: Database | Transaction = this.db(),
+  ) {
+    const forcedAnonymity = this.forcedAnonymityBySubmission(
+      database,
+      organizationId,
+      eventId,
+    );
+    return database
       .select({
         question: attendeeNeedQuestions,
         submission: attendeeNeedSubmissions,
@@ -720,6 +909,19 @@ export class AttendeeNeedsService {
         ticket: tickets,
         customer: customerUsers,
         event: events,
+        publicationEnabled: sql<boolean>`coalesce(exists (
+          select 1
+          from jsonb_array_elements(coalesce(
+            ${eventReleases.snapshot}->'experience'->'home'->'blocks',
+            ${eventReleases.snapshot}->'home'->'blocks',
+            '[]'::jsonb
+          )) released_block
+          where released_block->>'nodeKey' = 'home.attendee-needs'
+            and released_block->>'type' = 'attendee-needs'
+            and released_block->>'enabled' = 'true'
+        ), false)`,
+        adminForcedAnonymous: sql<boolean>`${forcedAnonymity.submissionId} is not null`,
+        adminForcedAnonymousReason: forcedAnonymity.reason,
         paymentSatisfied: sql<boolean>`${orders.amount} = 0 or exists (
           select 1 from ${payments} attendee_needs_admin_payment
           where attendee_needs_admin_payment.order_id = ${orders.id}
@@ -735,7 +937,18 @@ export class AttendeeNeedsService {
       .innerJoin(orders, eq(orders.registrationId, registrations.id))
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
-      .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId));
+      .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+      .leftJoin(
+        eventReleases,
+        and(
+          eq(eventReleases.eventId, events.id),
+          sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
+        ),
+      )
+      .leftJoin(
+        forcedAnonymity,
+        eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id),
+      );
   }
 
   private adminItem(row: Awaited<ReturnType<AttendeeNeedsService['adminQuery']>>[number]) {
@@ -750,11 +963,15 @@ export class AttendeeNeedsService {
     });
     const effectivePublic = attendeeNeedQuestionIsVisible({
       qualified: qualification.qualified,
+      publicationEnabled: row.publicationEnabled,
+      consentVersionCurrent: row.submission.consentVersion === ATTENDEE_NEED_CONSENT_VERSION,
       firstPublishedAt: row.question.firstPublishedAt,
       adminHiddenAt: row.question.adminHiddenAt,
       deletedAt: row.question.deletedAt,
     });
-    return {
+    const publicationEnabled = row.publicationEnabled;
+    const consentVersionCurrent = row.submission.consentVersion === ATTENDEE_NEED_CONSENT_VERSION;
+    return AdminAttendeeNeedItemSchema.parse({
       id: row.question.id,
       submissionId: row.submission.id,
       registrationId: row.registration.id,
@@ -767,10 +984,18 @@ export class AttendeeNeedsService {
       content: row.question.content,
       tagCodes: row.question.tagCodes,
       isPublic: row.submission.isPublic,
-      isAnonymous: row.submission.isAnonymous,
-      attributionName: row.submission.attributionName,
+      isAnonymous: row.submission.isAnonymous || row.adminForcedAnonymous,
+      adminForcedAnonymous: row.adminForcedAnonymous,
+      adminForcedAnonymousReason: row.adminForcedAnonymousReason,
+      attributionName: row.adminForcedAnonymous ? null : row.submission.attributionName,
       effectivePublic,
-      qualificationReason: qualification.reason,
+      qualificationReason:
+        qualification.reason ??
+        (!publicationEnabled
+          ? '首页参会需求模块尚未发布'
+          : !consentVersionCurrent
+            ? '需要重新确认公开授权'
+            : null),
       adminEdited: Boolean(row.question.adminEditedAt),
       adminEditReason: row.question.adminEditReason,
       adminHidden: Boolean(row.question.adminHiddenAt),
@@ -782,50 +1007,73 @@ export class AttendeeNeedsService {
       firstPublishedAt: asIso(row.question.firstPublishedAt),
       createdAt: row.question.createdAt.toISOString(),
       updatedAt: row.question.updatedAt.toISOString(),
-    };
+    });
   }
 
   async adminList(organizationId: string, eventId: number, query: AdminAttendeeNeedListQuery) {
     const condition = this.adminFilterCondition(organizationId, eventId, query);
     const baseCondition = this.adminBaseCondition(organizationId, eventId);
-    const [totalRows, rows, countRows] = await Promise.all([
-      this.db()
-        .select({ value: count(attendeeNeedQuestions.id) })
-        .from(attendeeNeedQuestions)
-        .innerJoin(
-          attendeeNeedSubmissions,
-          eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
-        )
-        .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-        .innerJoin(orders, eq(orders.registrationId, registrations.id))
-        .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
-        .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
-        .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
-        .where(condition),
-      this.adminQuery()
-        .where(condition)
-        .orderBy(desc(attendeeNeedQuestions.createdAt), desc(attendeeNeedQuestions.id))
-        .limit(query.pageSize)
-        .offset((query.page - 1) * query.pageSize),
-      this.db()
-        .select({
-          total: count(attendeeNeedQuestions.id),
-          public: sql<number>`count(*) filter (where ${attendeeNeedSubmissions.isPublic} = true and ${attendeeNeedQuestions.deletedAt} is null)::int`,
-          anonymous: sql<number>`count(*) filter (where ${attendeeNeedSubmissions.isPublic} = true and ${attendeeNeedSubmissions.isAnonymous} = true and ${attendeeNeedQuestions.deletedAt} is null)::int`,
-          hidden: sql<number>`count(*) filter (where ${attendeeNeedQuestions.adminHiddenAt} is not null and ${attendeeNeedQuestions.deletedAt} is null)::int`,
-          deleted: sql<number>`count(*) filter (where ${attendeeNeedQuestions.deletedAt} is not null)::int`,
-          submitters: sql<number>`count(distinct ${attendeeNeedSubmissions.id})::int`,
-        })
-        .from(attendeeNeedQuestions)
-        .innerJoin(
-          attendeeNeedSubmissions,
-          eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
-        )
-        .where(baseCondition),
-    ]);
+    const [totalRows, rows, countRows, publicationEnabled] = await this.db().transaction(
+      async (tx) => {
+        const [release] = await tx
+          .select({ snapshot: eventReleases.snapshot })
+          .from(events)
+          .leftJoin(
+            eventReleases,
+            and(
+              eq(eventReleases.eventId, events.id),
+              sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
+            ),
+          )
+          .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+          .limit(1);
+        const [totals, pageRows, aggregates] = await Promise.all([
+          tx
+            .select({ value: count(attendeeNeedQuestions.id) })
+            .from(attendeeNeedQuestions)
+            .innerJoin(
+              attendeeNeedSubmissions,
+              eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
+            )
+            .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
+            .innerJoin(orders, eq(orders.registrationId, registrations.id))
+            .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
+            .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
+            .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+            .where(condition),
+          this.adminQuery(organizationId, eventId, tx)
+            .where(condition)
+            .orderBy(desc(attendeeNeedQuestions.createdAt), desc(attendeeNeedQuestions.id))
+            .limit(query.pageSize)
+            .offset((query.page - 1) * query.pageSize),
+          tx
+            .select({
+              total: count(attendeeNeedQuestions.id),
+              public: sql<number>`count(*) filter (where ${publicEligibilitySql()})::int`,
+              anonymous: sql<number>`count(*) filter (where ${publicEligibilitySql()} and ${attendeeNeedSubmissions.isAnonymous} = true)::int`,
+              hidden: sql<number>`count(*) filter (where ${attendeeNeedQuestions.adminHiddenAt} is not null and ${attendeeNeedQuestions.deletedAt} is null)::int`,
+              deleted: sql<number>`count(*) filter (where ${attendeeNeedQuestions.deletedAt} is not null)::int`,
+              submitters: sql<number>`count(distinct ${attendeeNeedSubmissions.id})::int`,
+            })
+            .from(attendeeNeedQuestions)
+            .innerJoin(
+              attendeeNeedSubmissions,
+              eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
+            )
+            .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
+            .innerJoin(orders, eq(orders.registrationId, registrations.id))
+            .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
+            .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
+            .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+            .where(baseCondition),
+        ]);
+        return [totals, pageRows, aggregates, attendeeNeedsHomeEnabled(release?.snapshot)] as const;
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
     const total = Number(totalRows[0]?.value ?? 0);
     const counts = countRows[0];
-    return {
+    return AdminAttendeeNeedListSchema.parse({
       items: rows.map((row) => this.adminItem(row)),
       total,
       page: query.page,
@@ -834,16 +1082,16 @@ export class AttendeeNeedsService {
       counts: {
         submitters: Number(counts?.submitters ?? 0),
         total: Number(counts?.total ?? 0),
-        public: Number(counts?.public ?? 0),
-        anonymous: Number(counts?.anonymous ?? 0),
+        public: publicationEnabled ? Number(counts?.public ?? 0) : 0,
+        anonymous: publicationEnabled ? Number(counts?.anonymous ?? 0) : 0,
         hidden: Number(counts?.hidden ?? 0),
         deleted: Number(counts?.deleted ?? 0),
       },
-    };
+    });
   }
 
   private async adminQuestionContext(organizationId: string, eventId: number, questionId: string) {
-    const [row] = await this.adminQuery()
+    const [row] = await this.adminQuery(organizationId, eventId)
       .where(
         and(
           this.adminBaseCondition(organizationId, eventId),
@@ -880,10 +1128,29 @@ export class AttendeeNeedsService {
       );
     }
     const now = new Date();
+    const contentChanged = row.question.content !== input.content;
+    const tagCodesChanged =
+      row.question.tagCodes.length !== input.tagCodes.length ||
+      row.question.tagCodes.some((code, index) => code !== input.tagCodes[index]);
+    const administratorChangedQuestion = contentChanged || tagCodesChanged;
+    const auditFacts = attendeeNeedAdminEditAuditFacts({
+      contentChanged,
+      tagCodesChanged,
+      wasAdminEdited: Boolean(row.question.adminEditedAt),
+      wasAnonymous: row.submission.isAnonymous,
+      nextAnonymous: administratorChangedQuestion ? true : row.submission.isAnonymous,
+      reason: input.reason,
+    });
     await this.db().transaction(async (tx) => {
       const [updated] = await tx
         .update(attendeeNeedSubmissions)
         .set({
+          ...(administratorChangedQuestion
+            ? {
+                isAnonymous: true,
+                attributionName: null,
+              }
+            : {}),
           version: sql`${attendeeNeedSubmissions.version} + 1`,
           updatedAt: now,
         })
@@ -918,14 +1185,7 @@ export class AttendeeNeedsService {
         action: 'attendee_needs.admin_edit',
         resourceType: 'attendee_need_question',
         resourceId: row.question.id,
-        before: { edited: Boolean(row.question.adminEditedAt) },
-        after: {
-          contentChanged: row.question.content !== input.content,
-          tagCodesChanged:
-            row.question.tagCodes.length !== input.tagCodes.length ||
-            row.question.tagCodes.some((code, index) => code !== input.tagCodes[index]),
-          reason: input.reason,
-        },
+        ...auditFacts,
         traceId: randomUUID(),
       });
     });
@@ -949,10 +1209,10 @@ export class AttendeeNeedsService {
         HttpStatus.CONFLICT,
       );
     }
-    if (['hide', 'delete'].includes(input.action) && !input.reason?.trim()) {
+    if (['hide', 'delete', 'anonymize'].includes(input.action) && !input.reason?.trim()) {
       throw new DomainError(
         API_ERROR_CODES.VALIDATION_ERROR,
-        '隐藏或删除问题时需要填写原因',
+        '执行治理操作时需要填写原因',
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -988,7 +1248,12 @@ export class AttendeeNeedsService {
       const [updated] = await tx
         .update(attendeeNeedSubmissions)
         .set({
-          ...(input.action === 'anonymize' ? { isAnonymous: true, attributionName: null } : {}),
+          ...(input.action === 'anonymize'
+            ? {
+                isAnonymous: true,
+                attributionName: null,
+              }
+            : {}),
           version: sql`${attendeeNeedSubmissions.version} + 1`,
           updatedAt: now,
         })
@@ -1042,7 +1307,11 @@ export class AttendeeNeedsService {
           hidden: Boolean(row.question.adminHiddenAt),
           deleted: Boolean(row.question.deletedAt),
         },
-        after: { action: input.action, reason: input.reason ?? null },
+        after: {
+          action: input.action,
+          reason: input.reason ?? null,
+          forcedAnonymous: input.action === 'anonymize',
+        },
         traceId: randomUUID(),
       });
     });
@@ -1058,11 +1327,46 @@ export class AttendeeNeedsService {
     query: AdminAttendeeNeedExportQuery,
   ) {
     const speaker = query.variant === 'speaker';
-    const sourceRows = await this.adminQuery()
-      .where(
-        this.adminFilterCondition(organizationId, eventId, { ...query, page: 1, pageSize: 100 }),
-      )
-      .orderBy(desc(attendeeNeedQuestions.createdAt), desc(attendeeNeedQuestions.id));
+    const sourceRows = await this.db().transaction(
+      async (tx) => {
+        if (speaker) {
+          const [release] = await tx
+            .select({ snapshot: eventReleases.snapshot })
+            .from(events)
+            .leftJoin(
+              eventReleases,
+              and(
+                eq(eventReleases.eventId, events.id),
+                sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
+              ),
+            )
+            .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
+            .limit(1);
+          if (!attendeeNeedsHomeEnabled(release?.snapshot)) return [];
+        }
+        return this.adminQuery(organizationId, eventId, tx)
+          .where(
+            and(
+              this.adminFilterCondition(organizationId, eventId, {
+                ...query,
+                page: 1,
+                pageSize: 100,
+              }),
+              speaker ? publicEligibilitySql() : undefined,
+            ),
+          )
+          .orderBy(desc(attendeeNeedQuestions.createdAt), desc(attendeeNeedQuestions.id))
+          .limit(ATTENDEE_NEEDS_EXPORT_MAX_ROWS + 1);
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    );
+    if (sourceRows.length > ATTENDEE_NEEDS_EXPORT_MAX_ROWS) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        `单次最多导出 ${ATTENDEE_NEEDS_EXPORT_MAX_ROWS} 条参会需求，请缩小筛选范围`,
+        HttpStatus.PAYLOAD_TOO_LARGE,
+      );
+    }
     const items = sourceRows.map((row) => this.adminItem(row));
     const rows = speaker ? items.filter((item) => item.effectivePublic) : items;
     const headers = speaker

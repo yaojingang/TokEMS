@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { nextTick, watch } from 'vue';
-import { createError, definePageMeta, useAsyncData, useRuntimeConfig } from '#imports';
+import {
+  createError,
+  definePageMeta,
+  useAsyncData,
+  useNuxtApp,
+  useRuntimeConfig,
+  useState,
+} from '#imports';
 import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   publicEventHomePath,
@@ -23,7 +30,15 @@ import {
   resolveMemberDirectoryState,
 } from '~/utils/member-directory-state';
 import { attendeeAvatarInitial } from '~/utils/attendee-poster';
-import { attendeeNeedsValidPage } from '~/utils/attendee-needs';
+import {
+  attendeeNeedsBlockIsEnabled,
+  attendeeNeedsRequestIsCurrent,
+  attendeeNeedsShouldResetSerializedState,
+  attendeeNeedsValidPage,
+  resolveAttendeeNeedsFallback,
+  resolveAttendeeNeedsSectionState,
+  type AttendeeNeedsLastSuccess,
+} from '~/utils/attendee-needs';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { resolveHomeRegistrationCta } from '~/utils/purchase-journey';
@@ -89,6 +104,7 @@ const membersBlockEnabled = computed(() => Boolean(membersBlock.value?.enabled))
 const membersPage = ref(1);
 const membersIndustry = ref('');
 const attendeeNeedsPage = ref(1);
+const attendeeNeedsSnapshotAt = useState<string | null>('attendee-needs-snapshot-at', () => null);
 const attendeeNeedsErrorMessage = ref<HTMLElement | null>(null);
 const attendeeNeedsResults = ref<HTMLElement | null>(null);
 const defaultHomeBlocks =
@@ -198,11 +214,23 @@ const emptyAttendeeNeedList = (page = 1): PublicAttendeeNeedList => ({
   page,
   pageSize: 10,
   totalPages: 1,
+  snapshotAt: new Date().toISOString(),
 });
-const attendeeNeedsBlockEnabled = computed(() => blockEnabled('home.attendee-needs'));
-const attendeeNeedsLastSuccess = ref<PublicAttendeeNeedList>(emptyAttendeeNeedList());
-const attendeeNeedsError = ref('');
-const attendeeNeedsFailedPage = ref<number | null>(null);
+const attendeeNeedsBlockEnabled = computed(() =>
+  attendeeNeedsBlockIsEnabled(homeBlock('home.attendee-needs')),
+);
+const attendeeNeedsLastSuccess = useState<AttendeeNeedsLastSuccess | null>(
+  'attendee-needs-last-success',
+  () => null,
+);
+const attendeeNeedsError = useState('attendee-needs-error', () => '');
+const attendeeNeedsFailedPage = useState<number | null>('attendee-needs-failed-page', () => null);
+if (attendeeNeedsShouldResetSerializedState(import.meta.client, Boolean(useNuxtApp().isHydrating))) {
+  attendeeNeedsSnapshotAt.value = null;
+  attendeeNeedsLastSuccess.value = null;
+  attendeeNeedsError.value = '';
+  attendeeNeedsFailedPage.value = null;
+}
 let attendeeNeedsNavigationPending = false;
 const {
   data: attendeeNeeds,
@@ -217,25 +245,50 @@ const {
       return emptyAttendeeNeedList(attendeeNeedsPage.value);
     }
     const requestedPage = attendeeNeedsPage.value;
+    const requestedEventSlug = event.value.slug;
     try {
-      const result = await api.getEventAttendeeNeeds(event.value.slug, requestedPage);
-      attendeeNeedsLastSuccess.value = result;
-      attendeeNeedsError.value = '';
-      attendeeNeedsFailedPage.value = null;
+      const result = await api.getEventAttendeeNeeds(
+        requestedEventSlug,
+        requestedPage,
+        attendeeNeedsSnapshotAt.value ?? undefined,
+      );
+      if (attendeeNeedsRequestIsCurrent(requestedEventSlug, event.value.slug)) {
+        attendeeNeedsSnapshotAt.value = result.snapshotAt;
+        attendeeNeedsLastSuccess.value = {
+          eventSlug: requestedEventSlug,
+          page: requestedPage,
+          result,
+        };
+        attendeeNeedsError.value = '';
+        attendeeNeedsFailedPage.value = null;
+      }
       return result;
     } catch {
-      attendeeNeedsError.value = '参会问题暂时没有更新，当前保留上次成功结果。';
-      attendeeNeedsFailedPage.value = requestedPage;
-      return attendeeNeedsLastSuccess.value;
+      const fallback = resolveAttendeeNeedsFallback(
+        attendeeNeedsLastSuccess.value,
+        requestedEventSlug,
+        requestedPage,
+      );
+      if (attendeeNeedsRequestIsCurrent(requestedEventSlug, event.value.slug)) {
+        attendeeNeedsError.value = fallback.total
+          ? '参会问题暂时没有更新，当前保留本场大会上次成功结果。'
+          : '参会问题暂时无法加载，请稍后重试。';
+        attendeeNeedsFailedPage.value = requestedPage;
+      }
+      return fallback;
     }
   },
   { watch: [attendeeNeedsBlockEnabled] },
 );
-const attendeeNeedsVisible = computed(
-  () =>
-    attendeeNeedsBlockEnabled.value &&
-    ((attendeeNeeds.value?.total ?? 0) > 0 || Boolean(attendeeNeedsError.value)),
+const attendeeNeedsSectionState = computed(() =>
+  resolveAttendeeNeedsSectionState({
+    blockEnabled: attendeeNeedsBlockEnabled.value,
+    total: attendeeNeeds.value?.total ?? 0,
+    pending: attendeeNeedsPending.value,
+    hasError: Boolean(attendeeNeedsError.value),
+  }),
 );
+const attendeeNeedsVisible = computed(() => attendeeNeedsSectionState.value.visible);
 async function changeAttendeeNeedsPage(change: number) {
   const currentPage = attendeeNeeds.value?.page ?? attendeeNeedsPage.value;
   const target = attendeeNeedsValidPage(currentPage + change, attendeeNeeds.value?.totalPages ?? 1);
@@ -243,6 +296,16 @@ async function changeAttendeeNeedsPage(change: number) {
   attendeeNeedsNavigationPending = true;
   attendeeNeedsPage.value = target;
 }
+watch(
+  () => event.value.slug,
+  () => {
+    attendeeNeedsPage.value = 1;
+    attendeeNeedsSnapshotAt.value = null;
+    attendeeNeedsLastSuccess.value = null;
+    attendeeNeedsError.value = '';
+    attendeeNeedsFailedPage.value = null;
+  },
+);
 async function retryAttendeeNeeds() {
   const target = attendeeNeedsFailedPage.value ?? attendeeNeedsPage.value;
   if (target !== attendeeNeedsPage.value) {
@@ -251,24 +314,27 @@ async function retryAttendeeNeeds() {
   }
   await refreshAttendeeNeeds();
 }
-watch(attendeeNeeds, async () => {
-  const value = attendeeNeeds.value;
-  if (value && !attendeeNeedsError.value) attendeeNeedsLastSuccess.value = value;
-  if (value && value.page !== attendeeNeedsValidPage(value.page, value.totalPages)) {
-    attendeeNeedsPage.value = attendeeNeedsValidPage(value.page, value.totalPages);
-    return;
-  }
-  if (!attendeeNeedsNavigationPending) return;
-  attendeeNeedsNavigationPending = false;
-  await nextTick();
-  if (attendeeNeedsError.value) {
-    attendeeNeedsErrorMessage.value?.focus({ preventScroll: true });
-    attendeeNeedsErrorMessage.value?.scrollIntoView({ block: 'center' });
-    return;
-  }
-  attendeeNeedsResults.value?.focus({ preventScroll: true });
-  attendeeNeedsResults.value?.scrollIntoView({ block: 'start' });
-}, { immediate: true });
+watch(
+  attendeeNeeds,
+  async () => {
+    const value = attendeeNeeds.value;
+    if (value && value.page !== attendeeNeedsValidPage(value.page, value.totalPages)) {
+      attendeeNeedsPage.value = attendeeNeedsValidPage(value.page, value.totalPages);
+      return;
+    }
+    if (!attendeeNeedsNavigationPending) return;
+    attendeeNeedsNavigationPending = false;
+    await nextTick();
+    if (attendeeNeedsError.value) {
+      attendeeNeedsErrorMessage.value?.focus({ preventScroll: true });
+      attendeeNeedsErrorMessage.value?.scrollIntoView({ block: 'center' });
+      return;
+    }
+    attendeeNeedsResults.value?.focus({ preventScroll: true });
+    attendeeNeedsResults.value?.scrollIntoView({ block: 'start' });
+  },
+  { immediate: true },
+);
 const liveStatsEnabled = computed(
   () => blockEnabled('home.stats') && blockVariant('home.stats') === 'live',
 );
@@ -1775,6 +1841,18 @@ onBeforeUnmount(() => {
         </p>
 
         <div
+          v-if="attendeeNeedsSectionState.status === 'empty'"
+          class="attendee-needs-empty"
+          role="status"
+        >
+          <span aria-hidden="true">OPEN QUESTIONS</span>
+          <strong>{{
+            blockCopy('home.attendee-needs', 'emptyText', '参会问题正在陆续提交')
+          }}</strong>
+        </div>
+
+        <div
+          v-else
           ref="attendeeNeedsResults"
           class="attendee-needs-list"
           tabindex="-1"

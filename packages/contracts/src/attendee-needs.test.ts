@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   ATTENDEE_NEED_CONSENT_VERSION,
   ATTENDEE_NEED_TOPIC_OPTIONS,
+  AdminAttendeeNeedItemSchema,
+  ConferenceTemplateDefinitionSchema,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  normalizeConferenceTemplateDefinition,
   PublicAttendeeNeedItemSchema,
+  PublicAttendeeNeedListQuerySchema,
+  PublicAttendeeNeedListSchema,
+  ModerateAttendeeNeedQuestionSchema,
   UpdateAdminAttendeeNeedQuestionSchema,
   UpdateAttendeeNeedsSchema,
 } from './index.js';
@@ -69,6 +75,23 @@ describe('attendee needs contracts', () => {
     }
   });
 
+  it('rejects repeated existing question identifiers in one save', () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    expect(
+      UpdateAttendeeNeedsSchema.safeParse({
+        version: 3,
+        questions: [
+          { ...validQuestion, id },
+          { ...validQuestion, id, content: '海外 GEO 应该怎样评估投入产出？' },
+        ],
+        isPublic: true,
+        isAnonymous: true,
+        attributionName: null,
+        consentVersion: ATTENDEE_NEED_CONSENT_VERSION,
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     [4, false],
     [5, true],
@@ -115,6 +138,24 @@ describe('attendee needs contracts', () => {
     expect(item).not.toHaveProperty('attribution');
   });
 
+  it('carries the server publication cutoff across public result pages', () => {
+    const snapshotAt = '2026-08-23T08:00:00.000Z';
+    expect(PublicAttendeeNeedListQuerySchema.parse({ page: '2', snapshotAt })).toEqual({
+      page: 2,
+      snapshotAt,
+    });
+    expect(
+      PublicAttendeeNeedListSchema.parse({
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 10,
+        totalPages: 1,
+        snapshotAt,
+      }).snapshotAt,
+    ).toBe(snapshotAt);
+  });
+
   it('rejects attempts by administrators to replace a user-confirmed attribution', () => {
     expect(
       UpdateAdminAttendeeNeedQuestionSchema.safeParse({
@@ -124,6 +165,51 @@ describe('attendee needs contracts', () => {
         attributionName: '另一个身份',
         reason: '调整问题表达',
       }).success,
+    ).toBe(false);
+  });
+
+  it.each(['hide', 'delete', 'anonymize'] as const)(
+    'requires an administrator reason for %s governance',
+    (action) => {
+      expect(
+        ModerateAttendeeNeedQuestionSchema.safeParse({ version: 2, action, reason: null }).success,
+      ).toBe(false);
+    },
+  );
+
+  it('shares a typed administrator item contract across the API and dashboard', () => {
+    const base = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      submissionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      registrationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      registrationCode: 'TOKEMS-001',
+      attendeeName: '参会者',
+      registrationStatus: 'confirmed',
+      orderStatus: 'paid',
+      ticketStatus: 'valid',
+      customerUserId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      content: validQuestion.content,
+      tagCodes: ['enterprise-adoption'],
+      isPublic: true,
+      isAnonymous: true,
+      attributionName: null,
+      effectivePublic: true,
+      qualificationReason: null,
+      adminEdited: false,
+      adminEditReason: null,
+      adminHidden: false,
+      adminHiddenReason: null,
+      deleted: false,
+      deletedByType: null,
+      deletedReason: null,
+      version: 2,
+      firstPublishedAt: '2026-08-23T08:00:00.000Z',
+      createdAt: '2026-08-23T08:00:00.000Z',
+      updatedAt: '2026-08-23T08:00:00.000Z',
+    };
+    expect(AdminAttendeeNeedItemSchema.parse(base).tagCodes).toEqual(['enterprise-adoption']);
+    expect(
+      AdminAttendeeNeedItemSchema.safeParse({ ...base, tagCodes: ['unknown-topic'] }).success,
     ).toBe(false);
   });
 
@@ -141,5 +227,130 @@ describe('attendee needs contracts', () => {
         (block) => block.nodeKey === 'home.attendee-needs' && !block.enabled,
       ),
     ).toBe(true);
+  });
+
+  it('upgrades an existing structured template with disabled attendee-needs nodes', () => {
+    const older = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    if (older.presentation.kind !== 'structured') throw new Error('expected structured template');
+    older.presentation.home.blocks = older.presentation.home.blocks.filter(
+      (block) => block.nodeKey !== 'home.attendee-needs',
+    );
+    older.registrationFlow.steps = older.registrationFlow.steps.filter(
+      (step) => step.nodeKey !== 'flow.attendee-needs',
+    );
+
+    const normalized = normalizeConferenceTemplateDefinition(older);
+    if (normalized.presentation.kind !== 'structured') {
+      throw new Error('expected structured template');
+    }
+    expect(
+      normalized.presentation.home.blocks.find((block) => block.nodeKey === 'home.attendee-needs'),
+    ).toMatchObject({ type: 'attendee-needs', enabled: false });
+    expect(
+      normalized.registrationFlow.steps.find((step) => step.nodeKey === 'flow.attendee-needs'),
+    ).toMatchObject({ type: 'attendee-needs', enabled: false });
+  });
+
+  it('keeps a previously valid eight-step flow compatible when adding the new node', () => {
+    const older = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    if (older.presentation.kind !== 'structured') throw new Error('expected structured template');
+    older.registrationFlow.steps = older.registrationFlow.steps.filter(
+      (step) => step.nodeKey !== 'flow.attendee-needs',
+    );
+    while (older.registrationFlow.steps.length < 8) {
+      const index = older.registrationFlow.steps.length;
+      older.registrationFlow.steps.push({
+        nodeKey: `flow.compat-${index}`,
+        type: 'attendee-form',
+        title: `兼容步骤 ${index}`,
+        helpText: '',
+        variant: 'default',
+        enabled: false,
+      });
+    }
+
+    const normalized = normalizeConferenceTemplateDefinition(older);
+    expect(normalized.registrationFlow.steps).toHaveLength(9);
+    expect(
+      normalized.registrationFlow.steps.some((step) => step.nodeKey === 'flow.attendee-needs'),
+    ).toBe(true);
+  });
+
+  it('reserves the ninth flow slot for the compatibility node', () => {
+    const definition = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    definition.registrationFlow.steps = definition.registrationFlow.steps.filter(
+      (step) => step.nodeKey !== 'flow.attendee-needs',
+    );
+    while (definition.registrationFlow.steps.length < 9) {
+      const index = definition.registrationFlow.steps.length;
+      definition.registrationFlow.steps.push({
+        nodeKey: `flow.invalid-compat-${index}`,
+        type: 'attendee-form',
+        title: `占位步骤 ${index}`,
+        helpText: '',
+        variant: 'default',
+        enabled: false,
+      });
+    }
+
+    expect(ConferenceTemplateDefinitionSchema.safeParse(definition).success).toBe(false);
+  });
+
+  it('repairs a compatibility node whose stable key has the wrong type', () => {
+    const definition = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    if (definition.presentation.kind !== 'structured') {
+      throw new Error('expected structured template');
+    }
+    const homeNode = definition.presentation.home.blocks.find(
+      (block) => block.nodeKey === 'home.attendee-needs',
+    )!;
+    homeNode.type = 'faq-summary';
+    const flowNode = definition.registrationFlow.steps.find(
+      (step) => step.nodeKey === 'flow.attendee-needs',
+    )!;
+    flowNode.type = 'member-profile';
+
+    const normalized = normalizeConferenceTemplateDefinition(definition);
+    if (normalized.presentation.kind !== 'structured') {
+      throw new Error('expected structured template');
+    }
+    expect(
+      normalized.presentation.home.blocks.find(
+        (block) => block.nodeKey === 'home.attendee-needs',
+      ),
+    ).toMatchObject({ type: 'attendee-needs', enabled: false });
+    expect(
+      normalized.registrationFlow.steps.find((step) => step.nodeKey === 'flow.attendee-needs'),
+    ).toMatchObject({ type: 'attendee-needs', enabled: false });
+  });
+
+  it('upgrades a legacy template at the old thirty-block capacity', () => {
+    const definition = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    if (definition.presentation.kind !== 'structured') {
+      throw new Error('expected structured template');
+    }
+    definition.presentation.home.blocks = definition.presentation.home.blocks.filter(
+      (block) => !['home.cooperation', 'home.attendee-needs'].includes(block.nodeKey),
+    );
+    while (definition.presentation.home.blocks.length < 30) {
+      const index = definition.presentation.home.blocks.length;
+      definition.presentation.home.blocks.push({
+        nodeKey: `home.compat-${index}`,
+        type: 'value',
+        label: `兼容区块 ${index}`,
+        enabled: false,
+        variant: 'default',
+        content: {},
+      });
+    }
+
+    const normalized = normalizeConferenceTemplateDefinition(definition);
+    if (normalized.presentation.kind !== 'structured') {
+      throw new Error('expected structured template');
+    }
+    expect(normalized.presentation.home.blocks).toHaveLength(32);
+    expect(normalized.presentation.home.blocks.map((block) => block.nodeKey)).toEqual(
+      expect.arrayContaining(['home.cooperation', 'home.attendee-needs']),
+    );
   });
 });

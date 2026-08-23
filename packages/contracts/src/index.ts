@@ -419,7 +419,7 @@ export const TemplateHomeSchema = z.object({
     shareAssetUrl: z.string().max(500).nullable().optional(),
     indexable: z.boolean().default(true),
   }),
-  blocks: z.array(TemplateHomeBlockSchema).min(1).max(30),
+  blocks: z.array(TemplateHomeBlockSchema).min(1).max(32),
 });
 
 const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
@@ -436,6 +436,30 @@ const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
     actionLabel: '提交合作申请',
     note: '提交后，大会团队将在 2 个工作日内与你联系。',
   },
+});
+
+const DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK = TemplateHomeBlockSchema.parse({
+  nodeKey: 'home.attendee-needs',
+  type: 'attendee-needs',
+  label: '参会需求',
+  enabled: false,
+  variant: 'editorial-list',
+  content: {
+    kicker: 'ATTENDEE QUESTIONS',
+    title: '这届大会，大家最想解决什么？',
+    subtitle: '这些问题来自已报名参会者，大会团队会按主题整理给相关嘉宾',
+    countLabel: '已收集',
+    emptyText: '参会问题正在陆续提交',
+  },
+});
+
+const DEFAULT_ATTENDEE_NEEDS_FLOW_STEP = TemplateFlowStepSchema.parse({
+  nodeKey: 'flow.attendee-needs',
+  type: 'attendee-needs',
+  title: '提交参会需求',
+  helpText: '告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。',
+  variant: 'focused-question',
+  enabled: false,
 });
 
 export const TemplateFaqSchema = z.object({
@@ -458,7 +482,7 @@ export const TemplateRegistrationFlowSchema = z.object({
     manualReview: z.boolean().default(false),
     successActions: z.boolean().default(true),
   }),
-  steps: z.array(TemplateFlowStepSchema).min(2).max(8),
+  steps: z.array(TemplateFlowStepSchema).min(2).max(9),
 });
 
 export const TemplateInitializationSchema = z.object({
@@ -765,6 +789,30 @@ const ConferenceTemplateDefinitionV2BaseSchema = z.object({
 
 export const ConferenceTemplateDefinitionSchema =
   ConferenceTemplateDefinitionV2BaseSchema.superRefine((definition, context) => {
+    const structuredBlocks =
+      definition.presentation.kind === 'structured' ? definition.presentation.home.blocks : [];
+    if (
+      structuredBlocks.length > 30 &&
+      !['home.cooperation', 'home.attendee-needs'].every((nodeKey) =>
+        structuredBlocks.some((block) => block.nodeKey === nodeKey),
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['presentation', 'home', 'blocks'],
+        message: '旧上限之外的首页区块名额保留给兼容节点',
+      });
+    }
+    if (
+      definition.registrationFlow.steps.length > 8 &&
+      !definition.registrationFlow.steps.some((item) => item.nodeKey === 'flow.attendee-needs')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['registrationFlow', 'steps'],
+        message: '第九个流程节点保留给参会需求兼容节点',
+      });
+    }
     const homeKeys =
       definition.presentation.kind === 'structured'
         ? definition.presentation.home.blocks.map((item) => item.nodeKey)
@@ -822,10 +870,10 @@ export function normalizeConferenceTemplateDefinition(
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
   const v2 = ConferenceTemplateDefinitionSchema.safeParse(definition);
   if (v2.success) {
-    return withCooperationHomeBlock(v2.data);
+    return withCompatibleFeatureNodes(v2.data);
   }
   const legacy = LegacyConferenceTemplateDefinitionSchema.parse(definition);
-  return withCooperationHomeBlock(
+  return withCompatibleFeatureNodes(
     ConferenceTemplateDefinitionSchema.parse({
       presentation: { kind: 'structured', home: legacy.home },
       faq: legacy.faq,
@@ -835,24 +883,92 @@ export function normalizeConferenceTemplateDefinition(
   );
 }
 
+function withCompatibleFeatureNodes(
+  definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
+): z.infer<typeof ConferenceTemplateDefinitionSchema> {
+  return ConferenceTemplateDefinitionSchema.parse(
+    withAttendeeNeedsNodes(withCooperationHomeBlock(definition)),
+  );
+}
+
 function withCooperationHomeBlock(
   definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
-  if (
-    definition.presentation.kind !== 'structured' ||
-    definition.presentation.home.blocks.some((block) => block.nodeKey === 'home.cooperation')
-  ) {
-    return definition;
-  }
+  if (definition.presentation.kind !== 'structured') return definition;
   const blocks = [...definition.presentation.home.blocks];
-  const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
-  blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
-  return ConferenceTemplateDefinitionSchema.parse({
+  const existingIndex = blocks.findIndex((block) => block.nodeKey === 'home.cooperation');
+  if (existingIndex >= 0 && blocks[existingIndex]?.type === 'cooperation') return definition;
+  if (existingIndex >= 0) {
+    blocks.splice(existingIndex, 1, DEFAULT_COOPERATION_HOME_BLOCK);
+  } else {
+    const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
+    blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
+  }
+  return {
     ...definition,
     presentation: {
       ...definition.presentation,
       home: { ...definition.presentation.home, blocks },
     },
+  };
+}
+
+function withAttendeeNeedsNodes(
+  definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
+): z.infer<typeof ConferenceTemplateDefinitionSchema> {
+  let changed = false;
+  const blocks =
+    definition.presentation.kind === 'structured'
+      ? [...definition.presentation.home.blocks]
+      : null;
+  if (blocks) {
+    const existingBlockIndex = blocks.findIndex(
+      (block) => block.nodeKey === DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK.nodeKey,
+    );
+    if (existingBlockIndex >= 0 && blocks[existingBlockIndex]?.type !== 'attendee-needs') {
+      blocks.splice(existingBlockIndex, 1, DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK);
+      changed = true;
+    } else if (existingBlockIndex < 0) {
+      const registrationCtaIndex = blocks.findIndex(
+        (block) => block.nodeKey === 'home.registration-cta',
+      );
+      blocks.splice(
+        registrationCtaIndex < 0 ? blocks.length : registrationCtaIndex,
+        0,
+        DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK,
+      );
+      changed = true;
+    }
+  }
+
+  const steps = [...definition.registrationFlow.steps];
+  const existingStepIndex = steps.findIndex(
+    (step) => step.nodeKey === DEFAULT_ATTENDEE_NEEDS_FLOW_STEP.nodeKey,
+  );
+  if (existingStepIndex >= 0 && steps[existingStepIndex]?.type !== 'attendee-needs') {
+    steps.splice(existingStepIndex, 1, DEFAULT_ATTENDEE_NEEDS_FLOW_STEP);
+    changed = true;
+  } else if (existingStepIndex < 0) {
+    const memberProfileIndex = steps.findIndex((step) => step.nodeKey === 'flow.member-profile');
+    steps.splice(
+      memberProfileIndex < 0 ? steps.length : memberProfileIndex + 1,
+      0,
+      DEFAULT_ATTENDEE_NEEDS_FLOW_STEP,
+    );
+    changed = true;
+  }
+
+  if (!changed) return definition;
+  return ConferenceTemplateDefinitionSchema.parse({
+    ...definition,
+    presentation:
+      definition.presentation.kind === 'structured' && blocks
+        ? {
+            ...definition.presentation,
+            home: { ...definition.presentation.home, blocks },
+          }
+        : definition.presentation,
+    registrationFlow: { ...definition.registrationFlow, steps },
   });
 }
 
@@ -1161,20 +1277,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'accordion',
           content: { kicker: 'FAQ' },
         },
-        {
-          nodeKey: 'home.attendee-needs',
-          type: 'attendee-needs',
-          label: '参会需求',
-          enabled: false,
-          variant: 'editorial-list',
-          content: {
-            kicker: 'ATTENDEE QUESTIONS',
-            title: '这届大会，大家最想解决什么？',
-            subtitle: '这些问题来自已报名参会者，大会团队会按主题整理给相关嘉宾',
-            countLabel: '已收集',
-            emptyText: '参会问题正在陆续提交',
-          },
-        },
+        DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK,
         {
           nodeKey: 'home.registration-cta',
           type: 'registration-cta',
@@ -1320,14 +1423,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'showcase',
           enabled: true,
         },
-        {
-          nodeKey: 'flow.attendee-needs',
-          type: 'attendee-needs',
-          title: '提交参会需求',
-          helpText: '告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。',
-          variant: 'focused-question',
-          enabled: false,
-        },
+        DEFAULT_ATTENDEE_NEEDS_FLOW_STEP,
       ],
     },
     initialization: {
@@ -2362,6 +2458,10 @@ export const UpdateAttendeeNeedsSchema = z
     if (new Set(normalized).size !== normalized.length) {
       context.addIssue({ code: 'custom', path: ['questions'], message: '请勿重复提交相同问题' });
     }
+    const existingIds = value.questions.flatMap((question) => (question.id ? [question.id] : []));
+    if (new Set(existingIds).size !== existingIds.length) {
+      context.addIssue({ code: 'custom', path: ['questions'], message: '同一问题不能重复保存' });
+    }
     if (value.isPublic && !value.isAnonymous && !value.attributionName) {
       context.addIssue({
         code: 'custom',
@@ -2405,6 +2505,8 @@ export const AttendeeNeedsProfileSchema = z.object({
   isPublic: z.boolean(),
   effectivePublic: z.boolean(),
   isAnonymous: z.boolean(),
+  adminForcedAnonymous: z.boolean().default(false),
+  adminForcedAnonymousReason: z.string().nullable().default(null),
   attributionName: z.string().nullable(),
   consentVersion: z.string().nullable(),
   consentAt: z.string().nullable(),
@@ -2416,6 +2518,7 @@ export const AttendeeNeedsProfileSchema = z.object({
 
 export const PublicAttendeeNeedListQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(10_000).default(1),
+  snapshotAt: z.iso.datetime().optional(),
 });
 
 const PublicAttendeeNeedItemBaseSchema = z.object({
@@ -2447,6 +2550,7 @@ export const PublicAttendeeNeedListSchema = z.object({
   page: z.number().int().positive(),
   pageSize: z.literal(10),
   totalPages: z.number().int().positive(),
+  snapshotAt: z.iso.datetime(),
 });
 
 export const AdminAttendeeNeedListQuerySchema = z.object({
@@ -2458,6 +2562,54 @@ export const AdminAttendeeNeedListQuerySchema = z.object({
   submittedTo: z.iso.datetime().optional(),
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().min(10).max(100).default(20),
+});
+
+export const AdminAttendeeNeedItemSchema = z.object({
+  id: z.uuid(),
+  submissionId: z.uuid(),
+  registrationId: z.uuid(),
+  registrationCode: z.string(),
+  attendeeName: z.string(),
+  registrationStatus: z.string(),
+  orderStatus: z.string(),
+  ticketStatus: z.string().nullable(),
+  customerUserId: z.uuid(),
+  content: z.string(),
+  tagCodes: z.array(AttendeeNeedTagCodeSchema),
+  isPublic: z.boolean(),
+  isAnonymous: z.boolean(),
+  adminForcedAnonymous: z.boolean().default(false),
+  adminForcedAnonymousReason: z.string().nullable().default(null),
+  attributionName: z.string().nullable(),
+  effectivePublic: z.boolean(),
+  qualificationReason: z.string().nullable(),
+  adminEdited: z.boolean(),
+  adminEditReason: z.string().nullable(),
+  adminHidden: z.boolean(),
+  adminHiddenReason: z.string().nullable(),
+  deleted: z.boolean(),
+  deletedByType: z.enum(['customer', 'admin']).nullable(),
+  deletedReason: z.string().nullable(),
+  version: z.number().int().positive(),
+  firstPublishedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const AdminAttendeeNeedListSchema = z.object({
+  items: z.array(AdminAttendeeNeedItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalPages: z.number().int().positive(),
+  counts: z.object({
+    submitters: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    public: z.number().int().nonnegative(),
+    anonymous: z.number().int().nonnegative(),
+    hidden: z.number().int().nonnegative(),
+    deleted: z.number().int().nonnegative(),
+  }),
 });
 
 export const UpdateAdminAttendeeNeedQuestionSchema = z
@@ -2473,11 +2625,21 @@ export const UpdateAdminAttendeeNeedQuestionSchema = z
   })
   .strict();
 
-export const ModerateAttendeeNeedQuestionSchema = z.object({
-  version: z.number().int().positive(),
-  action: z.enum(['hide', 'restore', 'delete', 'restore-delete', 'anonymize']),
-  reason: z.string().trim().max(500).nullable().optional(),
-});
+export const ModerateAttendeeNeedQuestionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    action: z.enum(['hide', 'restore', 'delete', 'restore-delete', 'anonymize']),
+    reason: z.string().trim().max(500).nullable().optional(),
+  })
+  .superRefine((value, context) => {
+    if (['hide', 'delete', 'anonymize'].includes(value.action) && !value.reason?.trim()) {
+      context.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: '执行治理操作时需要填写原因',
+      });
+    }
+  });
 
 export const AdminAttendeeNeedExportQuerySchema = AdminAttendeeNeedListQuerySchema.omit({
   page: true,
@@ -4517,6 +4679,8 @@ export type PublicAttendeeNeedListQuery = z.infer<typeof PublicAttendeeNeedListQ
 export type PublicAttendeeNeedItem = z.infer<typeof PublicAttendeeNeedItemSchema>;
 export type PublicAttendeeNeedList = z.infer<typeof PublicAttendeeNeedListSchema>;
 export type AdminAttendeeNeedListQuery = z.infer<typeof AdminAttendeeNeedListQuerySchema>;
+export type AdminAttendeeNeedItem = z.infer<typeof AdminAttendeeNeedItemSchema>;
+export type AdminAttendeeNeedList = z.infer<typeof AdminAttendeeNeedListSchema>;
 export type UpdateAdminAttendeeNeedQuestion = z.infer<typeof UpdateAdminAttendeeNeedQuestionSchema>;
 export type ModerateAttendeeNeedQuestion = z.infer<typeof ModerateAttendeeNeedQuestionSchema>;
 export type AdminAttendeeNeedExportQuery = z.infer<typeof AdminAttendeeNeedExportQuerySchema>;

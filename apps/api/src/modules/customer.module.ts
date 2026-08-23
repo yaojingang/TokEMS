@@ -581,7 +581,7 @@ class AdminAttendeeShowcaseController {
 })
 @Controller('admin/events')
 @UseGuards(AuthGuard)
-class AdminAttendeeNeedsController {
+export class AdminAttendeeNeedsController {
   constructor(
     @Inject(AttendeeNeedsService)
     private readonly attendeeNeeds: AttendeeNeedsService,
@@ -638,7 +638,7 @@ class AdminAttendeeNeedsController {
   }
 
   @Get(':eventId/attendee-needs/export.csv')
-  @RequireGrant('event.registration.manage')
+  @RequireAllGrants('event.registration.read', 'event.registration.export')
   @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
   async export(
     @Req() request: FastifyRequest & { user: AuthenticatedUser },

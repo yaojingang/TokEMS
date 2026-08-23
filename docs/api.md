@@ -315,7 +315,7 @@ Dashboard 指标口径：`paidOrders` 为 `paid` 或 `partially_refunded` 订单
 
 合作申请列表使用 `event.registration.read`，支持 `q`、`status`、`type`、`page` 和 `pageSize`。详情响应使用 `private, no-store`；修改需要 `event.registration.manage`，只接受 `status`、`internalNote` 和 `expectedUpdatedAt`，成功修改会写入审计记录。
 
-参会需求列表读取需要 `event.registration.read`，修改、治理和导出需要 `event.registration.manage`。用户与管理员写操作都携带提交版本，版本过期时返回 `409`。公共接口只返回问题、标签、首次公开时间和用户确认的署名；匿名记录省略署名字段。嘉宾版 CSV 默认强制匿名，内部版才包含报名归属，所有单元格都会处理公式起始字符。
+参会需求列表读取需要 `event.registration.read`，修改与治理需要 `event.registration.manage`，CSV 导出同时需要 `event.registration.read` 和 `event.registration.export`。用户与管理员写操作都携带提交版本，版本过期时返回 `409`。公共接口只返回问题、标签、首次公开时间和报名姓名署名；匿名记录省略署名字段。分页响应携带服务端生成的 `snapshotAt` 作为新增公开内容的时间水位，后续页沿用该值；隐藏、删除和资格变化会实时生效，因此分页期间可能收缩结果集。嘉宾版 CSV 默认强制匿名，内部版包含报名归属，所有单元格都会处理公式起始字符，单次最多导出 5000 条最终输出记录。
 
 订单分页查询支持 `q`、`status` 和 `page`，固定每页 20 条，响应为 `{ items, total, page, pageSize }`。`q` 会匹配订单号、参会人姓名、手机号和公司。
 

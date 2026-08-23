@@ -11,6 +11,7 @@ import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { createRegistrationIntent } from '~/utils/purchase-journey';
+import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
 
 const customer = useCustomerSession();
 const api = useConferenceApi();
@@ -18,7 +19,9 @@ const router = useRouter();
 const registrations = ref<CustomerRegistrationSummary[]>([]);
 const purchasedOrders = ref<CustomerPurchasedOrder[]>([]);
 const purchaseContexts = ref<Record<number, EventPurchaseContext>>({});
-const attendeeNeedsProfiles = ref<Record<string, AttendeeNeedsProfile | null>>({});
+const attendeeNeedsProfiles = ref<Record<string, AttendeeNeedsProfile>>({});
+const attendeeNeedsProfileErrors = ref<Record<string, boolean>>({});
+const attendeeNeedsProfilePending = ref<Record<string, boolean>>({});
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
   all: 0,
@@ -242,46 +245,55 @@ async function loadRegistrations(append = false) {
     const missing = registrations.value.filter(
       (item) => attendeeNeedsProfiles.value[item.id] === undefined,
     );
-    const loaded = await Promise.all(
-      missing.map(async (item) => ({
-        id: item.id,
-        profile: await customer.attendeeNeeds(item.id).catch(() => null),
-      })),
-    );
-    attendeeNeedsProfiles.value = {
-      ...attendeeNeedsProfiles.value,
-      ...Object.fromEntries(loaded.map((item) => [item.id, item.profile])),
-    };
+    void Promise.all(missing.map((item) => loadAttendeeNeedsProfile(item.id)));
   } finally {
     loadingMore.value = false;
   }
 }
 
-function attendeeNeedsStatus(registrationId: string) {
-  const profile = attendeeNeedsProfiles.value[registrationId];
-  if (profile && !profile.id && !profile.featureEnabled) return '暂未开放';
-  if (!profile?.id) return '未提交';
-  if (!profile.qualified && profile.isPublic) return '资格失效';
-  if (
-    profile.adminRemovedCount > 0 ||
-    profile.questions.some((question) => question.adminHidden || question.deletedByAdmin)
-  ) {
-    return '部分内容已隐藏';
+async function loadAttendeeNeedsProfile(registrationId: string) {
+  if (attendeeNeedsProfilePending.value[registrationId]) return;
+  attendeeNeedsProfilePending.value = {
+    ...attendeeNeedsProfilePending.value,
+    [registrationId]: true,
+  };
+  try {
+    const profile = await customer.attendeeNeeds(registrationId);
+    attendeeNeedsProfiles.value = { ...attendeeNeedsProfiles.value, [registrationId]: profile };
+    const nextErrors = { ...attendeeNeedsProfileErrors.value };
+    delete nextErrors[registrationId];
+    attendeeNeedsProfileErrors.value = nextErrors;
+  } catch {
+    attendeeNeedsProfileErrors.value = {
+      ...attendeeNeedsProfileErrors.value,
+      [registrationId]: true,
+    };
+  } finally {
+    const nextPending = { ...attendeeNeedsProfilePending.value };
+    delete nextPending[registrationId];
+    attendeeNeedsProfilePending.value = nextPending;
   }
-  if (!profile.isPublic) return '仅自己可见';
-  if (!profile.effectivePublic) return '已允许公开，暂未展示';
-  return profile.isAnonymous ? '匿名公开' : '实名公开';
+}
+
+function attendeeNeedsState(registrationId: string) {
+  return resolveAttendeeNeedsAccountState(
+    attendeeNeedsProfiles.value[registrationId],
+    Boolean(attendeeNeedsProfileErrors.value[registrationId]),
+  );
+}
+
+function attendeeNeedsStatus(registrationId: string) {
+  return attendeeNeedsState(registrationId).label;
 }
 
 function hasAttendeeNeedsEntry(registrationId: string) {
-  const profile = attendeeNeedsProfiles.value[registrationId];
-  return Boolean(profile?.id || profile?.canCreate);
+  return attendeeNeedsState(registrationId).canEdit;
 }
 
 function hasAttendeeMaterials(item: CustomerRegistrationSummary) {
   return (
     ['confirmed', 'checked_in', 'completed'].includes(item.registrationStatus) ||
-    Boolean(attendeeNeedsProfiles.value[item.id]?.id)
+    attendeeNeedsState(item.id).hasMaterial
   );
 }
 
@@ -628,7 +640,17 @@ useHead({ title: '个人中心' });
                         </div>
                         <div>
                           <dt>参会需求</dt>
-                          <dd>{{ attendeeNeedsStatus(item.id) }}</dd>
+                          <dd>
+                            {{ attendeeNeedsStatus(item.id) }}
+                            <button
+                              v-if="attendeeNeedsState(item.id).canRetry"
+                              class="account-inline-retry"
+                              type="button"
+                              @click="loadAttendeeNeedsProfile(item.id)"
+                            >
+                              重试
+                            </button>
+                          </dd>
                         </div>
                       </dl>
                       <div class="registration-row__actions">
@@ -854,6 +876,14 @@ useHead({ title: '个人中心' });
                     >
                       编辑参会需求 <span aria-hidden="true">→</span>
                     </NuxtLink>
+                    <button
+                      v-if="attendeeNeedsState(item.id).canRetry"
+                      class="account-inline-retry"
+                      type="button"
+                      @click="loadAttendeeNeedsProfile(item.id)"
+                    >
+                      重新读取
+                    </button>
                   </div>
                 </article>
                 <div
@@ -1956,6 +1986,17 @@ useHead({ title: '个人中心' });
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.account-inline-retry {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--conference-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
 }
 .registration-meta dt {
   color: #979ba4;

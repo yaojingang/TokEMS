@@ -9,6 +9,7 @@ import {
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { conferenceApi, session, type TemplateAsset } from '../lib/api';
 import { dateTime } from '../lib/format';
+import { applyTemplateFlowPreset } from '../lib/template-flow-presets';
 
 type EditorSection =
   'overview' | 'home' | 'faq' | 'registration' | 'initialization' | 'assets' | 'versions';
@@ -448,60 +449,16 @@ function moveNode(direction: -1 | 1) {
 
 function applyFlowPreset(preset: 'standard' | 'quick' | 'free') {
   if (!definition.value) return;
-  const common = {
-    helpText: '',
-    variant: 'default',
-    enabled: true,
-  };
+  let steps;
+  try {
+    steps = applyTemplateFlowPreset(definition.value.registrationFlow.steps, preset);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '报名流程预设无法应用';
+    return;
+  }
+  errorMessage.value = '';
   definition.value.registrationFlow.preset = preset;
-  definition.value.registrationFlow.steps =
-    preset === 'standard'
-      ? [
-          {
-            ...common,
-            nodeKey: 'flow.ticket-selection',
-            type: 'ticket-selection',
-            title: '选择票种',
-          },
-          { ...common, nodeKey: 'flow.attendee-form', type: 'attendee-form', title: '填写资料' },
-          {
-            ...common,
-            nodeKey: 'flow.review-payment',
-            type: 'review-payment',
-            title: '确认并支付',
-          },
-          { ...common, nodeKey: 'flow.success-ticket', type: 'success-ticket', title: '报名成功' },
-        ]
-      : preset === 'quick'
-        ? [
-            {
-              ...common,
-              nodeKey: 'flow.attendee-form',
-              type: 'attendee-form',
-              title: '票种与资料',
-            },
-            {
-              ...common,
-              nodeKey: 'flow.review-payment',
-              type: 'review-payment',
-              title: '确认并支付',
-            },
-            {
-              ...common,
-              nodeKey: 'flow.success-ticket',
-              type: 'success-ticket',
-              title: '报名成功',
-            },
-          ]
-        : [
-            { ...common, nodeKey: 'flow.attendee-form', type: 'attendee-form', title: '填写资料' },
-            {
-              ...common,
-              nodeKey: 'flow.success-ticket',
-              type: 'success-ticket',
-              title: '报名成功',
-            },
-          ];
+  definition.value.registrationFlow.steps = steps;
   selectedNodeKey.value = definition.value.registrationFlow.steps[0]?.nodeKey ?? '';
   scheduleSave(true);
 }

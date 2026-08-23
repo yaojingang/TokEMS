@@ -3,7 +3,9 @@ import { attendeeShowcaseQualification } from './attendee-showcase-policy.js';
 export const ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE = 10 as const;
 
 type AttendeeNeedsExperience = {
-  registrationFlow?: { steps?: Array<{ type?: string; enabled?: boolean }> };
+  registrationFlow?: {
+    steps?: Array<{ nodeKey?: string; type?: string; enabled?: boolean }>;
+  };
   home?: { blocks?: Array<{ nodeKey?: string; type?: string; enabled?: boolean }> };
 };
 
@@ -17,7 +19,8 @@ export function attendeeNeedsFlowEnabled(snapshot: unknown) {
   const experience = attendeeNeedsExperience(snapshot);
   return Boolean(
     experience?.registrationFlow?.steps?.some(
-      (step) => step.type === 'attendee-needs' && step.enabled,
+      (step) =>
+        step.nodeKey === 'flow.attendee-needs' && step.type === 'attendee-needs' && step.enabled,
     ),
   );
 }
@@ -38,6 +41,12 @@ export function attendeeNeedsCanCreate(submissionExists: boolean, snapshot: unkn
 
 export function attendeeNeedsTotalPages(total: number) {
   return Math.max(1, Math.ceil(Math.max(0, total) / ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE));
+}
+
+export function attendeeNeedsSnapshotCutoff(requested: string | undefined, now: Date) {
+  if (!requested) return now;
+  const candidate = new Date(requested);
+  return candidate.getTime() <= now.getTime() ? candidate : now;
 }
 
 export function attendeeNeedsVersionMatches(
@@ -67,6 +76,97 @@ export function attendeeNeedsConsentMetadata(input: {
   };
 }
 
+export function attendeeNeedAdminEditMetadata(input: {
+  currentContent: string;
+  currentTagCodes: string[];
+  currentEditedAt: Date | null;
+  currentEditReason: string | null;
+  nextContent: string;
+  nextTagCodes: string[];
+}) {
+  const contentChanged = input.currentContent !== input.nextContent;
+  const currentTags = [...input.currentTagCodes].sort();
+  const nextTags = [...input.nextTagCodes].sort();
+  const tagsChanged =
+    currentTags.length !== nextTags.length ||
+    currentTags.some((code, index) => code !== nextTags[index]);
+  return contentChanged || tagsChanged
+    ? { adminEditedAt: null, adminEditReason: null }
+    : { adminEditedAt: input.currentEditedAt, adminEditReason: input.currentEditReason };
+}
+
+export function attendeeNeedAdminEditAuditFacts(input: {
+  contentChanged: boolean;
+  tagCodesChanged: boolean;
+  wasAdminEdited: boolean;
+  wasAnonymous: boolean;
+  nextAnonymous: boolean;
+  reason: string;
+}) {
+  return {
+    before: {
+      edited: input.wasAdminEdited,
+      isAnonymous: input.wasAnonymous,
+    },
+    after: {
+      contentChanged: input.contentChanged,
+      tagCodesChanged: input.tagCodesChanged,
+      forcedAnonymous: input.contentChanged || input.tagCodesChanged,
+      isAnonymous: input.nextAnonymous,
+      reason: input.reason,
+    },
+  };
+}
+
+export function attendeeNeedsForcedAnonymityFromAudit(
+  rows: Array<{ after: Record<string, unknown> | null }>,
+) {
+  const latest = rows.find((row) => row.after?.forcedAnonymous === true);
+  return {
+    forced: Boolean(latest),
+    reason: typeof latest?.after?.reason === 'string' ? latest.after.reason : null,
+  };
+}
+
+export function resolveAttendeeNeedPublicationIdentity(input: {
+  requestedAnonymous: boolean;
+  requestedAttributionName: string | null;
+  canonicalAttributionName: string | null;
+  adminForcedAnonymous: boolean;
+}) {
+  if (input.adminForcedAnonymous || input.requestedAnonymous) {
+    return { isAnonymous: true, attributionName: null, validationError: null };
+  }
+  const requested = input.requestedAttributionName?.trim() ?? '';
+  const canonical = input.canonicalAttributionName?.trim() ?? '';
+  if (!canonical || requested !== canonical) {
+    return {
+      isAnonymous: false,
+      attributionName: null,
+      validationError: '实名公开署名必须使用当前报名姓名',
+    };
+  }
+  return { isAnonymous: false, attributionName: canonical, validationError: null };
+}
+
+export function attendeeNeedsReplacementRequiresReview(
+  governedContents: string[],
+  nextQuestions: Array<{ id?: string | undefined; content: string }>,
+) {
+  return governedContents.length > 0 && nextQuestions.some((question) => !question.id);
+}
+
+export function attendeeNeedGovernanceRequiresReview(input: {
+  adminHiddenAt: Date | null;
+  deletedAt: Date | null;
+  deletedByType: 'customer' | 'admin' | null;
+}) {
+  return Boolean(
+    (input.adminHiddenAt && !input.deletedAt) ||
+      (input.deletedAt && input.deletedByType === 'admin'),
+  );
+}
+
 export function attendeeNeedsQualification(input: {
   eventStatus: string;
   customerStatus: string;
@@ -85,12 +185,19 @@ export function attendeeNeedsQualification(input: {
 
 export function attendeeNeedQuestionIsVisible(input: {
   qualified: boolean;
+  publicationEnabled: boolean;
+  consentVersionCurrent: boolean;
   firstPublishedAt: Date | null;
   adminHiddenAt: Date | null;
   deletedAt: Date | null;
 }) {
   return Boolean(
-    input.qualified && input.firstPublishedAt && !input.adminHiddenAt && !input.deletedAt,
+    input.qualified &&
+    input.publicationEnabled &&
+    input.consentVersionCurrent &&
+    input.firstPublishedAt &&
+    !input.adminHiddenAt &&
+    !input.deletedAt,
   );
 }
 

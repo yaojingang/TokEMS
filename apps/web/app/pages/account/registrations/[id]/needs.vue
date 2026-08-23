@@ -408,20 +408,29 @@ useHead(() => ({
               </span>
             </label>
             <label class="choice-row" :class="{ disabled: !form.isPublic }">
-              <input v-model="form.isAnonymous" type="checkbox" :disabled="!form.isPublic" />
+              <input
+                v-model="form.isAnonymous"
+                type="checkbox"
+                :disabled="!form.isPublic || profile?.adminForcedAnonymous"
+              />
               <span>
                 <strong>匿名展示</strong>
                 <small>首页显示“匿名参会者”，组委会仍可确认报名归属。</small>
               </span>
             </label>
+            <p v-if="profile?.adminForcedAnonymous" class="moderation-note">
+              大会团队已将公开方式设为匿名：{{
+                profile.adminForcedAnonymousReason || '请联系组委会了解详情'
+              }}
+            </p>
             <p v-if="form.isPublic" class="consent-note">
               公开后，问题和所选标签会出现在大会首页。匿名状态下，首页只显示“匿名参会者”；大会组委会仍能在后台确认报名归属，用于内容整理和必要的运营处理。
             </p>
             <label v-if="form.isPublic && !form.isAnonymous" class="attribution-field">
               <span>公开署名</span>
-              <input v-model="form.attributionName" autocomplete="name" />
+              <input v-model="form.attributionName" autocomplete="name" readonly />
               <small>
-                只展示这个署名，不展示公司、职位和联系方式 ·
+                公开署名使用当前报名姓名；如需修改，请先更新报名资料 ·
                 {{ Array.from(form.attributionName.trim()).length }} / 120
               </small>
               <em v-if="fieldErrors.attributionName" class="field-error">

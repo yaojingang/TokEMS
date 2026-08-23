@@ -29,6 +29,7 @@ export function useCustomerSession() {
   const config = useRuntimeConfig();
   const session = useState<CustomerSession | null>('customer-session', () => null);
   const loaded = useState('customer-session-loaded', () => false);
+  const refreshFailed = useState('customer-session-refresh-failed', () => false);
   const refreshInFlight = useState<Promise<CustomerSession | null> | null>(
     'customer-session-refresh-in-flight',
     () => null,
@@ -53,7 +54,7 @@ export function useCustomerSession() {
   }
 
   async function refresh(force = false) {
-    if (loaded.value && !force) return session.value;
+    if (loaded.value && !refreshFailed.value && !force) return session.value;
     if (refreshInFlight.value) return refreshInFlight.value;
     refreshInFlight.value = (async () => {
       const result = await $fetch<CustomerSession | { authenticated: false }>(
@@ -66,10 +67,14 @@ export function useCustomerSession() {
         },
       );
       session.value = result.authenticated ? result : null;
+      refreshFailed.value = false;
       return session.value;
     })();
     try {
       return await refreshInFlight.value;
+    } catch (error) {
+      refreshFailed.value = true;
+      throw error;
     } finally {
       loaded.value = true;
       refreshInFlight.value = null;
@@ -100,6 +105,7 @@ export function useCustomerSession() {
       headers: headers(),
       body: { ...input, consentAccepted: true },
     });
+    refreshFailed.value = false;
     loaded.value = true;
     return session.value;
   }
@@ -114,6 +120,7 @@ export function useCustomerSession() {
       });
     }
     session.value = null;
+    refreshFailed.value = false;
     loaded.value = true;
   }
 
@@ -188,6 +195,7 @@ export function useCustomerSession() {
         baseURL,
         credentials: 'include',
         headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
   }
@@ -233,6 +241,7 @@ export function useCustomerSession() {
         baseURL,
         credentials: 'include',
         headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
   }

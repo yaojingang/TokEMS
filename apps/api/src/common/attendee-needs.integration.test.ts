@@ -277,6 +277,22 @@ describePersistent('attendee needs persistence', () => {
 
     const disabledHome = await service.publicNeeds(DEMO_EVENT.slug, 'geo-conference', { page: 1 });
     expect(disabledHome).toMatchObject({ items: [], total: 0, totalPages: 1 });
+    expect(
+      (
+        await service.adminList(DEMO_IDS.organization, DEMO_IDS.event, {
+          page: 1,
+          pageSize: 20,
+        })
+      ).items.find((item) => item.id === questionId),
+    ).toMatchObject({ effectivePublic: false });
+    expect(
+      (
+        await service.exportAdminCsv(DEMO_IDS.organization, DEMO_IDS.adminUser, DEMO_IDS.event, {
+          variant: 'speaker',
+          forceAnonymous: true,
+        })
+      ).count,
+    ).toBe(0);
     await setReleaseNodes(true, true);
     expect(await service.customerNeeds(session, registrationId)).toMatchObject({
       effectivePublic: true,
@@ -290,6 +306,37 @@ describePersistent('attendee needs persistence', () => {
     expect(anonymousItem).not.toHaveProperty('attribution');
     expect(anonymousItem).not.toHaveProperty('registrationId');
 
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ consentVersion: 'attendee-needs-outdated' })
+      .where(eq(attendeeNeedSubmissions.id, submissionId));
+    expect(
+      (await service.publicNeeds(DEMO_EVENT.slug, 'geo-conference', { page: 1 })).items.some(
+        (item) => item.questionId === questionId,
+      ),
+    ).toBe(false);
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ consentVersion: ATTENDEE_NEED_CONSENT_VERSION })
+      .where(eq(attendeeNeedSubmissions.id, submissionId));
+
+    await expect(
+      service.updateCustomerNeeds(session, registrationId, {
+        version: profile.version,
+        questions: [
+          {
+            id: questionId,
+            content: profile.questions[0]!.content,
+            tagCodes: profile.questions[0]!.tagCodes,
+          },
+        ],
+        isPublic: true,
+        isAnonymous: false,
+        attributionName: '被冒用的嘉宾',
+        consentVersion: ATTENDEE_NEED_CONSENT_VERSION,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
     const named = await service.updateCustomerNeeds(session, registrationId, {
       version: profile.version,
       questions: [
@@ -301,9 +348,22 @@ describePersistent('attendee needs persistence', () => {
       ],
       isPublic: true,
       isAnonymous: false,
-      attributionName: '用户确认署名',
+      attributionName: '参会需求验收',
       consentVersion: ATTENDEE_NEED_CONSENT_VERSION,
     });
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ attributionName: '历史冒名署名' })
+      .where(eq(attendeeNeedSubmissions.registrationId, registrationId));
+    expect(
+      (
+        await service.publicNeeds(DEMO_EVENT.slug, 'geo-conference', { page: 1 })
+      ).items.find((item) => item.questionId === questionId),
+    ).not.toHaveProperty('attribution');
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ attributionName: '参会需求验收' })
+      .where(eq(attendeeNeedSubmissions.registrationId, registrationId));
 
     for (const lifecycle of [
       {
@@ -379,7 +439,24 @@ describePersistent('attendee needs persistence', () => {
         reason: '统一问题表述',
       },
     );
-    expect(adminEdited).toMatchObject({ attributionName: '用户确认署名', adminEdited: true });
+    expect(adminEdited).toMatchObject({
+      attributionName: null,
+      isAnonymous: true,
+      adminEdited: true,
+    });
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ isAnonymous: false, attributionName: '参会需求验收' })
+      .where(eq(attendeeNeedSubmissions.registrationId, registrationId));
+    expect(
+      (
+        await service.publicNeeds(DEMO_EVENT.slug, 'geo-conference', { page: 1 })
+      ).items.find((item) => item.questionId === questionId),
+    ).not.toHaveProperty('attribution');
+    await database
+      .db!.update(attendeeNeedSubmissions)
+      .set({ isAnonymous: true, attributionName: null })
+      .where(eq(attendeeNeedSubmissions.registrationId, registrationId));
     const [adminEditAudit] = await database
       .db!.select({ before: auditLogs.before, after: auditLogs.after })
       .from(auditLogs)
@@ -390,10 +467,33 @@ describePersistent('attendee needs persistence', () => {
         ),
       )
       .limit(1);
-    expect(adminEditAudit?.after).toMatchObject({ contentChanged: true });
-    expect(JSON.stringify(adminEditAudit)).not.toContain('HYPERLINK');
-    expect(JSON.stringify(adminEditAudit)).not.toContain('企业内部应该如何确定');
-    expect(JSON.stringify(adminEditAudit)).not.toContain('enterprise-adoption');
+    expect(adminEditAudit?.before).not.toHaveProperty('content');
+    expect(adminEditAudit?.before).not.toHaveProperty('tagCodes');
+    expect(adminEditAudit?.before).toMatchObject({ edited: false, isAnonymous: false });
+    expect(adminEditAudit?.after).toMatchObject({
+      contentChanged: true,
+      tagCodesChanged: true,
+      isAnonymous: true,
+    });
+    expect(adminEditAudit?.after).not.toHaveProperty('content');
+    expect(adminEditAudit?.after).not.toHaveProperty('tagCodes');
+
+    const resavedAfterAdminEdit = await service.updateCustomerNeeds(session, registrationId, {
+      version: adminEdited.version,
+      questions: [
+        {
+          id: questionId,
+          content: adminEdited.content,
+          tagCodes: adminEdited.tagCodes,
+        },
+      ],
+      isPublic: true,
+      isAnonymous: false,
+      attributionName: '参会需求验收',
+      consentVersion: ATTENDEE_NEED_CONSENT_VERSION,
+    });
+    expect(resavedAfterAdminEdit).toMatchObject({ isAnonymous: true });
+    expect(resavedAfterAdminEdit.questions[0]).toMatchObject({ adminEdited: true });
 
     const exportResult = await service.exportAdminCsv(
       DEMO_IDS.organization,
@@ -432,7 +532,11 @@ describePersistent('attendee needs persistence', () => {
       DEMO_IDS.adminUser,
       DEMO_IDS.event,
       questionId,
-      { version: adminEdited.version, action: 'anonymize', reason: '嘉宾材料统一匿名' },
+      {
+        version: resavedAfterAdminEdit.version,
+        action: 'anonymize',
+        reason: '嘉宾材料统一匿名',
+      },
     );
     const hidden = await service.moderateAdminQuestion(
       DEMO_IDS.organization,
@@ -460,12 +564,26 @@ describePersistent('attendee needs persistence', () => {
       questionId,
       { version: restored.version, action: 'delete', reason: '验证软删除' },
     );
+    const governedReplacement = await service.updateCustomerNeeds(session, registrationId, {
+      version: deleted.version,
+      questions: [
+        {
+          content: adminEdited.content,
+          tagCodes: adminEdited.tagCodes,
+        },
+      ],
+      isPublic: true,
+      isAnonymous: true,
+      attributionName: null,
+      consentVersion: ATTENDEE_NEED_CONSENT_VERSION,
+    });
+    expect(governedReplacement.questions[0]).toMatchObject({ adminHidden: true });
     const restoredDelete = await service.moderateAdminQuestion(
       DEMO_IDS.organization,
       DEMO_IDS.adminUser,
       DEMO_IDS.event,
       questionId,
-      { version: deleted.version, action: 'restore-delete', reason: '验证恢复删除' },
+      { version: governedReplacement.version, action: 'restore-delete', reason: '验证恢复删除' },
     );
     expect(restoredDelete.deleted).toBe(false);
 
