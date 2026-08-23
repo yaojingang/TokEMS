@@ -3,6 +3,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventId } from '@conference/contracts';
 import {
   attendeeClaimTokens,
+  attendeeNeedQuestions,
+  attendeeNeedSubmissions,
   auditLogs,
   customerProfiles,
   customerSessions,
@@ -59,6 +61,8 @@ describePersistent('customer account deletion', () => {
   const ticketTypeId = randomUUID();
   const customerUserId = randomUUID();
   const registrationId = randomUUID();
+  const attendeeNeedSubmissionId = randomUUID();
+  const attendeeNeedQuestionId = randomUUID();
   const purchaserOrderId = randomUUID();
   const waitlistEntryId = randomUUID();
   const sessionId = randomUUID();
@@ -201,6 +205,38 @@ describePersistent('customer account deletion', () => {
       currency: 'CNY',
       pricingSnapshot: {},
       expiresAt: new Date('2028-01-01T00:00:00.000Z'),
+    });
+    await db.insert(attendeeNeedSubmissions).values({
+      id: attendeeNeedSubmissionId,
+      organizationId,
+      eventId,
+      registrationId,
+      customerUserId,
+      isPublic: true,
+      isAnonymous: false,
+      attributionName: '待删除署名',
+      consentVersion: 'attendee-needs-2026-08-22',
+      consentAt: new Date(),
+    });
+    await db.insert(attendeeNeedQuestions).values({
+      id: attendeeNeedQuestionId,
+      submissionId: attendeeNeedSubmissionId,
+      position: 1,
+      content: '账号删除后如何确保参会问题正文被永久清除？',
+      tagCodes: ['enterprise-adoption'],
+      firstPublishedAt: new Date(),
+    });
+    await db.insert(auditLogs).values({
+      organizationId,
+      eventId,
+      actorId: randomUUID(),
+      actorType: 'staff',
+      action: 'attendee_needs.admin_edit',
+      resourceType: 'attendee_need_question',
+      resourceId: attendeeNeedQuestionId,
+      before: { content: '账号删除前的问题正文' },
+      after: { content: '账号删除前的修改正文' },
+      traceId: randomUUID(),
     });
     await db.insert(waitlistEntries).values({
       id: waitlistEntryId,
@@ -397,6 +433,9 @@ describePersistent('customer account deletion', () => {
       retainedRegistration,
       retainedPurchaserOrder,
       retainedWaitlist,
+      deletedAttendeeNeedSubmission,
+      deletedAttendeeNeedQuestion,
+      redactedAttendeeNeedAudit,
       log,
     ] = await Promise.all([
       db.select().from(customerUsers).where(eq(customerUsers.id, customerUserId)).limit(1),
@@ -413,6 +452,26 @@ describePersistent('customer account deletion', () => {
       db.select().from(registrations).where(eq(registrations.id, registrationId)).limit(1),
       db.select().from(orders).where(eq(orders.id, purchaserOrderId)).limit(1),
       db.select().from(waitlistEntries).where(eq(waitlistEntries.id, waitlistEntryId)).limit(1),
+      db
+        .select()
+        .from(attendeeNeedSubmissions)
+        .where(eq(attendeeNeedSubmissions.id, attendeeNeedSubmissionId))
+        .limit(1),
+      db
+        .select()
+        .from(attendeeNeedQuestions)
+        .where(eq(attendeeNeedQuestions.id, attendeeNeedQuestionId))
+        .limit(1),
+      db
+        .select()
+        .from(auditLogs)
+        .where(
+          and(
+            eq(auditLogs.organizationId, organizationId),
+            eq(auditLogs.resourceId, attendeeNeedQuestionId),
+          ),
+        )
+        .limit(1),
       db
         .select()
         .from(auditLogs)
@@ -432,6 +491,10 @@ describePersistent('customer account deletion', () => {
     expect(retainedRegistration[0]?.customerUserId).toBeNull();
     expect(retainedPurchaserOrder[0]?.purchaserCustomerUserId).toBeNull();
     expect(retainedWaitlist[0]?.customerUserId).toBeNull();
+    expect(deletedAttendeeNeedSubmission).toHaveLength(0);
+    expect(deletedAttendeeNeedQuestion).toHaveLength(0);
+    expect(redactedAttendeeNeedAudit[0]?.before).toEqual({ contentRemoved: true });
+    expect(redactedAttendeeNeedAudit[0]?.after).toEqual({ contentRemoved: true });
     expect(log[0]?.after).toMatchObject({
       deleted: true,
       detachedRegistrations: 1,
@@ -1403,7 +1466,9 @@ describePersistent('customer invoice center', () => {
       customer: (await account.adminDetail(organizationId, attendeePublicId)).customer,
     };
     try {
-      await expect(account.purchaseContext(purchaserSession, proxyEvent!.id)).resolves.toMatchObject({
+      await expect(
+        account.purchaseContext(purchaserSession, proxyEvent!.id),
+      ).resolves.toMatchObject({
         myAttendance: null,
         myPurchases: { paidCount: 1, pendingCount: 0, activeSeatCount: 1 },
         canPurchaseAdditional: true,
@@ -1562,7 +1627,9 @@ describePersistent('customer invoice center', () => {
       await db.delete(outboxEvents).where(eq(outboxEvents.eventId, proxyEvent!.id));
       await db.delete(auditLogs).where(eq(auditLogs.eventId, proxyEvent!.id));
       await db.delete(events).where(eq(events.id, proxyEvent!.id));
-      await db.delete(customerUsers).where(inArray(customerUsers.id, [purchaserUserId, attendeeUserId]));
+      await db
+        .delete(customerUsers)
+        .where(inArray(customerUsers.id, [purchaserUserId, attendeeUserId]));
     }
   });
 
@@ -1848,7 +1915,7 @@ describePersistent('customer invoice center', () => {
           eq(outboxEvents.organizationId, organizationId),
           eq(outboxEvents.eventType, 'InvoiceDeliveryRequested'),
         ),
-    );
+      );
     expect(eventsCount?.value).toBe(1);
     const [deliveryEvent] = await database
       .db!.select({ payload: outboxEvents.payload })

@@ -44,10 +44,11 @@ flowchart TB
 | 上下文         | 责任                                       | 关键实体                                                                                          |
 | -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | Organization   | 组织、用户、成员、角色、授权与首页默认大会 | organizations, users, memberships, organization_homepage_events                                   |
-| Event Planning | 大会、蓝图、内容草稿与生命周期             | events, event_blueprints, speakers, sessions                                                      |
+| Event Planning | 大会、蓝图、内容草稿与生命周期             | events, event_blueprints, speakers, speaker_public_routes, sessions                               |
 | Experience     | 共享模板、草稿、版本、资产、大会绑定与覆盖 | conference_templates, conference_template_versions, template_assets, event_template_bindings      |
 | Release        | 渲染器、不可变快照、变更记录与回滚指针     | template_packages, event_releases                                                                 |
 | Registration   | 版本化表单、条款同意和参会人               | registration_forms, registrations                                                                 |
+| Attendee Needs | 参会问题、主题标签、公开授权和运营治理     | attendee_need_submissions, attendee_need_questions                                                |
 | Public Metrics | 大会访问累计、按日访问与公开参会聚合       | event_public_metrics, event_public_metric_days, registrations                                     |
 | Cooperation    | 大会合作意向、联系方式与运营跟进           | cooperation_requests                                                                              |
 | Commerce       | 票种、库存保留、订单、支付、退款和状态日志 | ticket_types, inventory_reservations, orders, payments, refunds                                   |
@@ -93,6 +94,14 @@ capacity - sold - active reservations - active waitlist offers
 票种行锁保护库存计算。事务级顾问锁串行化相同幂等键、报名联系方式和候补邀约。订单保留十五分钟。支付回调验证原始正文 HMAC、五分钟时间窗、金额、币种和渠道外部流水唯一性。
 
 售罄后可进入候补队列。库存因保留过期或全额退款释放时，Worker 按位置邀请第一位等待者，并创建两小时占位。原始邀请令牌只进入通知正文，数据库保存 SHA-256 哈希和末四位。成功报名会把邀请标记为已领取，重放请求会被拒绝。
+
+## 参会需求与公开边界
+
+参会需求按报名归属，每个报名最多保存一份提交和三个有效问题。提交记录保存独立的公开、匿名和署名授权，问题记录保存正文、主题标签、首次公开时间与治理状态。用户端和后台共用提交版本做乐观并发控制，旧页面无法覆盖更新后的内容。
+
+公共查询在数据库层同时核对大会、账号、报名、订单、成功支付、电子票、公开授权、后台隐藏和软删除状态。全额退款、报名取消、票券失效、账号封禁或参会人更换会让问题立即退出公共结果。资格恢复后，仍有公开授权且未被治理的问题可以再次展示。匿名响应省略报名、用户和署名字段，问题正文不会进入统计事件、日志或 SEO 元信息。
+
+后台读取受组织和大会范围约束。运营人员可以修改正文和标签，也可以隐藏、恢复、软删除或收紧为匿名；每次操作都会增加提交版本并写入审计日志。嘉宾版 CSV 默认匿名，内部版保留最少的报名归属字段，两种导出都处理 CSV 公式注入。
 
 ## 现场核销
 

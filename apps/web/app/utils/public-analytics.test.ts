@@ -26,6 +26,8 @@ describe('public analytics route scope', () => {
     '/faq/',
     '/members/member-1',
     '/speakers/0d647797-fc67-43f5-9257-e2b4a9212646',
+    '/speakers/tyzb',
+    '/s/tyzb',
     '/apply/cooperation',
     '/apply/cooperation/',
   ])('loads analytics on %s', (path) => {
@@ -56,6 +58,7 @@ describe('public analytics route scope', () => {
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/account', '/tokems26')).toBe(true);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/account', '/order/123')).toBe(false);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/speakers/123')).toBe(false);
+    expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/s/tyzb')).toBe(false);
     expect(
       requiresAnalyticsDocumentBoundary({ ...googleSettings, enabled: false }, '/faq', '/register'),
     ).toBe(false);

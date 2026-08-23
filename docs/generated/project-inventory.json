@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 15,
-  "adminViews": 37,
-  "migrations": 53,
-  "latestMigration": "0052_hard_rafael_vega.sql",
-  "databaseTables": 72,
-  "apiControllers": 30,
-  "apiOperations": 246,
-  "testFiles": 138
+  "webPages": 16,
+  "adminViews": 38,
+  "migrations": 58,
+  "latestMigration": "0057_petite_boom_boom.sql",
+  "databaseTables": 78,
+  "apiControllers": 32,
+  "apiOperations": 266,
+  "testFiles": 150
 }

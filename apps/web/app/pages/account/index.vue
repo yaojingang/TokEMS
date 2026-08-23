@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {
+  AttendeeNeedsProfile,
   CustomerInvoiceCenterCounts,
   CustomerInvoiceCenterItem,
   CustomerPurchasedOrder,
@@ -17,6 +18,7 @@ const router = useRouter();
 const registrations = ref<CustomerRegistrationSummary[]>([]);
 const purchasedOrders = ref<CustomerPurchasedOrder[]>([]);
 const purchaseContexts = ref<Record<number, EventPurchaseContext>>({});
+const attendeeNeedsProfiles = ref<Record<string, AttendeeNeedsProfile | null>>({});
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
   all: 0,
@@ -63,8 +65,8 @@ const validTicketCount = computed(
 );
 const pendingActionCount = computed(
   () =>
-    registrations.value.filter(
-      (item) => ['pending_review', 'pending_payment'].includes(item.registrationStatus),
+    registrations.value.filter((item) =>
+      ['pending_review', 'pending_payment'].includes(item.registrationStatus),
     ).length +
     purchasedOrders.value.filter((item) =>
       ['pending_review', 'pending_payment', 'processing'].includes(item.status),
@@ -73,9 +75,8 @@ const pendingActionCount = computed(
 );
 const featuredRegistration = computed(
   () =>
-    registrations.value.find(
-      (item) =>
-        ['pending_review', 'pending_payment'].includes(item.registrationStatus),
+    registrations.value.find((item) =>
+      ['pending_review', 'pending_payment'].includes(item.registrationStatus),
     ) ??
     registrations.value.find((item) => item.ticketStatus === 'valid') ??
     registrations.value[0] ??
@@ -147,9 +148,7 @@ const primaryRegistrationAction = (item: CustomerRegistrationSummary) => {
       to: `/ticket/${encodeURIComponent(item.ticketCode)}?event=${encodeURIComponent(item.eventSlug)}`,
     };
   }
-  if (
-    ['pending_review', 'pending_payment'].includes(item.registrationStatus)
-  ) {
+  if (['pending_review', 'pending_payment'].includes(item.registrationStatus)) {
     return { label: '处理报名', to: `/account/registrations/${item.id}` };
   }
   return { label: '查看报名', to: `/account/registrations/${item.id}` };
@@ -240,18 +239,57 @@ async function loadRegistrations(append = false) {
     );
     registrations.value = append ? [...registrations.value, ...result.items] : result.items;
     nextCursor.value = result.nextCursor;
+    const missing = registrations.value.filter(
+      (item) => attendeeNeedsProfiles.value[item.id] === undefined,
+    );
+    const loaded = await Promise.all(
+      missing.map(async (item) => ({
+        id: item.id,
+        profile: await customer.attendeeNeeds(item.id).catch(() => null),
+      })),
+    );
+    attendeeNeedsProfiles.value = {
+      ...attendeeNeedsProfiles.value,
+      ...Object.fromEntries(loaded.map((item) => [item.id, item.profile])),
+    };
   } finally {
     loadingMore.value = false;
   }
+}
+
+function attendeeNeedsStatus(registrationId: string) {
+  const profile = attendeeNeedsProfiles.value[registrationId];
+  if (profile && !profile.id && !profile.featureEnabled) return '暂未开放';
+  if (!profile?.id) return '未提交';
+  if (!profile.qualified && profile.isPublic) return '资格失效';
+  if (
+    profile.adminRemovedCount > 0 ||
+    profile.questions.some((question) => question.adminHidden || question.deletedByAdmin)
+  ) {
+    return '部分内容已隐藏';
+  }
+  if (!profile.isPublic) return '仅自己可见';
+  if (!profile.effectivePublic) return '已允许公开，暂未展示';
+  return profile.isAnonymous ? '匿名公开' : '实名公开';
+}
+
+function hasAttendeeNeedsEntry(registrationId: string) {
+  const profile = attendeeNeedsProfiles.value[registrationId];
+  return Boolean(profile?.id || profile?.canCreate);
+}
+
+function hasAttendeeMaterials(item: CustomerRegistrationSummary) {
+  return (
+    ['confirmed', 'checked_in', 'completed'].includes(item.registrationStatus) ||
+    Boolean(attendeeNeedsProfiles.value[item.id]?.id)
+  );
 }
 
 async function loadPurchasedOrders(append = false) {
   const result = await customer.purchasedOrders(
     append ? (nextOrdersCursor.value ?? undefined) : undefined,
   );
-  purchasedOrders.value = append
-    ? [...purchasedOrders.value, ...result.items]
-    : result.items;
+  purchasedOrders.value = append ? [...purchasedOrders.value, ...result.items] : result.items;
   nextOrdersCursor.value = result.nextCursor;
   const missingEventIds = [
     ...new Set(
@@ -414,7 +452,7 @@ useHead({ title: '个人中心' });
               <a href="#overview"><span>01</span> 总览</a>
               <a href="#events"><span>02</span> 我的参会名额</a>
               <a href="#purchases"><span>03</span> 我购买的订单</a>
-              <a href="#showcases"><span>04</span> 参会名片</a>
+              <a href="#showcases"><span>04</span> 参会资料</a>
               <a href="#invoices"><span>05</span> 发票中心</a>
               <a href="#profile"><span>06</span> 常用资料</a>
               <a href="#security"><span>07</span> 账户安全</a>
@@ -588,6 +626,10 @@ useHead({ title: '个人中心' });
                           <dt>资料权限</dt>
                           <dd>{{ item.canManageOrder ? '本人购买' : '参会人已认领' }}</dd>
                         </div>
+                        <div>
+                          <dt>参会需求</dt>
+                          <dd>{{ attendeeNeedsStatus(item.id) }}</dd>
+                        </div>
                       </dl>
                       <div class="registration-row__actions">
                         <NuxtLink
@@ -603,6 +645,12 @@ useHead({ title: '个人中心' });
                           :to="`/account/registrations/${item.id}/showcase?event=${encodeURIComponent(item.eventSlug)}`"
                         >
                           编辑参会名片
+                        </NuxtLink>
+                        <NuxtLink
+                          v-if="hasAttendeeNeedsEntry(item.id)"
+                          :to="`/account/registrations/${item.id}/needs?event=${encodeURIComponent(item.eventSlug)}`"
+                        >
+                          编辑参会需求
                         </NuxtLink>
                       </div>
                     </div>
@@ -639,7 +687,11 @@ useHead({ title: '个人中心' });
               </div>
 
               <div class="account-surface account-purchases">
-                <article v-for="orderItem in purchasedOrders" :key="orderItem.id" class="purchase-row">
+                <article
+                  v-for="orderItem in purchasedOrders"
+                  :key="orderItem.id"
+                  class="purchase-row"
+                >
                   <div class="purchase-row__heading">
                     <div>
                       <span>{{ orderItem.orderNo }}</span>
@@ -658,10 +710,32 @@ useHead({ title: '个人中心' });
                     </div>
                   </div>
                   <dl class="registration-meta purchase-row__meta">
-                    <div><dt>参会手机号</dt><dd>{{ orderItem.attendeeMobile }}</dd></div>
-                    <div><dt>认领状态</dt><dd>{{ orderItem.attendeeClaimed ? '参会人已认领' : '等待参会人认领' }}</dd></div>
-                    <div><dt>支付状态</dt><dd>{{ orderItem.paymentStatus ? statusLabel(orderItem.paymentStatus) : '尚未支付' }}</dd></div>
-                    <div><dt>电子票</dt><dd>{{ orderItem.ticketStatus ? statusLabel(orderItem.ticketStatus) : '暂未生成' }}</dd></div>
+                    <div>
+                      <dt>参会手机号</dt>
+                      <dd>{{ orderItem.attendeeMobile }}</dd>
+                    </div>
+                    <div>
+                      <dt>认领状态</dt>
+                      <dd>{{ orderItem.attendeeClaimed ? '参会人已认领' : '等待参会人认领' }}</dd>
+                    </div>
+                    <div>
+                      <dt>支付状态</dt>
+                      <dd>
+                        {{
+                          orderItem.paymentStatus
+                            ? statusLabel(orderItem.paymentStatus)
+                            : '尚未支付'
+                        }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>电子票</dt>
+                      <dd>
+                        {{
+                          orderItem.ticketStatus ? statusLabel(orderItem.ticketStatus) : '暂未生成'
+                        }}
+                      </dd>
+                    </div>
                   </dl>
 
                   <form
@@ -678,7 +752,11 @@ useHead({ title: '个人中心' });
                       <input v-model="attendeeEdit.mobile" inputmode="tel" required />
                     </label>
                     <div>
-                      <button class="registration-primary-action" type="submit" :disabled="attendeeSaving">
+                      <button
+                        class="registration-primary-action"
+                        type="submit"
+                        :disabled="attendeeSaving"
+                      >
                         {{ attendeeSaving ? '保存中…' : '保存并发送新邀请' }}
                       </button>
                       <button type="button" @click="editingOrderId = ''">取消</button>
@@ -696,7 +774,10 @@ useHead({ title: '个人中心' });
                       <span aria-hidden="true">→</span>
                     </button>
                     <NuxtLink
-                      v-if="orderItem.invoiceId || ['paid', 'partially_refunded'].includes(orderItem.status)"
+                      v-if="
+                        orderItem.invoiceId ||
+                          ['paid', 'partially_refunded'].includes(orderItem.status)
+                      "
                       :to="`/account/invoices/${orderItem.id}`"
                     >
                       {{ orderItem.invoiceId ? '查看发票' : '申请发票' }}
@@ -713,7 +794,8 @@ useHead({ title: '个人中心' });
                       type="button"
                       @click="additionalPurchase(orderItem)"
                     >
-                      继续增加名额（剩余 {{ purchaseContexts[orderItem.eventId]?.remainingSeatCount }}）
+                      继续增加名额（剩余
+                      {{ purchaseContexts[orderItem.eventId]?.remainingSeatCount }}）
                     </button>
                   </div>
                 </article>
@@ -740,44 +822,49 @@ useHead({ title: '个人中心' });
             <section id="showcases" class="account-section" aria-labelledby="showcases-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">04 / ATTENDEE PROFILES</span>
-                  <h2 id="showcases-title">参会名片</h2>
+                  <span class="account-section__index">04 / ATTENDEE MATERIALS</span>
+                  <h2 id="showcases-title">参会资料</h2>
                 </div>
-                <p>每场大会独立维护，可选择公开字段并下载个人报名海报。</p>
+                <p>每场大会独立维护参会名片和参会需求，公开范围由你分别决定。</p>
               </div>
 
               <div class="account-surface account-showcases">
                 <article
                   v-for="item in registrations.filter((registration) =>
-                    ['confirmed', 'checked_in'].includes(registration.registrationStatus),
+                    hasAttendeeMaterials(registration),
                   )"
                   :key="item.id"
                   class="showcase-entry"
                 >
                   <div>
-                    <span>ATTENDEE PROFILE</span>
+                    <span>ATTENDEE MATERIALS</span>
                     <h3>{{ item.eventName }}</h3>
                     <p>{{ item.attendeeName }} · {{ item.ticketTypeName }}</p>
+                    <p>参会需求：{{ attendeeNeedsStatus(item.id) }}</p>
                   </div>
-                  <NuxtLink
-                    :to="`/account/registrations/${item.id}/showcase?event=${encodeURIComponent(item.eventSlug)}`"
-                  >
-                    完善名片与海报 <span aria-hidden="true">→</span>
-                  </NuxtLink>
+                  <div class="showcase-entry__actions">
+                    <NuxtLink
+                      :to="`/account/registrations/${item.id}/showcase?event=${encodeURIComponent(item.eventSlug)}`"
+                    >
+                      编辑参会名片
+                    </NuxtLink>
+                    <NuxtLink
+                      v-if="hasAttendeeNeedsEntry(item.id)"
+                      :to="`/account/registrations/${item.id}/needs?event=${encodeURIComponent(item.eventSlug)}`"
+                    >
+                      编辑参会需求 <span aria-hidden="true">→</span>
+                    </NuxtLink>
+                  </div>
                 </article>
                 <div
-                  v-if="
-                    !registrations.some((registration) =>
-                      ['confirmed', 'checked_in'].includes(registration.registrationStatus),
-                    )
-                  "
+                  v-if="!registrations.some((registration) => hasAttendeeMaterials(registration))"
                   class="account-empty compact"
                 >
                   <span class="account-empty__count">00</span>
                   <div>
-                    <p class="account-empty__eyebrow">ATTENDEE PROFILE</p>
-                    <h3>完成报名后即可创建参会名片</h3>
-                    <p>名片可用于大会会员展示、个人介绍页和报名海报。</p>
+                    <p class="account-empty__eyebrow">ATTENDEE MATERIALS</p>
+                    <h3>完成报名后即可维护参会资料</h3>
+                    <p>你可以完善参会名片，也可以提交希望大会解决的问题。</p>
                   </div>
                 </div>
               </div>
@@ -1646,10 +1733,17 @@ useHead({ title: '个人中心' });
   font-size: 12px;
 }
 
-.showcase-entry > a {
+.showcase-entry__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.showcase-entry__actions > a {
   display: inline-flex;
   min-height: 42px;
-  flex: 0 0 auto;
   align-items: center;
   gap: 14px;
   padding: 0 15px;
@@ -2523,6 +2617,15 @@ useHead({ title: '个人中心' });
   }
   .account-profile__intro {
     padding: 24px;
+  }
+  .showcase-entry {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 22px;
+  }
+  .showcase-entry__actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 

@@ -473,9 +473,20 @@ describePersistent('live event settings activation', () => {
       DEMO_IDS.adminUser,
       { bio: '保存后立即进入当前生效快照。' },
     );
+    expect(managedSpeaker.publicCode).toMatch(/^[a-z]{4}$/u);
     await expect(
       repository.getPublicSpeaker(slug, organizationSlug, managedSpeaker.id),
     ).resolves.toMatchObject({ bio: '保存后立即进入当前生效快照。' });
+    await expect(
+      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+    ).resolves.toMatchObject({
+      id: managedSpeaker.id,
+      publicCode: managedSpeaker.publicCode,
+      bio: '保存后立即进入当前生效快照。',
+    });
+    await expect(
+      repository.getPublicSpeakerByCode(`other-${organizationSlug}`, managedSpeaker.publicCode),
+    ).rejects.toMatchObject({ status: 404 });
 
     const currentSpeakers = await operations.listSpeakers(DEMO_IDS.organization, eventId);
     const reversedIds = currentSpeakers.map((speaker) => speaker.id).reverse();
@@ -517,6 +528,7 @@ describePersistent('live event settings activation', () => {
       ),
     ).rejects.toMatchObject({ status: 400 });
 
+    const restorableRelease = (await operations.listReleases(DEMO_IDS.organization, eventId))[0]!;
     await operations.deleteSpeaker(
       DEMO_IDS.organization,
       eventId,
@@ -526,6 +538,19 @@ describePersistent('live event settings activation', () => {
     await expect(
       repository.getPublicSpeaker(slug, organizationSlug, managedSpeaker.id),
     ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+    ).rejects.toMatchObject({ status: 404 });
+
+    await operations.rollbackRelease(
+      DEMO_IDS.organization,
+      eventId,
+      restorableRelease.id,
+      DEMO_IDS.adminUser,
+    );
+    await expect(
+      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+    ).resolves.toMatchObject({ id: managedSpeaker.id });
   });
 
   it('publishes configurable profile fields to the public registration and payment flow', async () => {

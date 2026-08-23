@@ -2,6 +2,7 @@ import type {
   AttendeeClaimInput,
   AttendeeClaimResult,
   AttendeeShowcaseProfile,
+  AttendeeNeedsProfile,
   CustomerCreateInvoice,
   CustomerInvoiceCenterCategory,
   CustomerInvoiceCenterList,
@@ -19,7 +20,10 @@ import type {
   UpdateCustomerProfile,
   UpdatePurchasedOrderAttendee,
   UpdateAttendeeShowcase,
+  UpdateAttendeeNeeds,
 } from '@conference/contracts';
+
+export const CUSTOMER_SESSION_REQUEST_TIMEOUT_MS = 4_000;
 
 export function useCustomerSession() {
   const config = useRuntimeConfig();
@@ -58,15 +62,16 @@ export function useCustomerSession() {
           baseURL,
           credentials: 'include',
           headers: headers(),
+          timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
         },
       );
       session.value = result.authenticated ? result : null;
-      loaded.value = true;
       return session.value;
     })();
     try {
       return await refreshInFlight.value;
     } finally {
+      loaded.value = true;
       refreshInFlight.value = null;
     }
   }
@@ -139,6 +144,7 @@ export function useCustomerSession() {
         baseURL,
         credentials: 'include',
         headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
   }
@@ -218,6 +224,43 @@ export function useCustomerSession() {
       },
     );
     return withPublicAvatar(profile);
+  }
+
+  function attendeeNeeds(registrationId: string) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        baseURL,
+        credentials: 'include',
+        headers: headers(),
+      },
+    );
+  }
+
+  function updateAttendeeNeeds(registrationId: string, input: UpdateAttendeeNeeds) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        method: 'PATCH',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        body: input,
+      },
+    );
+  }
+
+  function deleteAttendeeNeeds(registrationId: string, version: number) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        method: 'DELETE',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        query: { version },
+      },
+    );
   }
 
   async function uploadAttendeeAvatar(registrationId: string, file: File) {
@@ -359,6 +402,9 @@ export function useCustomerSession() {
     attendeeShowcase,
     attendeeAvatarBlob,
     updateAttendeeShowcase,
+    attendeeNeeds,
+    updateAttendeeNeeds,
+    deleteAttendeeNeeds,
     uploadAttendeeAvatar,
     removeAttendeeAvatar,
     claimRegistration,

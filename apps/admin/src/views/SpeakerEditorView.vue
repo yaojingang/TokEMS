@@ -8,7 +8,7 @@ import {
 } from '@conference/contracts';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi, publicEventUrl, session } from '../lib/api';
+import { conferenceApi, publicSpeakerUrl, session } from '../lib/api';
 
 const route = useRoute();
 const router = useRouter();
@@ -19,6 +19,7 @@ const message = ref('');
 const errorMessage = ref('');
 const avatarPreviewUrl = ref<string | null>(null);
 const savedSnapshot = ref('');
+const speakerPublicCode = ref('');
 const speakerId = computed(() =>
   route.name === 'event-speaker-edit' ? String(route.params.speakerId ?? '') : '',
 );
@@ -46,10 +47,10 @@ const dirty = computed(
 );
 const avatarInitial = computed(() => speakerAvatarText(form.name, form.initials));
 const publicUrl = computed(() =>
-  speakerId.value &&
+  speakerPublicCode.value &&
   session.activeEvent.value &&
   isPublicEventStatus(session.activeEvent.value.status)
-    ? publicEventUrl(`/speakers/${encodeURIComponent(speakerId.value)}`)
+    ? publicSpeakerUrl(speakerPublicCode.value)
     : undefined,
 );
 
@@ -131,6 +132,7 @@ async function load() {
   errorMessage.value = '';
   try {
     const speaker = await conferenceApi.getSpeaker(speakerId.value);
+    speakerPublicCode.value = speaker.publicCode;
     form.name = speaker.name;
     form.role = speaker.role;
     form.topic = speaker.topic;
@@ -222,6 +224,7 @@ async function save() {
       ? await conferenceApi.createSpeaker(input)
       : await conferenceApi.updateSpeaker(speakerId.value, input);
     form.sortOrder = saved.sortOrder;
+    speakerPublicCode.value = saved.publicCode;
     avatarPreviewUrl.value = saved.avatarPreviewUrl;
     applySavedSnapshot();
     message.value =

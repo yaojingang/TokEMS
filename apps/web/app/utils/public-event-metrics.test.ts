@@ -3,6 +3,7 @@ import type { PublicEventMetrics } from '@conference/contracts';
 import {
   createPublicViewRecorder,
   formatTrackingStartDate,
+  offsetPublicMetric,
   resolvePublicMetricFallbacks,
   shouldRecordPublicView,
   splitMetricNumber,
@@ -69,5 +70,10 @@ describe('public event metric display', () => {
   it('formats large values and the tracking start date without wrapping tokens', () => {
     expect(splitMetricNumber(123_456)).toEqual({ prefix: '123,45', lastDigit: '6' });
     expect(formatTrackingStartDate('2026-08-16T16:30:00.000Z', 'Asia/Shanghai')).toBe('08.17');
+  });
+
+  it('adds the configured public display base without accepting invalid counters', () => {
+    expect(offsetPublicMetric(24, '10000')).toBe(10_024);
+    expect(offsetPublicMetric(-3, 'invalid')).toBe(10_000);
   });
 });
