@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateSpeakerSchema,
+  DEMO_EVENT,
+  DEMO_SPEAKER_PROFILES,
   encodeSpeakerRouteCode,
   publicSpeakerPath,
   PublicEventSpeakerDetailSchema,
@@ -14,6 +16,29 @@ import {
 const speakerId = '55555555-5555-4555-8555-555555555551';
 
 describe('speaker profile contracts', () => {
+  it('publishes the confirmed homepage speaker lineup with complete draft topics', () => {
+    expect(DEMO_EVENT.speakers.map((speaker) => speaker.name)).toEqual([
+      '姚金刚',
+      '乔向阳',
+      '陈铮',
+      '波波',
+      '刘树勋',
+      '高军',
+      '姚诗成',
+      '哥飞',
+      '大尤',
+      '任强',
+      '岳琦',
+    ]);
+
+    for (const speaker of DEMO_EVENT.speakers) {
+      expect(speaker.role.trim()).not.toBe('');
+      expect(speaker.topic.trim()).not.toBe('');
+      expect(DEMO_SPEAKER_PROFILES[speaker.id]?.bio.trim()).not.toBe('');
+      expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract.trim()).not.toBe('');
+    }
+  });
+
   it('creates stable four-letter speaker routes without exposing sequential identifiers', () => {
     expect(encodeSpeakerRouteCode(1)).toBe('tyzb');
     expect(encodeSpeakerRouteCode(2)).toBe('zxxc');

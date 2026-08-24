@@ -87,11 +87,18 @@ export function resolveCheckoutSuccessDestination(input: {
   registrationId: string;
   ticketCode?: string | null;
   memberProfileEnabled: boolean;
+  attendeeNeedsEnabled: boolean;
 }) {
   if (input.isProxyPurchase) return null;
   if (input.memberProfileEnabled) {
     return publicEventScopedPath(
       `/account/registrations/${encodeURIComponent(input.registrationId)}/showcase`,
+      input.eventSlug,
+    );
+  }
+  if (input.attendeeNeedsEnabled) {
+    return publicEventScopedPath(
+      `/account/registrations/${encodeURIComponent(input.registrationId)}/needs`,
       input.eventSlug,
     );
   }
@@ -107,7 +114,11 @@ export function parseAttendeeClaimFragment(fragment: string): {
   const params = new URLSearchParams(fragment.replace(/^#/, ''));
   const registrationId = params.get('registration') ?? '';
   const claimToken = params.get('claim') ?? '';
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(registrationId)) {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      registrationId,
+    )
+  ) {
     return null;
   }
   if (claimToken.length < 32 || claimToken.length > 500) return null;

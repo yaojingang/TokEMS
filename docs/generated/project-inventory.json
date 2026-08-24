@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 15,
-  "adminViews": 37,
-  "migrations": 56,
-  "latestMigration": "0055_thankful_sharon_carter.sql",
-  "databaseTables": 76,
-  "apiControllers": 31,
-  "apiOperations": 258,
-  "testFiles": 144
+  "webPages": 16,
+  "adminViews": 38,
+  "migrations": 58,
+  "latestMigration": "0057_petite_boom_boom.sql",
+  "databaseTables": 78,
+  "apiControllers": 32,
+  "apiOperations": 266,
+  "testFiles": 152
 }

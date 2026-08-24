@@ -362,6 +362,7 @@ export const TemplateHomeBlockSchema = z.object({
     'agenda',
     'speakers',
     'members',
+    'attendee-needs',
     'cooperation',
     'tickets',
     'faq-summary',
@@ -399,6 +400,7 @@ export const TemplateFlowStepSchema = z.object({
     'review-payment',
     'success-ticket',
     'member-profile',
+    'attendee-needs',
     'waitlist',
     'manual-review',
     'invoice-details',
@@ -417,7 +419,7 @@ export const TemplateHomeSchema = z.object({
     shareAssetUrl: z.string().max(500).nullable().optional(),
     indexable: z.boolean().default(true),
   }),
-  blocks: z.array(TemplateHomeBlockSchema).min(1).max(30),
+  blocks: z.array(TemplateHomeBlockSchema).min(1).max(32),
 });
 
 const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
@@ -434,6 +436,30 @@ const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
     actionLabel: '提交合作申请',
     note: '提交后，大会团队将在 2 个工作日内与你联系。',
   },
+});
+
+const DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK = TemplateHomeBlockSchema.parse({
+  nodeKey: 'home.attendee-needs',
+  type: 'attendee-needs',
+  label: '参会需求',
+  enabled: false,
+  variant: 'editorial-list',
+  content: {
+    kicker: 'ATTENDEE QUESTIONS',
+    title: '这届大会，大家最想解决什么？',
+    subtitle: '这些问题来自已报名参会者，大会团队会按主题整理给相关嘉宾',
+    countLabel: '已收集',
+    emptyText: '参会问题正在陆续提交',
+  },
+});
+
+const DEFAULT_ATTENDEE_NEEDS_FLOW_STEP = TemplateFlowStepSchema.parse({
+  nodeKey: 'flow.attendee-needs',
+  type: 'attendee-needs',
+  title: '提交参会需求',
+  helpText: '告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。',
+  variant: 'focused-question',
+  enabled: false,
 });
 
 export const TemplateFaqSchema = z.object({
@@ -456,7 +482,7 @@ export const TemplateRegistrationFlowSchema = z.object({
     manualReview: z.boolean().default(false),
     successActions: z.boolean().default(true),
   }),
-  steps: z.array(TemplateFlowStepSchema).min(2).max(8),
+  steps: z.array(TemplateFlowStepSchema).min(2).max(9),
 });
 
 export const TemplateInitializationSchema = z.object({
@@ -763,6 +789,30 @@ const ConferenceTemplateDefinitionV2BaseSchema = z.object({
 
 export const ConferenceTemplateDefinitionSchema =
   ConferenceTemplateDefinitionV2BaseSchema.superRefine((definition, context) => {
+    const structuredBlocks =
+      definition.presentation.kind === 'structured' ? definition.presentation.home.blocks : [];
+    if (
+      structuredBlocks.length > 30 &&
+      !['home.cooperation', 'home.attendee-needs'].every((nodeKey) =>
+        structuredBlocks.some((block) => block.nodeKey === nodeKey),
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['presentation', 'home', 'blocks'],
+        message: '旧上限之外的首页区块名额保留给兼容节点',
+      });
+    }
+    if (
+      definition.registrationFlow.steps.length > 8 &&
+      !definition.registrationFlow.steps.some((item) => item.nodeKey === 'flow.attendee-needs')
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['registrationFlow', 'steps'],
+        message: '第九个流程节点保留给参会需求兼容节点',
+      });
+    }
     const homeKeys =
       definition.presentation.kind === 'structured'
         ? definition.presentation.home.blocks.map((item) => item.nodeKey)
@@ -820,10 +870,10 @@ export function normalizeConferenceTemplateDefinition(
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
   const v2 = ConferenceTemplateDefinitionSchema.safeParse(definition);
   if (v2.success) {
-    return withCooperationHomeBlock(v2.data);
+    return withCompatibleFeatureNodes(v2.data);
   }
   const legacy = LegacyConferenceTemplateDefinitionSchema.parse(definition);
-  return withCooperationHomeBlock(
+  return withCompatibleFeatureNodes(
     ConferenceTemplateDefinitionSchema.parse({
       presentation: { kind: 'structured', home: legacy.home },
       faq: legacy.faq,
@@ -833,24 +883,92 @@ export function normalizeConferenceTemplateDefinition(
   );
 }
 
+function withCompatibleFeatureNodes(
+  definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
+): z.infer<typeof ConferenceTemplateDefinitionSchema> {
+  return ConferenceTemplateDefinitionSchema.parse(
+    withAttendeeNeedsNodes(withCooperationHomeBlock(definition)),
+  );
+}
+
 function withCooperationHomeBlock(
   definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
-  if (
-    definition.presentation.kind !== 'structured' ||
-    definition.presentation.home.blocks.some((block) => block.nodeKey === 'home.cooperation')
-  ) {
-    return definition;
-  }
+  if (definition.presentation.kind !== 'structured') return definition;
   const blocks = [...definition.presentation.home.blocks];
-  const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
-  blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
-  return ConferenceTemplateDefinitionSchema.parse({
+  const existingIndex = blocks.findIndex((block) => block.nodeKey === 'home.cooperation');
+  if (existingIndex >= 0 && blocks[existingIndex]?.type === 'cooperation') return definition;
+  if (existingIndex >= 0) {
+    blocks.splice(existingIndex, 1, DEFAULT_COOPERATION_HOME_BLOCK);
+  } else {
+    const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
+    blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
+  }
+  return {
     ...definition,
     presentation: {
       ...definition.presentation,
       home: { ...definition.presentation.home, blocks },
     },
+  };
+}
+
+function withAttendeeNeedsNodes(
+  definition: z.infer<typeof ConferenceTemplateDefinitionSchema>,
+): z.infer<typeof ConferenceTemplateDefinitionSchema> {
+  let changed = false;
+  const blocks =
+    definition.presentation.kind === 'structured'
+      ? [...definition.presentation.home.blocks]
+      : null;
+  if (blocks) {
+    const existingBlockIndex = blocks.findIndex(
+      (block) => block.nodeKey === DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK.nodeKey,
+    );
+    if (existingBlockIndex >= 0 && blocks[existingBlockIndex]?.type !== 'attendee-needs') {
+      blocks.splice(existingBlockIndex, 1, DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK);
+      changed = true;
+    } else if (existingBlockIndex < 0) {
+      const registrationCtaIndex = blocks.findIndex(
+        (block) => block.nodeKey === 'home.registration-cta',
+      );
+      blocks.splice(
+        registrationCtaIndex < 0 ? blocks.length : registrationCtaIndex,
+        0,
+        DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK,
+      );
+      changed = true;
+    }
+  }
+
+  const steps = [...definition.registrationFlow.steps];
+  const existingStepIndex = steps.findIndex(
+    (step) => step.nodeKey === DEFAULT_ATTENDEE_NEEDS_FLOW_STEP.nodeKey,
+  );
+  if (existingStepIndex >= 0 && steps[existingStepIndex]?.type !== 'attendee-needs') {
+    steps.splice(existingStepIndex, 1, DEFAULT_ATTENDEE_NEEDS_FLOW_STEP);
+    changed = true;
+  } else if (existingStepIndex < 0) {
+    const memberProfileIndex = steps.findIndex((step) => step.nodeKey === 'flow.member-profile');
+    steps.splice(
+      memberProfileIndex < 0 ? steps.length : memberProfileIndex + 1,
+      0,
+      DEFAULT_ATTENDEE_NEEDS_FLOW_STEP,
+    );
+    changed = true;
+  }
+
+  if (!changed) return definition;
+  return ConferenceTemplateDefinitionSchema.parse({
+    ...definition,
+    presentation:
+      definition.presentation.kind === 'structured' && blocks
+        ? {
+            ...definition.presentation,
+            home: { ...definition.presentation.home, blocks },
+          }
+        : definition.presentation,
+    registrationFlow: { ...definition.registrationFlow, steps },
   });
 }
 
@@ -874,10 +992,11 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             logoMark: 'G',
             brandLabel: 'GEO大会',
             brandMeta: '2026 · 第二届',
-            whyLabel: '为什么',
+            whyLabel: '背景',
             editionLabel: '第二届',
             agendaLabel: '议程',
             speakersLabel: '嘉宾',
+            membersLabel: '会员',
             ticketsLabel: '门票',
             cooperationLabel: '合作',
             faqLabel: 'FAQ',
@@ -898,6 +1017,8 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             descriptionLead: '当十亿用户开始向 AI 提问，',
             descriptionStrong: '「被引用、被理解、被推荐」',
             descriptionTail: '就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。',
+            viewsLabel: '大会访问量',
+            viewsBase: '10000',
             primaryAction: '立即报名 ¥399',
             secondaryAction: '查看两日议程',
             note: '第一届全部售罄',
@@ -926,7 +1047,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           nodeKey: 'home.stats',
           type: 'stats',
           label: '大会数据',
-          enabled: true,
+          enabled: false,
           variant: 'live',
           content: {
             confirmedAttendeesLabel: '已确认参会',
@@ -1123,23 +1244,23 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'single-pass',
           content: {
             kicker: 'TICKETS',
-            title: '一张门票，八项权益',
+            title: '会员报名权益',
             subtitlePrefix: '统一票价',
-            subtitleSuffix: '，两天议程、实战工作坊与会后学习资料均已包含',
+            subtitleSuffix: '，8 项会员报名权益均已包含',
             priceLabel: '统一票价',
-            description: '一张票，全程参与两天大会',
+            description: '一张票，完整享有 8 项会员报名权益',
             actionLabel: '立即报名 ¥399',
-            note: '八项参会权益已全部包含',
-            benefitsEyebrow: '8 项权益，全部包含',
-            benefitsTitle: '从现场参与到会后复训，一张票覆盖完整学习周期',
-            benefit1Detail: '主会场与双分会场任意进出',
-            benefit2Detail: '完成企业 90 天行动计划',
-            benefit3Detail: '完整版现场首发',
-            benefit4Detail: '含 27 套 GEO 提示词合集',
-            benefit5Detail: '会前预习与会后复训',
-            benefit6Detail: '会后 3 个工作日发放',
-            benefit7Detail: '全年案例拆解与工具更新',
-            benefit8Detail: '含 1 次线上复盘直播 QA',
+            note: '八项会员权益已全部包含',
+            benefitsEyebrow: '8 项会员权益，全部包含',
+            benefitsTitle: '覆盖现场参会、实战学习、会员社群与会后资料',
+            benefit1Detail: '两天大会完整参会权益',
+            benefit2Detail: 'Day 2 现场实战学习',
+            benefit3Detail: '加入大会 VIP 会员专属社群',
+            benefit4Detail: 'AI 与 GEO 主题签名书籍各 1 本',
+            benefit5Detail: '可自愿选择在大会首页展示',
+            benefit6Detail: '大会年度行业研究成果',
+            benefit7Detail: '大会嘉宾分享资料统一整理',
+            benefit8Detail: '会后可回看大会内容',
             assurance1Title: '7 天安心退款',
             assurance1Body: '购票后 7 天内可无理由退款',
             assurance2Title: '参会人可转让',
@@ -1156,6 +1277,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'accordion',
           content: { kicker: 'FAQ' },
         },
+        DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK,
         {
           nodeKey: 'home.registration-cta',
           type: 'registration-cta',
@@ -1229,7 +1351,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           category: '参会权益',
           question: '资料包包含什么，多久发放？',
           answer:
-            '包含 40+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国GEO行业白皮书 2026》电子完整版。会后 3 个工作日内通过大会社群发放。',
+            '包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。',
           enabled: true,
         },
         {
@@ -1301,6 +1423,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'showcase',
           enabled: true,
         },
+        DEFAULT_ATTENDEE_NEEDS_FLOW_STEP,
       ],
     },
     initialization: {
@@ -1324,14 +1447,14 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           capacity: 500,
           recommended: true,
           benefits: [
-            '两日大会全通票',
+            '2 天大会 VIP 门票',
             'Day 2 实战工作坊席位',
-            '《中国GEO行业白皮书 2026》',
-            'GEO 签名书籍 1 本',
-            '1 套 GEO 线上课程',
-            '40+ 嘉宾干货资料包',
-            'GEO 会员社群',
-            '会后 7 天回放',
+            '大会 VIP 会员社群',
+            '2 本 AI 与 GEO 签名书籍',
+            '个人信息展示权益',
+            '《中国 GEO 行业白皮书 2026》',
+            '20+ 嘉宾干货资料包',
+            '大会回放视频',
           ],
         },
       ],
@@ -2263,6 +2386,272 @@ export const ModerateAttendeeShowcaseSchema = z.object({
 export const AdminAttendeeShowcaseSchema = AttendeeShowcaseProfileSchema.extend({
   customerUserId: z.number().int().min(101),
   moderationUpdatedAt: z.string().nullable(),
+});
+
+export const ATTENDEE_NEED_CONSENT_VERSION = 'attendee-needs-2026-08-22' as const;
+
+export const ATTENDEE_NEED_TOPIC_OPTIONS = [
+  { code: 'geo-monetization', label: 'GEO 如何赚钱' },
+  { code: 'geo-domestic', label: '国内 GEO' },
+  { code: 'geo-global', label: '海外 GEO' },
+  { code: 'enterprise-adoption', label: '企业内部落地' },
+  { code: 'geo-strategy-budget', label: 'GEO 战略与预算' },
+  { code: 'geo-roi', label: 'GEO 效果评估 / ROI' },
+  { code: 'ai-search-citations', label: 'AI 搜索引用机制' },
+  { code: 'model-platform-rules', label: '大模型平台规则' },
+  { code: 'geo-monitoring', label: 'GEO 数据监测' },
+  { code: 'content-assets', label: '内容资产建设' },
+  { code: 'enterprise-knowledge-base', label: '企业知识库' },
+  { code: 'structured-data-implementation', label: '结构化数据 / 技术实现' },
+  { code: 'brand-authority', label: '品牌心智与可信源' },
+  { code: 'ai-marketing', label: 'AI 营销' },
+  { code: 'agent-marketing-distribution', label: 'Agent 营销与分发' },
+  { code: 'fde', label: 'FDE' },
+  { code: 'customer-acquisition-growth', label: '企业获客与品牌增长' },
+  { code: 'service-delivery-pricing', label: '服务商交付与定价' },
+  { code: 'geo-team-talent', label: 'GEO 团队与人才' },
+  { code: 'other-geo-ai', label: '其他 GEO / AI 议题' },
+] as const;
+
+export const AttendeeNeedTagCodeSchema = z.enum(
+  ATTENDEE_NEED_TOPIC_OPTIONS.map((item) => item.code) as [
+    (typeof ATTENDEE_NEED_TOPIC_OPTIONS)[number]['code'],
+    ...(typeof ATTENDEE_NEED_TOPIC_OPTIONS)[number]['code'][],
+  ],
+);
+
+const AttendeeNeedContentSchema = z
+  .string()
+  .trim()
+  .refine((value) => Array.from(value).length >= 5, '问题正文至少需要 5 个字符')
+  .refine((value) => Array.from(value).length <= 200, '问题正文最多可以填写 200 个字符');
+
+const AttendeeNeedAttributionSchema = z
+  .string()
+  .trim()
+  .refine((value) => Array.from(value).length >= 1, '公开署名不能为空')
+  .refine((value) => Array.from(value).length <= 120, '公开署名最多可以填写 120 个字符');
+
+export const AttendeeNeedQuestionInputSchema = z.object({
+  id: z.uuid().optional(),
+  content: AttendeeNeedContentSchema,
+  tagCodes: z
+    .array(AttendeeNeedTagCodeSchema)
+    .min(1)
+    .max(3)
+    .refine((values) => new Set(values).size === values.length, '同一问题不能重复选择标签'),
+});
+
+export const UpdateAttendeeNeedsSchema = z
+  .object({
+    version: z.number().int().nonnegative(),
+    questions: z.array(AttendeeNeedQuestionInputSchema).min(1).max(3),
+    isPublic: z.boolean(),
+    isAnonymous: z.boolean(),
+    attributionName: AttendeeNeedAttributionSchema.nullable(),
+    consentVersion: z.literal(ATTENDEE_NEED_CONSENT_VERSION),
+  })
+  .superRefine((value, context) => {
+    const normalized = value.questions.map((question) =>
+      question.content.trim().toLocaleLowerCase(),
+    );
+    if (new Set(normalized).size !== normalized.length) {
+      context.addIssue({ code: 'custom', path: ['questions'], message: '请勿重复提交相同问题' });
+    }
+    const existingIds = value.questions.flatMap((question) => (question.id ? [question.id] : []));
+    if (new Set(existingIds).size !== existingIds.length) {
+      context.addIssue({ code: 'custom', path: ['questions'], message: '同一问题不能重复保存' });
+    }
+    if (value.isPublic && !value.isAnonymous && !value.attributionName) {
+      context.addIssue({
+        code: 'custom',
+        path: ['attributionName'],
+        message: '实名公开时需要确认公开署名',
+      });
+    }
+  });
+
+export const DeleteAttendeeNeedsSchema = z.object({
+  version: z.coerce.number().int().positive(),
+});
+
+export const AttendeeNeedQuestionSchema = z.object({
+  id: z.uuid().nullable(),
+  position: z.number().int().min(1).max(3),
+  content: z.string(),
+  tagCodes: z.array(AttendeeNeedTagCodeSchema),
+  adminEdited: z.boolean(),
+  adminEditReason: z.string().nullable(),
+  adminHidden: z.boolean(),
+  adminHiddenReason: z.string().nullable(),
+  deletedByAdmin: z.boolean(),
+  firstPublishedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+
+export const AttendeeNeedsProfileSchema = z.object({
+  id: z.uuid().nullable(),
+  featureEnabled: z.boolean(),
+  canCreate: z.boolean(),
+  canPublish: z.boolean(),
+  registrationId: z.uuid(),
+  orderId: z.uuid(),
+  ticketCode: z.string().nullable(),
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  questions: z.array(AttendeeNeedQuestionSchema).max(3),
+  adminRemovedCount: z.number().int().nonnegative(),
+  isPublic: z.boolean(),
+  effectivePublic: z.boolean(),
+  isAnonymous: z.boolean(),
+  adminForcedAnonymous: z.boolean().default(false),
+  adminForcedAnonymousReason: z.string().nullable().default(null),
+  attributionName: z.string().nullable(),
+  consentVersion: z.string().nullable(),
+  consentAt: z.string().nullable(),
+  qualified: z.boolean(),
+  qualificationReason: z.string().nullable(),
+  version: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+});
+
+export const PublicAttendeeNeedListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().max(10_000).default(1),
+  snapshotAt: z.iso.datetime().optional(),
+});
+
+const PublicAttendeeNeedItemBaseSchema = z.object({
+  questionId: z.uuid(),
+  content: z.string(),
+  tags: z.array(
+    z.object({
+      code: AttendeeNeedTagCodeSchema,
+      label: z.string(),
+    }),
+  ),
+  attribution: z.string().optional(),
+  firstPublishedAt: z.string(),
+});
+
+type PublicAttendeeNeedItemOutput = Omit<
+  z.infer<typeof PublicAttendeeNeedItemBaseSchema>,
+  'attribution'
+> & { attribution?: string };
+
+export const PublicAttendeeNeedItemSchema = PublicAttendeeNeedItemBaseSchema.transform(
+  ({ attribution, ...item }): PublicAttendeeNeedItemOutput =>
+    attribution ? { ...item, attribution } : item,
+);
+
+export const PublicAttendeeNeedListSchema = z.object({
+  items: z.array(PublicAttendeeNeedItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.literal(10),
+  totalPages: z.number().int().positive(),
+  snapshotAt: z.iso.datetime(),
+});
+
+export const AdminAttendeeNeedListQuerySchema = z.object({
+  query: z.string().trim().max(200).optional(),
+  tag: AttendeeNeedTagCodeSchema.optional(),
+  visibility: z.enum(['public', 'private', 'anonymous', 'named', 'ineligible']).optional(),
+  moderationStatus: z.enum(['visible', 'hidden', 'deleted']).optional(),
+  submittedFrom: z.iso.datetime().optional(),
+  submittedTo: z.iso.datetime().optional(),
+  page: z.coerce.number().int().positive().max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(10).max(100).default(20),
+});
+
+export const AdminAttendeeNeedItemSchema = z.object({
+  id: z.uuid(),
+  submissionId: z.uuid(),
+  registrationId: z.uuid(),
+  registrationCode: z.string(),
+  attendeeName: z.string(),
+  registrationStatus: z.string(),
+  orderStatus: z.string(),
+  ticketStatus: z.string().nullable(),
+  customerUserId: z.uuid(),
+  content: z.string(),
+  tagCodes: z.array(AttendeeNeedTagCodeSchema),
+  isPublic: z.boolean(),
+  isAnonymous: z.boolean(),
+  adminForcedAnonymous: z.boolean().default(false),
+  adminForcedAnonymousReason: z.string().nullable().default(null),
+  attributionName: z.string().nullable(),
+  effectivePublic: z.boolean(),
+  qualificationReason: z.string().nullable(),
+  adminEdited: z.boolean(),
+  adminEditReason: z.string().nullable(),
+  adminHidden: z.boolean(),
+  adminHiddenReason: z.string().nullable(),
+  deleted: z.boolean(),
+  deletedByType: z.enum(['customer', 'admin']).nullable(),
+  deletedReason: z.string().nullable(),
+  version: z.number().int().positive(),
+  firstPublishedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const AdminAttendeeNeedListSchema = z.object({
+  items: z.array(AdminAttendeeNeedItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalPages: z.number().int().positive(),
+  counts: z.object({
+    submitters: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    public: z.number().int().nonnegative(),
+    anonymous: z.number().int().nonnegative(),
+    hidden: z.number().int().nonnegative(),
+    deleted: z.number().int().nonnegative(),
+  }),
+});
+
+export const UpdateAdminAttendeeNeedQuestionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    content: AttendeeNeedContentSchema,
+    tagCodes: z
+      .array(AttendeeNeedTagCodeSchema)
+      .min(1)
+      .max(3)
+      .refine((values) => new Set(values).size === values.length, '同一问题不能重复选择标签'),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const ModerateAttendeeNeedQuestionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    action: z.enum(['hide', 'restore', 'delete', 'restore-delete', 'anonymize']),
+    reason: z.string().trim().max(500).nullable().optional(),
+  })
+  .superRefine((value, context) => {
+    if (['hide', 'delete', 'anonymize'].includes(value.action) && !value.reason?.trim()) {
+      context.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: '执行治理操作时需要填写原因',
+      });
+    }
+  });
+
+export const AdminAttendeeNeedExportQuerySchema = AdminAttendeeNeedListQuerySchema.omit({
+  page: true,
+  pageSize: true,
+}).extend({
+  variant: z.enum(['internal', 'speaker']).default('speaker'),
+  forceAnonymous: z
+    .preprocess(
+      (value) => (value === 'true' ? true : value === 'false' ? false : value),
+      z.boolean(),
+    )
+    .default(true),
 });
 
 export const CustomerProfileSchema = z.object({
@@ -4281,6 +4670,20 @@ export type AttendeeIndustryCode = z.infer<typeof AttendeeIndustryCodeSchema>;
 export type AttendeeShowcaseVisibleFields = z.infer<typeof AttendeeShowcaseVisibleFieldsSchema>;
 export type UpdateAttendeeShowcase = z.infer<typeof UpdateAttendeeShowcaseSchema>;
 export type AttendeeShowcaseProfile = z.infer<typeof AttendeeShowcaseProfileSchema>;
+export type AttendeeNeedTagCode = z.infer<typeof AttendeeNeedTagCodeSchema>;
+export type AttendeeNeedQuestionInput = z.infer<typeof AttendeeNeedQuestionInputSchema>;
+export type UpdateAttendeeNeeds = z.infer<typeof UpdateAttendeeNeedsSchema>;
+export type DeleteAttendeeNeeds = z.infer<typeof DeleteAttendeeNeedsSchema>;
+export type AttendeeNeedsProfile = z.infer<typeof AttendeeNeedsProfileSchema>;
+export type PublicAttendeeNeedListQuery = z.infer<typeof PublicAttendeeNeedListQuerySchema>;
+export type PublicAttendeeNeedItem = z.infer<typeof PublicAttendeeNeedItemSchema>;
+export type PublicAttendeeNeedList = z.infer<typeof PublicAttendeeNeedListSchema>;
+export type AdminAttendeeNeedListQuery = z.infer<typeof AdminAttendeeNeedListQuerySchema>;
+export type AdminAttendeeNeedItem = z.infer<typeof AdminAttendeeNeedItemSchema>;
+export type AdminAttendeeNeedList = z.infer<typeof AdminAttendeeNeedListSchema>;
+export type UpdateAdminAttendeeNeedQuestion = z.infer<typeof UpdateAdminAttendeeNeedQuestionSchema>;
+export type ModerateAttendeeNeedQuestion = z.infer<typeof ModerateAttendeeNeedQuestionSchema>;
+export type AdminAttendeeNeedExportQuery = z.infer<typeof AdminAttendeeNeedExportQuerySchema>;
 export type AttendeeAvatarUpload = z.infer<typeof AttendeeAvatarUploadSchema>;
 export type AttendeeAvatarUploadResult = z.infer<typeof AttendeeAvatarUploadResultSchema>;
 export type AttendeeAvatarConfirm = z.infer<typeof AttendeeAvatarConfirmSchema>;
@@ -4492,83 +4895,59 @@ export const DEMO_SPEAKER_PROFILES: Record<
   }
 > = {
   '55555555-5555-4555-8555-555555555551': {
-    bio: '长期研究搜索增长、品牌内容与生成式引擎优化，持续服务企业建立可被 AI 理解和引用的内容资产，也是本届大会发起人。',
+    bio: '猎河科技创始人、移山科技 COO，长期关注搜索增长、AI 营销与企业 GEO 落地，持续推动品牌建立可被 AI 理解和引用的内容资产。',
     topicAbstract:
-      '从用户提问、品牌证据与内容供给三个层面拆解 GEO，说明企业如何形成稳定的 AI 心智占位，并给出可执行的内容建设路径。',
+      '结合企业经营与一线项目视角，拆解品牌进入 AI 答案的关键环节，讲清从战略、内容资产到效果评估的 GEO 落地路径。',
   },
   '55555555-5555-4555-8555-555555555552': {
-    bio: '专注企业数字增长、品牌战略与产业连接，持续推动 GEO 从行业讨论走向企业经营实践，也是本届大会发起人。',
+    bio: '猎河科技 CPO、知名 AI 自媒体人，持续跟踪 AI 产品、内容生态与用户增长的变化，关注技术能力如何转化为真实的传播和商业价值。',
     topicAbstract:
-      '回顾中国 GEO 一年的关键变化，梳理平台、品牌方、服务商与内容生态的最新进展，给出下一阶段的行业判断。',
+      '从 AI 产品与内容传播的双重视角，分析什么样的内容更容易被模型看见、理解与推荐，以及品牌如何建立可持续的 AI 内容影响力。',
   },
   '55555555-5555-4555-8555-555555555553': {
-    bio: 'QuickCreator 创始人，长期关注 AI 内容生产、全球化营销和搜索增长，拥有丰富的产品与海外市场实践经验。',
+    bio: '欧博东方 CEO，从企业经营与组织实践视角关注 AI 时代的营销转型，探索 GEO 如何进入企业战略、业务流程与增长体系。',
     topicAbstract:
-      '结合海外市场变化，分析 ChatGPT、Gemini 与 Perplexity 等入口的内容引用趋势，并提炼面向 2027 年的出海 GEO 策略。',
+      '从管理者视角梳理 GEO 从行业认知走向企业经营的实施条件，讨论战略目标、组织协同、资源投入与长期增长之间的关系。',
   },
   '55555555-5555-4555-8555-555555555554': {
-    bio: '负责移山科技海外 GEO 研究与项目实践，专注大规模引用样本分析、可信来源识别和增长效果评估。',
+    bio: '爱搜AI CEO，关注 AI 搜索数据、品牌引用监测与 GEO 增长体系，推动企业用可观测的数据持续优化在 AI 答案中的表现。',
     topicAbstract:
-      '基于百万级引用样本，拆解不同 AI 平台的来源偏好、内容结构与引用路径，帮助企业建立可监测、可优化的 GEO 方法。',
+      '从提问集管理、引用监测、竞品对比到内容优化，介绍企业如何建立可量化、可追踪、可持续迭代的 GEO 数据闭环。',
   },
   '55555555-5555-4555-8555-555555555555': {
-    bio: 'AI 内容创作者与产品推广实践者，长期观察新产品冷启动、用户传播和社区增长，也是一位摇滚乐爱好者。',
+    bio: '智推时代联合创始人，关注智能推荐、内容分发与品牌增长，持续探索 AI 重构信息获取方式后的企业获客新路径。',
     topicAbstract:
-      '围绕产品定位、首批用户和持续传播三个阶段，分享 2026 年 AI 产品推广的完整方法，以及不同增长阶段的关键动作。',
+      '分析用户从主动搜索走向 AI 推荐后的分发逻辑变化，分享品牌如何重新设计内容、渠道与转化链路。',
   },
   '55555555-5555-4555-8555-555555555556': {
-    bio: '兼具 AI 产品、内容创作与设计背景，持续研究新工具的产品体验、信息表达和用户决策路径。',
+    bio: '媒介匣 CEO，长期处于媒体传播与品牌内容服务一线，关注权威信源、媒体矩阵与企业 GEO 之间的协同关系。',
     topicAbstract:
-      '从产品视角解释 GEO 如何进入用户体验与增长体系，并通过信息结构、内容设计和可信证据提升品牌被 AI 推荐的概率。',
+      '结合媒体传播链路，讲解企业如何建设真实、一致、可验证的公开信息，让高质量媒体内容成为 AI 答案中的可信依据。',
   },
   '55555555-5555-4555-8555-555555555557': {
-    bio: 'ListenHub 创始人兼 CEO，专注 AI 音频、Agent 产品和新一代内容消费方式，持续探索内容生产与分发的新链路。',
+    bio: '思迈特 CEO，关注企业数据分析、智能决策与 AI 应用，推动数据能力从管理工具进一步融入品牌和营销增长。',
     topicAbstract:
-      '分析 Agent 介入内容发现、理解与分发后的结构变化，讨论创作者和品牌如何构建适合智能体消费的内容资产。',
+      '讨论企业如何把内部业务数据、外部 AI 引用信号与经营目标放在同一套分析框架中，为 GEO 投入、内容优先级与效果评估提供决策依据。',
   },
   '55555555-5555-4555-8555-555555555558': {
-    bio: 'WaytoAGI 创始人，长期建设 AI 学习与实践社区，连接开发者、产品经理、创业者和企业创新团队。',
+    bio: '海外 SEO 专家、AI 出海公司创始人，长期关注全球搜索生态、海外获客与 AI 时代的内容分发变化。',
     topicAbstract:
-      '结合 AGI 社区实践，讨论品牌在智能体时代如何形成长期信任、持续贡献知识，并进入用户和 AI 的共同认知。',
+      '对比传统 SEO 与海外 GEO 的关键变化，分析 ChatGPT、Gemini、Perplexity 等 AI 入口中的内容机会，给出中国企业建立全球 AI 可见度的实践路径。',
   },
   '55555555-5555-4555-8555-555555555559': {
-    bio: '海外营销增长实践者与 AI 产品经理，关注国际市场进入策略、内容本地化和产品驱动增长。',
+    bio: '大有可为创始人，关注企业 AI 应用与 GEO 实战，致力于把新的搜索与内容方法转化为业务团队可执行的增长动作。',
     topicAbstract:
-      '从市场选择、问题词研究、内容供给和效果追踪四个环节，建立适用于海外业务的 GEO 增长框架。',
+      '从第一个高价值场景出发，分享中小企业如何选题、组织内容、建立证据与验证效果，将 GEO 逐步建设成稳定的增长能力。',
   },
   '55555555-5555-4555-8555-555555555560': {
-    bio: 'AIDSO 爱搜AI 合伙人，专注 AI 搜索数据、品牌引用监测和企业 GEO 增长体系建设。',
+    bio: '北京日报社副总，关注主流媒体在 AI 信息环境中的内容创新、公信力建设与传播价值。',
     topicAbstract:
-      '介绍从数据采集、引用归因到内容优化的完整闭环，说明企业如何用统一数据底座持续评估 GEO 投入与增长结果。',
+      '从主流媒体视角讨论 AI 答案时代的内容价值，分析专业采编、权威信源与可验证表达如何帮助高质量信息进入 AI 知识生态。',
   },
   '55555555-5555-4555-8555-555555555561': {
-    bio: '克莱普斯创始人，长期参与企业知识库、内容资产与 AI 可见度项目，关注工程能力如何转化为品牌信任。',
+    bio: '每经科技首席产品官，关注财经科技内容、数字产品与 AI 时代的媒体分发创新，本届大会将主持 GEO 媒体沙龙环节。',
     topicAbstract:
-      '拆解企业信息被 AI 看见、理解和推荐的关键条件，并给出知识库结构、证据建设与持续更新的实施方法。',
-  },
-  '55555555-5555-4555-8555-555555555562': {
-    bio: '赛博禅心与 AGIBar 主理人，持续组织 AI 社区活动，连接产品实践者、创业者和内容创作者。',
-    topicAbstract:
-      '通过社区案例说明高质量讨论、成员共创和公开内容如何沉淀为可信信号，并进一步增强品牌的 GEO 表现。',
-  },
-  '55555555-5555-4555-8555-555555555563': {
-    bio: '一招科技创始人，专注企业 AI 应用与 GEO 落地，拥有从业务诊断到内容执行的一线项目经验。',
-    topicAbstract:
-      '复盘企业 GEO 项目的目标设定、团队协作、内容生产与效果评估，分享常见问题和可直接借鉴的落地步骤。',
-  },
-  '55555555-5555-4555-8555-555555555564': {
-    bio: '来自国内头部 AI 平台的产品与技术嘉宾，具体姓名和完整职业信息将在大会正式官宣后更新。',
-    topicAbstract:
-      '从平台视角介绍 AI 搜索的检索增强、来源选择与答案组织机制，帮助内容生产者理解高质量信息进入答案的条件。',
-  },
-  '55555555-5555-4555-8555-555555555565': {
-    bio: '来自标杆上市企业的品牌负责人，拥有长期品牌建设与 GEO 项目管理经验，完整嘉宾信息将在官宣后更新。',
-    topicAbstract:
-      '公开复盘 12 个月 GEO 项目的预算、人力、内容量与引用率变化，并总结管理层评估投入产出的关键指标。',
-  },
-  '55555555-5555-4555-8555-555555555566': {
-    bio: '大会嘉宾阵容仍在持续更新，后续官宣嘉宾的姓名、职业信息与分享主题会同步补充到这里。',
-    topicAbstract: '关注大会首页与官方通知，及时获取新增嘉宾、主题分享和最终议程安排。',
+      '以 GEO 媒体沙龙为载体，连接媒体、品牌与服务商视角，共同讨论 AI 答案生态中的内容生产、信源建设、产品创新与传播机会。',
   },
 };
 
@@ -4610,9 +4989,9 @@ export const DEMO_EVENT: PublicEvent = {
   startsAt: '2026-11-21T01:00:00.000Z',
   endsAt: '2026-11-22T09:30:00.000Z',
   timezone: 'Asia/Shanghai',
-  venue: '深圳湾科技生态园',
+  venue: '南山区（具体酒店待定）',
   city: '深圳',
-  address: '广东省深圳市南山区深圳湾科技生态园',
+  address: '广东省深圳市南山区（具体酒店待定）',
   registration: {
     paymentMode: 'ticketed',
     currency: 'CNY',
@@ -4643,14 +5022,14 @@ export const DEMO_EVENT: PublicEvent = {
       currency: 'CNY',
       remaining: 500,
       benefits: [
-        '两日大会全通票',
+        '2 天大会 VIP 门票',
         'Day 2 实战工作坊席位',
-        '《中国GEO行业白皮书 2026》',
-        'GEO 签名书籍 1 本',
-        '1 套 GEO 线上课程',
-        '40+ 嘉宾干货资料包',
-        'GEO 会员社群',
-        '会后 7 天回放',
+        '大会 VIP 会员社群',
+        '2 本 AI 与 GEO 签名书籍',
+        '个人信息展示权益',
+        '《中国 GEO 行业白皮书 2026》',
+        '20+ 嘉宾干货资料包',
+        '大会回放视频',
       ],
       recommended: true,
     },
@@ -4659,162 +5038,112 @@ export const DEMO_EVENT: PublicEvent = {
     {
       id: '55555555-5555-4555-8555-555555555551',
       name: '姚金刚',
-      role: '《AI营销：从SEO到GEO》作者 · 大会发起人',
-      topic: '如何在 AI 世界占领消费者心智',
+      role: '猎河科技创始人 · 移山科技 COO',
+      topic: '从搜索到答案：企业 GEO 增长战略与落地路径',
       initials: '姚',
       accentFrom: '#7a5cd6',
       accentTo: '#3a2d6b',
-      tags: ['品牌心智', 'GEO方法论'],
+      tags: ['GEO战略', '企业落地'],
     },
     {
       id: '55555555-5555-4555-8555-555555555552',
       name: '乔向阳',
-      role: '大会发起人 · 企业数字增长专家',
-      topic: '中国 GEO 的第二年：行业全景',
+      role: '猎河科技 CPO · 知名 AI 自媒体人',
+      topic: 'AI 内容如何被看见、理解与推荐',
       initials: '乔',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
-      tags: ['行业趋势', '数字增长'],
+      tags: ['AI内容', '产品传播'],
     },
     {
       id: '55555555-5555-4555-8555-555555555553',
-      name: '阎志涛',
-      role: 'QuickCreator 创始人',
-      topic: '2027 出海 GEO 新趋势',
-      initials: '阎',
+      name: '陈铮',
+      role: '欧博东方 CEO',
+      topic: '经营增长视角下的 GEO：从战略到组织落地',
+      initials: '陈',
       accentFrom: '#059669',
       accentTo: '#064e3b',
-      tags: ['出海GEO', '内容营销'],
+      tags: ['经营增长', '组织落地'],
     },
     {
       id: '55555555-5555-4555-8555-555555555554',
-      name: '张凯',
-      role: '移山科技海外GEO负责人',
-      topic: 'AI 在引用谁：百万级引用样本逆向研究',
-      initials: '张',
+      name: '波波',
+      role: '爱搜AI CEO',
+      topic: '用数据构建 GEO 增长闭环：监测、归因与优化',
+      initials: '波',
       accentFrom: '#d97706',
       accentTo: '#78350f',
-      tags: ['数据研究', 'AEO'],
+      tags: ['数据监测', '增长归因'],
     },
     {
       id: '55555555-5555-4555-8555-555555555555',
-      name: '向阳乔木',
-      role: 'AI 自媒体 · 摇滚乐爱好者',
-      topic: 'AI 产品推广三部曲 · 2026 版',
-      initials: '乔',
+      name: '刘树勋',
+      role: '智推时代联合创始人',
+      topic: '智能推荐时代的品牌增长与内容分发',
+      initials: '刘',
       accentFrom: '#db2777',
       accentTo: '#701a75',
-      tags: ['产品营销', '冷启动'],
+      tags: ['智能推荐', '内容分发'],
     },
     {
       id: '55555555-5555-4555-8555-555555555556',
-      name: '歸藏',
-      role: '自媒体 · AI产品经理 · 设计师',
-      topic: 'AI 产品视角下的 GEO 策略',
-      initials: '藏',
+      name: '高军',
+      role: '媒介匣 CEO',
+      topic: '权威媒体矩阵如何成为 AI 搜索的可信信源',
+      initials: '高',
       accentFrom: '#0891b2',
       accentTo: '#164e63',
-      tags: ['产品思维', '设计策略'],
+      tags: ['权威信源', '媒体矩阵'],
     },
     {
       id: '55555555-5555-4555-8555-555555555557',
-      name: 'AGENT橘（冯雷）',
-      role: 'ListenHub 创始人 & CEO',
-      topic: 'AI Agent 时代的内容分发',
-      initials: '橘',
+      name: '姚诗成',
+      role: '思迈特 CEO',
+      topic: 'BI 与企业数据如何驱动 GEO 决策',
+      initials: '姚',
       accentFrom: '#65a30d',
       accentTo: '#365314',
-      tags: ['AI Agent', '内容分发'],
+      tags: ['企业数据', '智能决策'],
     },
     {
       id: '55555555-5555-4555-8555-555555555558',
-      name: 'AJ',
-      role: 'WaytoAGI 创始人',
-      topic: 'AGI 时代的品牌建设',
-      initials: 'AJ',
+      name: '哥飞',
+      role: '海外 SEO 专家 · AI 出海公司创始人',
+      topic: '中国企业出海 GEO：赢得全球 AI 搜索入口',
+      initials: '飞',
       accentFrom: '#9333ea',
       accentTo: '#581c87',
-      tags: ['AGI', '品牌建设'],
+      tags: ['出海GEO', '全球搜索'],
     },
     {
       id: '55555555-5555-4555-8555-555555555559',
-      name: 'Yangyi',
-      role: '海外营销增长黑客 · AI产品经理',
-      topic: '海外市场 GEO 增长策略',
-      initials: 'Y',
-      accentFrom: '#2563eb',
-      accentTo: '#1e3a8a',
-      tags: ['海外增长', '增长黑客'],
-    },
-    {
-      id: '55555555-5555-4555-8555-555555555560',
-      name: '拔刀流',
-      role: 'AIDSO 爱搜AI 合伙人',
-      topic: '数据底座驱动 GEO：从监控到增长',
-      initials: '刀',
-      accentFrom: '#2563eb',
-      accentTo: '#1e3a8a',
-      tags: ['数据驱动', '引用监测'],
-    },
-    {
-      id: '55555555-5555-4555-8555-555555555561',
-      name: '阿邝',
-      role: '克莱普斯创始人',
-      topic: '企业如何被 AI 看见、理解、推荐',
-      initials: '邝',
-      accentFrom: '#2563eb',
-      accentTo: '#1e3a8a',
-      tags: ['知识库工程', '可信度'],
-    },
-    {
-      id: '55555555-5555-4555-8555-555555555562',
-      name: '大聪明',
-      role: '赛博禅心 & AGIBar 主理人',
-      topic: '社区运营与 GEO 的化学反应',
-      initials: '聪',
-      accentFrom: '#2563eb',
-      accentTo: '#1e3a8a',
-      tags: ['社群运营', 'AGI Bar'],
-    },
-    {
-      id: '55555555-5555-4555-8555-555555555563',
       name: '大尤',
-      role: '一招科技创始人',
-      topic: '企业 GEO 实战经验分享',
+      role: '大有可为创始人',
+      topic: '中小企业 GEO 落地：从第一个场景到增长闭环',
       initials: '尤',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
-      tags: ['企业实战', '落地经验'],
+      tags: ['企业实战', '增长闭环'],
     },
     {
-      id: '55555555-5555-4555-8555-555555555564',
-      name: '大模型平台嘉宾',
-      role: '国内头部 AI 平台 · 敬请期待',
-      topic: 'AI 搜索如何选择答案',
-      initials: 'AI',
+      id: '55555555-5555-4555-8555-555555555560',
+      name: '任强',
+      role: '北京日报社副总',
+      topic: '主流媒体在 AI 答案时代的内容价值与可信表达',
+      initials: '任',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
-      tags: ['平台视角', '引用排序'],
+      tags: ['主流媒体', '内容公信力'],
     },
     {
-      id: '55555555-5555-4555-8555-555555555565',
-      name: '上市企业 CMO',
-      role: '标杆品牌方 · 敬请期待',
-      topic: '12 个月 GEO 投入产出全复盘',
-      initials: 'CMO',
+      id: '55555555-5555-4555-8555-555555555561',
+      name: '岳琦',
+      role: '每经科技首席产品官 · GEO 媒体沙龙主持人',
+      topic: 'GEO 媒体沙龙：媒体如何进入 AI 答案生态',
+      initials: '岳',
       accentFrom: '#2563eb',
       accentTo: '#1e3a8a',
-      tags: ['真实数据', '预算复盘'],
-    },
-    {
-      id: '55555555-5555-4555-8555-555555555566',
-      name: '更多重磅嘉宾',
-      role: '持续官宣中',
-      topic: '关注大会社群，第一时间获取嘉宾更新',
-      initials: '＋',
-      accentFrom: '#2563eb',
-      accentTo: '#1e3a8a',
-      tags: ['40+ 阵容', '陆续揭晓'],
+      tags: ['媒体沙龙', '答案生态'],
     },
   ],
   sessions: [
@@ -5111,7 +5440,7 @@ export const DEMO_EVENT: PublicEvent = {
     {
       question: '资料包包含什么，多久发放？',
       answer:
-        '包含 40+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国GEO行业白皮书 2026》电子完整版。会后 3 个工作日内通过大会社群发放。',
+        '包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。',
     },
     {
       question: '能退票吗？转让规则是什么？',

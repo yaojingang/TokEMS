@@ -54,6 +54,12 @@ export function splitMetricNumber(value: number) {
   };
 }
 
+export function offsetPublicMetric(value: number, configuredBase: string, fallbackBase = 10_000) {
+  const parsedBase = Number.parseInt(configuredBase, 10);
+  const base = Number.isFinite(parsedBase) && parsedBase >= 0 ? parsedBase : fallbackBase;
+  return base + Math.max(0, Math.trunc(value));
+}
+
 export function formatTrackingStartDate(value: string | null, timeZone: string) {
   if (!value) return '';
   const date = new Date(value);

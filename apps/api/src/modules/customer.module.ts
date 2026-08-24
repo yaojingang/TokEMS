@@ -22,6 +22,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   API_ERROR_CODES,
+  AdminAttendeeNeedExportQuerySchema,
+  AdminAttendeeNeedListQuerySchema,
   AttendeeClaimInputSchema,
   AttendeeAvatarConfirmSchema,
   AttendeeAvatarUploadSchema,
@@ -33,11 +35,15 @@ import {
   CustomerInvoiceCenterListQuerySchema,
   CustomerRegistrationListQuerySchema,
   CustomerUpdateInvoiceSchema,
+  DeleteAttendeeNeedsSchema,
   RequestCustomerOtpSchema,
   ModerateAttendeeShowcaseSchema,
+  ModerateAttendeeNeedQuestionSchema,
   UpdateCustomerAdminSchema,
   UpdateCustomerProfileSchema,
   UpdateAttendeeShowcaseSchema,
+  UpdateAdminAttendeeNeedQuestionSchema,
+  UpdateAttendeeNeedsSchema,
   UpdatePurchasedOrderAttendeeSchema,
   VerifyCustomerOtpSchema,
 } from '@conference/contracts';
@@ -60,6 +66,7 @@ import {
 import { DomainError } from '../common/domain-error.js';
 import { InvoiceOperationsService } from '../common/invoice-operations.service.js';
 import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
+import { AttendeeNeedsService } from '../common/attendee-needs.service.js';
 
 function parse<T>(
   schema: {
@@ -161,6 +168,8 @@ class CustomerAccountController {
     private readonly invoices: InvoiceOperationsService,
     @Inject(AttendeeShowcaseService)
     private readonly showcases: AttendeeShowcaseService,
+    @Inject(AttendeeNeedsService)
+    private readonly attendeeNeeds: AttendeeNeedsService,
   ) {}
 
   @Get('profile')
@@ -211,6 +220,43 @@ class CustomerAccountController {
   @Get('registrations/:registrationId/showcase')
   showcase(@Req() request: CustomerRequest, @Param('registrationId') registrationId: string) {
     return this.showcases.customerShowcase(request.customerSession, registrationId);
+  }
+
+  @Get('registrations/:registrationId/needs')
+  needs(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+  ) {
+    return this.attendeeNeeds.customerNeeds(request.customerSession, registrationId);
+  }
+
+  @Patch('registrations/:registrationId/needs')
+  @Throttle({ default: { limit: 30, ttl: 60 * 60_000 } })
+  updateNeeds(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+    @Body() body: unknown,
+  ) {
+    return this.attendeeNeeds.updateCustomerNeeds(
+      request.customerSession,
+      registrationId,
+      parse(UpdateAttendeeNeedsSchema, body, '参会需求信息校验失败'),
+    );
+  }
+
+  @Delete('registrations/:registrationId/needs')
+  @Throttle({ default: { limit: 30, ttl: 60 * 60_000 } })
+  deleteNeeds(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    const input = parse(DeleteAttendeeNeedsSchema, query, '参会需求版本校验失败');
+    return this.attendeeNeeds.deleteCustomerNeeds(
+      request.customerSession,
+      registrationId,
+      input.version,
+    );
   }
 
   @Patch('registrations/:registrationId/showcase')
@@ -529,12 +575,99 @@ class AdminAttendeeShowcaseController {
   }
 }
 
+@ApiTags('admin-attendee-needs')
+@AgentSurface({
+  defaultExclusionReason: 'Unlisted handlers remain human-only until added to the Agent catalog',
+})
+@Controller('admin/events')
+@UseGuards(AuthGuard)
+export class AdminAttendeeNeedsController {
+  constructor(
+    @Inject(AttendeeNeedsService)
+    private readonly attendeeNeeds: AttendeeNeedsService,
+  ) {}
+
+  @Get(':eventId/attendee-needs')
+  @RequireGrant('event.registration.read')
+  list(
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Query() query: Record<string, unknown>,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store, max-age=0');
+    return this.attendeeNeeds.adminList(
+      request.user.organizationId,
+      eventId,
+      parse(AdminAttendeeNeedListQuerySchema, query, '参会需求筛选条件校验失败'),
+    );
+  }
+
+  @Patch(':eventId/attendee-needs/:questionId')
+  @RequireGrant('event.registration.manage')
+  update(
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.attendeeNeeds.updateAdminQuestion(
+      request.user.organizationId,
+      request.user.sub,
+      eventId,
+      questionId,
+      parse(UpdateAdminAttendeeNeedQuestionSchema, body, '参会问题修改信息校验失败'),
+    );
+  }
+
+  @Patch(':eventId/attendee-needs/:questionId/moderation')
+  @RequireGrant('event.registration.manage')
+  moderate(
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.attendeeNeeds.moderateAdminQuestion(
+      request.user.organizationId,
+      request.user.sub,
+      eventId,
+      questionId,
+      parse(ModerateAttendeeNeedQuestionSchema, body, '参会问题治理信息校验失败'),
+    );
+  }
+
+  @Get(':eventId/attendee-needs/export.csv')
+  @RequireAllGrants('event.registration.read', 'event.registration.export')
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
+  async export(
+    @Req() request: FastifyRequest & { user: AuthenticatedUser },
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Query() query: Record<string, unknown>,
+    @Res() reply: FastifyReply,
+  ) {
+    const result = await this.attendeeNeeds.exportAdminCsv(
+      request.user.organizationId,
+      request.user.sub,
+      eventId,
+      parse(AdminAttendeeNeedExportQuerySchema, query, '参会需求导出条件校验失败'),
+    );
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${result.filename}"`)
+      .header('Cache-Control', 'private, no-store, max-age=0')
+      .header('X-Export-Row-Count', String(result.count))
+      .send(result.csv);
+  }
+}
+
 @Module({
   controllers: [
     CustomerAuthController,
     CustomerAccountController,
     CustomerAdminController,
     AdminAttendeeShowcaseController,
+    AdminAttendeeNeedsController,
   ],
 })
 export class CustomerModule {}

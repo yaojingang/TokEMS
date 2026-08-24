@@ -425,6 +425,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'attendee-needs',
+          name: 'event-attendee-needs',
+          component: () => import('./views/AttendeeNeedsView.vue'),
+          meta: {
+            title: '参会需求',
+            code: 'ATTENDEE NEEDS',
+            requiredGrants: ['event.registration.read'],
+          },
+        },
+        {
           path: 'registrations/:registrationId',
           name: 'event-registration-detail',
           component: () => import('./views/RegistrationDetailView.vue'),
