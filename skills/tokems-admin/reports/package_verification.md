@@ -4,7 +4,7 @@
 - Package directory: `/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/.build/package-full`
 - Targets: `2 / 2` adapters present
 - Archive present: `True`
-- Archive SHA256: `0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f`
+- Archive SHA256: `eff907147a327273cbc1ad725522d68fc204d5719aa4aa8d25e7f8878b88cb5d`
 - Nested SKILL.md entries: `0`
 - Failures: `0`
 - Warnings: `0`

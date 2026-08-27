@@ -6,8 +6,8 @@
   "package": {
     "schema_version": "2.0",
     "name": "tokems-admin",
-    "version": "0.1.1",
-    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "version": "0.2.0",
+    "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
     "targets": [
       "openai",
       "generic"
@@ -18,8 +18,8 @@
     "trust_level": "local",
     "license": "AGPL-3.0-only",
     "checksums": {
-      "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9",
-      "archive_sha256": "0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f"
+      "package_sha256": "b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32",
+      "archive_sha256": "eff907147a327273cbc1ad725522d68fc204d5719aa4aa8d25e7f8878b88cb5d"
     },
     "compatibility": {
       "openai": "pass",
@@ -46,21 +46,21 @@
     },
     "distribution": {
       "archive_verified": true,
-      "archive_sha256": "0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f",
+      "archive_sha256": "eff907147a327273cbc1ad725522d68fc204d5719aa4aa8d25e7f8878b88cb5d",
       "package_verification": "reports/package_verification.json",
       "install_simulated": true,
       "install_simulation": "reports/install_simulation.json"
     },
-    "generated_at": "2026-08-17"
+    "generated_at": "2026-08-26"
   },
   "index": {
     "schema_version": "2.0",
-    "generated_at": "2026-08-17",
+    "generated_at": "2026-08-26",
     "package_count": 1,
     "packages": [
       {
         "name": "tokems-admin",
-        "version": "0.1.1",
+        "version": "0.2.0",
         "maturity": "governed",
         "owner": "TokEMS Maintainers",
         "targets": [
@@ -68,7 +68,7 @@
           "generic"
         ],
         "package_metadata": "registry/packages/tokems-admin.json",
-        "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+        "package_sha256": "b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32"
       }
     ]
   },

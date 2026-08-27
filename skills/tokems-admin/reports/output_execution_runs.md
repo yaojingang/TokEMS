@@ -2,14 +2,14 @@
 
 This report records how output-eval variants were produced and whether timing or token evidence is observed or estimated.
 
-- Cases: `7`
-- Variant runs: `14`
+- Cases: `10`
+- Variant runs: `20`
 - Command executed: `0`
 - Model executed: `0`
-- Recorded fixtures: `14`
+- Recorded fixtures: `20`
 - Timing observed: `0`
 - Token observed: `0`
-- Token estimated: `14`
+- Token estimated: `20`
 - Delta: `100.0`
 - Gate pass: `True`
 
@@ -35,6 +35,12 @@ Use `python3 scripts/yao.py output-exec --provider-runner openai --self` or `--r
 | cross-organization-id | with_skill | recorded_fixture |  |  | 139 | 100.0 | pass |
 | near-neighbor-code-development | baseline | recorded_fixture |  |  | 34 | 0.0 | pass |
 | near-neighbor-code-development | with_skill | recorded_fixture |  |  | 89 | 100.0 | pass |
+| template-patch-live-revision | baseline | recorded_fixture |  |  | 29 | 0.0 | pass |
+| template-patch-live-revision | with_skill | recorded_fixture |  |  | 215 | 100.0 | pass |
+| attendee-needs-governance | baseline | recorded_fixture |  |  | 28 | 0.0 | pass |
+| attendee-needs-governance | with_skill | recorded_fixture |  |  | 192 | 100.0 | pass |
+| feishu-digest-read-boundary | baseline | recorded_fixture |  |  | 24 | 0.0 | pass |
+| feishu-digest-read-boundary | with_skill | recorded_fixture |  |  | 148 | 100.0 | pass |
 
 ## Next Fixes
 

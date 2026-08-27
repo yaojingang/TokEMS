@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "scope_rules": [
+    {
+      "path_prefix": ".build",
+      "scope": "generated-install-evidence",
+      "actionable": false,
+      "reason": "Generated package and install-simulation copies are evidence for the current skill, not separate release routes."
+    }
+  ]
+}

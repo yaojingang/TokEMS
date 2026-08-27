@@ -8,6 +8,7 @@ import {
 
 describe('Agent operation catalog', () => {
   it('has unique identifiers and classifies every released route', () => {
+    expect(AGENT_ACTIONS).toHaveLength(87);
     expect(AGENT_ACTION_MAP.size).toBe(AGENT_ACTIONS.length);
     for (const action of AGENT_ACTIONS) {
       const concretePath = action.path
@@ -69,6 +70,16 @@ describe('Agent operation catalog', () => {
     });
   });
 
+  it('requires super-administrator delegation for administrator lifecycle actions', () => {
+    for (const actionId of [
+      'organization.administrators.create',
+      'organization.administrators.update',
+      'organization.administrators.delete',
+    ]) {
+      expect(AGENT_ACTION_MAP.get(actionId)?.requiredGrants).toEqual(['*']);
+    }
+  });
+
   it('requires PII purpose and scope for member and audit reads', () => {
     for (const actionId of ['organization.members.list', 'audit.list']) {
       expect(AGENT_ACTION_MAP.get(actionId)).toMatchObject({
@@ -87,6 +98,53 @@ describe('Agent operation catalog', () => {
       riskBase: 'critical',
       confirmation: 'step-up',
     });
+  });
+
+  it('classifies attendee needs reads, writes, moderation and exports', () => {
+    expect(AGENT_ACTION_MAP.get('attendee-needs.list')).toMatchObject({
+      dataClass: 'pii',
+      riskBase: 'sensitive-read',
+      agentScopes: expect.arrayContaining(['tokems:pii']),
+    });
+    for (const actionId of ['attendee-needs.update', 'attendee-needs.moderate']) {
+      expect(AGENT_ACTION_MAP.get(actionId)).toMatchObject({
+        riskBase: 'controlled',
+        confirmation: 'browser',
+        verifyActionId: 'attendee-needs.list',
+      });
+    }
+    expect(AGENT_ACTION_MAP.get('attendee-needs.export')).toMatchObject({
+      requiredGrants: ['event.registration.read', 'event.registration.export'],
+      riskBase: 'critical',
+      confirmation: 'step-up',
+      idempotencyStrategy: 'outbox-job',
+      agentScopes: expect.arrayContaining(['tokems:pii', 'tokems:export', 'tokems:dangerous']),
+    });
+  });
+
+  it('releases five Feishu reads and keeps delivery writes outside the catalog', () => {
+    expect(
+      AGENT_ACTIONS.filter((action) =>
+        ['integrations.feishu.', 'communications.feishu-digest.'].some((prefix) =>
+          action.actionId.startsWith(prefix),
+        ),
+      ),
+    ).toHaveLength(5);
+    expect(AGENT_ACTION_MAP.get('communications.feishu-digest.preview')).toMatchObject({
+      requiredGrants: ['org.settings.read', 'event.dashboard.read'],
+      riskBase: 'sensitive-read',
+      agentScopes: expect.arrayContaining(['tokems:finance']),
+    });
+    expect(findAgentAction('PATCH', '/api/v1/admin/integrations/feishu-bot')).toBeUndefined();
+    expect(
+      findAgentAction('POST', '/api/v1/admin/events/101/feishu-digest/send-test'),
+    ).toBeUndefined();
+    expect(
+      findAgentAction(
+        'POST',
+        '/api/v1/admin/events/101/feishu-digest/deliveries/4d46d6b7-f7b4-4f6f-8cd4-66e5e5f44c01/resend',
+      ),
+    ).toBeUndefined();
   });
 
   it('keeps payment facts and direct order amount mutation outside the Agent surface', () => {

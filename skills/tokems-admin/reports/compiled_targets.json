@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "ok": true,
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "summary": {
     "target_count": 2,
@@ -34,11 +34,11 @@
       "compiled_contract": {
         "name": "tokems-admin",
         "title": "TokEMS Admin",
-        "version": "0.1.1",
-        "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+        "version": "0.2.0",
+        "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
         "job_to_be_done": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
         "trigger": {
-          "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
           "should_trigger": [
             "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
             "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
@@ -55,11 +55,11 @@
             "Deploy TokEMS to a Linux server and update Nginx.",
             "Browse the public conference agenda as an attendee.",
             "Build a marketing page for an unrelated event platform.",
+            "直接调用飞书开放平台给群里发送大会日报。",
             "source-code development",
             "database, SSH, deployment, and server administration",
             "credential, cookie, token, or secret extraction",
-            "arbitrary URL, method, path, query, or organization access",
-            "direct order amount, payment fact, or financial ledger mutation"
+            "arbitrary URL, method, path, query, or organization access"
           ],
           "edge_cases": [
             "Review the source code that implements TokEMS Agent authorization.",
@@ -71,28 +71,30 @@
         },
         "workflow": {
           "steps": [
-            "Read `references/authorization.md` before connecting or changing connection policy.",
-            "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
-            "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+            "Read `references/authorization.md`; inspect the instance identity before connection or policy changes.",
+            "Run `auth connect` when needed. The administrator compares the device code and completes browser password step-up. Credentials stay in macOS Keychain or Linux Secret Service.",
             "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
             "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
-            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `checkin.sync` also accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
+            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `template patch` safely prepares a live-revision structured-template update, and `checkin.sync` accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
             "Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.",
-            "Verify the persisted resource, public delivery API and rendered home document when applicable, job, or audit record. Treat connector evidence as client-reported until the server marks the operation verified. Use `operation reconcile` for `queued` or `unknown`; never replay the original write.",
-            "Report the output contract below. Delete terminal local pending state and keep exported or one-time-secret artifacts at mode `0600`."
+            "Verify the resource, applicable public API/home document, job, and audit. Evidence remains client-reported until server verification. Reconcile `queued` or `unknown` results without write replay.",
+            "Report the output contract and keep exported or one-time-secret artifacts at mode `0600`."
           ],
           "decision_points": [],
           "failure_modes": []
         },
         "resources": {
           "references": [
+            "references/attendee-needs.md",
             "references/authorization.md",
             "references/capability-map.md",
             "references/commerce-and-invoices.md",
             "references/communications-checkin-and-exports.md",
             "references/content-and-events.md",
             "references/customers-and-admins.md",
+            "references/feishu-digest.md",
             "references/safety-and-approvals.md",
+            "references/system-contracts.json",
             "references/templates.md",
             "references/troubleshooting.md"
           ],
@@ -110,6 +112,8 @@
             "reports/output_quality_scorecard.md",
             "reports/output_execution_runs.json",
             "reports/output_execution_runs.md",
+            "reports/output_blind_review_pack.json",
+            "reports/output_blind_review_pack.md",
             "reports/output_blind_answer_key.json",
             "reports/output_review_adjudication.json",
             "reports/output_review_adjudication.md",
@@ -125,14 +129,15 @@
             "reports/skill_atlas.html"
           ],
           "counts": {
-            "references": 9,
+            "references": 12,
             "scripts": 1,
             "assets": 0,
-            "reports": 22
+            "reports": 24
           }
         },
         "eval_plan": {
           "trigger": [
+            "evals/history/tokems-admin-0.1.1.json",
             "evals/intent_context.json",
             "evals/output/cases.jsonl",
             "evals/output/fixtures/export-request.json",
@@ -147,7 +152,7 @@
           "adversarial": [],
           "baseline": "without_skill",
           "counts": {
-            "trigger": 6,
+            "trigger": 7,
             "output": 2,
             "adversarial": 0,
             "baseline": 1
@@ -155,14 +160,14 @@
         },
         "risk": {
           "output_risk": "low",
-          "execution_risk": "high",
+          "execution_risk": "medium",
           "trust_boundary": "external"
         },
         "governance": {
           "owner": "TokEMS Maintainers",
           "maturity": "governed",
           "review_cadence": "monthly",
-          "review_due": "2026-09-17"
+          "review_due": "2026-09-26"
         },
         "runtime": {
           "activation": {
@@ -284,17 +289,17 @@
           "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
           "activation": {
             "policy": "Use frontmatter description for catalog routing and targets/openai/agents/openai.yaml for display name, default prompt, and compatibility metadata.",
-            "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+            "trigger_description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
             "manual_activation_supported": true,
             "automatic_activation_note": "Depends on the target client route/catalog implementation."
           },
           "resources": {
             "strategy": "Ship the neutral source tree and expose OpenAI-facing interface metadata as a generated companion file.",
             "counts": {
-              "references": 9,
+              "references": 12,
               "scripts": 1,
               "assets": 0,
-              "reports": 22
+              "reports": 24
             },
             "generated_files": [
               "targets/openai/adapter.json",
@@ -458,17 +463,17 @@
         "native_surface": "OpenAI-style interface metadata plus neutral Agent Skills source",
         "activation": {
           "policy": "Use frontmatter description for catalog routing and targets/openai/agents/openai.yaml for display name, default prompt, and compatibility metadata.",
-          "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "trigger_description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
           "manual_activation_supported": true,
           "automatic_activation_note": "Depends on the target client route/catalog implementation."
         },
         "resources": {
           "strategy": "Ship the neutral source tree and expose OpenAI-facing interface metadata as a generated companion file.",
           "counts": {
-            "references": 9,
+            "references": 12,
             "scripts": 1,
             "assets": 0,
-            "reports": 22
+            "reports": 24
           },
           "generated_files": [
             "targets/openai/adapter.json",
@@ -569,11 +574,11 @@
       "compiled_contract": {
         "name": "tokems-admin",
         "title": "TokEMS Admin",
-        "version": "0.1.1",
-        "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+        "version": "0.2.0",
+        "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
         "job_to_be_done": "Connect to one approved TokEMS instance, operate an explicitly requested catalog action under the delegated super administrator, and verify its persisted, public, asynchronous, and audit outcomes.",
         "trigger": {
-          "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
           "should_trigger": [
             "Use the TokEMS Admin skill to connect to our approved production instance and list conferences.",
             "用 TokEMS 管理 Skill 修改大会首页文案，审批后发布并核对前台。",
@@ -590,11 +595,11 @@
             "Deploy TokEMS to a Linux server and update Nginx.",
             "Browse the public conference agenda as an attendee.",
             "Build a marketing page for an unrelated event platform.",
+            "直接调用飞书开放平台给群里发送大会日报。",
             "source-code development",
             "database, SSH, deployment, and server administration",
             "credential, cookie, token, or secret extraction",
-            "arbitrary URL, method, path, query, or organization access",
-            "direct order amount, payment fact, or financial ledger mutation"
+            "arbitrary URL, method, path, query, or organization access"
           ],
           "edge_cases": [
             "Review the source code that implements TokEMS Agent authorization.",
@@ -606,28 +611,30 @@
         },
         "workflow": {
           "steps": [
-            "Read `references/authorization.md` before connecting or changing connection policy.",
-            "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
-            "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+            "Read `references/authorization.md`; inspect the instance identity before connection or policy changes.",
+            "Run `auth connect` when needed. The administrator compares the device code and completes browser password step-up. Credentials stay in macOS Keychain or Linux Secret Service.",
             "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
             "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
-            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `checkin.sync` also accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
+            "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `template patch` safely prepares a live-revision structured-template update, and `checkin.sync` accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.",
             "Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.",
-            "Verify the persisted resource, public delivery API and rendered home document when applicable, job, or audit record. Treat connector evidence as client-reported until the server marks the operation verified. Use `operation reconcile` for `queued` or `unknown`; never replay the original write.",
-            "Report the output contract below. Delete terminal local pending state and keep exported or one-time-secret artifacts at mode `0600`."
+            "Verify the resource, applicable public API/home document, job, and audit. Evidence remains client-reported until server verification. Reconcile `queued` or `unknown` results without write replay.",
+            "Report the output contract and keep exported or one-time-secret artifacts at mode `0600`."
           ],
           "decision_points": [],
           "failure_modes": []
         },
         "resources": {
           "references": [
+            "references/attendee-needs.md",
             "references/authorization.md",
             "references/capability-map.md",
             "references/commerce-and-invoices.md",
             "references/communications-checkin-and-exports.md",
             "references/content-and-events.md",
             "references/customers-and-admins.md",
+            "references/feishu-digest.md",
             "references/safety-and-approvals.md",
+            "references/system-contracts.json",
             "references/templates.md",
             "references/troubleshooting.md"
           ],
@@ -645,6 +652,8 @@
             "reports/output_quality_scorecard.md",
             "reports/output_execution_runs.json",
             "reports/output_execution_runs.md",
+            "reports/output_blind_review_pack.json",
+            "reports/output_blind_review_pack.md",
             "reports/output_blind_answer_key.json",
             "reports/output_review_adjudication.json",
             "reports/output_review_adjudication.md",
@@ -660,14 +669,15 @@
             "reports/skill_atlas.html"
           ],
           "counts": {
-            "references": 9,
+            "references": 12,
             "scripts": 1,
             "assets": 0,
-            "reports": 22
+            "reports": 24
           }
         },
         "eval_plan": {
           "trigger": [
+            "evals/history/tokems-admin-0.1.1.json",
             "evals/intent_context.json",
             "evals/output/cases.jsonl",
             "evals/output/fixtures/export-request.json",
@@ -682,7 +692,7 @@
           "adversarial": [],
           "baseline": "without_skill",
           "counts": {
-            "trigger": 6,
+            "trigger": 7,
             "output": 2,
             "adversarial": 0,
             "baseline": 1
@@ -690,14 +700,14 @@
         },
         "risk": {
           "output_risk": "low",
-          "execution_risk": "high",
+          "execution_risk": "medium",
           "trust_boundary": "external"
         },
         "governance": {
           "owner": "TokEMS Maintainers",
           "maturity": "governed",
           "review_cadence": "monthly",
-          "review_due": "2026-09-17"
+          "review_due": "2026-09-26"
         },
         "runtime": {
           "activation": {
@@ -819,17 +829,17 @@
           "native_surface": "Agent Skills compatible neutral package",
           "activation": {
             "policy": "Use SKILL.md name and description; consumers decide automatic or manual activation.",
-            "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+            "trigger_description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
             "manual_activation_supported": true,
             "automatic_activation_note": "Depends on the target client route/catalog implementation."
           },
           "resources": {
             "strategy": "Preserve references, scripts, assets, evals, reports, and adapter metadata as relative package resources.",
             "counts": {
-              "references": 9,
+              "references": 12,
               "scripts": 1,
               "assets": 0,
-              "reports": 22
+              "reports": 24
             },
             "generated_files": [
               "targets/generic/adapter.json"
@@ -986,17 +996,17 @@
         "native_surface": "Agent Skills compatible neutral package",
         "activation": {
           "policy": "Use SKILL.md name and description; consumers decide automatic or manual activation.",
-          "trigger_description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "trigger_description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
           "manual_activation_supported": true,
           "automatic_activation_note": "Depends on the target client route/catalog implementation."
         },
         "resources": {
           "strategy": "Preserve references, scripts, assets, evals, reports, and adapter metadata as relative package resources.",
           "counts": {
-            "references": 9,
+            "references": 12,
             "scripts": 1,
             "assets": 0,
-            "reports": 22
+            "reports": 24
           },
           "generated_files": [
             "targets/generic/adapter.json"

@@ -75,6 +75,13 @@ function speakerAssetPath(assetId: string) {
   return `/assets/templates/${encodeURIComponent(assetId)}`;
 }
 
+function isUniqueViolation(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  if ('code' in error && error.code === '23505') return true;
+  const cause = 'cause' in error ? error.cause : undefined;
+  return Boolean(cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505');
+}
+
 function isConfiguredSuperAdministrator(
   user: { id: string },
   member: { role: string; grants: string[]; status: 'active' | 'disabled' },
@@ -1667,6 +1674,7 @@ export class EventOperationsService {
     actorId: string,
     input: CreateSpeaker,
   ) {
+    const { publicCode, ...speakerInput } = input;
     const result = await this.releases().mutate(
       {
         organizationId,
@@ -1676,25 +1684,26 @@ export class EventOperationsService {
         changeSummary: `新增嘉宾“${input.name}”`,
       },
       async (tx) => {
-        await this.assertSpeakerAsset(tx, organizationId, input.avatarAssetId);
+        await this.assertSpeakerAsset(tx, organizationId, speakerInput.avatarAssetId);
         const [row] = await tx
           .insert(speakers)
           .values({
-            ...input,
+            ...speakerInput,
             organizationId,
             eventId,
-            initials: input.initials ?? speakerAvatarText(input.name),
+            initials: speakerInput.initials ?? speakerAvatarText(speakerInput.name),
           })
           .returning();
         let publicRoute: { publicCode: string } | undefined;
-        for (let attempt = 0; attempt < 16 && !publicRoute; attempt += 1) {
+        const attempts = publicCode ? 1 : 16;
+        for (let attempt = 0; attempt < attempts && !publicRoute; attempt += 1) {
           const [candidate] = await tx
             .insert(speakerPublicRoutes)
             .values({
               organizationId,
               eventId,
               speakerId: row!.id,
-              publicCode: generateSpeakerPublicCode(),
+              publicCode: publicCode ?? generateSpeakerPublicCode(),
             })
             .onConflictDoNothing()
             .returning({ publicCode: speakerPublicRoutes.publicCode });
@@ -1703,7 +1712,7 @@ export class EventOperationsService {
         if (!publicRoute) {
           throw new DomainError(
             API_ERROR_CODES.INVALID_STATE_TRANSITION,
-            '嘉宾短地址生成失败，请重试',
+            publicCode ? '指定的嘉宾短地址已被占用' : '嘉宾短地址生成失败，请重试',
             HttpStatus.CONFLICT,
           );
         }
@@ -1714,7 +1723,10 @@ export class EventOperationsService {
           action: 'speaker.create',
           resourceType: 'speaker',
           resourceId: row!.id,
-          after: row as unknown as Record<string, unknown>,
+          after: {
+            ...(row as unknown as Record<string, unknown>),
+            publicCode: publicRoute.publicCode,
+          },
           traceId: crypto.randomUUID(),
         });
         return { speaker: row!, publicCode: publicRoute.publicCode };
@@ -1730,68 +1742,101 @@ export class EventOperationsService {
     actorId: string,
     patch: UpdateSpeaker,
   ) {
-    const result = await this.releases().mutate(
-      {
-        organizationId,
-        eventId,
-        actorId,
-        changeScope: 'content',
-        changeSummary: '更新嘉宾资料',
-      },
-      async (tx) => {
-        await this.assertSpeakerAsset(tx, organizationId, patch.avatarAssetId);
-        const [before] = await tx
-          .select()
-          .from(speakers)
-          .where(and(eq(speakers.id, speakerId), eq(speakers.eventId, eventId)))
-          .for('update')
-          .limit(1);
-        if (!before) {
-          throw new DomainError(API_ERROR_CODES.NOT_FOUND, '嘉宾不存在', HttpStatus.NOT_FOUND);
-        }
-        const [row] = await tx
-          .update(speakers)
-          .set({
-            ...patch,
-            organizationId: before.organizationId,
-            eventId,
-            updatedAt: new Date(),
-          })
-          .where(eq(speakers.id, speakerId))
-          .returning();
-        await tx.insert(auditLogs).values({
+    const { publicCode, ...speakerPatch } = patch;
+    try {
+      const result = await this.releases().mutate(
+        {
           organizationId,
           eventId,
           actorId,
-          action: 'speaker.update',
-          resourceType: 'speaker',
-          resourceId: speakerId,
-          before: before as unknown as Record<string, unknown>,
-          after: row as unknown as Record<string, unknown>,
-          traceId: crypto.randomUUID(),
-        });
-        const [publicRoute] = await tx
-          .select({ publicCode: speakerPublicRoutes.publicCode })
-          .from(speakerPublicRoutes)
-          .where(
-            and(
-              eq(speakerPublicRoutes.organizationId, organizationId),
-              eq(speakerPublicRoutes.eventId, eventId),
-              eq(speakerPublicRoutes.speakerId, speakerId),
-            ),
-          )
-          .limit(1);
-        if (!publicRoute) {
-          throw new DomainError(
-            API_ERROR_CODES.INVALID_STATE_TRANSITION,
-            '嘉宾公开地址尚未初始化',
-            HttpStatus.CONFLICT,
+          changeScope: 'content',
+          changeSummary: '更新嘉宾资料',
+        },
+        async (tx) => {
+          await this.assertSpeakerAsset(tx, organizationId, speakerPatch.avatarAssetId);
+          const [before] = await tx
+            .select()
+            .from(speakers)
+            .where(and(eq(speakers.id, speakerId), eq(speakers.eventId, eventId)))
+            .for('update')
+            .limit(1);
+          if (!before) {
+            throw new DomainError(API_ERROR_CODES.NOT_FOUND, '嘉宾不存在', HttpStatus.NOT_FOUND);
+          }
+          const routeFilter = and(
+            eq(speakerPublicRoutes.organizationId, organizationId),
+            eq(speakerPublicRoutes.eventId, eventId),
+            eq(speakerPublicRoutes.speakerId, speakerId),
           );
-        }
-        return { speaker: row!, publicCode: publicRoute.publicCode };
-      },
-    );
-    return this.adminSpeaker(result.value.speaker, result.value.publicCode);
+          const [beforeRoute] = await tx
+            .select({ publicCode: speakerPublicRoutes.publicCode })
+            .from(speakerPublicRoutes)
+            .where(routeFilter)
+            .for('update')
+            .limit(1);
+          if (!beforeRoute) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '嘉宾公开地址尚未初始化',
+              HttpStatus.CONFLICT,
+            );
+          }
+          const [row] = await tx
+            .update(speakers)
+            .set({
+              ...speakerPatch,
+              organizationId: before.organizationId,
+              eventId,
+              updatedAt: new Date(),
+            })
+            .where(eq(speakers.id, speakerId))
+            .returning();
+          const [updatedRoute] =
+            publicCode && publicCode !== beforeRoute.publicCode
+              ? await tx
+                  .update(speakerPublicRoutes)
+                  .set({ publicCode })
+                  .where(routeFilter)
+                  .returning({ publicCode: speakerPublicRoutes.publicCode })
+              : [beforeRoute];
+          if (!updatedRoute) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '嘉宾公开地址尚未初始化',
+              HttpStatus.CONFLICT,
+            );
+          }
+          await tx.insert(auditLogs).values({
+            organizationId,
+            eventId,
+            actorId,
+            action: 'speaker.update',
+            resourceType: 'speaker',
+            resourceId: speakerId,
+            before: {
+              ...(before as unknown as Record<string, unknown>),
+              publicCode: beforeRoute.publicCode,
+            },
+            after: {
+              ...(row as unknown as Record<string, unknown>),
+              publicCode: updatedRoute.publicCode,
+            },
+            traceId: crypto.randomUUID(),
+          });
+          return { speaker: row!, publicCode: updatedRoute.publicCode };
+        },
+      );
+      return this.adminSpeaker(result.value.speaker, result.value.publicCode);
+    } catch (error) {
+      if (publicCode && isUniqueViolation(error)) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '指定的嘉宾短地址已被占用',
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw error;
+    }
   }
 
   async reorderSpeakers(

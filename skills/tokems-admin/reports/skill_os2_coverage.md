@@ -1,6 +1,6 @@
 # Skill OS 2.0 Blueprint Coverage
 
-Generated at: `2026-08-17`
+Generated at: `2026-08-26`
 
 ## Summary
 
@@ -24,11 +24,11 @@ This report maps the Skill OS 2.0 upgrade blueprint to concrete local artifacts,
 | Item | Status | Current | Command | Test |
 | --- | --- | --- | --- | --- |
 | Skill IR | `missing` | schema missing; targets 0 | `python3 scripts/yao.py skill-ir . --self` | `python3 tests/verify_skill_ir.py` |
-| Output Eval Lab | `missing` | 7 cases; delta 100.0; execution 14 | `python3 scripts/yao.py output-exec --self && python3 scripts/yao.py output-review --self` | `python3 tests/verify_output_eval_lab.py` |
-| Runtime Conformance | `missing` | 2/2 targets pass | `python3 scripts/yao.py conformance . --self` | `python3 tests/verify_conformance_suite.py` |
-| Trust Security | `missing` | 10 scripts; secrets 0; help failures 0 | `python3 scripts/yao.py trust . --self` | `python3 tests/verify_trust_check.py` |
-| Skill Atlas | `missing` | 1 scanned skills; actionable collisions 0 | `python3 scripts/yao.py skill-atlas --workspace-root . --self` | `python3 tests/verify_skill_atlas.py` |
-| Registry Distribution | `missing` | archive entries 42; install failures 0 | `python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self && python3 scripts/yao.py registry-audit . --self` | `python3 tests/verify_registry_audit.py` |
+| Output Eval Lab | `missing` | 10 cases; delta 100.0; execution 20 | `python3 scripts/yao.py output-exec --self && python3 scripts/yao.py output-review --self` | `python3 tests/verify_output_eval_lab.py` |
+| Runtime Conformance | `missing` | 2/5 targets pass | `python3 scripts/yao.py conformance . --self` | `python3 tests/verify_conformance_suite.py` |
+| Trust Security | `missing` | 0 scripts; secrets 0; help failures 0 | `python3 scripts/yao.py trust . --self` | `python3 tests/verify_trust_check.py` |
+| Skill Atlas | `missing` | 2 scanned skills; actionable collisions 0 | `python3 scripts/yao.py skill-atlas --workspace-root . --self` | `python3 tests/verify_skill_atlas.py` |
+| Registry Distribution | `missing` | archive entries 144; install failures 0 | `python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self && python3 scripts/yao.py registry-audit . --self` | `python3 tests/verify_registry_audit.py` |
 | Review Studio | `missing` | 16 gates; decision review; warnings 4 | `python3 scripts/yao.py review-studio . --self` | `python3 tests/verify_review_studio.py` |
 | Telemetry Drift | `missing` | events 1; recipes 0; risk low | `python3 scripts/yao.py telemetry-hooks . --self && python3 scripts/yao.py adoption-drift . --self` | `python3 tests/verify_telemetry_hooks.py` |
 
@@ -37,14 +37,14 @@ This report maps the Skill OS 2.0 upgrade blueprint to concrete local artifacts,
 | Item | Status | Current | Command | Test |
 | --- | --- | --- | --- | --- |
 | Benchmark Methodology | `missing` | 0 required artifacts checked | `make ci-test` | `tests/verify_benchmark_reproducibility.py` |
-| Output Eval Schema | `missing` | 7 output cases | `make ci-test` | `tests/verify_output_eval_lab.py` |
+| Output Eval Schema | `missing` | 10 output cases | `make ci-test` | `tests/verify_output_eval_lab.py` |
 | Output Eval Runner | `missing` | delta 100.0 | `make ci-test` | `tests/verify_output_eval_lab.py` |
 | Output Quality Scorecard | `missing` | gate pass True | `make ci-test` | `tests/verify_output_eval_lab.py` |
 | Skill IR V0 | `missing` | schema missing | `make ci-test` | `tests/verify_skill_ir.py` |
 | Compiler Refactor | `missing` | 2/2 compiled targets | `make ci-test` | `tests/verify_compile_skill.py` |
 | Agent Skills Conformance | `missing` | agent-skills target present | `make ci-test` | `tests/verify_conformance_suite.py` |
 | Trust Check | `missing` | secret findings 0 | `make ci-test` | `tests/verify_trust_check.py` |
-| Skill Atlas Generator | `missing` | 1 scanned skills | `make ci-test` | `tests/verify_skill_atlas.py` |
+| Skill Atlas Generator | `missing` | 2 scanned skills | `make ci-test` | `tests/verify_skill_atlas.py` |
 | Registry Package Format | `missing` | registry ok True | `make ci-test` | `tests/verify_registry_audit.py` |
 | Review Studio 2.0 | `missing` | 16 review gates | `make ci-test` | `tests/verify_review_studio.py` |
 | Migration V2 Docs | `missing` | migration guide present | `make ci-test` | `docs review` |

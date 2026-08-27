@@ -8,14 +8,14 @@
     "timeout_seconds": null
   },
   "summary": {
-    "case_count": 7,
-    "variant_run_count": 14,
+    "case_count": 10,
+    "variant_run_count": 20,
     "command_executed_count": 0,
     "model_executed_count": 0,
-    "recorded_fixture_count": 14,
+    "recorded_fixture_count": 20,
     "timing_observed_count": 0,
     "token_observed_count": 0,
-    "token_estimated_count": 14,
+    "token_estimated_count": 20,
     "baseline_pass_rate": 0.0,
     "with_skill_pass_rate": 100.0,
     "delta": 100.0,
@@ -379,6 +379,159 @@
       "failed_count": 0,
       "failed_assertions": [],
       "output_sha256": "36b48ab294485bbf6c2d0ce58ba0255f372189eda67113b3c224c3a9e59c9674",
+      "failure": ""
+    },
+    {
+      "case_id": "template-patch-live-revision",
+      "variant": "baseline",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 13,
+        "output_tokens": 16,
+        "total_tokens": 29,
+        "estimated": true
+      },
+      "score": 0.0,
+      "passed_count": 0,
+      "failed_count": 4,
+      "failed_assertions": [
+        "live-revision",
+        "patch-semantics",
+        "groups",
+        "boundary"
+      ],
+      "output_sha256": "d04ad2a66cadcb3b66742c6b5a326ae385b77ca34d9e2838a8d07fc50df303d5",
+      "failure": ""
+    },
+    {
+      "case_id": "template-patch-live-revision",
+      "variant": "with_skill",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 13,
+        "output_tokens": 202,
+        "total_tokens": 215,
+        "estimated": true
+      },
+      "score": 100.0,
+      "passed_count": 4,
+      "failed_count": 0,
+      "failed_assertions": [],
+      "output_sha256": "4ae7948928a986a33b220052d5d78ea31bdc4d473abbea80229584f8c75116cc",
+      "failure": ""
+    },
+    {
+      "case_id": "attendee-needs-governance",
+      "variant": "baseline",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 18,
+        "total_tokens": 28,
+        "estimated": true
+      },
+      "score": 0.0,
+      "passed_count": 0,
+      "failed_count": 4,
+      "failed_assertions": [
+        "pii-purpose",
+        "version-reason",
+        "public-verify",
+        "anonymous-artifact"
+      ],
+      "output_sha256": "f907274591e82f63b3c92565b5d1d9b9001e314e2dfcb6bc0b81459c2a681b8b",
+      "failure": ""
+    },
+    {
+      "case_id": "attendee-needs-governance",
+      "variant": "with_skill",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 182,
+        "total_tokens": 192,
+        "estimated": true
+      },
+      "score": 100.0,
+      "passed_count": 4,
+      "failed_count": 0,
+      "failed_assertions": [],
+      "output_sha256": "fa8e4ce9dc76bfff6907d02be34e397ff54ac8074abf3aa229705ee8d29afee0",
+      "failure": ""
+    },
+    {
+      "case_id": "feishu-digest-read-boundary",
+      "variant": "baseline",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 16,
+        "total_tokens": 24,
+        "estimated": true
+      },
+      "score": 0.0,
+      "passed_count": 0,
+      "failed_count": 4,
+      "failed_assertions": [
+        "finance-purpose",
+        "minimize",
+        "human-send-boundary",
+        "evidence"
+      ],
+      "output_sha256": "1eb83071631c7afbdeb2c8e7c5bdc2db86d7ee2b35384df44419b45fff0e808c",
+      "failure": ""
+    },
+    {
+      "case_id": "feishu-digest-read-boundary",
+      "variant": "with_skill",
+      "status": "pass",
+      "execution_mode": "recorded_fixture",
+      "model_executed": false,
+      "command_executed": false,
+      "duration_ms": null,
+      "provider": "",
+      "model": "",
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 140,
+        "total_tokens": 148,
+        "estimated": true
+      },
+      "score": 100.0,
+      "passed_count": 4,
+      "failed_count": 0,
+      "failed_assertions": [],
+      "output_sha256": "cabc8fdf561f0d80070199df6ba2aad6fa86cbb89b410e70c23cd4f7a853a7ed",
       "failure": ""
     }
   ],

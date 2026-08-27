@@ -80,12 +80,42 @@ async function inspectPreState(action, params, connectionId) {
 }
 
 const PUBLIC_EVENT_ACTIONS = new Set([
+  'attendee-needs.moderate',
+  'attendee-needs.update',
   'content.registration-forms.publish',
   'events.public-url.update',
   'events.releases.publish',
   'events.releases.rollback',
   'templates.event-binding.update',
 ]);
+
+export function validateOperationInput(actionId, params, body) {
+  if (['attendee-needs.update', 'attendee-needs.moderate'].includes(actionId)) {
+    if (!Number.isInteger(body.version) || body.version < 1) {
+      const error = new Error('Attendee-needs writes require a positive version');
+      error.code = 'ATTENDEE_NEEDS_VERSION_REQUIRED';
+      throw error;
+    }
+    if (typeof body.reason !== 'string' || body.reason.trim().length < 1) {
+      const error = new Error('Attendee-needs writes require a reason in the request body');
+      error.code = 'ATTENDEE_NEEDS_REASON_REQUIRED';
+      throw error;
+    }
+  }
+  if (actionId === 'attendee-needs.export') {
+    const variant = params.variant ?? 'speaker';
+    const forceAnonymous = params.forceAnonymous ?? true;
+    if (
+      variant === 'speaker' &&
+      forceAnonymous !== true &&
+      String(forceAnonymous).toLowerCase() !== 'true'
+    ) {
+      const error = new Error('Speaker attendee-needs exports must set forceAnonymous=true');
+      error.code = 'ATTENDEE_NEEDS_SPEAKER_EXPORT_REQUIRES_ANONYMITY';
+      throw error;
+    }
+  }
+}
 
 function requiresPublicDeliveryVerification(action, pending) {
   if (
@@ -153,9 +183,13 @@ async function publicDeliveryVerification(action, pending, connectionId) {
     );
     if (!event?.slug) throw new Error('Event slug is unavailable');
     const eventPath = `/api/v1/events/${encodeURIComponent(String(event.slug))}`;
-    const [api, document] = await Promise.all([
+    const attendeeNeedsPath = `${eventPath}/attendee-needs?page=1`;
+    const [api, document, attendeeNeeds] = await Promise.all([
       fetchBound(profile.origin, eventPath, { headers }),
       fetchBound(profile.origin, `${eventPath}/home-document`, { headers }),
+      ['attendee-needs.update', 'attendee-needs.moderate'].includes(action.actionId)
+        ? fetchBound(profile.origin, attendeeNeedsPath, { headers })
+        : undefined,
     ]);
     return {
       status: 'verified',
@@ -163,6 +197,7 @@ async function publicDeliveryVerification(action, pending, connectionId) {
       route: eventPath,
       api: responseDigest(api),
       document: responseDigest(document),
+      ...(attendeeNeeds ? { attendeeNeeds: responseDigest(attendeeNeeds) } : {}),
     };
   } catch (error) {
     return {
@@ -177,6 +212,7 @@ export async function prepareOperation({
   actionId,
   params,
   inputFile,
+  input,
   reasonFile,
   secretFile,
   connectionId,
@@ -186,7 +222,14 @@ export async function prepareOperation({
   if (action.method === 'GET' && action.confirmation === 'none') {
     throw new Error('Read-only actions use action inspect and do not create operations');
   }
-  const body = await readJsonFile(inputFile, {});
+  if (inputFile && input !== undefined) {
+    throw new Error('Use either inputFile or input for an operation, not both');
+  }
+  const body = input === undefined ? await readJsonFile(inputFile, {}) : input;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Structured operation input must contain one JSON object');
+  }
+  validateOperationInput(actionId, params, body);
   const reason = await readReason(reasonFile);
   const secretHeaders = await readSecretHeaders(actionId, secretFile);
   const beforeObservation = await inspectPreState(action, params, profile.connectionId);

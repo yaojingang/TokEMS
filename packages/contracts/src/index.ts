@@ -348,6 +348,34 @@ export const OrganizationSettingsSchema = z.object({
   analytics: AnalyticsSettingsSchema.default(DEFAULT_ANALYTICS_SETTINGS),
 });
 
+export const TemplatePartnershipOrganizationGroupKeySchema = z.enum(['speaker', 'media', 'member']);
+
+export const TemplatePartnershipOrganizationGroupSchema = z
+  .object({
+    key: TemplatePartnershipOrganizationGroupKeySchema,
+    label: z.string().trim().min(1).max(80),
+    meta: z.string().trim().min(1).max(80),
+    organizations: z.array(z.string().trim().min(2).max(120)).max(100),
+  })
+  .strict();
+
+export const TemplatePartnershipOrganizationGroupsSchema = z
+  .array(TemplatePartnershipOrganizationGroupSchema)
+  .max(3)
+  .superRefine((groups, context) => {
+    const seen = new Set<string>();
+    groups.forEach((group, index) => {
+      if (seen.has(group.key)) {
+        context.addIssue({
+          code: 'custom',
+          path: [index, 'key'],
+          message: `机构分组键重复：${group.key}`,
+        });
+      }
+      seen.add(group.key);
+    });
+  });
+
 export const TemplateHomeBlockSchema = z.object({
   nodeKey: z
     .string()
@@ -829,6 +857,30 @@ export const ConferenceTemplateDefinitionSchema =
       }
       seen.add(key);
     });
+    if (definition.presentation.kind === 'structured') {
+      definition.presentation.home.blocks.forEach((block, blockIndex) => {
+        if (block.nodeKey !== 'home.cooperation') return;
+        const organizationGroups = block.content.organizationGroups;
+        if (organizationGroups === undefined) return;
+        const result = TemplatePartnershipOrganizationGroupsSchema.safeParse(organizationGroups);
+        if (result.success) return;
+        result.error.issues.forEach((issue) => {
+          context.addIssue({
+            code: 'custom',
+            path: [
+              'presentation',
+              'home',
+              'blocks',
+              blockIndex,
+              'content',
+              'organizationGroups',
+              ...issue.path,
+            ],
+            message: issue.message,
+          });
+        });
+      });
+    }
     const enabledSteps = definition.registrationFlow.steps.filter((item) => item.enabled);
     if (!enabledSteps.some((item) => item.type === 'attendee-form')) {
       context.addIssue({
@@ -902,7 +954,14 @@ function withCooperationHomeBlock(
     blocks.splice(existingIndex, 1, DEFAULT_COOPERATION_HOME_BLOCK);
   } else {
     const ticketsIndex = blocks.findIndex((block) => block.nodeKey === 'home.tickets');
-    blocks.splice(ticketsIndex < 0 ? blocks.length : ticketsIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
+    const attendeeNeedsIndex = blocks.findIndex((block) => block.nodeKey === 'home.attendee-needs');
+    const insertionIndex =
+      attendeeNeedsIndex >= 0 && (ticketsIndex < 0 || attendeeNeedsIndex < ticketsIndex)
+        ? attendeeNeedsIndex
+        : ticketsIndex < 0
+          ? blocks.length
+          : ticketsIndex;
+    blocks.splice(insertionIndex, 0, DEFAULT_COOPERATION_HOME_BLOCK);
   }
   return {
     ...definition,
@@ -918,9 +977,7 @@ function withAttendeeNeedsNodes(
 ): z.infer<typeof ConferenceTemplateDefinitionSchema> {
   let changed = false;
   const blocks =
-    definition.presentation.kind === 'structured'
-      ? [...definition.presentation.home.blocks]
-      : null;
+    definition.presentation.kind === 'structured' ? [...definition.presentation.home.blocks] : null;
   if (blocks) {
     const existingBlockIndex = blocks.findIndex(
       (block) => block.nodeKey === DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK.nodeKey,
@@ -1028,7 +1085,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             answerIntroduction:
               '如果你想系统理解 AI 搜索、品牌引用与内容资产建设，优先关注这些信息密度高、案例真实的活动：',
             answerRank1Title: 'GEO大会 2026',
-            answerRank1Body: '深圳两日主会场 + 工作坊',
+            answerRank1Body: '深圳两天全程主会场',
             answerRank1Badge: '推荐',
             answerRank2Title: '行业白皮书首发',
             answerRank2Body: '平台引用机制与效果基准',
@@ -1039,7 +1096,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             answerStatusTitle: '目标不是曝光，是进入 AI 的候选答案',
             answerStatusBody: '让品牌资料、案例和可信来源被模型正确理解。',
             priceMetricLabel: '两日通票',
-            topicsMetricLabel: '干货主题',
+            topicsMetricLabel: '一线嘉宾',
             openingMetricSuffix: '开幕',
           },
         },
@@ -1047,15 +1104,15 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           nodeKey: 'home.stats',
           type: 'stats',
           label: '大会数据',
-          enabled: false,
-          variant: 'live',
+          enabled: true,
+          variant: 'inline',
           content: {
             confirmedAttendeesLabel: '已确认参会',
             organizationsLabel: '参会企业与机构',
             citiesLabel: '参会者覆盖城市',
-            daysLabel: '密集分享 + 实战工作坊',
+            daysLabel: '两天全程主会场',
             speakersLabel: '一线专家与操盘手',
-            sessionsValue: '30',
+            sessionsValue: '20',
             sessionsLabel: '主题分享与实战议程',
             benefitsLabel: '参会权益打包带走',
             marquee1: 'GENERATIVE ENGINE OPTIMIZATION',
@@ -1125,17 +1182,17 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
             item1New: '2 天',
             item1Title: '从听讲到上手',
             item1Body:
-              'Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。',
+              'Day 1 建立战略与增长框架，Day 2 上午聚焦出海、下午集中实操，把全球机会、Agent 工作流与 FDE 落地方法串成完整路径。',
             item2Old: '20+ 专家',
             item2New: '40+ 专家',
             item2Title: '从布道者到操盘手',
             item2Body:
               '新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。',
-            item3OldVenue: '北京单会场',
-            item3NewVenue: '深圳多会场',
-            item3Title: '从聚会到行业大会',
+            item3OldVenue: '北京首届',
+            item3NewVenue: '深圳主会场',
+            item3Title: '落地大湾区 AI 产业腹地',
             item3Body:
-              '移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。',
+              '两天议程全部集中在同一主会场，展区与会场联动。落地深圳湾，连接出海企业、AI 创业者与产业一线实践。',
             item4Old: '方法分享',
             item4New: '行业基准',
             item4Title: '首发《中国GEO行业白皮书》',
@@ -1165,25 +1222,23 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'timeline',
           content: {
             kicker: 'AGENDA',
-            title: '两天，三十余场密集输出',
-            subtitle: 'Day 1 建立战略与方法论框架，Day 2 分会场实战深潜——从认知到动手，一气呵成',
-            day1Subtitle: '战略与方法论主会场',
-            day2Subtitle: '实战工作坊 + 出海专场',
+            title: '两天，一条从认知到增长的完整路径',
+            subtitle:
+              'Day 1 看清趋势、机制与增长路径；Day 2 上午聚焦出海，下午用诊断、Agent 工作流与 FDE 方法推动落地',
+            day1Subtitle: '主会场 · 战略、增长与前沿',
+            day2Subtitle: '主会场 · 上午出海，下午实操',
             day1MorningTag: '上午场',
-            day1MorningTitle: 'GEO 战略 · 趋势与全景',
+            day1MorningTitle: '趋势共识 · 行业、平台与新入口',
             day1MorningRange: '09:00 – 12:10',
             day1AfternoonTag: '下午场',
-            day1AfternoonTitle: 'GEO 实战 · 企业与数据',
+            day1AfternoonTitle: '增长路径 · 企业实践与 AI 营销',
             day1AfternoonRange: '13:30 – 18:00',
-            day2WorkshopTag: 'A 会场',
-            day2WorkshopTitle: '实战工作坊 · 带电脑上手',
-            day2WorkshopRange: '09:00 – 12:30',
-            day2GlobalTag: 'B 会场',
-            day2GlobalTitle: '出海 GEO 专场',
-            day2GlobalRange: '09:00 – 12:30',
-            day2ClosingTag: '主会场',
-            day2ClosingTitle: '前沿与未来 · 闭幕',
-            day2ClosingRange: '14:00 – 17:30',
+            day2MorningTag: '上午场',
+            day2MorningTitle: '出海专场 · 全球 AI 增长',
+            day2MorningRange: '09:00 – 12:30',
+            day2AfternoonTag: '下午场',
+            day2AfternoonTitle: '实操专场 · 诊断、Agent 与 FDE',
+            day2AfternoonRange: '14:00 – 17:30',
           },
         },
         {
@@ -1237,6 +1292,24 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           },
         },
         {
+          nodeKey: 'home.attendee-needs',
+          type: 'attendee-needs',
+          label: '大家关心的问题',
+          enabled: true,
+          variant: 'editorial-list',
+          content: {
+            kicker: 'ATTENDEE QUESTIONS',
+            title: '大家关心的问题',
+            subtitle: '已报名会员提交的真实问题会更新在这里，大会团队会按主题整理给相关嘉宾',
+            countLabel: '已公开',
+            emptyText: '大家关心的问题正在陆续提交',
+            memberActionLabel: '提交我关心的问题',
+            memberActionNote: '最多提交 3 个问题，可选择匿名公开',
+            guestActionLabel: '报名后提交问题',
+            guestActionNote: '已报名会员可提交 1 至 3 个问题，可选择匿名公开',
+          },
+        },
+        {
           nodeKey: 'home.tickets',
           type: 'tickets',
           label: '参会票种',
@@ -1277,7 +1350,6 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'accordion',
           content: { kicker: 'FAQ' },
         },
-        DEFAULT_ATTENDEE_NEEDS_HOME_BLOCK,
         {
           nodeKey: 'home.registration-cta',
           type: 'registration-cta',
@@ -1327,7 +1399,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           category: '大会介绍',
           question: '我完全不懂 AI，能听懂吗？',
           answer:
-            '完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。',
+            '完全可以。Day 1 面向企业管理者和业务负责人讲清趋势、机制与增长路径。Day 2 上午讲出海案例，下午通过现场诊断、工作流演示与行动计划拆解，帮助零基础参会者跟上节奏。',
           enabled: true,
         },
         {
@@ -1335,15 +1407,15 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           category: '大会介绍',
           question: '参加过第一届，第二届还有必要来吗？',
           answer:
-            '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
+            '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场，以及 Agent、FDE 与 AI 营销实操均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
           enabled: true,
         },
         {
           nodeKey: 'faq.workshop',
           category: '参会准备',
-          question: '工作坊需要什么准备？',
+          question: '参加实操专场需要什么准备？',
           answer:
-            '建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。',
+            '建议提前准备企业官网地址、核心业务关键词与一个真实增长问题。携带笔记本电脑并提前注册 2–3 个主流 AI 产品账号，便于跟随现场诊断和 Agent 工作流演示同步操作。',
           enabled: true,
         },
         {
@@ -1423,7 +1495,14 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           variant: 'showcase',
           enabled: true,
         },
-        DEFAULT_ATTENDEE_NEEDS_FLOW_STEP,
+        {
+          nodeKey: 'flow.attendee-needs',
+          type: 'attendee-needs',
+          title: '提交参会需求',
+          helpText: '告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。',
+          variant: 'focused-question',
+          enabled: true,
+        },
       ],
     },
     initialization: {
@@ -1448,7 +1527,7 @@ const LEGACY_DEFAULT_CONFERENCE_TEMPLATE_DEFINITION =
           recommended: true,
           benefits: [
             '2 天大会 VIP 门票',
-            'Day 2 实战工作坊席位',
+            'Day 2 出海与实操专场席位',
             '大会 VIP 会员社群',
             '2 本 AI 与 GEO 签名书籍',
             '个人信息展示权益',
@@ -1540,6 +1619,7 @@ export function speakerAvatarText(name: string, initials?: string | null) {
 }
 
 const SpeakerProfileFieldSchemas = {
+  publicCode: SpeakerRouteCodeSchema.optional(),
   name: z.string().trim().min(1).max(120),
   role: z.string().trim().min(1).max(240),
   topic: z.string().trim().min(1).max(240),
@@ -2554,6 +2634,7 @@ export const PublicAttendeeNeedListSchema = z.object({
 });
 
 export const AdminAttendeeNeedListQuerySchema = z.object({
+  questionId: z.uuid().optional(),
   query: z.string().trim().max(200).optional(),
   tag: AttendeeNeedTagCodeSchema.optional(),
   visibility: z.enum(['public', 'private', 'anonymous', 'named', 'ineligible']).optional(),
@@ -2631,6 +2712,7 @@ export const ModerateAttendeeNeedQuestionSchema = z
     action: z.enum(['hide', 'restore', 'delete', 'restore-delete', 'anonymize']),
     reason: z.string().trim().max(500).nullable().optional(),
   })
+  .strict()
   .superRefine((value, context) => {
     if (['hide', 'delete', 'anonymize'].includes(value.action) && !value.reason?.trim()) {
       context.addIssue({
@@ -4616,6 +4698,12 @@ export type TemplateSurface = z.infer<typeof TemplateSurfaceSchema>;
 export type TemplateFlowPreset = z.infer<typeof TemplateFlowPresetSchema>;
 export type TemplateFlowStep = z.infer<typeof TemplateFlowStepSchema>;
 export type TemplateHome = z.infer<typeof TemplateHomeSchema>;
+export type TemplatePartnershipOrganizationGroupKey = z.infer<
+  typeof TemplatePartnershipOrganizationGroupKeySchema
+>;
+export type TemplatePartnershipOrganizationGroup = z.infer<
+  typeof TemplatePartnershipOrganizationGroupSchema
+>;
 export type HtmlTemplateVariablePath = z.infer<typeof HtmlTemplateVariablePathSchema>;
 export type HtmlTemplateTextSegment = z.infer<typeof HtmlTemplateTextSegmentSchema>;
 export type HtmlTemplateBinding = z.infer<typeof HtmlTemplateBindingSchema>;
@@ -4917,7 +5005,7 @@ export const DEMO_SPEAKER_PROFILES: Record<
   '55555555-5555-4555-8555-555555555555': {
     bio: '智推时代联合创始人，关注智能推荐、内容分发与品牌增长，持续探索 AI 重构信息获取方式后的企业获客新路径。',
     topicAbstract:
-      '分析用户从主动搜索走向 AI 推荐后的分发逻辑变化，分享品牌如何重新设计内容、渠道与转化链路。',
+      '围绕品牌在 AI 搜索中的内容建设与增长实践，分享如何梳理高价值问题、补充可信信息，并持续观察品牌在 AI 答案中的引用表现。',
   },
   '55555555-5555-4555-8555-555555555556': {
     bio: '媒介匣 CEO，长期处于媒体传播与品牌内容服务一线，关注权威信源、媒体矩阵与企业 GEO 之间的协同关系。',
@@ -5023,7 +5111,7 @@ export const DEMO_EVENT: PublicEvent = {
       remaining: 500,
       benefits: [
         '2 天大会 VIP 门票',
-        'Day 2 实战工作坊席位',
+        'Day 2 出海与实操专场席位',
         '大会 VIP 会员社群',
         '2 本 AI 与 GEO 签名书籍',
         '个人信息展示权益',
@@ -5079,11 +5167,11 @@ export const DEMO_EVENT: PublicEvent = {
       id: '55555555-5555-4555-8555-555555555555',
       name: '刘树勋',
       role: '智推时代联合创始人',
-      topic: '智能推荐时代的品牌增长与内容分发',
+      topic: '品牌企业如何做好 GEO：内容建设与增长实践',
       initials: '刘',
       accentFrom: '#db2777',
       accentTo: '#701a75',
-      tags: ['智能推荐', '内容分发'],
+      tags: ['品牌GEO', '增长实践'],
     },
     {
       id: '55555555-5555-4555-8555-555555555556',
@@ -5161,7 +5249,7 @@ export const DEMO_EVENT: PublicEvent = {
       startsAt: '09:00',
       endsAt: '09:20',
       title: '开幕致辞：中国 GEO 的第二年',
-      summary: '从概念元年到落地元年，行业全景与本届大会导览',
+      summary: '从 GEO 到 AI 营销，打开中国企业的新增长入口',
       speaker: '姚金刚 · 乔向阳',
       kind: 'talk',
     },
@@ -5200,8 +5288,8 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '11:20',
       endsAt: '12:10',
-      title: '大模型平台视角：AI 搜索如何选择答案',
-      summary: '平台嘉宾分享检索增强、引用排序与内容生态政策',
+      title: '大模型平台视角：AI 如何检索、引用与推荐',
+      summary: '从检索增强、引用排序到 Agent 决策，理解内容进入答案的完整链路',
       speaker: '大模型平台嘉宾\n敬请期待',
       kind: 'talk',
     },
@@ -5218,7 +5306,7 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '13:30',
       endsAt: '14:10',
-      title: '12 个月 GEO 投入产出全复盘',
+      title: '企业 GEO 的经营账：12 个月投入产出全复盘',
       summary: '上市企业真实账本：预算、人力、内容量与引用率曲线',
       speaker: '标杆企业 CMO',
       kind: 'talk',
@@ -5228,9 +5316,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '14:10',
       endsAt: '14:50',
-      title: '数据底座驱动 GEO：从监控到增长',
-      summary: '引用监测体系、归因模型与增长闭环实战方法论',
-      speaker: '拔刀流\nAIDSO爱搜AI',
+      title: '从监测到决策：用数据跑出 GEO 增长闭环',
+      summary: '搭建引用监测、效果归因与持续优化的业务闭环',
+      speaker: '波波\n爱搜AI',
       kind: 'talk',
     },
     {
@@ -5238,9 +5326,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '14:50',
       endsAt: '15:30',
-      title: '企业如何被 AI 看见、被 AI 理解、被 AI 推荐',
-      summary: '知识库工程、结构化内容与可信度建设三步走',
-      speaker: '阿邝\n克莱普斯',
+      title: '品牌内容如何进入 AI 的候选答案',
+      summary: '从高价值问题、结构化内容到可信信源，建立可持续的品牌内容资产',
+      speaker: '刘树勋\n智推时代',
       kind: 'talk',
     },
     {
@@ -5248,9 +5336,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '15:30',
       endsAt: '16:10',
-      title: 'AI 产品推广三部曲 · 2026 版',
-      summary: '从冷启动到口碑飞轮：AI 时代产品营销完整路径',
-      speaker: '向阳乔木',
+      title: 'AI 营销从 0 到 1：产品冷启动与内容增长',
+      summary: '用内容、渠道与用户反馈跑出 AI 产品的第一条增长曲线',
+      speaker: '乔向阳\n猎河科技',
       kind: 'talk',
     },
     {
@@ -5268,8 +5356,8 @@ export const DEMO_EVENT: PublicEvent = {
       day: 1,
       startsAt: '17:00',
       endsAt: '18:00',
-      title: 'AI 圆桌：Agent 时代的内容分发与品牌建设',
-      summary: '当 Agent 替用户做决策，品牌该和谁对话',
+      title: 'AI 圆桌：Agent 接管决策之后，营销如何重做',
+      summary: '从内容分发到任务执行，讨论品牌进入 Agent 决策链的新方法',
       speaker: '歸藏 · AJ · 橘子 · 大聪明',
       kind: 'workshop',
     },
@@ -5290,41 +5378,11 @@ export const DEMO_EVENT: PublicEvent = {
       kind: 'break',
     },
     {
-      id: '66666666-6666-4666-8666-666666666616',
-      day: 2,
-      startsAt: '09:00',
-      endsAt: '10:00',
-      title: '工作坊 ①：你的品牌 AI 可见度诊断',
-      summary: '现场跑通多平台提问矩阵，量化品牌当前引用率与情感倾向',
-      speaker: '导师团带练',
-      kind: 'talk',
-    },
-    {
-      id: '66666666-6666-4666-8666-666666666617',
-      day: 2,
-      startsAt: '10:00',
-      endsAt: '11:10',
-      title: '工作坊 ②：GEO 内容资产生产线',
-      summary: 'FAQ、对比页到权威背书：高引用率内容的结构与提示词模板',
-      speaker: '导师团带练',
-      kind: 'talk',
-    },
-    {
-      id: '66666666-6666-4666-8666-666666666618',
-      day: 2,
-      startsAt: '11:10',
-      endsAt: '12:30',
-      title: '工作坊 ③：90 天 GEO 行动计划',
-      summary: '现场产出你企业的执行排期、指标体系与汇报模板',
-      speaker: '导师团带练',
-      kind: 'talk',
-    },
-    {
       id: '66666666-6666-4666-8666-666666666619',
       day: 2,
       startsAt: '09:00',
       endsAt: '09:50',
-      title: '2027 出海 GEO 新趋势',
+      title: '全球 AI 搜索格局：2027 出海 GEO 机会地图',
       summary: 'ChatGPT、Gemini、Perplexity 引用机制差异与机会地图',
       speaker: '阎志涛\nQuickCreator',
       kind: 'talk',
@@ -5334,9 +5392,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '09:50',
       endsAt: '10:40',
-      title: '海外市场 GEO 增长策略',
-      summary: '从 Reddit 到行业媒体：海外可信源建设实战手册',
-      speaker: 'Yangyi',
+      title: '中国企业出海 GEO：从搜索流量到 AI 答案',
+      summary: '围绕市场选择、内容本地化与全球 AI 搜索入口，拆解出海增长路径',
+      speaker: '哥飞',
       kind: 'talk',
     },
     {
@@ -5344,9 +5402,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '10:40',
       endsAt: '11:30',
-      title: '中国品牌如何占领全球 AI 答案',
-      summary: '跨语言知识库、本地化背书与多市场引用监测',
-      speaker: '出海品牌操盘手',
+      title: '海外可信源建设：从 Reddit、媒体到本地化知识库',
+      summary: '打通社区口碑、行业媒体与跨语言内容，建立可验证的海外信任网络',
+      speaker: 'Yangyi\n出海品牌操盘手',
       kind: 'talk',
     },
     {
@@ -5371,9 +5429,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '14:00',
       endsAt: '14:50',
-      title: 'AI Agent 时代的内容分发',
-      summary: '当 Agent 成为新的「用户」，内容该为谁而写',
-      speaker: 'AGENT橘（冯雷）\nListenHub',
+      title: '实操 ①：你的品牌 AI 可见度诊断',
+      summary: '现场跑通多平台提问矩阵，识别品牌引用率、回答倾向与内容缺口',
+      speaker: 'GEO 实战导师团',
       kind: 'talk',
     },
     {
@@ -5381,9 +5439,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '14:50',
       endsAt: '15:40',
-      title: 'AGI 时代的品牌建设',
-      summary: '从流量思维到资产思维：品牌在模型记忆中的长期主义',
-      speaker: 'AJ\nWaytoAGI',
+      title: '实操 ②：Agent 驱动的 AI 营销工作流',
+      summary: '现场演示从用户洞察、内容生产到分发监测的 Agent 协作链路',
+      speaker: 'AGENT橘（冯雷） · AJ\nListenHub · WaytoAGI',
       kind: 'talk',
     },
     {
@@ -5391,9 +5449,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '15:40',
       endsAt: '16:30',
-      title: 'GEO 服务标准与行业自律倡议',
-      summary: '联合发布服务规范，让甲方敢买、乙方敢承诺',
-      speaker: '行业联合发起方',
+      title: '实操 ③：FDE 式落地，从业务试点到增长闭环',
+      summary: '用共创诊断、现场交付与快速迭代，把 AI 能力嵌入真实业务流程',
+      speaker: 'AI FDE 实践嘉宾\n敬请期待',
       kind: 'talk',
     },
     {
@@ -5401,9 +5459,9 @@ export const DEMO_EVENT: PublicEvent = {
       day: 2,
       startsAt: '16:30',
       endsAt: '17:20',
-      title: '终场圆桌：GEO 的下一个十二个月',
-      summary: '核心嘉宾压轴预判，现场开放提问',
-      speaker: '核心嘉宾全员',
+      title: '实操复盘：一份可执行的 90 天 GEO 行动计划',
+      summary: '围绕目标、场景、内容、工具与指标，完成现场案例问诊和行动清单',
+      speaker: '核心嘉宾联合问诊',
       kind: 'workshop',
     },
     {
@@ -5425,17 +5483,17 @@ export const DEMO_EVENT: PublicEvent = {
     {
       question: '我完全不懂 AI，能听懂吗？',
       answer:
-        '完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。',
+        '完全可以。Day 1 面向企业管理者和业务负责人讲清趋势、机制与增长路径。Day 2 上午讲出海案例，下午通过现场诊断、工作流演示与行动计划拆解，帮助零基础参会者跟上节奏。',
     },
     {
       question: '参加过第一届，第二届还有必要来吗？',
       answer:
-        '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
+        '第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场，以及 Agent、FDE 与 AI 营销实操均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。',
     },
     {
-      question: '工作坊需要什么准备？',
+      question: '参加实操专场需要什么准备？',
       answer:
-        '建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。',
+        '建议提前准备企业官网地址、核心业务关键词与一个真实增长问题。携带笔记本电脑并提前注册 2–3 个主流 AI 产品账号，便于跟随现场诊断和 Agent 工作流演示同步操作。',
     },
     {
       question: '资料包包含什么，多久发放？',

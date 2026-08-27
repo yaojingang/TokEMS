@@ -1,14 +1,14 @@
 {
   "ok": true,
   "schema_version": "2.0",
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "package_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/.build/package-full",
-  "install_root": "/private/var/folders/4t/pccsdygn0cg52j9z_g7dgvbc0000gn/T/tmp.pF7LODuUzC/simulate-tokems-admin",
-  "installed_skill_dir": "/private/var/folders/4t/pccsdygn0cg52j9z_g7dgvbc0000gn/T/tmp.pF7LODuUzC/simulate-tokems-admin/tokems-admin",
+  "install_root": "[temporary-install-root]",
+  "installed_skill_dir": "[temporary-install-root]/tokems-admin",
   "summary": {
     "archive_present": true,
-    "archive_entry_count": 42,
+    "archive_entry_count": 144,
     "nested_skill_entry_count": 0,
     "archive_extracted": true,
     "entrypoint_loaded": true,
@@ -19,7 +19,7 @@
     "installer_permission_failure_count": 0,
     "permission_target_count": 2,
     "permission_capability_count": 4,
-    "install_root_is_temp": false,
+    "install_root_is_temp": true,
     "failure_count": 0,
     "warning_count": 0
   },

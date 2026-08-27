@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "ok": false,
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "summary": {
     "item_count": 15,
@@ -71,7 +71,7 @@
       "key": "output-eval-lab",
       "label": "Output Eval Lab",
       "status": "pass",
-      "current": "7 cases; delta 100.0; exec 14; blind 7",
+      "current": "10 cases; delta 100.0; exec 20; blind 10",
       "target": "with-skill/baseline, assertions, execution evidence, blind A/B, failure taxonomy",
       "evidence": [
         {
@@ -179,7 +179,7 @@
       "key": "runtime-conformance",
       "label": "Runtime Conformance",
       "status": "missing",
-      "current": "2/2 targets pass",
+      "current": "2/5 targets pass",
       "target": "Target package structure, metadata, relative paths, and degradation notes pass",
       "evidence": [
         {
@@ -201,7 +201,7 @@
       "key": "trust-security",
       "label": "Trust Security",
       "status": "pass",
-      "current": "secrets 0; scripts 10; help failures 0",
+      "current": "secrets 0; scripts 0; help failures 0",
       "target": "Secrets, scripts, dependencies, permissions, and package hash are reviewable",
       "evidence": [
         {
@@ -263,7 +263,7 @@
       "key": "skill-atlas",
       "label": "Skill Atlas",
       "status": "pass",
-      "current": "1 skills; actionable collisions 0",
+      "current": "2 skills; actionable collisions 0",
       "target": "Workspace catalog, route overlap, stale/owner gaps, drift, and no-route opportunities",
       "evidence": [
         {
@@ -280,7 +280,7 @@
         },
         {
           "path": "skill_atlas/policy.json",
-          "exists": false
+          "exists": true
         }
       ],
       "next_action": "Feed real drift data into Atlas once client telemetry is installed."
@@ -289,7 +289,7 @@
       "key": "registry-distribution",
       "label": "Registry Distribution",
       "status": "pass",
-      "current": "zip entries 42; install failures 0; permission failures 0",
+      "current": "zip entries 144; install failures 0; permission failures 0",
       "target": "Package metadata, archive checksum, package verification, and install simulation pass",
       "evidence": [
         {

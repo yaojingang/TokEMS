@@ -427,6 +427,14 @@ describePersistent('attendee needs persistence', () => {
       }),
     ).rejects.toMatchObject({ status: 404 });
 
+    const targetedAdminList = await service.adminList(DEMO_IDS.organization, DEMO_IDS.event, {
+      questionId,
+      page: 1,
+      pageSize: 20,
+    });
+    expect(targetedAdminList.items.map((item) => item.id)).toEqual([questionId]);
+    expect(targetedAdminList.total).toBe(1);
+
     const adminEdited = await service.updateAdminQuestion(
       DEMO_IDS.organization,
       DEMO_IDS.adminUser,

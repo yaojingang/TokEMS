@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "skill_version": "0.1.1",
+  "catalog_action_count": 77,
+  "captured_at": "2026-08-17T12:35:00+08:00",
+  "source": "reports/trigger_eval_summary.json at the 0.1.1 release boundary",
+  "trigger_eval": {
+    "case_count": 18,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "precision": 1.0,
+    "recall": 1.0
+  }
+}

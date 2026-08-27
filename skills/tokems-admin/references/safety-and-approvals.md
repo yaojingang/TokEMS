@@ -18,6 +18,10 @@ The current observation gate runs before the domain handler. Keep write feature 
 
 Agent reads create an access audit. Sensitive reads require an 8–1000 character purpose file. Ordinary PII list actions are masked by the API before the response leaves TokEMS; local redaction remains a second boundary.
 
+`attendee-needs.list` is a sensitive PII read. Its update and moderation actions require the current positive version and a concrete reason in both the governed operation and request body. `attendee-needs.export` is critical, always uses browser step-up, and writes only an encrypted pending artifact followed by an explicit mode-`0600` download. The `speaker` export variant forces `forceAnonymous=true` in the connector.
+
+`communications.feishu-digest.preview` is a sensitive financial read because the aggregate includes revenue and operating metrics. It requires `tokems:finance` plus a purpose file. The catalog releases Feishu configuration status, visible chats, digest configuration, preview, and delivery history as reads. Credential edits, chat refresh, test sends, enablement changes, scheduled sends, and manual resends have no released action.
+
 Successful writes query the declared verification action and submit a client evidence digest. Client evidence remains `client-reported`; only a server verifier or Worker can advance the operation to `verified`. Public event and homepage changes also read the public delivery API and rendered home-document endpoint on the pinned TokEMS origin. A missing, stale, unbound, or unavailable delivery response keeps verification `unverified`.
 
 When execution may have succeeded and the response is lost, status becomes `unknown`. Run reconciliation and audit lookup. Create a new operation only after evidence confirms that the prior side effect did not occur.

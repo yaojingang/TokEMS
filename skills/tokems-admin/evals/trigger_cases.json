@@ -32,6 +32,18 @@
     {
       "text": "Reconcile an unknown TokEMS Agent operation without replaying the write.",
       "family": "reconciliation"
+    },
+    {
+      "text": "用 tokems-admin 按 revision 修改大会模板的 FAQ 和同行机构名单，审批后核对前台。",
+      "family": "template_patch"
+    },
+    {
+      "text": "读取 TokEMS 参会者关心的问题，隐藏违规内容并导出匿名嘉宾版。",
+      "family": "attendee_needs"
+    },
+    {
+      "text": "通过 TokEMS Skill 预览飞书大会日报的经营汇总并查看投递记录，不发送消息。",
+      "family": "feishu_digest_read"
     }
   ],
   "should_not_trigger": [
@@ -54,6 +66,10 @@
     {
       "text": "Build a marketing page for an unrelated event platform.",
       "family": "other_product"
+    },
+    {
+      "text": "直接调用飞书开放平台给群里发送大会日报。",
+      "family": "direct_feishu_send"
     }
   ],
   "near_neighbor": [

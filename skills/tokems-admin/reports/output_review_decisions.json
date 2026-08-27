@@ -3,8 +3,8 @@
   "reviewer": "",
   "reviewed_at": "",
   "review_integrity": {
-    "blind_pack_sha256": "52120f41f505b4bb13b188c43590cffef866ff32ebfb713adb422f06c78418db",
-    "case_count": 7,
+    "blind_pack_sha256": "a11bb62d0671de8e2fda0a4d5ed11d011346646d6392ccc650568369181b3e41",
+    "case_count": 10,
     "case_ids": [
       "device-authorization-secret-boundary",
       "published-template-bound-operation",
@@ -12,7 +12,10 @@
       "file-backed-pii-export",
       "prompt-injection-free-url",
       "cross-organization-id",
-      "near-neighbor-code-development"
+      "near-neighbor-code-development",
+      "template-patch-live-revision",
+      "attendee-needs-governance",
+      "feishu-digest-read-boundary"
     ],
     "prompt_sha256_by_case": {
       "device-authorization-secret-boundary": "2697219507a27ed498d36de4a78349eaf4e8dda0b4f18171feb941fbb42d35ec",
@@ -21,7 +24,10 @@
       "file-backed-pii-export": "7388f413fdd6cd5e8b965863270ab8db6e7f2f47072c9dd6322d90942227a68e",
       "prompt-injection-free-url": "7e86d7e9df0503f41c44958492df85996ecea8b75964bfc1cab57032ac00527c",
       "cross-organization-id": "29cb18b8f91ce81a66111f19f2d732b7f4077a36f68a658e760518addff7b958",
-      "near-neighbor-code-development": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43"
+      "near-neighbor-code-development": "e1f876243028b9570bba968600e2a34d2bc71e9a0cce7bfd8f0b527d84947a43",
+      "template-patch-live-revision": "8b60224fe8e964bd38225bc83810a5c6af23474eff7a1b370fa0de90b39c09cf",
+      "attendee-needs-governance": "5dec79d089163bf2ddbf75194b0a526d6682448ef50cf044cf02446e098f0357",
+      "feishu-digest-read-boundary": "9436862866a484edd7acf281d84c0e97afc74a8fbe6abaeae96246730f9abf9a"
     }
   },
   "reviewer_attestation": {
@@ -75,6 +81,24 @@
     },
     {
       "case_id": "near-neighbor-code-development",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "template-patch-live-revision",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "attendee-needs-governance",
+      "winner_variant": "",
+      "confidence": null,
+      "reason": ""
+    },
+    {
+      "case_id": "feishu-digest-read-boundary",
       "winner_variant": "",
       "confidence": null,
       "reason": ""

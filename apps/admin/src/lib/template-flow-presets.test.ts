@@ -15,7 +15,7 @@ describe('template flow presets', () => {
       expect(result.map((step) => step.nodeKey)).toContain('flow.member-profile');
       expect(result.map((step) => step.nodeKey)).toContain('flow.attendee-needs');
       expect(result.find((step) => step.nodeKey === 'flow.attendee-needs')).toMatchObject({
-        enabled: false,
+        enabled: true,
         variant: 'focused-question',
       });
     },

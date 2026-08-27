@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { actionPath } from './catalog.mjs';
+import { validateOperationInput } from './operations.mjs';
 import {
   decryptJson,
   dpopProof,
@@ -72,6 +73,41 @@ test('catalog route templates encode identifiers and constrain query constructio
   assert.throws(() => actionPath(action, { status: 'paid' }));
 });
 
+test('attendee-needs operations require versions, reasons, and anonymous speaker exports', () => {
+  assert.doesNotThrow(() =>
+    validateOperationInput(
+      'attendee-needs.update',
+      { eventId: 101, questionId: crypto.randomUUID() },
+      { version: 2, reason: '修正错别字' },
+    ),
+  );
+  assert.throws(
+    () =>
+      validateOperationInput(
+        'attendee-needs.moderate',
+        { eventId: 101, questionId: crypto.randomUUID() },
+        { version: 2, action: 'hide', reason: '' },
+      ),
+    { code: 'ATTENDEE_NEEDS_REASON_REQUIRED' },
+  );
+  assert.throws(
+    () =>
+      validateOperationInput(
+        'attendee-needs.export',
+        { eventId: 101, variant: 'speaker', forceAnonymous: false },
+        {},
+      ),
+    { code: 'ATTENDEE_NEEDS_SPEAKER_EXPORT_REQUIRES_ANONYMITY' },
+  );
+  assert.doesNotThrow(() =>
+    validateOperationInput(
+      'attendee-needs.export',
+      { eventId: 101, variant: 'internal', forceAnonymous: false },
+      {},
+    ),
+  );
+});
+
 test('artifact writes require an absolute path, preserve bytes, and use mode 0600', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'tokems-admin-test-'));
   const output = join(directory, 'invoice.pdf');
@@ -91,11 +127,7 @@ test('artifact writes require an absolute path, preserve bytes, and use mode 060
 
 test('bounded response reading rejects declared and streamed oversized payloads', async () => {
   await assert.rejects(
-    () =>
-      readBoundedResponse(
-        new Response('small', { headers: { 'content-length': '100' } }),
-        10,
-      ),
+    () => readBoundedResponse(new Response('small', { headers: { 'content-length': '100' } }), 10),
     { code: 'RESPONSE_TOO_LARGE' },
   );
   await assert.rejects(() => readBoundedResponse(new Response('01234567890'), 10), {

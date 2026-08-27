@@ -1,6 +1,6 @@
 # Skill OS 2.0 Audit
 
-Generated at: `2026-08-17`
+Generated at: `2026-08-26`
 
 ## Summary
 
@@ -18,16 +18,16 @@ Generated at: `2026-08-17`
 | --- | --- | --- | --- | --- |
 | Skill IR | missing | schema 2.0.0; targets 2 | 2.0 schema, root export, and target-neutral contract evidence | Keep IR as the source before target packaging. |
 | Target Compiler | missing | 2/2 targets pass | OpenAI, Claude, generic, Agent Skills compatible, and VS Code contracts generated from IR | Deepen target-native transforms when provider clients expose stronger runtime APIs. |
-| Output Eval Lab | pass | 7 cases; delta 100.0; exec 14; blind 7 | with-skill/baseline, assertions, execution evidence, blind A/B, failure taxonomy | Add more real-file and adversarial holdout cases as usage grows. |
+| Output Eval Lab | pass | 10 cases; delta 100.0; exec 20; blind 10 | with-skill/baseline, assertions, execution evidence, blind A/B, failure taxonomy | Add more real-file and adversarial holdout cases as usage grows. |
 | Provider Holdout | external-required | phase1 model-executed 0/40; calls 0/40; status pending | The fixed DeepSeek Flash+Pro matrix completes 40 real calls within the governed token and timeout budgets | Run evidence-build with DEEPSEEK_API_KEY and keep raw outputs in the isolated run directory. |
 | Human Adjudication | human-required | phase1 reviewers 0/3; pairs 0/20; promotion pending | Three controlled, independent blind reviews are bound to the same 20-pair pack before quality promotion | Collect three controlled reviewer packets and adjudicate them against the private run answer key. |
 | Benchmark Reproducibility | missing | artifacts 0; missing n/a; failures 0 | Public methodology, reproducible commands, required artifacts, and failure disclosure are machine-checkable | Keep the manifest current with every benchmark, package, and release evidence change. |
-| Runtime Conformance | missing | 2/2 targets pass | Target package structure, metadata, relative paths, and degradation notes pass | Keep target conformance fixtures updated as platform contracts change. |
-| Trust Security | pass | secrets 0; scripts 10; help failures 0 | Secrets, scripts, dependencies, permissions, and package hash are reviewable | Keep high-permission approvals scoped, expiring, and target-mapped. |
+| Runtime Conformance | missing | 2/5 targets pass | Target package structure, metadata, relative paths, and degradation notes pass | Keep target conformance fixtures updated as platform contracts change. |
+| Trust Security | pass | secrets 0; scripts 0; help failures 0 | Secrets, scripts, dependencies, permissions, and package hash are reviewable | Keep high-permission approvals scoped, expiring, and target-mapped. |
 | Permission Metadata | missing | 2/2 target probes pass; metadata fallback 2; installer enforcement 2 | Packaged adapters expose explicit permission metadata, residual risks, and installer enforcement evidence when available | Preserve residual-risk notes until real native enforcement exists. |
 | Native Permission Enforcement | external-required | native-enforced targets 0; installer-enforced targets 2 | At least one target/client enforces approved permissions at runtime | Integrate a real target-client or external installer runtime guard before claiming native permission enforcement. |
-| Skill Atlas | pass | 1 skills; actionable collisions 0 | Workspace catalog, route overlap, stale/owner gaps, drift, and no-route opportunities | Feed real drift data into Atlas once client telemetry is installed. |
-| Registry Distribution | pass | zip entries 42; install failures 0; permission failures 0 | Package metadata, archive checksum, package verification, and install simulation pass | Regenerate registry after package verification so checksums stay aligned. |
+| Skill Atlas | pass | 2 skills; actionable collisions 0 | Workspace catalog, route overlap, stale/owner gaps, drift, and no-route opportunities | Feed real drift data into Atlas once client telemetry is installed. |
+| Registry Distribution | pass | zip entries 144; install failures 0; permission failures 0 | Package metadata, archive checksum, package verification, and install simulation pass | Regenerate registry after package verification so checksums stay aligned. |
 | Review Studio | pass | decision review; warnings 4; score 89 | One page shows gates, evidence paths, blockers, warnings, actions, waivers, and annotations | Resolve human/external warning gates before claiming full release readiness. |
 | Telemetry Drift | missing | events 1; risk low; recipes 0 | Local-first metadata-only event contract, aggregate drift report, hook recipes, and import path | Keep raw JSONL out of distributed packages and use aggregate reports for Atlas. |
 | Native Client Telemetry | external-required | external source events 0; adoption samples 0 | A real Browser/Chrome/provider client sends production metadata events | Install a real client against the native host and import production metadata-only events. |
@@ -93,8 +93,8 @@ Generated at: `2026-08-17`
 
 ### Skill Atlas
 
-- existing evidence: `reports/skill_atlas.json`
-- missing evidence: `scripts/build_skill_atlas.py`, `skill_atlas/catalog.json`, `skill_atlas/policy.json`
+- existing evidence: `reports/skill_atlas.json`, `skill_atlas/policy.json`
+- missing evidence: `scripts/build_skill_atlas.py`, `skill_atlas/catalog.json`
 
 ### Registry Distribution
 

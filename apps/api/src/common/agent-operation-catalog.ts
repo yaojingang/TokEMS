@@ -74,6 +74,7 @@ export const AgentExcluded = (reason: string) => SetMetadata(AGENT_EXCLUDED_META
 
 type ActionOptions = {
   grant: string;
+  grants?: string[];
   scopes?: AgentScope[];
   dataClass?: AgentDataClass;
   risk?: AgentRisk;
@@ -98,7 +99,7 @@ function action(
     method,
     routeName: actionId.replaceAll('.', '_'),
     path,
-    requiredGrants: [options.grant],
+    requiredGrants: options.grants ?? [options.grant],
     agentScopes:
       options.scopes ??
       (method === 'GET'
@@ -178,7 +179,7 @@ export const AGENT_ACTIONS = [
     'POST',
     '/api/v1/admin/organization/administrators',
     {
-      grant: 'org.member.manage',
+      grant: '*',
       risk: 'critical',
       strategy: 'one-time-secret',
       description: '创建组织管理员并安全交接一次性凭据。',
@@ -190,7 +191,7 @@ export const AGENT_ACTIONS = [
     'PATCH',
     '/api/v1/admin/organization/administrators/:membershipId',
     {
-      grant: 'org.member.manage',
+      grant: '*',
       risk: 'critical',
       strategy: 'one-time-secret',
       description: '更新管理员身份、角色、授权或凭据。',
@@ -202,7 +203,7 @@ export const AGENT_ACTIONS = [
     'DELETE',
     '/api/v1/admin/organization/administrators/:membershipId',
     {
-      grant: 'org.member.manage',
+      grant: '*',
       risk: 'critical',
       description: '删除组织管理员。',
       verifyActionId: 'organization.members.list',
@@ -242,6 +243,7 @@ export const AGENT_ACTIONS = [
   }),
   action('events.create', 'POST', '/api/v1/admin/events', {
     grant: 'event.manage',
+    grants: ['event.manage', 'org.template.use'],
     description: '创建大会。',
     verifyActionId: 'events.get',
   }),
@@ -262,7 +264,7 @@ export const AGENT_ACTIONS = [
     description: '读取大会发布历史。',
   }),
   action('events.releases.publish', 'POST', '/api/v1/admin/events/:eventId/releases', {
-    grant: 'event.site.manage',
+    grant: 'event.site.publish',
     risk: 'controlled',
     strategy: 'domain-key',
     description: '发布大会公开版本。',
@@ -274,7 +276,7 @@ export const AGENT_ACTIONS = [
     'POST',
     '/api/v1/admin/events/:eventId/releases/:releaseId/rollback',
     {
-      grant: 'event.site.manage',
+      grant: 'event.site.publish',
       risk: 'controlled',
       strategy: 'domain-key',
       description: '回滚大会公开版本。',
@@ -436,7 +438,7 @@ export const AGENT_ACTIONS = [
     rollback: 'restore-prior-revision',
   }),
   action('templates.publish', 'POST', '/api/v1/admin/templates/:templateId/publish', {
-    grant: 'org.template.manage',
+    grant: 'org.template.publish',
     risk: 'controlled',
     strategy: 'domain-key',
     description: '发布不可变模板版本。',
@@ -508,7 +510,8 @@ export const AGENT_ACTIONS = [
     'PUT',
     '/api/v1/admin/events/:eventId/template-binding',
     {
-      grant: 'event.site.manage',
+      grant: 'event.manage',
+      grants: ['event.manage', 'org.template.use'],
       risk: 'controlled',
       description: '绑定或升级大会模板。',
       verifyActionId: 'templates.event-binding.get',
@@ -557,6 +560,56 @@ export const AGENT_ACTIONS = [
       verifyActionId: 'registrations.get',
     },
   ),
+  action('attendee-needs.list', 'GET', '/api/v1/admin/events/:eventId/attendee-needs', {
+    grant: 'event.registration.read',
+    dataClass: 'pii',
+    risk: 'sensitive-read',
+    scopes: ['tokems:read', 'tokems:pii'],
+    description: '按明确用途读取参会者提交的问题与治理状态。',
+  }),
+  action(
+    'attendee-needs.update',
+    'PATCH',
+    '/api/v1/admin/events/:eventId/attendee-needs/:questionId',
+    {
+      grant: 'event.registration.manage',
+      dataClass: 'pii',
+      scopes: ['tokems:write', 'tokems:pii'],
+      risk: 'controlled',
+      description: '按版本和原因修改参会问题正文与标签。',
+      verifyActionId: 'attendee-needs.list',
+      rollback: 'restore-prior-revision',
+    },
+  ),
+  action(
+    'attendee-needs.moderate',
+    'PATCH',
+    '/api/v1/admin/events/:eventId/attendee-needs/:questionId/moderation',
+    {
+      grant: 'event.registration.manage',
+      dataClass: 'pii',
+      scopes: ['tokems:write', 'tokems:pii'],
+      risk: 'controlled',
+      description: '按版本和原因隐藏、恢复、删除或匿名化参会问题。',
+      verifyActionId: 'attendee-needs.list',
+      rollback: 'use-attendee-needs-moderation-history',
+    },
+  ),
+  action(
+    'attendee-needs.export',
+    'GET',
+    '/api/v1/admin/events/:eventId/attendee-needs/export.csv',
+    {
+      grant: 'event.registration.read',
+      grants: ['event.registration.read', 'event.registration.export'],
+      dataClass: 'pii',
+      scopes: ['tokems:read', 'tokems:pii', 'tokems:export', 'tokems:dangerous'],
+      risk: 'critical',
+      confirmation: 'step-up',
+      strategy: 'outbox-job',
+      description: '导出参会需求文件；嘉宾版必须匿名。',
+    },
+  ),
   action('customers.list', 'GET', '/api/v1/admin/customers', {
     grant: 'customer.read',
     dataClass: 'pii',
@@ -594,6 +647,7 @@ export const AGENT_ACTIONS = [
   }),
   action('customers.export', 'GET', '/api/v1/admin/customers/export.csv', {
     grant: 'customer.export',
+    grants: ['customer.read', 'customer.export'],
     dataClass: 'pii',
     scopes: ['tokems:read', 'tokems:pii', 'tokems:export', 'tokems:dangerous'],
     risk: 'critical',
@@ -622,20 +676,23 @@ export const AGENT_ACTIONS = [
     description: '读取退款记录。',
   }),
   action('invoices.list', 'GET', '/api/v1/admin/events/:eventId/invoices', {
-    grant: 'event.invoice.read',
+    grant: 'event.read',
+    grants: ['event.read', 'org.invoice.read'],
     scopes: ['tokems:read', 'tokems:finance'],
     dataClass: 'pii',
     description: '读取发票列表。',
   }),
   action('invoices.get', 'GET', '/api/v1/admin/events/:eventId/invoices/:invoiceId', {
-    grant: 'event.invoice.read',
+    grant: 'event.read',
+    grants: ['event.read', 'org.invoice.read'],
     scopes: ['tokems:read', 'tokems:finance', 'tokems:pii'],
     dataClass: 'pii',
     risk: 'sensitive-read',
     description: '读取最小化发票详情。',
   }),
   action('invoices.approve', 'POST', '/api/v1/admin/events/:eventId/invoices/:invoiceId/approve', {
-    grant: 'event.invoice.manage',
+    grant: 'event.read',
+    grants: ['event.read', 'org.invoice.manage'],
     scopes: ['tokems:write', 'tokems:finance'],
     risk: 'controlled',
     strategy: 'domain-key',
@@ -647,7 +704,8 @@ export const AGENT_ACTIONS = [
     'POST',
     '/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/replace-file',
     {
-      grant: 'event.invoice.manage',
+      grant: 'event.read',
+      grants: ['event.read', 'org.invoice.manage'],
       scopes: ['tokems:write', 'tokems:finance', 'tokems:dangerous'],
       dataClass: 'pii',
       risk: 'critical',
@@ -696,6 +754,43 @@ export const AGENT_ACTIONS = [
     scopes: ['tokems:read', 'tokems:security'],
     description: '读取脱敏后的集成配置状态。',
   }),
+  action('integrations.feishu.get', 'GET', '/api/v1/admin/integrations/feishu-bot', {
+    grant: 'org.settings.read',
+    scopes: ['tokems:read', 'tokems:security'],
+    description: '读取脱敏后的飞书机器人连接状态。',
+  }),
+  action('integrations.feishu.chats.list', 'GET', '/api/v1/admin/integrations/feishu-bot/chats', {
+    grant: 'org.settings.manage',
+    scopes: ['tokems:read', 'tokems:security'],
+    description: '读取当前飞书应用可见的群聊列表。',
+  }),
+  action('communications.feishu-digest.get', 'GET', '/api/v1/admin/events/:eventId/feishu-digest', {
+    grant: 'org.settings.read',
+    scopes: ['tokems:read', 'tokems:communications'],
+    description: '读取大会飞书日报配置与连接状态。',
+  }),
+  action(
+    'communications.feishu-digest.preview',
+    'GET',
+    '/api/v1/admin/events/:eventId/feishu-digest/preview',
+    {
+      grant: 'org.settings.read',
+      grants: ['org.settings.read', 'event.dashboard.read'],
+      scopes: ['tokems:read', 'tokems:finance'],
+      risk: 'sensitive-read',
+      description: '按明确用途预览包含聚合经营数据的大会飞书日报。',
+    },
+  ),
+  action(
+    'communications.feishu-digest.deliveries.list',
+    'GET',
+    '/api/v1/admin/events/:eventId/feishu-digest/deliveries',
+    {
+      grant: 'org.settings.read',
+      scopes: ['tokems:read', 'tokems:communications'],
+      description: '读取大会飞书日报投递记录。',
+    },
+  ),
   action('integrations.wechat-pay.update', 'PATCH', '/api/v1/admin/integrations/wechat-pay', {
     grant: 'org.settings.manage',
     scopes: ['tokems:write', 'tokems:security', 'tokems:dangerous'],
@@ -715,7 +810,7 @@ export const AGENT_ACTIONS = [
     verifyActionId: 'integrations.status.get',
   }),
   action('audit.list', 'GET', '/api/v1/admin/audit-logs', {
-    grant: 'org.audit.read',
+    grant: 'event.audit.read',
     dataClass: 'pii',
     risk: 'sensitive-read',
     scopes: ['tokems:read', 'tokems:pii', 'tokems:security'],

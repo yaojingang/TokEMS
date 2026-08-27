@@ -1,7 +1,7 @@
 {
   "ok": true,
   "schema_version": "2.0",
-  "generated_at": "2026-08-17T07:46:29Z",
+  "generated_at": "2026-08-25T16:01:49Z",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "privacy_contract": {
     "storage": "local-first",

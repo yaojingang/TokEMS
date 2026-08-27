@@ -1,11 +1,11 @@
 {
   "schema_version": "2.0",
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "package_count": 1,
   "packages": [
     {
       "name": "tokems-admin",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "maturity": "governed",
       "owner": "TokEMS Maintainers",
       "targets": [
@@ -13,7 +13,7 @@
         "generic"
       ],
       "package_metadata": "registry/packages/tokems-admin.json",
-      "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+      "package_sha256": "b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32"
     }
   ]
 }

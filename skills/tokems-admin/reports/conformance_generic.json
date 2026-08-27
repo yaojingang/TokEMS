@@ -30,18 +30,18 @@
         "Skill IR schema_version is 2.0.0",
         "Skill IR name matches frontmatter",
         "Skill IR description matches frontmatter",
+        "references resource resolves: references/attendee-needs.md",
         "references resource resolves: references/authorization.md",
         "references resource resolves: references/capability-map.md",
         "references resource resolves: references/commerce-and-invoices.md",
         "references resource resolves: references/communications-checkin-and-exports.md",
         "references resource resolves: references/content-and-events.md",
         "references resource resolves: references/customers-and-admins.md",
+        "references resource resolves: references/feishu-digest.md",
         "references resource resolves: references/safety-and-approvals.md",
+        "references resource resolves: references/system-contracts.json",
         "references resource resolves: references/templates.md",
-        "references resource resolves: references/troubleshooting.md",
-        "scripts resource resolves: scripts/tokems-admin.js",
-        "reports resource resolves: reports/intent-context.json",
-        "reports resource resolves: reports/intent-confidence.json"
+        "references resource resolves: references/troubleshooting.md"
       ],
       "failures": [],
       "warnings": []

@@ -5,9 +5,9 @@
   "skill_dir": ".",
   "summary": {
     "python_file_count": 0,
-    "script_file_count": 10,
-    "test_file_count": 2,
-    "internal_module_count": 9,
+    "script_file_count": 11,
+    "test_file_count": 3,
+    "internal_module_count": 10,
     "cli_script_count": 1,
     "command_handler_count": 0,
     "entrypoint_command_handler_count": 0,
@@ -16,32 +16,39 @@
     "watch_line_threshold": 720,
     "early_watch_line_threshold": 600,
     "block_line_threshold": 1500,
-    "largest_file_lines": 469,
+    "largest_file_lines": 512,
     "watchlist_count": 0,
     "early_watchlist_count": 0,
     "hotspot_count": 0,
     "blocker_count": 0,
     "decision": "pass",
-    "node_file_count": 12
+    "node_file_count": 14
   },
   "largest_files": [
     {
       "path": "scripts/lib/operations.mjs",
-      "lines": 469,
+      "lines": 512,
       "test": false,
       "cli": false,
       "command_handlers": 0
     },
     {
       "path": "scripts/tokems-admin.mjs",
-      "lines": 338,
+      "lines": 370,
       "test": false,
       "cli": true,
       "command_handlers": 0
     },
     {
       "path": "scripts/lib/auth.mjs",
-      "lines": 322,
+      "lines": 330,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
+      "path": "scripts/lib/template-patch.mjs",
+      "lines": 284,
       "test": false,
       "cli": false,
       "command_handlers": 0
@@ -68,6 +75,13 @@
       "command_handlers": 0
     },
     {
+      "path": "scripts/lib/catalog.mjs",
+      "lines": 105,
+      "test": false,
+      "cli": false,
+      "command_handlers": 0
+    },
+    {
       "path": "scripts/lib/crypto.mjs",
       "lines": 97,
       "test": false,
@@ -75,22 +89,8 @@
       "command_handlers": 0
     },
     {
-      "path": "scripts/lib/catalog.mjs",
-      "lines": 89,
-      "test": false,
-      "cli": false,
-      "command_handlers": 0
-    },
-    {
       "path": "scripts/lib/redaction.mjs",
       "lines": 21,
-      "test": false,
-      "cli": false,
-      "command_handlers": 0
-    },
-    {
-      "path": "scripts/tokems-admin.js",
-      "lines": 13,
       "test": false,
       "cli": false,
       "command_handlers": 0
@@ -108,21 +108,21 @@
     "node": [
       {
         "path": "scripts/lib/auth.mjs",
-        "lines": 322,
+        "lines": 330,
         "test": false,
         "cli": false,
         "command_handlers": 0
       },
       {
         "path": "scripts/lib/catalog.mjs",
-        "lines": 89,
+        "lines": 105,
         "test": false,
         "cli": false,
         "command_handlers": 0
       },
       {
         "path": "scripts/lib/connector.test.mjs",
-        "lines": 148,
+        "lines": 180,
         "test": true,
         "cli": false,
         "command_handlers": 0
@@ -164,7 +164,7 @@
       },
       {
         "path": "scripts/lib/operations.mjs",
-        "lines": 469,
+        "lines": 512,
         "test": false,
         "cli": false,
         "command_handlers": 0
@@ -177,6 +177,20 @@
         "command_handlers": 0
       },
       {
+        "path": "scripts/lib/template-patch.mjs",
+        "lines": 284,
+        "test": false,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
+        "path": "scripts/lib/template-patch.test.mjs",
+        "lines": 202,
+        "test": true,
+        "cli": false,
+        "command_handlers": 0
+      },
+      {
         "path": "scripts/tokems-admin.js",
         "lines": 13,
         "test": false,
@@ -185,7 +199,7 @@
       },
       {
         "path": "scripts/tokems-admin.mjs",
-        "lines": 338,
+        "lines": 370,
         "test": false,
         "cli": true,
         "command_handlers": 0

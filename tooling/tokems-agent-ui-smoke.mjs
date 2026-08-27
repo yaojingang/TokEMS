@@ -32,7 +32,7 @@ const authorization = {
   id: authorizationId,
   clientId: 'tokems-admin-skill',
   clientName: '运营团队的 Codex',
-  skillVersion: '0.1.1',
+  skillVersion: '0.2.0',
   resource: 'https://events.example.com',
   requestedScopes: [
     'tokems:read',

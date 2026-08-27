@@ -1,24 +1,24 @@
 interface:
-  display_name: "TokEMS Admin"
-  short_description: "Securely operate an authorized TokEMS administration surface"
-  default_prompt: "Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result."
+  display_name: 'TokEMS Admin'
+  short_description: 'Securely operate TokEMS content, attendee needs, commerce, and approved read surfaces'
+  default_prompt: 'Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the admin plus public result.'
 compatibility:
-  canonical_format: "agent-skills"
+  canonical_format: 'agent-skills'
   adapter_targets:
-    - "openai"
-    - "generic"
+    - 'openai'
+    - 'generic'
   activation:
-    mode: "manual"
+    mode: 'manual'
     paths: []
   execution:
-    context: "inline"
-    shell: "bash"
-    runtime: "node>=24"
+    context: 'inline'
+    shell: 'bash'
+    runtime: 'node>=24'
   trust:
-    source_tier: "local"
-    remote_inline_execution: "forbid"
-    remote_metadata_policy: "allow-metadata-only"
-    credentials: "macOS Keychain or Linux Secret Service"
+    source_tier: 'local'
+    remote_inline_execution: 'forbid'
+    remote_metadata_policy: 'allow-metadata-only'
+    credentials: 'macOS Keychain or Linux Secret Service'
   degradation:
-    openai: "Codex desktop needs shell, outbound HTTPS, Node.js 24, and a supported credential store."
-    generic: "Stop before connection when the client cannot run scripts, preserve secrets, enforce the approved origin, or open browser approval URLs."
+    openai: 'Codex desktop needs shell, outbound HTTPS, Node.js 24, and a supported credential store.'
+    generic: 'Stop before connection when the client cannot run scripts, preserve secrets, enforce the approved origin, or open browser approval URLs.'

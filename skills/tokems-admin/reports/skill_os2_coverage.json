@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "ok": false,
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "summary": {
     "item_count": 21,
@@ -65,7 +65,7 @@
       "label": "Output Eval Lab",
       "status": "missing",
       "objective": "with-skill/baseline output quality is measured with assertions, execution evidence, and blind review packs.",
-      "current": "7 cases; delta 100.0; execution 14",
+      "current": "10 cases; delta 100.0; execution 20",
       "command": "python3 scripts/yao.py output-exec --self && python3 scripts/yao.py output-review --self",
       "test": "python3 tests/verify_output_eval_lab.py",
       "evidence": [
@@ -102,7 +102,7 @@
       "label": "Runtime Conformance",
       "status": "missing",
       "objective": "Target packages can be consumed by OpenAI, Claude, Agent Skills, VS Code, and generic targets.",
-      "current": "2/2 targets pass",
+      "current": "2/5 targets pass",
       "command": "python3 scripts/yao.py conformance . --self",
       "test": "python3 tests/verify_conformance_suite.py",
       "evidence": [
@@ -131,7 +131,7 @@
       "label": "Trust Security",
       "status": "missing",
       "objective": "Scripts, dependencies, permissions, secrets, and package hash are reviewable for team distribution.",
-      "current": "10 scripts; secrets 0; help failures 0",
+      "current": "0 scripts; secrets 0; help failures 0",
       "command": "python3 scripts/yao.py trust . --self",
       "test": "python3 tests/verify_trust_check.py",
       "evidence": [
@@ -168,7 +168,7 @@
       "label": "Skill Atlas",
       "status": "missing",
       "objective": "Team skill portfolio reveals route collisions, stale ownership, dependency graph, and no-route opportunities.",
-      "current": "1 scanned skills; actionable collisions 0",
+      "current": "2 scanned skills; actionable collisions 0",
       "command": "python3 scripts/yao.py skill-atlas --workspace-root . --self",
       "test": "python3 tests/verify_skill_atlas.py",
       "evidence": [
@@ -205,7 +205,7 @@
       "label": "Registry Distribution",
       "status": "missing",
       "objective": "Skill packages are installable, versioned, checksumed, and upgrade-reviewable.",
-      "current": "archive entries 42; install failures 0",
+      "current": "archive entries 144; install failures 0",
       "command": "python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --output-dir dist --zip --self && python3 scripts/yao.py registry-audit . --self",
       "test": "python3 tests/verify_registry_audit.py",
       "evidence": [
@@ -339,7 +339,7 @@
       "label": "Output Eval Schema",
       "status": "missing",
       "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
-      "current": "7 output cases",
+      "current": "10 output cases",
       "command": "make ci-test",
       "test": "tests/verify_output_eval_lab.py",
       "evidence": [
@@ -514,7 +514,7 @@
       "label": "Skill Atlas Generator",
       "status": "missing",
       "objective": "Recommended Skill OS 2.0 implementation PR from the upgrade plan.",
-      "current": "1 scanned skills",
+      "current": "2 scanned skills",
       "command": "make ci-test",
       "test": "tests/verify_skill_atlas.py",
       "evidence": [
