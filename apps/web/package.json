@@ -12,7 +12,7 @@
   "dependencies": {
     "@conference/contracts": "workspace:*",
     "@conference/ui": "workspace:*",
-    "nuxt": "4.5.1",
+    "nuxt": "4.5.2",
     "qrcode.vue": "3.10.0",
     "vue": "3.5.41"
   },
