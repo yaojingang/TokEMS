@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+
+push_updates=$(cat)
+protected_paths="
+.githooks/pre-push
+AGENTS.md
+apps/api/src/common/database.service.test.ts
+apps/api/src/common/database.service.ts
+apps/api/src/modules/public.module.ts
+docs/operations.md
+docs/production-deployment-runbook.md
+docs/release-records/TEMPLATE.md
+package.json
+packages/contracts/package.json
+packages/contracts/src/canonical-homepage.public.json
+packages/contracts/src/canonical-homepage.snapshot.json
+packages/contracts/src/canonical-homepage.ts
+packages/contracts/src/index.ts
+packages/database/package.json
+packages/database/src/canonical-homepage-remap.test.ts
+packages/database/src/canonical-homepage-remap.ts
+packages/database/src/canonical-homepage.test.ts
+packages/database/src/export-canonical-homepage.ts
+packages/database/src/seed-idempotency.test.ts
+packages/database/src/seed.ts
+pnpm-lock.yaml
+tooling/install-git-hooks.mjs
+tooling/lib/canonical-push-guard.test.mjs
+"
+set -- $protected_paths
+
+for protected_path in "$@"; do
+  if ! git ls-files --error-unmatch "$protected_path" >/dev/null 2>&1; then
+    echo "Canonical push guard is not committed: $protected_path" >&2
+    exit 1
+  fi
+done
+
+if ! git diff --quiet -- "$@" || ! git diff --cached --quiet -- "$@"; then
+  echo "Canonical homepage files must be committed before push." >&2
+  exit 1
+fi
+
+echo "Checking the canonical homepage snapshot before push..."
+pnpm canonical:check
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in
+    ''|0000000000000000000000000000000000000000) continue ;;
+  esac
+  if ! target_commit=$(git rev-parse "$local_sha^{commit}" 2>/dev/null); then
+    echo "Canonical push guard cannot resolve $local_ref at $local_sha." >&2
+    exit 1
+  fi
+  if ! git diff --quiet "$target_commit" -- "$@"; then
+    echo "The commit being pushed does not contain the canonical homepage state that was checked: $local_ref -> $remote_ref" >&2
+    exit 1
+  fi
+done <<EOF
+$push_updates
+EOF

@@ -1,0 +1,1787 @@
+{
+  "publicEvent": {
+    "address": "广东省深圳市南山区（具体酒店待定）",
+    "city": "深圳",
+    "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+    "endsAt": "2026-11-22T09:30:00.000Z",
+    "experience": {
+      "faq": {
+        "contactLabel": "联系大会组委会",
+        "contactUrl": "",
+        "introduction": "解决你最后的犹豫",
+        "items": [
+          {
+            "answer": "GEO（Generative Engine Optimization）的目标是让你的品牌被 AI（ChatGPT、DeepSeek、豆包、Kimi 等）在回答用户问题时引用和推荐。它与 SEO 共享部分底层逻辑，但优化对象从「搜索引擎排名」变成了「AI 的引用与推荐」。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.platform",
+            "question": "GEO 到底是什么，和 SEO 有什么关系？"
+          },
+          {
+            "answer": "完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.beginner",
+            "question": "我完全不懂 AI，能听懂吗？"
+          },
+          {
+            "answer": "第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.returning",
+            "question": "参加过第一届，第二届还有必要来吗？"
+          },
+          {
+            "answer": "建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。",
+            "category": "参会准备",
+            "enabled": true,
+            "nodeKey": "faq.workshop",
+            "question": "工作坊需要什么准备？"
+          },
+          {
+            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+            "category": "参会权益",
+            "enabled": true,
+            "nodeKey": "faq.materials",
+            "question": "资料包包含什么，多久发放？"
+          },
+          {
+            "answer": "购票后 7 天内可无理由全额退款；超过 7 天不退但支持免费转让，开幕 3 天前联系主办方更换参会人信息即可。",
+            "category": "报名",
+            "enabled": true,
+            "nodeKey": "faq.refund",
+            "question": "能退票吗？转让规则是什么？"
+          },
+          {
+            "answer": "支持开具增值税普通发票与专用发票，购票后在个人中心申请即可。同一企业 5 人及以上团购，可联系组委会获取团队专属价与连座安排。",
+            "category": "发票",
+            "enabled": true,
+            "nodeKey": "faq.invoice",
+            "question": "可以开发票吗？团队购票有优惠吗？"
+          }
+        ],
+        "mode": "home",
+        "searchEnabled": true,
+        "title": "常见问题"
+      },
+      "home": {
+        "blocks": [
+          {
+            "content": {
+              "actionLabel": "立即报名",
+              "agendaLabel": "议程",
+              "brandLabel": "GEO大会",
+              "brandMeta": "2026 · 第二届",
+              "cooperationLabel": "合作",
+              "editionLabel": "第二届",
+              "faqLabel": "FAQ",
+              "logoMark": "G",
+              "membersLabel": "会员",
+              "speakersLabel": "嘉宾",
+              "ticketsLabel": "门票",
+              "whyLabel": "背景"
+            },
+            "enabled": true,
+            "label": "顶部导航",
+            "nodeKey": "home.navigation",
+            "type": "navigation",
+            "variant": "minimal"
+          },
+          {
+            "content": {
+              "answerIntroduction": "如果你想系统理解 AI 搜索、品牌引用与内容资产建设，优先关注这些信息密度高、案例真实的活动：",
+              "answerLabel": "AI · 正在生成回答",
+              "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
+              "answerRank1Badge": "推荐",
+              "answerRank1Body": "深圳两日主会场 + 工作坊",
+              "answerRank1Title": "GEO大会 2026",
+              "answerRank2Badge": "可信源",
+              "answerRank2Body": "平台引用机制与效果基准",
+              "answerRank2Title": "行业白皮书首发",
+              "answerRank3Badge": "案例",
+              "answerRank3Body": "品牌方、服务商、平台视角",
+              "answerRank3Title": "40+ 实战嘉宾",
+              "answerStatusBody": "让品牌资料、案例和可信来源被模型正确理解。",
+              "answerStatusTitle": "目标不是曝光，是进入 AI 的候选答案",
+              "answerTitle": "AI Answer Preview",
+              "descriptionLead": "当十亿用户开始向 AI 提问，",
+              "descriptionStrong": "「被引用、被理解、被推荐」",
+              "descriptionTail": "就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+              "eyebrow": "ANNUAL CONFERENCE",
+              "note": "第一届全部售罄",
+              "openingMetricSuffix": "开幕",
+              "priceMetricLabel": "两日通票",
+              "primaryAction": "立即报名 ¥399",
+              "secondaryAction": "查看两日议程",
+              "slogan": "让好的品牌被 AI 正确推荐",
+              "titleEvent": "GEO & AI 营销大会",
+              "titlePrefix": "第二届中国",
+              "topicsMetricLabel": "干货主题",
+              "viewsBase": "10000",
+              "viewsLabel": "大会访问量"
+            },
+            "enabled": true,
+            "label": "首屏介绍",
+            "nodeKey": "home.hero",
+            "type": "hero",
+            "variant": "editorial"
+          },
+          {
+            "content": {
+              "benefitsLabel": "参会权益打包带走",
+              "citiesLabel": "参会者覆盖城市",
+              "confirmedAttendeesLabel": "已确认参会",
+              "daysLabel": "密集分享 + 实战工作坊",
+              "marquee1": "GENERATIVE ENGINE OPTIMIZATION",
+              "marquee2": "被 AI 看见",
+              "marquee3": "被 AI 理解",
+              "marquee4": "被 AI 推荐",
+              "marquee5": "AI SEARCH",
+              "marquee6": "品牌占位",
+              "marquee7": "AGENT 营销",
+              "marquee8": "出海 GEO",
+              "marquee9": "内容资产",
+              "organizationsLabel": "参会企业与机构",
+              "sessionsLabel": "主题分享与实战议程",
+              "sessionsValue": "30",
+              "speakersLabel": "一线专家与操盘手"
+            },
+            "enabled": false,
+            "label": "大会数据",
+            "nodeKey": "home.stats",
+            "type": "stats",
+            "variant": "live"
+          },
+          {
+            "content": {
+              "item1Body": "越来越多用户跳过搜索结果页，直接向 ChatGPT、DeepSeek、豆包、Kimi 要答案。AI 给出的三个推荐，就是用户的全部候选名单。",
+              "item1Title": "决策入口正在迁移",
+              "item2Body": "AI 回答中没有你，意味着你在新入口完全缺席；AI 引用了错误信息，比缺席更危险。",
+              "item2Title": "你的品牌可能正在被 AI 忽略",
+              "item3Body": "排名逻辑正在向「引用逻辑」迁移：AI 不看第几名，它看谁可信、谁结构清晰、谁被反复印证。",
+              "item3Title": "SEO 经验还在，但规则已经变了",
+              "item4Body": "第一届大会之后，先做 GEO 的企业已经在 AI 回答中建立了占位。窗口仍在，但正在收窄。",
+              "item4Title": "窗口期红利只属于先行动的人",
+              "item5Body": "从内容资产、知识库、结构化数据到效果监测——GEO 是一条完整的工程链路。",
+              "item5Title": "单点技巧不够，需要一套体系",
+              "kicker": "THE SHIFT",
+              "mockFoot": "如果你的品牌不在 AI 的回答里，你正在把一个全新的获客入口整体让给竞争对手。",
+              "mockIntroduction": "根据公开资料与行业最佳实践，为你推荐：",
+              "mockLabel": "AI · 正在生成回答",
+              "mockMissingBody": "未被引用，未出现在回答中",
+              "mockMissingTitle": "你的品牌",
+              "mockPrompt": "帮我推荐几个适合 B2B 企业的营销服务商",
+              "mockRank1Body": "全链路营销自动化，多家上市公司案例…",
+              "mockRank1Title": "品牌 A",
+              "mockRank2Body": "数据驱动增长平台，多行业报告引用…",
+              "mockRank2Title": "品牌 B",
+              "mockRank3Body": "垂直行业口碑领先，知识库结构完善…",
+              "mockRank3Title": "品牌 C",
+              "mockTitle": "AI 回答示意",
+              "subtitle": "搜索框正在让位给对话框。当用户开始问 AI「推荐一个……」，你的品牌是否有资格出现在那条回答里",
+              "title": "AI 正在改写「被发现」的规则"
+            },
+            "enabled": true,
+            "label": "大会价值",
+            "nodeKey": "home.value",
+            "type": "value",
+            "variant": "three-column"
+          },
+          {
+            "content": {
+              "attributionNames": "姚金刚 · 乔向阳",
+              "attributionRole": "GEO大会发起人",
+              "item1Body": "Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。",
+              "item1New": "2 天",
+              "item1Old": "1 天",
+              "item1Title": "从听讲到上手",
+              "item2Body": "新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。",
+              "item2New": "40+ 专家",
+              "item2Old": "20+ 专家",
+              "item2Title": "从布道者到操盘手",
+              "item3Body": "移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。",
+              "item3NewVenue": "深圳多会场",
+              "item3OldVenue": "北京单会场",
+              "item3Title": "从聚会到行业大会",
+              "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
+              "item4New": "行业基准",
+              "item4Old": "方法分享",
+              "item4Title": "首发《中国GEO行业白皮书》",
+              "item5Body": "多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。",
+              "item5New": "数据复盘",
+              "item5Old": "案例讲述",
+              "item5Title": "真实账号 · 真实数据",
+              "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。",
+              "item6New": "全球视野",
+              "item6Old": "国内视角",
+              "item6Title": "出海 GEO 专场",
+              "kicker": "SECOND EDITION",
+              "quote": "过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
+              "subtitle": "首届北京大会全场售罄之后，我们用一年时间收集了数百条参会者反馈。第二届，在每一个维度上全面升级",
+              "titleLine1": "第一届回答「GEO 是什么」",
+              "titleLine2": "第二届回答「GEO 怎么赢」"
+            },
+            "enabled": true,
+            "label": "第二届升级",
+            "nodeKey": "home.upgrade",
+            "type": "value",
+            "variant": "three-column"
+          },
+          {
+            "content": {
+              "day1AfternoonRange": "13:30 – 18:00",
+              "day1AfternoonTag": "下午场",
+              "day1AfternoonTitle": "GEO 实战 · 企业与数据",
+              "day1MorningRange": "09:00 – 12:10",
+              "day1MorningTag": "上午场",
+              "day1MorningTitle": "GEO 战略 · 趋势与全景",
+              "day1Subtitle": "战略与方法论主会场",
+              "day2ClosingRange": "14:00 – 17:30",
+              "day2ClosingTag": "主会场",
+              "day2ClosingTitle": "前沿与未来 · 闭幕",
+              "day2GlobalRange": "09:00 – 12:30",
+              "day2GlobalTag": "B 会场",
+              "day2GlobalTitle": "出海 GEO 专场",
+              "day2Subtitle": "实战工作坊 + 出海专场",
+              "day2WorkshopRange": "09:00 – 12:30",
+              "day2WorkshopTag": "A 会场",
+              "day2WorkshopTitle": "实战工作坊 · 带电脑上手",
+              "kicker": "AGENDA",
+              "subtitle": "Day 1 建立战略与方法论框架，Day 2 分会场实战深潜——从认知到动手，一气呵成",
+              "title": "两天，三十余场密集输出"
+            },
+            "enabled": true,
+            "label": "大会议程",
+            "nodeKey": "home.agenda",
+            "type": "agenda",
+            "variant": "timeline"
+          },
+          {
+            "content": {
+              "kicker": "SPEAKERS",
+              "moreLabel": "嘉宾阵容持续更新中 · 最终议程以现场为准",
+              "subtitle": "围绕 AI 营销、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例",
+              "title": "汇聚 40+ 国内外一线专家"
+            },
+            "enabled": true,
+            "label": "演讲嘉宾",
+            "nodeKey": "home.speakers",
+            "type": "speakers",
+            "variant": "editorial-grid"
+          },
+          {
+            "content": {
+              "emptyText": "报名会员正在陆续完善参会名片",
+              "kicker": "ATTENDEES",
+              "subtitle": "已报名并主动公开参会名片的会员，将按报名顺序在这里出现",
+              "title": "和同行者，在大会前先认识"
+            },
+            "enabled": true,
+            "label": "报名会员",
+            "nodeKey": "home.members",
+            "type": "members",
+            "variant": "editorial-grid"
+          },
+          {
+            "content": {
+              "host1Bio": "深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
+              "host1Goal": "目标：让每一位参会者都清楚「下周一回去该做什么」。",
+              "host1Name": "姚金刚",
+              "host1Role": "GEO大会发起人 · 《AI营销：从SEO到GEO》作者",
+              "host2Goal": "目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。",
+              "host2Name": "乔向阳",
+              "host2Role": "GEO大会发起人 · 企业数字增长专家",
+              "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。",
+              "kicker": "INITIATORS",
+              "subtitle": "从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来",
+              "title": "两位深耕行业多年的实战者"
+            },
+            "enabled": true,
+            "label": "主办方",
+            "nodeKey": "home.organizer",
+            "type": "organizer",
+            "variant": "compact"
+          },
+          {
+            "content": {
+              "actionLabel": "提交合作申请",
+              "directions": "品牌赞助 · 展位展示 · 媒体合作 · 内容共创 · 社群渠道 · 团队购票",
+              "kicker": "PARTNERSHIP",
+              "note": "提交后，大会团队将在 2 个工作日内与你联系。",
+              "subtitle": "品牌、媒体、内容与社群伙伴，都可以在这里提出合作设想。",
+              "title": "让合作，成为大会内容的一部分"
+            },
+            "enabled": true,
+            "label": "大会合作",
+            "nodeKey": "home.cooperation",
+            "type": "cooperation",
+            "variant": "editorial-band"
+          },
+          {
+            "content": {
+              "countLabel": "已公开",
+              "emptyText": "大家关心的问题正在陆续提交",
+              "guestActionLabel": "报名后提交问题",
+              "guestActionNote": "已报名会员可提交 1 至 3 个问题，可选择匿名公开",
+              "kicker": "ATTENDEE QUESTIONS",
+              "memberActionLabel": "提交我关心的问题",
+              "memberActionNote": "最多提交 3 个问题，可选择匿名公开",
+              "subtitle": "已报名会员提交的真实问题会更新在这里，大会团队会按主题整理给相关嘉宾",
+              "title": "大家关心的问题"
+            },
+            "enabled": true,
+            "label": "大家关心的问题",
+            "nodeKey": "home.attendee-needs",
+            "type": "attendee-needs",
+            "variant": "editorial-list"
+          },
+          {
+            "content": {
+              "actionLabel": "立即报名 ¥399",
+              "assurance1Body": "购票后 7 天内可无理由退款",
+              "assurance1Title": "7 天安心退款",
+              "assurance2Body": "开幕 3 天前可免费更换参会人",
+              "assurance2Title": "参会人可转让",
+              "assurance3Body": "可申请增值税普通发票或专用发票",
+              "assurance3Title": "支持开具发票",
+              "benefit1Detail": "两天大会完整参会权益",
+              "benefit2Detail": "Day 2 现场实战学习",
+              "benefit3Detail": "加入大会 VIP 会员专属社群",
+              "benefit4Detail": "AI 与 GEO 主题签名书籍各 1 本",
+              "benefit5Detail": "可自愿选择在大会首页展示",
+              "benefit6Detail": "大会年度行业研究成果",
+              "benefit7Detail": "大会嘉宾分享资料统一整理",
+              "benefit8Detail": "会后可回看大会内容",
+              "benefitsEyebrow": "8 项会员权益，全部包含",
+              "benefitsTitle": "覆盖现场参会、实战学习、会员社群与会后资料",
+              "description": "一张票，完整享有 8 项会员报名权益",
+              "kicker": "TICKETS",
+              "note": "八项会员权益已全部包含",
+              "priceLabel": "统一票价",
+              "subtitlePrefix": "统一票价",
+              "subtitleSuffix": "，8 项会员报名权益均已包含",
+              "title": "会员报名权益"
+            },
+            "enabled": true,
+            "label": "参会票种",
+            "nodeKey": "home.tickets",
+            "type": "tickets",
+            "variant": "single-pass"
+          },
+          {
+            "content": {
+              "kicker": "FAQ"
+            },
+            "enabled": true,
+            "label": "常见问题",
+            "nodeKey": "home.faq-summary",
+            "type": "faq-summary",
+            "variant": "accordion"
+          },
+          {
+            "content": {
+              "actionLabel": "立即报名 ¥399",
+              "assurance": "7 天无理由退款 · 支持转让 · 支持开票",
+              "kicker": "SEE YOU IN SHENZHEN",
+              "titleLine1": "下一次用户问 AI 的时候",
+              "titleLine2": "答案里应该有你"
+            },
+            "enabled": true,
+            "label": "报名行动区",
+            "nodeKey": "home.registration-cta",
+            "type": "registration-cta",
+            "variant": "band"
+          },
+          {
+            "content": {
+              "eventLabel": "中国第二届GEO主题大会",
+              "organizer": "GEO大会组委会",
+              "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
+            },
+            "enabled": true,
+            "label": "页脚",
+            "nodeKey": "home.footer",
+            "type": "footer",
+            "variant": "simple"
+          }
+        ],
+        "seo": {
+          "description": "中国第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+          "indexable": true,
+          "shareAssetId": null,
+          "title": "中国第二届GEO大会 · 深圳 2026"
+        }
+      },
+      "presentation": {
+        "kind": "structured"
+      },
+      "registrationFlow": {
+        "branches": {
+          "invoiceAfterPayment": true,
+          "manualReview": false,
+          "successActions": true,
+          "waitlist": true
+        },
+        "preset": "standard",
+        "progressVariant": "steps",
+        "steps": [
+          {
+            "enabled": true,
+            "helpText": "选择适合你的参会方式。",
+            "nodeKey": "flow.ticket-selection",
+            "title": "选择票种",
+            "type": "ticket-selection",
+            "variant": "cards"
+          },
+          {
+            "enabled": true,
+            "helpText": "请填写参会人与联系信息。",
+            "nodeKey": "flow.attendee-form",
+            "title": "填写资料",
+            "type": "attendee-form",
+            "variant": "sectioned"
+          },
+          {
+            "enabled": true,
+            "helpText": "确认票种、资料和应付金额。",
+            "nodeKey": "flow.review-payment",
+            "title": "确认并支付",
+            "type": "review-payment",
+            "variant": "summary"
+          },
+          {
+            "enabled": true,
+            "helpText": "查看电子票与参会安排。",
+            "nodeKey": "flow.success-ticket",
+            "title": "报名成功",
+            "type": "success-ticket",
+            "variant": "ticket"
+          },
+          {
+            "enabled": true,
+            "helpText": "完善参会名片，可选择在大会首页展示并生成个人报名海报。",
+            "nodeKey": "flow.member-profile",
+            "title": "完善个人信息",
+            "type": "member-profile",
+            "variant": "showcase"
+          },
+          {
+            "enabled": true,
+            "helpText": "告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。",
+            "nodeKey": "flow.attendee-needs",
+            "title": "提交参会需求",
+            "type": "attendee-needs",
+            "variant": "focused-question"
+          }
+        ],
+        "summaryCardEnabled": true
+      },
+      "renderer": {
+        "key": "editorial-blue",
+        "version": 1
+      },
+      "template": {
+        "id": "18181818-1818-4181-8181-181818181818",
+        "version": 3,
+        "versionId": "4c7e66e8-7ff8-412d-9ad7-e92204aab7e2"
+      }
+    },
+    "faqs": [
+      {
+        "answer": "GEO（Generative Engine Optimization）的目标是让你的品牌被 AI（ChatGPT、DeepSeek、豆包、Kimi 等）在回答用户问题时引用和推荐。它与 SEO 共享部分底层逻辑，但优化对象从「搜索引擎排名」变成了「AI 的引用与推荐」。",
+        "question": "GEO 到底是什么，和 SEO 有什么关系？"
+      },
+      {
+        "answer": "完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。",
+        "question": "我完全不懂 AI，能听懂吗？"
+      },
+      {
+        "answer": "第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。",
+        "question": "参加过第一届，第二届还有必要来吗？"
+      },
+      {
+        "answer": "建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。",
+        "question": "工作坊需要什么准备？"
+      },
+      {
+        "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+        "question": "资料包包含什么，多久发放？"
+      },
+      {
+        "answer": "购票后 7 天内可无理由全额退款；超过 7 天不退但支持免费转让，开幕 3 天前联系主办方更换参会人信息即可。",
+        "question": "能退票吗？转让规则是什么？"
+      },
+      {
+        "answer": "支持开具增值税普通发票与专用发票，购票后在个人中心申请即可。同一企业 5 人及以上团购，可联系组委会获取团队专属价与连座安排。",
+        "question": "可以开发票吗？团队购票有优惠吗？"
+      }
+    ],
+    "id": 101,
+    "name": "第二届中国 GEO & AI 营销大会",
+    "organizationId": "11111111-1111-4111-8111-111111111111",
+    "publicMetrics": {
+      "cityCount": 0,
+      "confirmedAttendees": 0,
+      "organizationCount": 0,
+      "pageViews": 0,
+      "trackingStartedAt": null
+    },
+    "registration": {
+      "accountMode": "mobile_otp_required",
+      "additionalPurchaseEnabled": false,
+      "currency": "CNY",
+      "maxActiveSeatsPerPurchaser": 5,
+      "paymentMode": "ticketed",
+      "registrationOpen": true
+    },
+    "registrationForm": {
+      "eventId": 101,
+      "fields": [
+        {
+          "key": "name",
+          "label": "姓名",
+          "placeholder": "请输入真实姓名",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "mobile",
+          "label": "手机号码",
+          "placeholder": "用于接收参会通知",
+          "required": true,
+          "type": "tel"
+        },
+        {
+          "key": "email",
+          "label": "电子邮箱",
+          "placeholder": "name@company.com",
+          "required": true,
+          "type": "email"
+        },
+        {
+          "key": "company",
+          "label": "公司/机构",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "title",
+          "label": "职位",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "city",
+          "label": "所在城市",
+          "required": true,
+          "type": "text"
+        }
+      ],
+      "id": "99999999-9999-4999-8999-999999999999",
+      "name": "标准参会报名表",
+      "publishedAt": "2026-07-16T00:00:00.000Z",
+      "status": "published",
+      "termsContent": "提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。",
+      "termsVersion": "2026-07-16",
+      "version": 1
+    },
+    "sessions": [
+      {
+        "day": 1,
+        "endsAt": "09:00",
+        "id": "66666666-6666-4666-8666-666666666601",
+        "kind": "break",
+        "startsAt": "08:30",
+        "title": "签到入场 · 领取资料包与白皮书 · 展区开放"
+      },
+      {
+        "day": 1,
+        "endsAt": "09:20",
+        "id": "66666666-6666-4666-8666-666666666602",
+        "kind": "talk",
+        "speaker": "姚金刚 · 乔向阳",
+        "startsAt": "09:00",
+        "summary": "从概念元年到落地元年，行业全景与本届大会导览",
+        "title": "开幕致辞：中国 GEO 的第二年"
+      },
+      {
+        "day": 1,
+        "endsAt": "10:00",
+        "id": "66666666-6666-4666-8666-666666666603",
+        "kind": "talk",
+        "speaker": "白皮书联合编委会",
+        "startsAt": "09:20",
+        "summary": "年度行业数据、平台引用机制研究、效果基准线全公开",
+        "title": "《中国GEO行业白皮书 2026》重磅首发"
+      },
+      {
+        "day": 1,
+        "endsAt": "10:40",
+        "id": "66666666-6666-4666-8666-666666666604",
+        "kind": "talk",
+        "speaker": "张凯\n移山科技",
+        "startsAt": "10:00",
+        "summary": "跨平台引用规律、可信源画像与占位策略",
+        "title": "AI 在引用谁：百万级引用样本的逆向研究"
+      },
+      {
+        "day": 1,
+        "endsAt": "11:20",
+        "id": "66666666-6666-4666-8666-666666666605",
+        "kind": "talk",
+        "speaker": "姚金刚",
+        "startsAt": "10:40",
+        "summary": "从搜索排名到答案占位：品牌方的 GEO 顶层设计",
+        "title": "如何在 AI 世界占领消费者心智"
+      },
+      {
+        "day": 1,
+        "endsAt": "12:10",
+        "id": "66666666-6666-4666-8666-666666666606",
+        "kind": "talk",
+        "speaker": "大模型平台嘉宾\n敬请期待",
+        "startsAt": "11:20",
+        "summary": "平台嘉宾分享检索增强、引用排序与内容生态政策",
+        "title": "大模型平台视角：AI 搜索如何选择答案"
+      },
+      {
+        "day": 1,
+        "endsAt": "13:30",
+        "id": "66666666-6666-4666-8666-666666666607",
+        "kind": "break",
+        "startsAt": "12:10",
+        "title": "午间休息 · 自由交流"
+      },
+      {
+        "day": 1,
+        "endsAt": "14:10",
+        "id": "66666666-6666-4666-8666-666666666608",
+        "kind": "talk",
+        "speaker": "标杆企业 CMO",
+        "startsAt": "13:30",
+        "summary": "上市企业真实账本：预算、人力、内容量与引用率曲线",
+        "title": "12 个月 GEO 投入产出全复盘"
+      },
+      {
+        "day": 1,
+        "endsAt": "14:50",
+        "id": "66666666-6666-4666-8666-666666666609",
+        "kind": "talk",
+        "speaker": "拔刀流\nAIDSO爱搜AI",
+        "startsAt": "14:10",
+        "summary": "引用监测体系、归因模型与增长闭环实战方法论",
+        "title": "数据底座驱动 GEO：从监控到增长"
+      },
+      {
+        "day": 1,
+        "endsAt": "15:30",
+        "id": "66666666-6666-4666-8666-666666666610",
+        "kind": "talk",
+        "speaker": "阿邝\n克莱普斯",
+        "startsAt": "14:50",
+        "summary": "知识库工程、结构化内容与可信度建设三步走",
+        "title": "企业如何被 AI 看见、被 AI 理解、被 AI 推荐"
+      },
+      {
+        "day": 1,
+        "endsAt": "16:10",
+        "id": "66666666-6666-4666-8666-666666666611",
+        "kind": "talk",
+        "speaker": "向阳乔木",
+        "startsAt": "15:30",
+        "summary": "从冷启动到口碑飞轮：AI 时代产品营销完整路径",
+        "title": "AI 产品推广三部曲 · 2026 版"
+      },
+      {
+        "day": 1,
+        "endsAt": "17:00",
+        "id": "66666666-6666-4666-8666-666666666612",
+        "kind": "workshop",
+        "speaker": "多位嘉宾联合",
+        "startsAt": "16:10",
+        "summary": "品牌方、服务商、数据方三方同台交锋",
+        "title": "GEO 效果之辩：什么是真增长，什么是伪指标"
+      },
+      {
+        "day": 1,
+        "endsAt": "18:00",
+        "id": "66666666-6666-4666-8666-666666666613",
+        "kind": "workshop",
+        "speaker": "歸藏 · AJ · 橘子 · 大聪明",
+        "startsAt": "17:00",
+        "summary": "当 Agent 替用户做决策，品牌该和谁对话",
+        "title": "AI 圆桌：Agent 时代的内容分发与品牌建设"
+      },
+      {
+        "day": 1,
+        "endsAt": "18:30",
+        "id": "66666666-6666-4666-8666-666666666614",
+        "kind": "break",
+        "startsAt": "18:30",
+        "title": "Day 1 议程结束"
+      },
+      {
+        "day": 2,
+        "endsAt": "09:00",
+        "id": "66666666-6666-4666-8666-666666666615",
+        "kind": "break",
+        "startsAt": "08:30",
+        "title": "签到入场 · 自由交流 · 展区开放"
+      },
+      {
+        "day": 2,
+        "endsAt": "10:00",
+        "id": "66666666-6666-4666-8666-666666666616",
+        "kind": "talk",
+        "speaker": "导师团带练",
+        "startsAt": "09:00",
+        "summary": "现场跑通多平台提问矩阵，量化品牌当前引用率与情感倾向",
+        "title": "工作坊 ①：你的品牌 AI 可见度诊断"
+      },
+      {
+        "day": 2,
+        "endsAt": "11:10",
+        "id": "66666666-6666-4666-8666-666666666617",
+        "kind": "talk",
+        "speaker": "导师团带练",
+        "startsAt": "10:00",
+        "summary": "FAQ、对比页到权威背书：高引用率内容的结构与提示词模板",
+        "title": "工作坊 ②：GEO 内容资产生产线"
+      },
+      {
+        "day": 2,
+        "endsAt": "12:30",
+        "id": "66666666-6666-4666-8666-666666666618",
+        "kind": "talk",
+        "speaker": "导师团带练",
+        "startsAt": "11:10",
+        "summary": "现场产出你企业的执行排期、指标体系与汇报模板",
+        "title": "工作坊 ③：90 天 GEO 行动计划"
+      },
+      {
+        "day": 2,
+        "endsAt": "09:50",
+        "id": "66666666-6666-4666-8666-666666666619",
+        "kind": "talk",
+        "speaker": "阎志涛\nQuickCreator",
+        "startsAt": "09:00",
+        "summary": "ChatGPT、Gemini、Perplexity 引用机制差异与机会地图",
+        "title": "2027 出海 GEO 新趋势"
+      },
+      {
+        "day": 2,
+        "endsAt": "10:40",
+        "id": "66666666-6666-4666-8666-666666666620",
+        "kind": "talk",
+        "speaker": "Yangyi",
+        "startsAt": "09:50",
+        "summary": "从 Reddit 到行业媒体：海外可信源建设实战手册",
+        "title": "海外市场 GEO 增长策略"
+      },
+      {
+        "day": 2,
+        "endsAt": "11:30",
+        "id": "66666666-6666-4666-8666-666666666621",
+        "kind": "talk",
+        "speaker": "出海品牌操盘手",
+        "startsAt": "10:40",
+        "summary": "跨语言知识库、本地化背书与多市场引用监测",
+        "title": "中国品牌如何占领全球 AI 答案"
+      },
+      {
+        "day": 2,
+        "endsAt": "12:30",
+        "id": "66666666-6666-4666-8666-666666666622",
+        "kind": "workshop",
+        "speaker": "多位嘉宾联合",
+        "startsAt": "11:30",
+        "title": "出海圆桌：AI 搜索时代的全球化获客"
+      },
+      {
+        "day": 2,
+        "endsAt": "14:00",
+        "id": "66666666-6666-4666-8666-666666666623",
+        "kind": "break",
+        "startsAt": "12:30",
+        "title": "午间休息 · 自由交流"
+      },
+      {
+        "day": 2,
+        "endsAt": "14:50",
+        "id": "66666666-6666-4666-8666-666666666624",
+        "kind": "talk",
+        "speaker": "AGENT橘（冯雷）\nListenHub",
+        "startsAt": "14:00",
+        "summary": "当 Agent 成为新的「用户」，内容该为谁而写",
+        "title": "AI Agent 时代的内容分发"
+      },
+      {
+        "day": 2,
+        "endsAt": "15:40",
+        "id": "66666666-6666-4666-8666-666666666625",
+        "kind": "talk",
+        "speaker": "AJ\nWaytoAGI",
+        "startsAt": "14:50",
+        "summary": "从流量思维到资产思维：品牌在模型记忆中的长期主义",
+        "title": "AGI 时代的品牌建设"
+      },
+      {
+        "day": 2,
+        "endsAt": "16:30",
+        "id": "66666666-6666-4666-8666-666666666626",
+        "kind": "talk",
+        "speaker": "行业联合发起方",
+        "startsAt": "15:40",
+        "summary": "联合发布服务规范，让甲方敢买、乙方敢承诺",
+        "title": "GEO 服务标准与行业自律倡议"
+      },
+      {
+        "day": 2,
+        "endsAt": "17:20",
+        "id": "66666666-6666-4666-8666-666666666627",
+        "kind": "workshop",
+        "speaker": "核心嘉宾全员",
+        "startsAt": "16:30",
+        "summary": "核心嘉宾压轴预判，现场开放提问",
+        "title": "终场圆桌：GEO 的下一个十二个月"
+      },
+      {
+        "day": 2,
+        "endsAt": "17:30",
+        "id": "66666666-6666-4666-8666-666666666628",
+        "kind": "talk",
+        "speaker": "大会组委会",
+        "startsAt": "17:20",
+        "title": "闭幕致辞 · 第三届启动仪式"
+      }
+    ],
+    "shortName": "GEO大会 2026",
+    "slug": "tokems26",
+    "speakers": [
+      {
+        "accentFrom": "#7a5cd6",
+        "accentTo": "#3a2d6b",
+        "id": "55555555-5555-4555-8555-555555555551",
+        "initials": "姚",
+        "name": "姚金刚",
+        "publicCode": "tyzb",
+        "role": "猎河科技创始人 · 移山科技 COO",
+        "tags": [
+          "GEO战略",
+          "企业落地"
+        ],
+        "topic": "从搜索到答案：企业 GEO 增长战略与落地路径"
+      },
+      {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "id": "55555555-5555-4555-8555-555555555552",
+        "initials": "乔",
+        "name": "乔向阳",
+        "publicCode": "zxxc",
+        "role": "猎河科技 CPO · 知名 AI 自媒体人",
+        "tags": [
+          "AI内容",
+          "产品传播"
+        ],
+        "topic": "AI 内容如何被看见、理解与推荐"
+      },
+      {
+        "accentFrom": "#059669",
+        "accentTo": "#064e3b",
+        "id": "55555555-5555-4555-8555-555555555553",
+        "initials": "陈",
+        "name": "陈铮",
+        "publicCode": "fwvd",
+        "role": "欧博东方 CEO",
+        "tags": [
+          "经营增长",
+          "组织落地"
+        ],
+        "topic": "经营增长视角下的 GEO：从战略到组织落地"
+      },
+      {
+        "accentFrom": "#d97706",
+        "accentTo": "#78350f",
+        "id": "55555555-5555-4555-8555-555555555554",
+        "initials": "波",
+        "name": "波波",
+        "publicCode": "lvte",
+        "role": "爱搜AI CEO",
+        "tags": [
+          "数据监测",
+          "增长归因"
+        ],
+        "topic": "用数据构建 GEO 增长闭环：监测、归因与优化"
+      },
+      {
+        "accentFrom": "#db2777",
+        "accentTo": "#701a75",
+        "id": "55555555-5555-4555-8555-555555555555",
+        "initials": "刘",
+        "name": "刘树勋",
+        "publicCode": "rurf",
+        "role": "智推时代联合创始人",
+        "tags": [
+          "品牌GEO",
+          "增长实践"
+        ],
+        "topic": "品牌企业如何做好 GEO：内容建设与增长实践"
+      },
+      {
+        "accentFrom": "#0891b2",
+        "accentTo": "#164e63",
+        "id": "55555555-5555-4555-8555-555555555556",
+        "initials": "高",
+        "name": "高军",
+        "publicCode": "xtpg",
+        "role": "媒介匣 CEO",
+        "tags": [
+          "权威信源",
+          "媒体矩阵"
+        ],
+        "topic": "权威媒体矩阵如何成为 AI 搜索的可信信源"
+      },
+      {
+        "accentFrom": "#65a30d",
+        "accentTo": "#365314",
+        "id": "55555555-5555-4555-8555-555555555557",
+        "initials": "姚",
+        "name": "姚诗成",
+        "publicCode": "dsnh",
+        "role": "思迈特 CEO",
+        "tags": [
+          "企业数据",
+          "智能决策"
+        ],
+        "topic": "BI 与企业数据如何驱动 GEO 决策"
+      },
+      {
+        "accentFrom": "#9333ea",
+        "accentTo": "#581c87",
+        "id": "55555555-5555-4555-8555-555555555558",
+        "initials": "飞",
+        "name": "哥飞",
+        "publicCode": "jrli",
+        "role": "海外 SEO 专家 · AI 出海公司创始人",
+        "tags": [
+          "出海GEO",
+          "全球搜索"
+        ],
+        "topic": "中国企业出海 GEO：赢得全球 AI 搜索入口"
+      },
+      {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "id": "55555555-5555-4555-8555-555555555559",
+        "initials": "尤",
+        "name": "大尤",
+        "publicCode": "pqjj",
+        "role": "大有可为创始人",
+        "tags": [
+          "企业实战",
+          "增长闭环"
+        ],
+        "topic": "中小企业 GEO 落地：从第一个场景到增长闭环"
+      },
+      {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "id": "55555555-5555-4555-8555-555555555560",
+        "initials": "任",
+        "name": "任强",
+        "publicCode": "vphk",
+        "role": "北京日报社副总",
+        "tags": [
+          "主流媒体",
+          "内容公信力"
+        ],
+        "topic": "主流媒体在 AI 答案时代的内容价值与可信表达"
+      },
+      {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "id": "55555555-5555-4555-8555-555555555561",
+        "initials": "岳",
+        "name": "岳琦",
+        "publicCode": "bofl",
+        "role": "每经科技首席产品官 · GEO 媒体沙龙主持人",
+        "tags": [
+          "媒体沙龙",
+          "答案生态"
+        ],
+        "topic": "GEO 媒体沙龙：媒体如何进入 AI 答案生态"
+      }
+    ],
+    "startsAt": "2026-11-21T01:00:00.000Z",
+    "stats": {
+      "attendeeSatisfaction": 96.8,
+      "days": 2,
+      "seats": 500,
+      "speakers": 40
+    },
+    "status": "registration_open",
+    "tagline": "让好的品牌被 AI 正确推荐",
+    "tickets": [
+      {
+        "benefits": [
+          "2 天大会 VIP 门票",
+          "Day 2 实战工作坊席位",
+          "大会 VIP 会员社群",
+          "2 本 AI 与 GEO 签名书籍",
+          "个人信息展示权益",
+          "《中国 GEO 行业白皮书 2026》",
+          "20+ 嘉宾干货资料包",
+          "大会回放视频"
+        ],
+        "currency": "CNY",
+        "description": "11月21–22日 · 深圳，一张票全程参与两天大会",
+        "id": "33333333-3333-4333-8333-333333333331",
+        "name": "大会通票",
+        "price": 39900,
+        "recommended": true,
+        "remaining": 500
+      }
+    ],
+    "timezone": "Asia/Shanghai",
+    "venue": "南山区（具体酒店待定）"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "eventId": 101,
+    "eventSlug": "tokems26",
+    "organizationId": "11111111-1111-4111-8111-111111111111",
+    "organizationSlug": "geo-conference"
+  },
+  "speakerProfiles": [
+    {
+      "accentFrom": "#7a5cd6",
+      "accentTo": "#3a2d6b",
+      "bio": "猎河科技创始人、移山科技 COO，长期关注搜索增长、AI 营销与企业 GEO 落地，持续推动品牌建立可被 AI 理解和引用的内容资产。",
+      "id": "55555555-5555-4555-8555-555555555551",
+      "initials": "姚",
+      "name": "姚金刚",
+      "role": "猎河科技创始人 · 移山科技 COO",
+      "socialLinks": [],
+      "tags": [
+        "GEO战略",
+        "企业落地"
+      ],
+      "topic": "从搜索到答案：企业 GEO 增长战略与落地路径",
+      "topicAbstract": "结合企业经营与一线项目视角，拆解品牌进入 AI 答案的关键环节，讲清从战略、内容资产到效果评估的 GEO 落地路径。"
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "bio": "猎河科技 CPO、知名 AI 自媒体人，持续跟踪 AI 产品、内容生态与用户增长的变化，关注技术能力如何转化为真实的传播和商业价值。",
+      "id": "55555555-5555-4555-8555-555555555552",
+      "initials": "乔",
+      "name": "乔向阳",
+      "role": "猎河科技 CPO · 知名 AI 自媒体人",
+      "socialLinks": [],
+      "tags": [
+        "AI内容",
+        "产品传播"
+      ],
+      "topic": "AI 内容如何被看见、理解与推荐",
+      "topicAbstract": "从 AI 产品与内容传播的双重视角，分析什么样的内容更容易被模型看见、理解与推荐，以及品牌如何建立可持续的 AI 内容影响力。"
+    },
+    {
+      "accentFrom": "#059669",
+      "accentTo": "#064e3b",
+      "bio": "欧博东方 CEO，从企业经营与组织实践视角关注 AI 时代的营销转型，探索 GEO 如何进入企业战略、业务流程与增长体系。",
+      "id": "55555555-5555-4555-8555-555555555553",
+      "initials": "陈",
+      "name": "陈铮",
+      "role": "欧博东方 CEO",
+      "socialLinks": [],
+      "tags": [
+        "经营增长",
+        "组织落地"
+      ],
+      "topic": "经营增长视角下的 GEO：从战略到组织落地",
+      "topicAbstract": "从管理者视角梳理 GEO 从行业认知走向企业经营的实施条件，讨论战略目标、组织协同、资源投入与长期增长之间的关系。"
+    },
+    {
+      "accentFrom": "#d97706",
+      "accentTo": "#78350f",
+      "bio": "爱搜AI CEO，关注 AI 搜索数据、品牌引用监测与 GEO 增长体系，推动企业用可观测的数据持续优化在 AI 答案中的表现。",
+      "id": "55555555-5555-4555-8555-555555555554",
+      "initials": "波",
+      "name": "波波",
+      "role": "爱搜AI CEO",
+      "socialLinks": [],
+      "tags": [
+        "数据监测",
+        "增长归因"
+      ],
+      "topic": "用数据构建 GEO 增长闭环：监测、归因与优化",
+      "topicAbstract": "从提问集管理、引用监测、竞品对比到内容优化，介绍企业如何建立可量化、可追踪、可持续迭代的 GEO 数据闭环。"
+    },
+    {
+      "accentFrom": "#db2777",
+      "accentTo": "#701a75",
+      "bio": "智推时代联合创始人，关注智能推荐、内容分发与品牌增长，持续探索 AI 重构信息获取方式后的企业获客新路径。",
+      "id": "55555555-5555-4555-8555-555555555555",
+      "initials": "刘",
+      "name": "刘树勋",
+      "role": "智推时代联合创始人",
+      "socialLinks": [],
+      "tags": [
+        "品牌GEO",
+        "增长实践"
+      ],
+      "topic": "品牌企业如何做好 GEO：内容建设与增长实践",
+      "topicAbstract": "围绕品牌在 AI 搜索中的内容建设与增长实践，分享如何梳理高价值问题、补充可信信息，并持续观察品牌在 AI 答案中的引用表现。"
+    },
+    {
+      "accentFrom": "#0891b2",
+      "accentTo": "#164e63",
+      "bio": "媒介匣 CEO，长期处于媒体传播与品牌内容服务一线，关注权威信源、媒体矩阵与企业 GEO 之间的协同关系。",
+      "id": "55555555-5555-4555-8555-555555555556",
+      "initials": "高",
+      "name": "高军",
+      "role": "媒介匣 CEO",
+      "socialLinks": [],
+      "tags": [
+        "权威信源",
+        "媒体矩阵"
+      ],
+      "topic": "权威媒体矩阵如何成为 AI 搜索的可信信源",
+      "topicAbstract": "结合媒体传播链路，讲解企业如何建设真实、一致、可验证的公开信息，让高质量媒体内容成为 AI 答案中的可信依据。"
+    },
+    {
+      "accentFrom": "#65a30d",
+      "accentTo": "#365314",
+      "bio": "思迈特 CEO，关注企业数据分析、智能决策与 AI 应用，推动数据能力从管理工具进一步融入品牌和营销增长。",
+      "id": "55555555-5555-4555-8555-555555555557",
+      "initials": "姚",
+      "name": "姚诗成",
+      "role": "思迈特 CEO",
+      "socialLinks": [],
+      "tags": [
+        "企业数据",
+        "智能决策"
+      ],
+      "topic": "BI 与企业数据如何驱动 GEO 决策",
+      "topicAbstract": "讨论企业如何把内部业务数据、外部 AI 引用信号与经营目标放在同一套分析框架中，为 GEO 投入、内容优先级与效果评估提供决策依据。"
+    },
+    {
+      "accentFrom": "#9333ea",
+      "accentTo": "#581c87",
+      "bio": "海外 SEO 专家、AI 出海公司创始人，长期关注全球搜索生态、海外获客与 AI 时代的内容分发变化。",
+      "id": "55555555-5555-4555-8555-555555555558",
+      "initials": "飞",
+      "name": "哥飞",
+      "role": "海外 SEO 专家 · AI 出海公司创始人",
+      "socialLinks": [],
+      "tags": [
+        "出海GEO",
+        "全球搜索"
+      ],
+      "topic": "中国企业出海 GEO：赢得全球 AI 搜索入口",
+      "topicAbstract": "对比传统 SEO 与海外 GEO 的关键变化，分析 ChatGPT、Gemini、Perplexity 等 AI 入口中的内容机会，给出中国企业建立全球 AI 可见度的实践路径。"
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "bio": "大有可为创始人，关注企业 AI 应用与 GEO 实战，致力于把新的搜索与内容方法转化为业务团队可执行的增长动作。",
+      "id": "55555555-5555-4555-8555-555555555559",
+      "initials": "尤",
+      "name": "大尤",
+      "role": "大有可为创始人",
+      "socialLinks": [],
+      "tags": [
+        "企业实战",
+        "增长闭环"
+      ],
+      "topic": "中小企业 GEO 落地：从第一个场景到增长闭环",
+      "topicAbstract": "从第一个高价值场景出发，分享中小企业如何选题、组织内容、建立证据与验证效果，将 GEO 逐步建设成稳定的增长能力。"
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "bio": "北京日报社副总，关注主流媒体在 AI 信息环境中的内容创新、公信力建设与传播价值。",
+      "id": "55555555-5555-4555-8555-555555555560",
+      "initials": "任",
+      "name": "任强",
+      "role": "北京日报社副总",
+      "socialLinks": [],
+      "tags": [
+        "主流媒体",
+        "内容公信力"
+      ],
+      "topic": "主流媒体在 AI 答案时代的内容价值与可信表达",
+      "topicAbstract": "从主流媒体视角讨论 AI 答案时代的内容价值，分析专业采编、权威信源与可验证表达如何帮助高质量信息进入 AI 知识生态。"
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "bio": "每经科技首席产品官，关注财经科技内容、数字产品与 AI 时代的媒体分发创新，本届大会将主持 GEO 媒体沙龙环节。",
+      "id": "55555555-5555-4555-8555-555555555561",
+      "initials": "岳",
+      "name": "岳琦",
+      "role": "每经科技首席产品官 · GEO 媒体沙龙主持人",
+      "socialLinks": [],
+      "tags": [
+        "媒体沙龙",
+        "答案生态"
+      ],
+      "topic": "GEO 媒体沙龙：媒体如何进入 AI 答案生态",
+      "topicAbstract": "以 GEO 媒体沙龙为载体，连接媒体、品牌与服务商视角，共同讨论 AI 答案生态中的内容生产、信源建设、产品创新与传播机会。"
+    }
+  ],
+  "template": {
+    "definition": {
+      "faq": {
+        "contactLabel": "联系大会组委会",
+        "contactUrl": "",
+        "introduction": "解决你最后的犹豫",
+        "items": [
+          {
+            "answer": "GEO（Generative Engine Optimization）的目标是让你的品牌被 AI（ChatGPT、DeepSeek、豆包、Kimi 等）在回答用户问题时引用和推荐。它与 SEO 共享部分底层逻辑，但优化对象从「搜索引擎排名」变成了「AI 的引用与推荐」。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.platform",
+            "question": "GEO 到底是什么，和 SEO 有什么关系？"
+          },
+          {
+            "answer": "完全可以。Day 1 全部内容面向企业管理者和业务负责人设计，重在方法与结果，不需要技术背景。Day 2 工作坊有导师团分组带练，零基础也能现场跑通自己品牌的可见度诊断。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.beginner",
+            "question": "我完全不懂 AI，能听懂吗？"
+          },
+          {
+            "answer": "第二届约 80% 为全新内容：白皮书首发、上市企业数据复盘、大模型平台视角、出海专场、实战工作坊均为本届新增。第一届回答「是什么、为什么」，第二届回答「怎么做、做到什么程度」。",
+            "category": "大会介绍",
+            "enabled": true,
+            "nodeKey": "faq.returning",
+            "question": "参加过第一届，第二届还有必要来吗？"
+          },
+          {
+            "answer": "建议携带笔记本电脑，并提前注册 2–3 个主流 AI 产品账号（会前社群会发清单）。如果带上企业官网地址和核心业务关键词，现场产出会更贴近实战。",
+            "category": "参会准备",
+            "enabled": true,
+            "nodeKey": "faq.workshop",
+            "question": "工作坊需要什么准备？"
+          },
+          {
+            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+            "category": "参会权益",
+            "enabled": true,
+            "nodeKey": "faq.materials",
+            "question": "资料包包含什么，多久发放？"
+          },
+          {
+            "answer": "购票后 7 天内可无理由全额退款；超过 7 天不退但支持免费转让，开幕 3 天前联系主办方更换参会人信息即可。",
+            "category": "报名",
+            "enabled": true,
+            "nodeKey": "faq.refund",
+            "question": "能退票吗？转让规则是什么？"
+          },
+          {
+            "answer": "支持开具增值税普通发票与专用发票，购票后在个人中心申请即可。同一企业 5 人及以上团购，可联系组委会获取团队专属价与连座安排。",
+            "category": "发票",
+            "enabled": true,
+            "nodeKey": "faq.invoice",
+            "question": "可以开发票吗？团队购票有优惠吗？"
+          }
+        ],
+        "mode": "home",
+        "searchEnabled": true,
+        "title": "常见问题"
+      },
+      "initialization": {
+        "copyPolicy": {
+          "checkins": "EXCLUDE",
+          "faq": "COPY",
+          "home": "COPY",
+          "invoices": "EXCLUDE",
+          "orders": "EXCLUDE",
+          "registrationForm": "COPY",
+          "registrations": "EXCLUDE",
+          "ticketTypes": "COPY"
+        },
+        "registrationFields": [
+          {
+            "key": "name",
+            "label": "姓名",
+            "placeholder": "请输入真实姓名",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "mobile",
+            "label": "手机号码",
+            "placeholder": "用于接收参会通知",
+            "required": true,
+            "type": "tel"
+          },
+          {
+            "key": "email",
+            "label": "电子邮箱",
+            "placeholder": "name@company.com",
+            "required": true,
+            "type": "email"
+          },
+          {
+            "key": "company",
+            "label": "公司/机构",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "title",
+            "label": "职位",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "city",
+            "label": "所在城市",
+            "required": true,
+            "type": "text"
+          }
+        ],
+        "termsContent": "提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。",
+        "ticketTypes": [
+          {
+            "benefits": [
+              "2 天大会 VIP 门票",
+              "Day 2 实战工作坊席位",
+              "大会 VIP 会员社群",
+              "2 本 AI 与 GEO 签名书籍",
+              "个人信息展示权益",
+              "《中国 GEO 行业白皮书 2026》",
+              "20+ 嘉宾干货资料包",
+              "大会回放视频"
+            ],
+            "capacity": 500,
+            "code": "CONFERENCE_PASS",
+            "currency": "CNY",
+            "description": "11月21–22日 · 深圳，一张票全程参与两天大会",
+            "name": "大会通票",
+            "price": 39900,
+            "recommended": true
+          }
+        ]
+      },
+      "presentation": {
+        "home": {
+          "blocks": [
+            {
+              "content": {
+                "actionLabel": "立即报名",
+                "agendaLabel": "议程",
+                "brandLabel": "GEO大会",
+                "brandMeta": "2026 · 第二届",
+                "cooperationLabel": "合作",
+                "editionLabel": "第二届",
+                "faqLabel": "FAQ",
+                "logoMark": "G",
+                "membersLabel": "会员",
+                "speakersLabel": "嘉宾",
+                "ticketsLabel": "门票",
+                "whyLabel": "背景"
+              },
+              "enabled": true,
+              "label": "顶部导航",
+              "nodeKey": "home.navigation",
+              "type": "navigation",
+              "variant": "minimal"
+            },
+            {
+              "content": {
+                "answerIntroduction": "如果你想系统理解 AI 搜索、品牌引用与内容资产建设，优先关注这些信息密度高、案例真实的活动：",
+                "answerLabel": "AI · 正在生成回答",
+                "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
+                "answerRank1Badge": "推荐",
+                "answerRank1Body": "深圳两日主会场 + 工作坊",
+                "answerRank1Title": "GEO大会 2026",
+                "answerRank2Badge": "可信源",
+                "answerRank2Body": "平台引用机制与效果基准",
+                "answerRank2Title": "行业白皮书首发",
+                "answerRank3Badge": "案例",
+                "answerRank3Body": "品牌方、服务商、平台视角",
+                "answerRank3Title": "40+ 实战嘉宾",
+                "answerStatusBody": "让品牌资料、案例和可信来源被模型正确理解。",
+                "answerStatusTitle": "目标不是曝光，是进入 AI 的候选答案",
+                "answerTitle": "AI Answer Preview",
+                "descriptionLead": "当十亿用户开始向 AI 提问，",
+                "descriptionStrong": "「被引用、被理解、被推荐」",
+                "descriptionTail": "就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+                "eyebrow": "ANNUAL CONFERENCE",
+                "note": "第一届全部售罄",
+                "openingMetricSuffix": "开幕",
+                "priceMetricLabel": "两日通票",
+                "primaryAction": "立即报名 ¥399",
+                "secondaryAction": "查看两日议程",
+                "slogan": "让好的品牌被 AI 正确推荐",
+                "titleEvent": "GEO & AI 营销大会",
+                "titlePrefix": "第二届中国",
+                "topicsMetricLabel": "干货主题",
+                "viewsBase": "10000",
+                "viewsLabel": "大会访问量"
+              },
+              "enabled": true,
+              "label": "首屏介绍",
+              "nodeKey": "home.hero",
+              "type": "hero",
+              "variant": "editorial"
+            },
+            {
+              "content": {
+                "benefitsLabel": "参会权益打包带走",
+                "citiesLabel": "参会者覆盖城市",
+                "confirmedAttendeesLabel": "已确认参会",
+                "daysLabel": "密集分享 + 实战工作坊",
+                "marquee1": "GENERATIVE ENGINE OPTIMIZATION",
+                "marquee2": "被 AI 看见",
+                "marquee3": "被 AI 理解",
+                "marquee4": "被 AI 推荐",
+                "marquee5": "AI SEARCH",
+                "marquee6": "品牌占位",
+                "marquee7": "AGENT 营销",
+                "marquee8": "出海 GEO",
+                "marquee9": "内容资产",
+                "organizationsLabel": "参会企业与机构",
+                "sessionsLabel": "主题分享与实战议程",
+                "sessionsValue": "30",
+                "speakersLabel": "一线专家与操盘手"
+              },
+              "enabled": false,
+              "label": "大会数据",
+              "nodeKey": "home.stats",
+              "type": "stats",
+              "variant": "live"
+            },
+            {
+              "content": {
+                "item1Body": "越来越多用户跳过搜索结果页，直接向 ChatGPT、DeepSeek、豆包、Kimi 要答案。AI 给出的三个推荐，就是用户的全部候选名单。",
+                "item1Title": "决策入口正在迁移",
+                "item2Body": "AI 回答中没有你，意味着你在新入口完全缺席；AI 引用了错误信息，比缺席更危险。",
+                "item2Title": "你的品牌可能正在被 AI 忽略",
+                "item3Body": "排名逻辑正在向「引用逻辑」迁移：AI 不看第几名，它看谁可信、谁结构清晰、谁被反复印证。",
+                "item3Title": "SEO 经验还在，但规则已经变了",
+                "item4Body": "第一届大会之后，先做 GEO 的企业已经在 AI 回答中建立了占位。窗口仍在，但正在收窄。",
+                "item4Title": "窗口期红利只属于先行动的人",
+                "item5Body": "从内容资产、知识库、结构化数据到效果监测——GEO 是一条完整的工程链路。",
+                "item5Title": "单点技巧不够，需要一套体系",
+                "kicker": "THE SHIFT",
+                "mockFoot": "如果你的品牌不在 AI 的回答里，你正在把一个全新的获客入口整体让给竞争对手。",
+                "mockIntroduction": "根据公开资料与行业最佳实践，为你推荐：",
+                "mockLabel": "AI · 正在生成回答",
+                "mockMissingBody": "未被引用，未出现在回答中",
+                "mockMissingTitle": "你的品牌",
+                "mockPrompt": "帮我推荐几个适合 B2B 企业的营销服务商",
+                "mockRank1Body": "全链路营销自动化，多家上市公司案例…",
+                "mockRank1Title": "品牌 A",
+                "mockRank2Body": "数据驱动增长平台，多行业报告引用…",
+                "mockRank2Title": "品牌 B",
+                "mockRank3Body": "垂直行业口碑领先，知识库结构完善…",
+                "mockRank3Title": "品牌 C",
+                "mockTitle": "AI 回答示意",
+                "subtitle": "搜索框正在让位给对话框。当用户开始问 AI「推荐一个……」，你的品牌是否有资格出现在那条回答里",
+                "title": "AI 正在改写「被发现」的规则"
+              },
+              "enabled": true,
+              "label": "大会价值",
+              "nodeKey": "home.value",
+              "type": "value",
+              "variant": "three-column"
+            },
+            {
+              "content": {
+                "attributionNames": "姚金刚 · 乔向阳",
+                "attributionRole": "GEO大会发起人",
+                "item1Body": "Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。",
+                "item1New": "2 天",
+                "item1Old": "1 天",
+                "item1Title": "从听讲到上手",
+                "item2Body": "新增大模型平台视角、上市公司 CMO、出海一线操盘手与 Agent 生态创业者，覆盖 GEO 全产业链。",
+                "item2New": "40+ 专家",
+                "item2Old": "20+ 专家",
+                "item2Title": "从布道者到操盘手",
+                "item3Body": "移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。",
+                "item3NewVenue": "深圳多会场",
+                "item3OldVenue": "北京单会场",
+                "item3Title": "从聚会到行业大会",
+                "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
+                "item4New": "行业基准",
+                "item4Old": "方法分享",
+                "item4Title": "首发《中国GEO行业白皮书》",
+                "item5Body": "多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。",
+                "item5New": "数据复盘",
+                "item5Old": "案例讲述",
+                "item5Title": "真实账号 · 真实数据",
+                "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。",
+                "item6New": "全球视野",
+                "item6Old": "国内视角",
+                "item6Title": "出海 GEO 专场",
+                "kicker": "SECOND EDITION",
+                "quote": "过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
+                "subtitle": "首届北京大会全场售罄之后，我们用一年时间收集了数百条参会者反馈。第二届，在每一个维度上全面升级",
+                "titleLine1": "第一届回答「GEO 是什么」",
+                "titleLine2": "第二届回答「GEO 怎么赢」"
+              },
+              "enabled": true,
+              "label": "第二届升级",
+              "nodeKey": "home.upgrade",
+              "type": "value",
+              "variant": "three-column"
+            },
+            {
+              "content": {
+                "day1AfternoonRange": "13:30 – 18:00",
+                "day1AfternoonTag": "下午场",
+                "day1AfternoonTitle": "GEO 实战 · 企业与数据",
+                "day1MorningRange": "09:00 – 12:10",
+                "day1MorningTag": "上午场",
+                "day1MorningTitle": "GEO 战略 · 趋势与全景",
+                "day1Subtitle": "战略与方法论主会场",
+                "day2ClosingRange": "14:00 – 17:30",
+                "day2ClosingTag": "主会场",
+                "day2ClosingTitle": "前沿与未来 · 闭幕",
+                "day2GlobalRange": "09:00 – 12:30",
+                "day2GlobalTag": "B 会场",
+                "day2GlobalTitle": "出海 GEO 专场",
+                "day2Subtitle": "实战工作坊 + 出海专场",
+                "day2WorkshopRange": "09:00 – 12:30",
+                "day2WorkshopTag": "A 会场",
+                "day2WorkshopTitle": "实战工作坊 · 带电脑上手",
+                "kicker": "AGENDA",
+                "subtitle": "Day 1 建立战略与方法论框架，Day 2 分会场实战深潜——从认知到动手，一气呵成",
+                "title": "两天，三十余场密集输出"
+              },
+              "enabled": true,
+              "label": "大会议程",
+              "nodeKey": "home.agenda",
+              "type": "agenda",
+              "variant": "timeline"
+            },
+            {
+              "content": {
+                "kicker": "SPEAKERS",
+                "moreLabel": "嘉宾阵容持续更新中 · 最终议程以现场为准",
+                "subtitle": "围绕 AI 营销、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例",
+                "title": "汇聚 40+ 国内外一线专家"
+              },
+              "enabled": true,
+              "label": "演讲嘉宾",
+              "nodeKey": "home.speakers",
+              "type": "speakers",
+              "variant": "editorial-grid"
+            },
+            {
+              "content": {
+                "emptyText": "报名会员正在陆续完善参会名片",
+                "kicker": "ATTENDEES",
+                "subtitle": "已报名并主动公开参会名片的会员，将按报名顺序在这里出现",
+                "title": "和同行者，在大会前先认识"
+              },
+              "enabled": true,
+              "label": "报名会员",
+              "nodeKey": "home.members",
+              "type": "members",
+              "variant": "editorial-grid"
+            },
+            {
+              "content": {
+                "host1Bio": "深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
+                "host1Goal": "目标：让每一位参会者都清楚「下周一回去该做什么」。",
+                "host1Name": "姚金刚",
+                "host1Role": "GEO大会发起人 · 《AI营销：从SEO到GEO》作者",
+                "host2Goal": "目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。",
+                "host2Name": "乔向阳",
+                "host2Role": "GEO大会发起人 · 企业数字增长专家",
+                "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。",
+                "kicker": "INITIATORS",
+                "subtitle": "从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来",
+                "title": "两位深耕行业多年的实战者"
+              },
+              "enabled": true,
+              "label": "主办方",
+              "nodeKey": "home.organizer",
+              "type": "organizer",
+              "variant": "compact"
+            },
+            {
+              "content": {
+                "actionLabel": "提交合作申请",
+                "directions": "品牌赞助 · 展位展示 · 媒体合作 · 内容共创 · 社群渠道 · 团队购票",
+                "kicker": "PARTNERSHIP",
+                "note": "提交后，大会团队将在 2 个工作日内与你联系。",
+                "subtitle": "品牌、媒体、内容与社群伙伴，都可以在这里提出合作设想。",
+                "title": "让合作，成为大会内容的一部分"
+              },
+              "enabled": true,
+              "label": "大会合作",
+              "nodeKey": "home.cooperation",
+              "type": "cooperation",
+              "variant": "editorial-band"
+            },
+            {
+              "content": {
+                "countLabel": "已公开",
+                "emptyText": "大家关心的问题正在陆续提交",
+                "guestActionLabel": "报名后提交问题",
+                "guestActionNote": "已报名会员可提交 1 至 3 个问题，可选择匿名公开",
+                "kicker": "ATTENDEE QUESTIONS",
+                "memberActionLabel": "提交我关心的问题",
+                "memberActionNote": "最多提交 3 个问题，可选择匿名公开",
+                "subtitle": "已报名会员提交的真实问题会更新在这里，大会团队会按主题整理给相关嘉宾",
+                "title": "大家关心的问题"
+              },
+              "enabled": true,
+              "label": "大家关心的问题",
+              "nodeKey": "home.attendee-needs",
+              "type": "attendee-needs",
+              "variant": "editorial-list"
+            },
+            {
+              "content": {
+                "actionLabel": "立即报名 ¥399",
+                "assurance1Body": "购票后 7 天内可无理由退款",
+                "assurance1Title": "7 天安心退款",
+                "assurance2Body": "开幕 3 天前可免费更换参会人",
+                "assurance2Title": "参会人可转让",
+                "assurance3Body": "可申请增值税普通发票或专用发票",
+                "assurance3Title": "支持开具发票",
+                "benefit1Detail": "两天大会完整参会权益",
+                "benefit2Detail": "Day 2 现场实战学习",
+                "benefit3Detail": "加入大会 VIP 会员专属社群",
+                "benefit4Detail": "AI 与 GEO 主题签名书籍各 1 本",
+                "benefit5Detail": "可自愿选择在大会首页展示",
+                "benefit6Detail": "大会年度行业研究成果",
+                "benefit7Detail": "大会嘉宾分享资料统一整理",
+                "benefit8Detail": "会后可回看大会内容",
+                "benefitsEyebrow": "8 项会员权益，全部包含",
+                "benefitsTitle": "覆盖现场参会、实战学习、会员社群与会后资料",
+                "description": "一张票，完整享有 8 项会员报名权益",
+                "kicker": "TICKETS",
+                "note": "八项会员权益已全部包含",
+                "priceLabel": "统一票价",
+                "subtitlePrefix": "统一票价",
+                "subtitleSuffix": "，8 项会员报名权益均已包含",
+                "title": "会员报名权益"
+              },
+              "enabled": true,
+              "label": "参会票种",
+              "nodeKey": "home.tickets",
+              "type": "tickets",
+              "variant": "single-pass"
+            },
+            {
+              "content": {
+                "kicker": "FAQ"
+              },
+              "enabled": true,
+              "label": "常见问题",
+              "nodeKey": "home.faq-summary",
+              "type": "faq-summary",
+              "variant": "accordion"
+            },
+            {
+              "content": {
+                "actionLabel": "立即报名 ¥399",
+                "assurance": "7 天无理由退款 · 支持转让 · 支持开票",
+                "kicker": "SEE YOU IN SHENZHEN",
+                "titleLine1": "下一次用户问 AI 的时候",
+                "titleLine2": "答案里应该有你"
+              },
+              "enabled": true,
+              "label": "报名行动区",
+              "nodeKey": "home.registration-cta",
+              "type": "registration-cta",
+              "variant": "band"
+            },
+            {
+              "content": {
+                "eventLabel": "中国第二届GEO主题大会",
+                "organizer": "GEO大会组委会",
+                "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
+              },
+              "enabled": true,
+              "label": "页脚",
+              "nodeKey": "home.footer",
+              "type": "footer",
+              "variant": "simple"
+            }
+          ],
+          "seo": {
+            "description": "中国第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+            "indexable": true,
+            "shareAssetId": null,
+            "title": "中国第二届GEO大会 · 深圳 2026"
+          }
+        },
+        "kind": "structured"
+      },
+      "registrationFlow": {
+        "branches": {
+          "invoiceAfterPayment": true,
+          "manualReview": false,
+          "successActions": true,
+          "waitlist": true
+        },
+        "preset": "standard",
+        "progressVariant": "steps",
+        "steps": [
+          {
+            "enabled": true,
+            "helpText": "选择适合你的参会方式。",
+            "nodeKey": "flow.ticket-selection",
+            "title": "选择票种",
+            "type": "ticket-selection",
+            "variant": "cards"
+          },
+          {
+            "enabled": true,
+            "helpText": "请填写参会人与联系信息。",
+            "nodeKey": "flow.attendee-form",
+            "title": "填写资料",
+            "type": "attendee-form",
+            "variant": "sectioned"
+          },
+          {
+            "enabled": true,
+            "helpText": "确认票种、资料和应付金额。",
+            "nodeKey": "flow.review-payment",
+            "title": "确认并支付",
+            "type": "review-payment",
+            "variant": "summary"
+          },
+          {
+            "enabled": true,
+            "helpText": "查看电子票与参会安排。",
+            "nodeKey": "flow.success-ticket",
+            "title": "报名成功",
+            "type": "success-ticket",
+            "variant": "ticket"
+          },
+          {
+            "enabled": true,
+            "helpText": "完善参会名片，可选择在大会首页展示并生成个人报名海报。",
+            "nodeKey": "flow.member-profile",
+            "title": "完善个人信息",
+            "type": "member-profile",
+            "variant": "showcase"
+          },
+          {
+            "enabled": true,
+            "helpText": "告诉大会团队你最想解决的问题，帮助嘉宾调整分享重点。",
+            "nodeKey": "flow.attendee-needs",
+            "title": "提交参会需求",
+            "type": "attendee-needs",
+            "variant": "focused-question"
+          }
+        ],
+        "summaryCardEnabled": true
+      }
+    },
+    "rootId": "18181818-1818-4181-8181-181818181818",
+    "version": 3,
+    "versionId": "4c7e66e8-7ff8-412d-9ad7-e92204aab7e2"
+  }
+}

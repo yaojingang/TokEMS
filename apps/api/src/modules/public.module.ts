@@ -49,6 +49,7 @@ import { resolveLocalPaymentSimulationPolicy } from '../common/local-payment-sim
 import { CooperationRequestService } from '../common/cooperation-request.service.js';
 import { IdempotencyService } from '../common/idempotency.service.js';
 import { EventPublicMetricsService } from '../common/event-public-metrics.service.js';
+import { DatabaseService } from '../common/database.service.js';
 
 const WeChatSwitchChannelBodySchema = z
   .object({
@@ -528,6 +529,7 @@ class HomepageController {
     @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
     @Inject(HtmlTemplateOperationsService)
     private readonly htmlTemplates: HtmlTemplateOperationsService,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
   ) {}
 
   @Get('home-document')
@@ -550,11 +552,18 @@ class HomepageController {
   }
 
   @Get()
-  getHomepage(
+  async getHomepage(
     @Headers('x-organization-slug') organizationSlug: string | undefined,
+    @Headers('x-canonical-database-challenge') databaseChallenge: string | undefined,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     reply.header('Cache-Control', 'no-cache, must-revalidate');
+    if (databaseChallenge && /^[0-9a-f]{64}$/u.test(databaseChallenge)) {
+      reply.header(
+        'X-Canonical-Database-Proof',
+        await this.database.canonicalIdentityProof(databaseChallenge),
+      );
+    }
     return this.repository.getPublicHomepageEvent(
       organizationSlug ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
     );

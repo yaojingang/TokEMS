@@ -17,6 +17,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
+    "prepare": "node tooling/install-git-hooks.mjs",
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "eslint apps packages tooling --max-warnings=0",
@@ -33,6 +34,9 @@
     "test:tokems-admin-skill": "node --test skills/tokems-admin/scripts/lib/*.test.mjs",
     "skill:tokems-contracts": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts",
     "skill:tokems-contracts:check": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts --check",
+    "canonical:export": "pnpm db:prepare && pnpm --filter @conference/database canonical:export",
+    "canonical:check": "pnpm db:prepare && pnpm --filter @conference/database canonical:check",
+    "canonical:verify": "pnpm db:prepare && pnpm --filter @conference/database canonical:verify",
     "test:tokems-agent-ui": "node tooling/tokems-agent-ui-smoke.mjs",
     "test:tooling": "node --test tooling/**/*.test.mjs",
     "release:manifest": "node tooling/generate-release-manifest.mjs",
@@ -46,7 +50,7 @@
     "docker:stop": "node tooling/docker-compose.mjs stop",
     "docker:down": "node tooling/docker-compose.mjs down",
     "audit:security": "pnpm audit --registry=https://registry.npmjs.org --audit-level high",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:tokems-admin-skill && pnpm skill:tokems-contracts:check && pnpm build && pnpm docs:check",
+    "check": "pnpm canonical:verify && pnpm lint && pnpm typecheck && pnpm test && pnpm test:tokems-admin-skill && pnpm skill:tokems-contracts:check && pnpm build && pnpm docs:check",
     "db:generate": "pnpm --filter @conference/database generate",
     "db:prepare": "pnpm --filter \"@conference/database^...\" build",
     "db:migrate": "pnpm db:prepare && pnpm --filter @conference/database migrate",

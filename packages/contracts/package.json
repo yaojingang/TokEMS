@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./canonical-homepage": {
+      "types": "./dist/canonical-homepage.d.ts",
+      "default": "./dist/canonical-homepage.js"
     }
   },
   "scripts": {

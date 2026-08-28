@@ -53,13 +53,13 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 
 | 动作         | 结果                                                               | 何时使用                                           |
 | ------------ | ------------------------------------------------------------------ | -------------------------------------------------- |
-| 源码推送     | 本地分支通过 PR 合并到 GitHub `main`                               | 所有代码、文档、模板种子和迁移变更                 |
+| 源码推送     | 校验本地规范大会快照后，本地分支通过 PR 合并到 GitHub `main`       | 所有代码、文档、规范快照、模板种子和迁移变更       |
 | 应用发布     | 服务器拉取 `origin/main`，构建镜像，迁移并切换容器                 | GitHub 主分支需要进入生产运行时                    |
 | 规范模板同步 | 把仓库中的 `geo-conference`、`tokems26` 规范模板幂等写入生产数据库 | 仓库模板、前台文案、大会设置或规范发布快照发生变化 |
 
 代码变更进入 `main` 后不会自动出现在当前服务器。当前环境尚未配置 GitHub Actions 自动部署，正式上线仍需执行本手册的服务器流程。
 
-后台直接修改已上线大会时，保存操作会生成新的不可变发布快照并切换公开版本。这类内容更新不需要运行仓库种子。
+后台直接修改默认大会时，保存操作会生成新的不可变发布快照并切换公开版本。修改完成后必须运行 `pnpm canonical:export` 回写仓库规范快照；最迟在下一次 GitHub 推送前完成。生产后台发生独立修改时，先同步回本地规范大会并确认公开页面，再更新仓库快照。
 
 ## 4. 强制发布规则
 
@@ -75,6 +75,8 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 10. **优先应用回滚**：当前迁移采用增量兼容策略，故障时优先回滚镜像和环境。数据库覆盖恢复只用于明确的数据损坏或已批准的整库回退。
 11. **安全输出**：终端和发布记录只输出允许公开的环境键。禁止打印 `.env` 全文、连接串、密码、私钥、Cookie 或第三方令牌。
 12. **逐层验证**：发布结论需要同时满足 GitHub、容器、数据库、本机 HTTP、公网 HTTP 和版本身份六层验证。
+13. **规范快照随推送**：`pnpm install` 会启用仓库内的 `pre-push` 门禁，每次 GitHub 推送自动运行 `pnpm canonical:check`。默认大会或后台设置有变化时先运行 `pnpm canonical:export`。检查失败时禁止推送。
+14. **快照严格脱敏**：规范快照只包含模板及可复用后台设置。管理员身份、凭据、API/第三方集成配置、个人数据、交易数据、销量和审计记录不得进入 Git。
 
 ## 5. 发布类型判断
 
@@ -99,7 +101,21 @@ git remote -v
 git diff --check
 pnpm check
 pnpm audit:security
+pnpm canonical:check
 ```
+
+如果本地默认大会或关联后台设置发生过变化，先生成仓库规范快照，再执行完整检查：
+
+```bash
+pnpm canonical:export
+git diff -- packages/contracts/src/canonical-homepage.snapshot.json packages/contracts/src/canonical-homepage.public.json
+pnpm canonical:check
+pnpm check
+```
+
+`canonical:export` 只接受回环地址数据库，并同时核对 `http://127.0.0.1:8088/api/v1/homepage`。一次性挑战证明会确认首页 API 与直连地址使用同一个 PostgreSQL 运行实例。生成结果会固定运行态指标为零，剔除销量、用户、交易、管理员身份和所有凭据。完整快照仅供服务端规范同步；前台只消费派生快照，后台通知、AI 提示及素材二进制不会进入浏览器包。单个素材上限 8 MiB，总素材上限 16 MiB，完整 JSON 上限 24 MiB。导出期间会对规范配置表持有共享锁，连续读取两次并要求结果一致，同时核对公开页面的大会内容、模板版本、票种、嘉宾、议程和报名表投影。所有被纳入模板定义引用的 HTML 文档及关联素材都会随快照同步。`canonical:check` 会重新读取本地首页与后台状态；内容与任一已提交快照不一致时返回失败。
+
+仓库的 `pre-push` 门禁还会读取 Git 提供的待推送 ref/SHA，要求受保护的规范文件在工作区和暂存区保持干净，并确认每个实际待推送提交包含刚刚校验过的快照、导出器、同步器和 API 实例证明逻辑。推送其他分支或标签时同样执行此规则。
 
 涉及支付、通知、报名、订单、发票、票务、数据库迁移或权限时，还要运行对应专项验收。涉及前台和后台界面时运行视觉验收。
 
@@ -114,6 +130,8 @@ gh pr checks <pr-number> --watch
 合并前确认：
 
 - PR 内容只包含本轮目标文件。
+- `pnpm canonical:check` 成功，规范快照与本地默认大会及后台设置一致。
+- 规范快照中没有管理员身份、API/第三方凭据、个人数据、交易数据、销量或审计记录。
 - 所有必需检查成功。
 - 没有未解决的高风险评审意见。
 - 新迁移、生成文件、文档和测试全部纳入提交。
@@ -324,7 +342,7 @@ Docker Compose v2.27 的 `docker compose run` 不支持 `--no-build`。此处不
 
 ### 7.7 同步规范模板
 
-只有发布范围包含仓库规范模板、前台文案或大会默认设置，并且已完成数据库备份与数据保护检查时执行本节。
+只有发布范围包含仓库规范快照、前台文案或大会默认设置，并且已完成数据库备份与数据保护检查时执行本节。生产同步读取 `packages/contracts/src/canonical-homepage.snapshot.json`，同时恢复当前公开发布内容和脱敏后的关联后台标准设置。同步按可串行化事务执行；同版本的模板、报名表或大会发布内容若与生产现存记录不同会立即中止，避免改写历史。快照外票种会停用，通知与 AI 提示会归档，嘉宾、公开短地址和议程会按规范清单协调；已有销量的票额与已有核销记录的核销清单作为生产事实保留。
 
 先确认当前目标：
 
@@ -354,21 +372,14 @@ cd /www/wwwroot/TokEMS || exit 1
 SEED_DEMO_DATA=true docker compose run --rm db-init
 ```
 
-恢复生产销量计数：
+核对同步前后的生产销量计数。种子同步在事务中保留实时 `sold`，并验证票种容量不低于已售、有效占用和候补邀请总量；配额容量不低于已售数量。任一容量下限不满足时同步整体中止。
 
 ```bash
-{
-  printf 'BEGIN;\n'
-  sed -E "s/^([[:xdigit:]-]+),([0-9]+)$/UPDATE ticket_types SET sold = \2, updated_at = now() WHERE id = '\''\1'\''::uuid;/" \
-    "$backup_dir/ticket-types-sold.csv"
-  sed -E "s/^([[:xdigit:]-]+),([0-9]+)$/UPDATE ticket_quotas SET sold = \2, updated_at = now() WHERE id = '\''\1'\''::uuid;/" \
-    "$backup_dir/ticket-quotas-sold.csv"
-  printf 'COMMIT;\n'
-} | docker compose exec -T postgres sh -lc \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose exec -T postgres sh -lc \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select id,capacity,sold from ticket_types order by id; select id,capacity,sold from ticket_quotas order by id;"'
 ```
 
-每条恢复语句都应返回 `UPDATE 1`。执行后立即检查报名、订单、票种、销量和配额。若规范模板变更会替换稳定 ID、删除票种或改变既有交易关系，应停止使用种子同步，改用经过评审的数据迁移或后台发布流程。
+将查询结果与备份 CSV 对照，当前数量可以因备份后新增交易而上升，禁止用备份 CSV 回写销量。执行后立即检查报名、订单、票种、销量和配额。若规范模板变更会删除已有交易引用的票种或改变既有交易关系，应停止使用种子同步，改用经过评审的数据迁移或后台发布流程。
 
 `.env` 中的 `SEED_DEMO_DATA` 保持 `false`。命令行临时值只用于本次同步。
 
@@ -532,9 +543,9 @@ docker compose \
 模板更新进入生产有两条受控路径：
 
 1. 仓库规范模板变更通过 PR 合并，随后执行本手册的规范模板同步。
-2. 运营后台修改当前大会并保存，由系统生成不可变发布快照。
+2. 运营后台修改当前大会并保存，由系统生成不可变发布快照；随后运行 `pnpm canonical:export`，将最新规范状态回写 GitHub。
 
-两条路径都要验证公开首页。仓库种子同步前还要确认稳定 ID 与生产交易关系。
+两条路径都要验证公开首页。仓库种子同步前还要确认稳定 ID 与生产交易关系。每次源码推送均需通过 `pnpm canonical:check`，与大会无关的代码变更也不能跳过该检查。
 
 ## 12. 发布记录要求
 

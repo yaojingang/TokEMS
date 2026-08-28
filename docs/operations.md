@@ -98,64 +98,64 @@ Agent Access 首发状态为 `experimental`，三个开关默认均为 `false`�
 
 密钥轮换时先把旧值放入 `AGENT_ACCESS_TOKEN_PREVIOUS_SECRET`，再发布新主密钥。旧密钥只保留 15 分钟验证窗口，窗口结束后清空并重新发布。紧急处置优先在组织后台执行全部连接撤销，再关闭总开关；数据库中的 operation 与代理审计记录继续保留。
 
-| 变量                                       | 用途                                              |
-| ------------------------------------------ | ------------------------------------------------- |
-| `DATABASE_URL`                             | PostgreSQL 连接，生产环境必填                     |
-| `DATABASE_POOL_SIZE`                       | API、Worker 单实例数据库连接池上限                |
-| `DEPLOYMENT_MODE`                          | 部署边界，正式环境为 `production`                 |
-| `PUBLIC_ORIGIN`                            | 前台、API、站点链接和回调的外部 HTTPS 来源        |
-| `ADMIN_ORIGIN`                             | 后台独立的外部 HTTPS 来源                         |
-| `GATEWAY_BIND_ADDRESS` / `GATEWAY_PORT`    | 统一网关的宿主机监听地址与端口                    |
-| `POSTGRES_PORT` / `REDIS_PORT`             | 数据服务宿主机映射端口                            |
-| `MINIO_API_PORT` / `MINIO_CONSOLE_PORT`    | MinIO API / Console 宿主机映射端口                |
-| `MAILPIT_SMTP_PORT` / `MAILPIT_WEB_PORT`   | Mailpit SMTP / Web 宿主机映射端口                 |
-| `NOTIFICATION_SINK_HOST_PORT`              | 本地通知接收器宿主机映射端口（容器内固定 4080）   |
-| `WEB_PORT` / `ADMIN_PORT` / `API_PORT`     | 源码开发模式的服务端口                            |
-| `REDIS_URL`                                | BullMQ 连接，生产 Worker 必填                     |
-| `JWT_SECRET`                               | JWT 签名，生产环境至少 32 字符                    |
-| `INVOICE_DOWNLOAD_SIGNING_SECRET`          | 发票与导出下载链接签名密钥                        |
-| `CUSTOMER_OTP_PEPPER`                      | 普通用户验证码摘要密钥，生产环境至少 32 字符      |
-| `CUSTOMER_SESSION_SECRET`                  | 普通用户会话与 CSRF 密钥，生产环境至少 32 字符    |
-| `NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET`   | 通知短期敏感载荷加密密钥，生产环境至少 32 字符    |
-| `CUSTOMER_OTP_ORG_DAILY_LIMIT`             | 单组织每日验证码请求上限，默认 10000              |
-| `CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT`       | 单手机号跨组织每小时验证码请求上限，默认 8        |
-| `CUSTOMER_OTP_MODE`                        | 前台验证码模式：本地 `fake`、正式 `provider`      |
-| `ALLOW_INSECURE_LOCAL_AUTH`                | 本地后台种子弱密码许可，生产环境关闭              |
-| `VITE_SIMPLE_AUTH`                         | 运营后台的本地简化登录界面开关                    |
-| `SEED_DEMO_DATA`                           | 是否写入演示组织和管理员，生产环境默认关闭        |
-| `ADMIN_USERNAME`                           | 运营后台登录用户名，本地默认为 `admin`            |
-| `ADMIN_USER_ID`                            | 超级管理员的固定用户 UUID，默认使用种子管理员 ID  |
-| `ADMIN_PASSWORD`                           | 管理员初始密码，正式环境至少 16 字符              |
-| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`         | 源码开发模式的 CORS 来源                          |
-| `PUBLIC_ORGANIZATION_SLUG`                 | 默认公开组织                                      |
-| `PUBLIC_SITE_URL`                          | 候补邀请注册链接根地址                            |
-| `TRUST_PROXY`                              | 逗号分隔的受信代理 IP 或网段                      |
-| `API_RATE_LIMIT_PER_MINUTE`                | API 全局单实例限流上限                            |
-| `PAYMENT_WEBHOOK_SECRET`                   | 通用支付回调 HMAC 密钥                            |
-| `PAYMENT_WEBHOOK_SECRET_<PROVIDER>`        | 渠道专用回调密钥，优先级更高                      |
-| `ENABLE_LOCAL_PAYMENT_SIMULATION`          | 本地容器模拟支付开关                              |
-| `LOCAL_PAYMENT_SIMULATION_MOBILES`         | 允许本机模拟支付的手机号白名单，逗号分隔          |
-| `NOTIFICATION_WEBHOOK_URL`                 | 邮件及通用通知提供商 HTTP 入口                    |
-| `NOTIFICATION_WEBHOOK_TOKEN`               | 通知提供商 Bearer Token                           |
-| `SMS_RECEIPT_INTERVAL_MS`                  | 阿里云短信送达状态查询周期，默认 30000 毫秒       |
-| `AI_API_URL` / `AI_API_KEY` / `AI_MODEL`   | AI 内容服务                                       |
-| `HTML_TEMPLATE_IMPORT_ENABLED`             | HTML 模板导入总开关，本地默认开启                 |
-| `HTML_TEMPLATE_IMPORT_ORG_ALLOWLIST`       | 允许导入的组织 UUID，逗号分隔，空值表示全部组织   |
-| `HTML_TEMPLATE_ORG_ASSET_BYTES`            | 单组织模板资产容量上限，默认 2 GiB                |
-| `HTML_TEMPLATE_ORG_ASSET_COUNT`            | 单组织模板资产数量上限，默认 10000                |
-| `HTML_TEMPLATE_AI_MAPPING_ENABLED`         | AI 变量识别独立开关，默认关闭                     |
-| `HTML_TEMPLATE_AI_ORG_MINUTE_LIMIT`        | 单组织每分钟 AI 变量识别上限，默认 5              |
-| `HTML_TEMPLATE_AI_ORG_DAILY_LIMIT`         | 单组织每日 AI 变量识别上限，默认 100              |
-| `DOCKER_DATABASE_URL` / `DOCKER_REDIS_URL` | Compose 内部连接地址                              |
-| `DOCKER_S3_ENDPOINT`                       | Compose 容器访问对象存储的内部地址                |
-| `BUILD_SHA` / `BUILD_TIME`                 | 构建对应的提交和 UTC 时间                         |
-| `BUILD_MIGRATION`                          | 构建对应的最高数据库迁移文件                      |
-| `BUILD_MIGRATION_HASH`                     | 构建对应的最高数据库迁移 SHA-256                  |
-| `API_BIND_ADDRESS`                         | 源码 API 监听地址，本地假验证码模式必须为回环地址 |
-| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`  | 本地对象存储凭据                                  |
-| `S3_PUBLIC_ENDPOINT` / `S3_REGION`         | 浏览器可访问的对象存储入口与签名区域              |
-| `WORKER_TMPFS_SIZE`                        | 异步 CSV 分页生成时的临时磁盘上限，默认 `512m`    |
-| `NOTIFICATION_SINK_PORT`                   | 兼容旧名；优先使用 `NOTIFICATION_SINK_HOST_PORT`  |
+| 变量                                       | 用途                                                         |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `DATABASE_URL`                             | PostgreSQL 连接，生产环境必填                                |
+| `DATABASE_POOL_SIZE`                       | API、Worker 单实例数据库连接池上限                           |
+| `DEPLOYMENT_MODE`                          | 部署边界，正式环境为 `production`                            |
+| `PUBLIC_ORIGIN`                            | 前台、API、站点链接和回调的外部 HTTPS 来源                   |
+| `ADMIN_ORIGIN`                             | 后台独立的外部 HTTPS 来源                                    |
+| `GATEWAY_BIND_ADDRESS` / `GATEWAY_PORT`    | 统一网关的宿主机监听地址与端口                               |
+| `POSTGRES_PORT` / `REDIS_PORT`             | 数据服务宿主机映射端口                                       |
+| `MINIO_API_PORT` / `MINIO_CONSOLE_PORT`    | MinIO API / Console 宿主机映射端口                           |
+| `MAILPIT_SMTP_PORT` / `MAILPIT_WEB_PORT`   | Mailpit SMTP / Web 宿主机映射端口                            |
+| `NOTIFICATION_SINK_HOST_PORT`              | 本地通知接收器宿主机映射端口（容器内固定 4080）              |
+| `WEB_PORT` / `ADMIN_PORT` / `API_PORT`     | 源码开发模式的服务端口                                       |
+| `REDIS_URL`                                | BullMQ 连接，生产 Worker 必填                                |
+| `JWT_SECRET`                               | JWT 签名，生产环境至少 32 字符                               |
+| `INVOICE_DOWNLOAD_SIGNING_SECRET`          | 发票与导出下载链接签名密钥                                   |
+| `CUSTOMER_OTP_PEPPER`                      | 普通用户验证码摘要密钥，生产环境至少 32 字符                 |
+| `CUSTOMER_SESSION_SECRET`                  | 普通用户会话与 CSRF 密钥，生产环境至少 32 字符               |
+| `NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET`   | 通知短期敏感载荷加密密钥，生产环境至少 32 字符               |
+| `CUSTOMER_OTP_ORG_DAILY_LIMIT`             | 单组织每日验证码请求上限，默认 10000                         |
+| `CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT`       | 单手机号跨组织每小时验证码请求上限，默认 8                   |
+| `CUSTOMER_OTP_MODE`                        | 前台验证码模式：本地 `fake`、正式 `provider`                 |
+| `ALLOW_INSECURE_LOCAL_AUTH`                | 本地后台种子弱密码许可，生产环境关闭                         |
+| `VITE_SIMPLE_AUTH`                         | 运营后台的本地简化登录界面开关                               |
+| `SEED_DEMO_DATA`                           | 是否写入仓库规范大会快照和环境提供的管理员，生产环境默认关闭 |
+| `ADMIN_USERNAME`                           | 运营后台登录用户名，本地默认为 `admin`                       |
+| `ADMIN_USER_ID`                            | 超级管理员的固定用户 UUID，默认使用种子管理员 ID             |
+| `ADMIN_PASSWORD`                           | 管理员初始密码，正式环境至少 16 字符                         |
+| `PUBLIC_WEB_URL` / `ADMIN_WEB_URL`         | 源码开发模式的 CORS 来源                                     |
+| `PUBLIC_ORGANIZATION_SLUG`                 | 默认公开组织                                                 |
+| `PUBLIC_SITE_URL`                          | 候补邀请注册链接根地址                                       |
+| `TRUST_PROXY`                              | 逗号分隔的受信代理 IP 或网段                                 |
+| `API_RATE_LIMIT_PER_MINUTE`                | API 全局单实例限流上限                                       |
+| `PAYMENT_WEBHOOK_SECRET`                   | 通用支付回调 HMAC 密钥                                       |
+| `PAYMENT_WEBHOOK_SECRET_<PROVIDER>`        | 渠道专用回调密钥，优先级更高                                 |
+| `ENABLE_LOCAL_PAYMENT_SIMULATION`          | 本地容器模拟支付开关                                         |
+| `LOCAL_PAYMENT_SIMULATION_MOBILES`         | 允许本机模拟支付的手机号白名单，逗号分隔                     |
+| `NOTIFICATION_WEBHOOK_URL`                 | 邮件及通用通知提供商 HTTP 入口                               |
+| `NOTIFICATION_WEBHOOK_TOKEN`               | 通知提供商 Bearer Token                                      |
+| `SMS_RECEIPT_INTERVAL_MS`                  | 阿里云短信送达状态查询周期，默认 30000 毫秒                  |
+| `AI_API_URL` / `AI_API_KEY` / `AI_MODEL`   | AI 内容服务                                                  |
+| `HTML_TEMPLATE_IMPORT_ENABLED`             | HTML 模板导入总开关，本地默认开启                            |
+| `HTML_TEMPLATE_IMPORT_ORG_ALLOWLIST`       | 允许导入的组织 UUID，逗号分隔，空值表示全部组织              |
+| `HTML_TEMPLATE_ORG_ASSET_BYTES`            | 单组织模板资产容量上限，默认 2 GiB                           |
+| `HTML_TEMPLATE_ORG_ASSET_COUNT`            | 单组织模板资产数量上限，默认 10000                           |
+| `HTML_TEMPLATE_AI_MAPPING_ENABLED`         | AI 变量识别独立开关，默认关闭                                |
+| `HTML_TEMPLATE_AI_ORG_MINUTE_LIMIT`        | 单组织每分钟 AI 变量识别上限，默认 5                         |
+| `HTML_TEMPLATE_AI_ORG_DAILY_LIMIT`         | 单组织每日 AI 变量识别上限，默认 100                         |
+| `DOCKER_DATABASE_URL` / `DOCKER_REDIS_URL` | Compose 内部连接地址                                         |
+| `DOCKER_S3_ENDPOINT`                       | Compose 容器访问对象存储的内部地址                           |
+| `BUILD_SHA` / `BUILD_TIME`                 | 构建对应的提交和 UTC 时间                                    |
+| `BUILD_MIGRATION`                          | 构建对应的最高数据库迁移文件                                 |
+| `BUILD_MIGRATION_HASH`                     | 构建对应的最高数据库迁移 SHA-256                             |
+| `API_BIND_ADDRESS`                         | 源码 API 监听地址，本地假验证码模式必须为回环地址            |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`  | 本地对象存储凭据                                             |
+| `S3_PUBLIC_ENDPOINT` / `S3_REGION`         | 浏览器可访问的对象存储入口与签名区域                         |
+| `WORKER_TMPFS_SIZE`                        | 异步 CSV 分页生成时的临时磁盘上限，默认 `512m`               |
+| `NOTIFICATION_SINK_PORT`                   | 兼容旧名；优先使用 `NOTIFICATION_SINK_HOST_PORT`             |
 
 机密值应进入部署平台的 Secret Manager。`.env` 仅用于本地开发。
 

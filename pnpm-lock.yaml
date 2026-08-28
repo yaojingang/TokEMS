@@ -283,6 +283,9 @@ importers:
       '@conference/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@conference/html-template':
+        specifier: workspace:*
+        version: link:../html-template
       '@conference/security':
         specifier: workspace:*
         version: link:../security
