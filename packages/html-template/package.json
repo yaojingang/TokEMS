@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@conference/contracts": "workspace:*",
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.14",
     "ipaddr.js": "2.5.0",
     "jsdom": "30.0.1",
     "liquidjs": "10.29.0",
@@ -28,8 +28,8 @@
     "postcss": "8.5.26"
   },
   "devDependencies": {
-    "@types/jsdom": "28.0.3",
+    "@types/jsdom": "30.0.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
