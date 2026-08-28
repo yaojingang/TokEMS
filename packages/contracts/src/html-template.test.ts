@@ -105,4 +105,32 @@ describe('HTML template contracts', () => {
 
     expect(result.success).toBe(true);
   });
+
+  it('adds the disabled attendee-needs flow node to existing HTML templates', () => {
+    const definition = structuredClone(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION);
+    definition.presentation = HtmlTemplatePresentationSchema.parse({
+      kind: 'html',
+      documentId: '19191919-1919-4191-8191-191919191919',
+      engine: 'liquid-v1',
+      catalogVersion: 1,
+      bindings: { version: 1, bindings: [] },
+      bindingDigest: 'sha256:binding',
+      sanitizedDigest: 'sha256:document',
+      sourceDigest: 'sha256:source',
+      compilerVersion: 1,
+      usedVariables: [],
+      requiredVariables: [],
+      actions: [],
+      securityReportDigest: 'sha256:report',
+    });
+    definition.registrationFlow.steps = definition.registrationFlow.steps.filter(
+      (step) => step.nodeKey !== 'flow.attendee-needs',
+    );
+
+    const normalized = normalizeConferenceTemplateDefinition(definition);
+
+    expect(
+      normalized.registrationFlow.steps.find((step) => step.nodeKey === 'flow.attendee-needs'),
+    ).toMatchObject({ type: 'attendee-needs', enabled: false });
+  });
 });

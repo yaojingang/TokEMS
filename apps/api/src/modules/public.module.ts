@@ -26,6 +26,7 @@ import {
   CreateRegistrationSchema,
   isPublicEventStatus,
   PaymentCallbackSchema,
+  PublicAttendeeNeedListQuerySchema,
   PublicEventMemberListQuerySchema,
   RecordPublicEventViewSchema,
   publicEventHomePath,
@@ -43,6 +44,7 @@ import { resolveTrustedClientIp, WeChatPayService } from '../common/wechat-pay.s
 import { CustomerAuthService } from '../common/customer-auth.service.js';
 import { HtmlTemplateOperationsService } from '../common/html-template-operations.service.js';
 import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
+import { AttendeeNeedsService } from '../common/attendee-needs.service.js';
 import { resolveLocalPaymentSimulationPolicy } from '../common/local-payment-simulation.js';
 import { CooperationRequestService } from '../common/cooperation-request.service.js';
 import { IdempotencyService } from '../common/idempotency.service.js';
@@ -304,6 +306,8 @@ export class EventsController {
     private readonly htmlTemplates: HtmlTemplateOperationsService,
     @Inject(AttendeeShowcaseService)
     private readonly showcases: AttendeeShowcaseService,
+    @Inject(AttendeeNeedsService)
+    private readonly attendeeNeeds: AttendeeNeedsService,
     @Inject(EventPublicMetricsService)
     private readonly publicMetrics: EventPublicMetricsService,
   ) {}
@@ -376,6 +380,31 @@ export class EventsController {
     }
     reply.header('Cache-Control', 'no-cache, must-revalidate');
     return this.showcases.publicMembers(
+      slug,
+      organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
+      parsed.data,
+    );
+  }
+
+  @Get(':slug/attendee-needs')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  async getAttendeeNeeds(
+    @Param('slug') slug: string,
+    @Headers('x-organization-slug') organizationSlugValue: string | undefined,
+    @Query() query: Record<string, unknown>,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const parsed = PublicAttendeeNeedListQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '参会需求分页参数校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    reply.header('Cache-Control', 'no-cache, must-revalidate');
+    return this.attendeeNeeds.publicNeeds(
       slug,
       organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference',
       parsed.data,

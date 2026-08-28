@@ -19,6 +19,7 @@ import { HtmlTemplateOperationsService } from './html-template-operations.servic
 import { RedisService } from './redis.service.js';
 import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
+import { AttendeeNeedsService } from './attendee-needs.service.js';
 import { CooperationRequestService } from './cooperation-request.service.js';
 import { AgentAuthorizationService } from './agent-authorization.service.js';
 import { AgentOperationService } from './agent-operation.service.js';
@@ -51,6 +52,7 @@ import { FeishuDigestService } from './feishu-digest.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    AttendeeNeedsService,
     CooperationRequestService,
     AgentAuthorizationService,
     AgentOperationService,
@@ -81,6 +83,7 @@ import { FeishuDigestService } from './feishu-digest.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    AttendeeNeedsService,
     CooperationRequestService,
     AgentAuthorizationService,
     AgentOperationService,

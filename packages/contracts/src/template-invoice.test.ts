@@ -64,19 +64,47 @@ describe('DEMO_EVENT', () => {
     const upgrade = definition.presentation.home.blocks.find(
       (block) => block.nodeKey === 'home.upgrade',
     );
+    const tickets = definition.presentation.home.blocks.find(
+      (block) => block.nodeKey === 'home.tickets',
+    );
+    const navigation = definition.presentation.home.blocks.find(
+      (block) => block.nodeKey === 'home.navigation',
+    );
+    const stats = definition.presentation.home.blocks.find(
+      (block) => block.nodeKey === 'home.stats',
+    );
+    const expectedBenefits = [
+      '2 天大会 VIP 门票',
+      'Day 2 实战工作坊席位',
+      '大会 VIP 会员社群',
+      '2 本 AI 与 GEO 签名书籍',
+      '个人信息展示权益',
+      '《中国 GEO 行业白皮书 2026》',
+      '20+ 嘉宾干货资料包',
+      '大会回放视频',
+    ];
 
     expect(hero?.content).toMatchObject({
       titlePrefix: '第二届中国',
       titleEvent: 'GEO & AI 营销大会',
       slogan: '让好的品牌被 AI 正确推荐',
+      viewsLabel: '大会访问量',
+      viewsBase: '10000',
     });
     expect(upgrade?.content.titleLine2).toBe('第二届回答「GEO 怎么赢」');
+    expect(navigation?.content).toMatchObject({ whyLabel: '背景', membersLabel: '会员' });
+    expect(stats?.enabled).toBe(false);
+    expect(tickets?.content.title).toBe('会员报名权益');
     expect(definition.initialization.ticketTypes[0]).toMatchObject({
       name: '大会通票',
       price: 39900,
       capacity: 500,
+      benefits: expectedBenefits,
     });
+    expect(event.tickets[0]?.benefits).toEqual(expectedBenefits);
     expect(event.name).toBe('第二届中国 GEO & AI 营销大会');
+    expect(event.venue).toBe('南山区（具体酒店待定）');
+    expect(event.address).toBe('广东省深圳市南山区（具体酒店待定）');
     expect(event.speakers[0]?.name).toBe('姚金刚');
     expect(event.faqs[0]?.question).toBe('GEO 到底是什么，和 SEO 有什么关系？');
   });
