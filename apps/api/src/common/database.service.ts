@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   createDatabase,
@@ -44,6 +45,29 @@ export class DatabaseService implements OnModuleDestroy {
       ok: true,
       migration: await readDatabaseMigrationStatus(this.pool),
     };
+  }
+
+  async canonicalIdentityProof(challenge: string) {
+    if (!this.pool) throw new Error('Canonical export requires PostgreSQL persistence');
+    const identityResult = await this.pool.query<{
+      systemIdentifier: string;
+      databaseName: string;
+      databaseOid: string;
+      startedAt: string;
+    }>(
+      `select system_identifier::text as "systemIdentifier",
+              current_database() as "databaseName",
+              (select oid::text from pg_database where datname = current_database()) as "databaseOid",
+              extract(epoch from pg_postmaster_start_time())::text as "startedAt"
+       from pg_control_system()`,
+    );
+    const identity = identityResult.rows[0];
+    if (!identity) throw new Error('PostgreSQL instance identity is unavailable');
+    return createHash('sha256')
+      .update(
+        `${challenge}\n${identity.systemIdentifier}\n${identity.databaseName}\n${identity.databaseOid}\n${identity.startedAt}`,
+      )
+      .digest('hex');
   }
 
   async onModuleDestroy() {

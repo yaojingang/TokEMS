@@ -10,6 +10,11 @@
 - Docker 构建和运行必须使用同一组 `BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION`、`BUILD_MIGRATION_HASH`。任何值为 `unknown` 时禁止切换生产流量。
 - 常规发布固定使用 `SEED_DEMO_DATA=false`。只有已确认需要同步仓库规范模板时，才允许按 Runbook 的“规范模板同步”流程临时运行 `SEED_DEMO_DATA=true`。
 - 规范模板的组织 slug 为 `geo-conference`，大会 slug 为 `tokems26`。线上报名、订单、票、发票、库存销量和用户数据必须保留。
+- 本地 `http://127.0.0.1:8088/` 当前实际展示的 `geo-conference` / `tokems26` 是唯一规范大会模板。首页文案或关联后台设置发生任何变化后，推送 GitHub 前必须运行 `pnpm canonical:export`，并提交完整规范快照 `packages/contracts/src/canonical-homepage.snapshot.json` 及前台派生快照 `packages/contracts/src/canonical-homepage.public.json`。
+- 每次推送 GitHub 前都必须运行 `pnpm canonical:check`。本地首页、数据库或当前发布快照不可读取，快照存在漂移，或脱敏校验失败时禁止推送。
+- `pnpm install` 会启用仓库内 `.githooks/pre-push` 门禁。门禁会核对实时规范状态、受保护文件的工作区清洁度，以及实际待推送提交中的快照与同步逻辑；禁止绕过该门禁推送。
+- 规范快照包含当前公开发布内容，以及大会基础设置、模板草稿、当前指针引用的发布版本、首页绑定、票种定义与容量、报名表、嘉宾、议程、FAQ、SEO、公开站点设置、蓝图、核销清单、通知模板、AI 文案提示、模板素材和所有被纳入模板定义引用的 HTML 文档。未被当前发布、绑定或默认设置引用的历史版本，以及销量、报名用户、会员资料、订单、支付、票证、发票和审计记录不得进入快照。
+- 管理员账号、姓名、邮箱、密码、权限身份，以及 API 地址、密钥、令牌、Cookie、第三方集成、支付、短信和对象存储凭据不得进入规范快照。管理员信息继续只从部署环境读取。
 - 禁止把 `git reset --hard`、`git clean`、`docker system prune`、`docker compose down -v`、删卷、清库或数据库覆盖恢复写入常规发布流程。
 - 发布完成后必须同时验证容器健康、服务器本机 HTTP、公网 HTTP、构建版本、迁移哈希、公开大会内容和生产数据计数。
 - `.env`、数据库连接、密钥、令牌和第三方凭据不得写入 Git、日志、Issue、PR 或发布记录。检查环境时只输出允许公开的键。

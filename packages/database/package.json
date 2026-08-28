@@ -21,15 +21,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run src --passWithNoTests",
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
     "repair-registration-identities": "tsx src/repair-registration-identities.ts",
     "migrate:template-domain": "tsx src/migrate-template-domain.ts",
+    "canonical:export": "tsx src/export-canonical-homepage.ts --write",
+    "canonical:check": "tsx src/export-canonical-homepage.ts --check",
+    "canonical:verify": "tsx src/export-canonical-homepage.ts --verify-file",
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
     "@conference/contracts": "workspace:*",
+    "@conference/html-template": "workspace:*",
     "@conference/security": "workspace:*",
     "bcryptjs": "3.0.3",
     "drizzle-orm": "0.45.2",
