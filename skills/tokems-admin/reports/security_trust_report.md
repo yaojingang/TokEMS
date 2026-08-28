@@ -1,7 +1,7 @@
 # Security Trust Report
 
 - OK: `True`
-- Scanned files: `22`
+- Scanned files: `26`
 - Scripts: `0`
 - Internal script modules: `0`
 - Secret findings: `0`
@@ -15,8 +15,8 @@
 - CLI help smoke failures: `0`
 - Interactive scripts: `0`
 - Package hash scope: `source-contract-without-generated-reports`
-- Package hash files: `22`
-- Package SHA256: `8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9`
+- Package hash files: `26`
+- Package SHA256: `b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32`
 
 ## Failures
 
@@ -66,7 +66,7 @@
 
 ## Node.js connector inventory
 
-- Scripts: `10`
+- Scripts: `11`
 - Network-capable: `1`
 - File-write: `1`
 - Subprocess: `1`

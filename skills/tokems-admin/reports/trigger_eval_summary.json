@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-08-17T12:35:00+08:00",
+  "generated_at": "2026-08-25T21:48:00+08:00",
   "evaluator": "yao-meta-skill/scripts/trigger_eval.py",
   "cases": "evals/trigger_cases.json",
   "semantic_config": "evals/semantic_config.json",
@@ -10,8 +10,8 @@
   "precision": 1.0,
   "recall": 1.0,
   "bucket_stats": {
-    "should_trigger": { "total": 8, "passed": 8, "pass_rate": 1.0 },
-    "should_not_trigger": { "total": 5, "passed": 5, "pass_rate": 1.0 },
+    "should_trigger": { "total": 11, "passed": 11, "pass_rate": 1.0 },
+    "should_not_trigger": { "total": 6, "passed": 6, "pass_rate": 1.0 },
     "near_neighbor": { "total": 5, "passed": 5, "pass_rate": 1.0 }
   },
   "misfires": [],

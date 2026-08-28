@@ -22,8 +22,9 @@ import {
   reconcileOperation,
 } from './lib/operations.mjs';
 import { redact, safeError } from './lib/redaction.mjs';
+import { prepareTemplatePatch } from './lib/template-patch.mjs';
 
-const HELP = `TokEMS Admin Skill connector 0.1.1
+const HELP = `TokEMS Admin Skill connector 0.2.0
 
 Usage:
   tokems-admin.js instance inspect --origin <https-origin>
@@ -32,6 +33,7 @@ Usage:
   tokems-admin.js capabilities sync [--connection <id>]
   tokems-admin.js action inspect --action <id> --params-file <path> [--purpose-file <path>] [--connection <id>]
   tokems-admin.js action prepare --action <id> --params-file <path> --input-file <path> --reason-file <path> [--secret-file <path>]
+  tokems-admin.js template patch --template <id> --patch-file <path> --reason-file <path> [--connection <id>]
   tokems-admin.js action confirm|execute --operation <id> [--connection <id>]
   tokems-admin.js artifact download --operation <id> --output <absolute-path> [--connection <id>]
   tokems-admin.js operation status|reconcile|cancel --operation <id> [--connection <id>]
@@ -230,6 +232,36 @@ async function main() {
             connectionId: profile.connectionId,
             organizationId: profile.organizationId,
             rollback: action.rollback,
+          },
+        ),
+      ),
+    );
+    return;
+  }
+  if (group === 'template' && command === 'patch') {
+    const id = connectionId(options);
+    const profile = loadProfile(id);
+    const result = await prepareTemplatePatch({
+      templateId: required(options, 'template'),
+      patchFile: required(options, 'patch-file'),
+      reasonFile: required(options, 'reason-file'),
+      connectionId: id,
+    });
+    console.log(
+      JSON.stringify(
+        envelope(
+          {
+            ...result,
+            data: {
+              approvalUrl: result.approvalUrl,
+              templatePatch: result.templatePatch,
+            },
+          },
+          {
+            action: 'templates.draft.update',
+            connectionId: profile.connectionId,
+            organizationId: profile.organizationId,
+            rollback: 'restore-prior-revision',
           },
         ),
       ),

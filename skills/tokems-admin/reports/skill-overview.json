@@ -3,9 +3,9 @@
     "name": "tokems-admin",
     "title": "TokEMS Admin",
     "display_name": "TokEMS Admin",
-    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
     "maturity": "governed",
-    "updated_at": "2026-08-17",
+    "updated_at": "2026-08-26",
     "core_value": "把一次性经验沉淀为可复用、可评估、可迁移的 Skill 包体。",
     "audience": "Skill 作者、复用团队和后续 reviewer。",
     "deliverables": [
@@ -80,7 +80,7 @@
       "label": "可维护性",
       "score": 100,
       "reasons": [
-        "SKILL.md 约 531 个词/字。",
+        "SKILL.md 约 483 个词/字。",
         "入口文件保持克制，可维护性较好。",
         "references/ 已承载扩展指导。",
         "scripts/ 已承载确定性逻辑。",
@@ -99,9 +99,9 @@
     },
     "context_cost": {
       "label": "上下文成本",
-      "score": 60,
+      "score": 42,
       "reasons": [
-        "入口约 531 个词/字，references 约 1659 个词/字。",
+        "入口约 483 个词/字，references 约 9370 个词/字。",
         "分数越高代表上下文成本越低。",
         "上下文成本偏高，建议压缩入口或拆分 references。"
       ]
@@ -155,7 +155,7 @@
   },
   "contract_boundary": {
     "trigger": {
-      "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+      "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
       "activation": "manual",
       "execution": "inline",
       "shell": "bash"
@@ -164,7 +164,7 @@
       "exact HTTPS TokEMS origin or development loopback",
       "Device Authorization connection approved by a current super administrator",
       "catalog action ID and organization-scoped resource identifiers",
-      "file-backed parameter, request body, and reason inputs",
+      "file-backed parameter, request body, template patch, purpose, and reason inputs",
       "browser approval for the effective risk policy"
     ],
     "outputs": [
@@ -173,7 +173,7 @@
     ],
     "should_trigger": [
       "团队复用前，需要明确触发边界、质量证据和维护责任。",
-      "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
+      "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the admin plus public result.",
       "已有原始资料，但还没有清晰输入、输出和后续迭代路径。"
     ],
     "should_not_trigger": [
@@ -184,7 +184,7 @@
     "boundary_cards": [
       {
         "label": "Owned",
-        "body": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service."
+        "body": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending."
       },
       {
         "label": "Adjacent",
@@ -207,7 +207,7 @@
     ],
     "gaps": [
       "证据充分需要补强：已生成 13 / 20 类报告证据。",
-      "上下文成本需要补强：入口约 531 个词/字，references 约 1659 个词/字。"
+      "上下文成本需要补强：入口约 483 个词/字，references 约 9370 个词/字。"
     ],
     "recommendations": [
       "先改触发边界，再扩展工作流。",
@@ -254,7 +254,7 @@
         "name": "包体膨胀风险",
         "impact": 2,
         "probability": 1,
-        "signal": "SKILL.md 约 531 个词/字。",
+        "signal": "SKILL.md 约 483 个词/字。",
         "response": "先补证据和边界，再增加包体复杂度。"
       },
       {
@@ -386,10 +386,10 @@
         "path": "reports",
         "label": "Generated evidence and overview artifacts",
         "kind": "folder",
-        "file_count": 90
+        "file_count": 103
       }
     ],
-    "file_count": 120,
+    "file_count": 133,
     "folder_count": 4,
     "distribution": [
       {
@@ -418,7 +418,7 @@
       },
       {
         "label": "reports",
-        "value": 90
+        "value": 103
       }
     ]
   },
@@ -473,17 +473,17 @@
   "name": "tokems-admin",
   "title": "TokEMS Admin",
   "display_name": "TokEMS Admin",
-  "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+  "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
   "logic_steps": [
-    "Read `references/authorization.md` before connecting or changing connection policy.",
-    "Run `node scripts/tokems-admin.js instance inspect --origin <origin>` and verify the returned TokEMS identity.",
-    "Run `auth connect` when no approved connection exists. The administrator compares the device code and completes password step-up in the TokEMS browser. Credentials stay in macOS Keychain or Linux Secret Service.",
+    "Read `references/authorization.md`; inspect the instance identity before connection or policy changes.",
+    "Run `auth connect` when needed. The administrator compares the device code and completes browser password step-up. Credentials stay in macOS Keychain or Linux Secret Service.",
     "Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.",
-    "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions."
+    "Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.",
+    "Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `template patch` safely prepares a live-revision structured-template update, and `checkin.sync` accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary."
   ],
   "usage_steps": [
-    "Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
-    "Use this skill when the request matches: Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service."
+    "Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the admin plus public result.",
+    "Use this skill when the request matches: Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending."
   ],
   "package_map": [
     {
@@ -526,7 +526,7 @@
       "path": "reports",
       "label": "Generated evidence and overview artifacts",
       "kind": "folder",
-      "file_count": 90
+      "file_count": 103
     }
   ],
   "strengths": [
@@ -539,11 +539,11 @@
   ],
   "scenarios": [
     "团队复用前，需要明确触发边界、质量证据和维护责任。",
-    "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the result.",
+    "用户说出类似需求时：Use $tokems-admin to connect to the approved TokEMS instance, inspect the exact target, prepare a governed action, obtain required approval, execute it, and verify the admin plus public result.",
     "已有原始资料，但还没有清晰输入、输出和后续迭代路径。"
   ],
   "trigger_contract": {
-    "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+    "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
     "activation": "manual",
     "execution": "inline",
     "shell": "bash"
@@ -553,7 +553,7 @@
       "exact HTTPS TokEMS origin or development loopback",
       "Device Authorization connection approved by a current super administrator",
       "catalog action ID and organization-scoped resource identifiers",
-      "file-backed parameter, request body, and reason inputs",
+      "file-backed parameter, request body, template patch, purpose, and reason inputs",
       "browser approval for the effective risk policy"
     ],
     "outputs": [
@@ -660,29 +660,29 @@
     "warnings": []
   },
   "output_quality": {
-    "case_count": 7,
+    "case_count": 10,
     "file_backed_case_count": 1,
     "near_neighbor_case_count": 1,
-    "boundary_case_count": 2,
+    "boundary_case_count": 3,
     "baseline_pass_rate": 0.0,
     "with_skill_pass_rate": 100.0,
     "delta": 100.0,
     "regression_count": 0,
     "gate_pass": true,
     "failure_taxonomy": [],
-    "blind_pair_count": 7
+    "blind_pair_count": 10
   },
   "output_execution": {
     "ok": true,
     "summary": {
-      "case_count": 7,
-      "variant_run_count": 14,
+      "case_count": 10,
+      "variant_run_count": 20,
       "command_executed_count": 0,
       "model_executed_count": 0,
-      "recorded_fixture_count": 14,
+      "recorded_fixture_count": 20,
       "timing_observed_count": 0,
       "token_observed_count": 0,
-      "token_estimated_count": 14,
+      "token_estimated_count": 20,
       "baseline_pass_rate": 0.0,
       "with_skill_pass_rate": 100.0,
       "delta": 100.0,
@@ -699,20 +699,20 @@
   },
   "output_blind_review": {
     "summary": {
-      "pair_count": 7,
+      "pair_count": 10,
       "answer_key_separate": true,
-      "with_skill_hidden_count": 7
+      "with_skill_hidden_count": 10
     },
     "seed": "yao-output-eval-blind-v1",
-    "pair_count": 7,
+    "pair_count": 10,
     "answer_key_separate": true
   },
   "output_review_kit": {
     "ok": true,
     "summary": {
-      "case_count": 7,
+      "case_count": 10,
       "ready_for_adjudication_count": 0,
-      "pending_decision_count": 7,
+      "pending_decision_count": 10,
       "invalid_decision_count": 0,
       "reviewer_metadata_present": false,
       "answer_key_hidden": true,
@@ -735,14 +735,14 @@
   "output_review_adjudication": {
     "ok": true,
     "summary": {
-      "pair_count": 7,
+      "pair_count": 10,
       "judgment_count": 0,
-      "pending_count": 7,
+      "pending_count": 10,
       "agreement_count": 0,
       "disagreement_count": 0,
       "invalid_decision_count": 0,
       "answer_revealed_count": 0,
-      "pending_answer_hidden_count": 7,
+      "pending_answer_hidden_count": 10,
       "agreement_rate": null,
       "needs_review": true,
       "reviewer_metadata_present": false,
@@ -754,8 +754,8 @@
       "reviewer_reason_required_attested": true,
       "ready_for_human_evidence": false,
       "failure_count": 0,
-      "reviewer_checklist_count": 7,
-      "reviewer_checklist_pending_count": 7,
+      "reviewer_checklist_count": 10,
+      "reviewer_checklist_pending_count": 10,
       "reviewer_checklist_invalid_count": 0,
       "reviewer_checklist_ready_count": 0
     },
@@ -771,9 +771,9 @@
     "limitations": []
   },
   "runtime_conformance": {
-    "target_count": 2,
+    "target_count": 5,
     "pass_count": 2,
-    "fail_count": 0
+    "fail_count": 3
   },
   "runtime_permissions": {
     "ok": true,
@@ -826,31 +826,31 @@
     "failures": []
   },
   "trust_security": {
-    "scanned_files": 22,
-    "script_count": 10,
-    "internal_module_count": 9,
+    "scanned_files": 26,
+    "script_count": 0,
+    "internal_module_count": 0,
     "secret_findings": 0,
     "dependency_files": [],
-    "network_script_count": 1,
-    "network_policy_covered_count": 1,
+    "network_script_count": 0,
+    "network_policy_covered_count": 0,
     "network_policy_missing_count": 0,
-    "file_write_script_count": 1,
-    "permission_required_count": 4,
-    "permission_approved_count": 4,
+    "file_write_script_count": 0,
+    "permission_required_count": 0,
+    "permission_approved_count": 0,
     "permission_missing_count": 0,
     "permission_invalid_count": 0,
     "permission_expired_count": 0,
-    "help_smoke_checked_count": 1,
+    "help_smoke_checked_count": 0,
     "help_smoke_failed_count": 0,
-    "interactive_script_count": 1,
+    "interactive_script_count": 0,
     "package_hash_scope": "source-contract-without-generated-reports",
-    "package_hash_file_count": 22,
-    "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+    "package_hash_file_count": 26,
+    "package_sha256": "b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32"
   },
   "skill_atlas": {
-    "skill_count": 1,
+    "skill_count": 2,
     "actionable_skill_count": 1,
-    "route_collision_count": 0,
+    "route_collision_count": 2,
     "actionable_route_collision_count": 0,
     "owner_gap_count": 0,
     "actionable_owner_gap_count": 0,
@@ -858,18 +858,18 @@
     "actionable_stale_count": 0,
     "shared_resource_count": 0,
     "no_route_opportunity_count": 0,
-    "telemetry_report_count": 1,
+    "telemetry_report_count": 2,
     "drift_signal_count": 0,
     "actionable_drift_signal_count": 0,
-    "non_actionable_issue_count": 0
+    "non_actionable_issue_count": 2
   },
   "registry_distribution": {
     "ok": true,
     "package": {
       "schema_version": "2.0",
       "name": "tokems-admin",
-      "version": "0.1.1",
-      "description": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+      "version": "0.2.0",
+      "description": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending.",
       "targets": [
         "openai",
         "generic"
@@ -880,8 +880,8 @@
       "trust_level": "local",
       "license": "AGPL-3.0-only",
       "checksums": {
-        "package_sha256": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9",
-        "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe"
+        "package_sha256": "9f24e60f17b8b49a4133d8a07cd1c61771eb356130e188bedbb7d51c86e3067c",
+        "archive_sha256": "bbf478d79f14da3e142c2cb4f87ac912793b158cf8a049e4f79d9de4108d30fe"
       },
       "compatibility": {
         "openai": "pass",
@@ -908,12 +908,12 @@
       },
       "distribution": {
         "archive_verified": true,
-        "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe",
+        "archive_sha256": "bbf478d79f14da3e142c2cb4f87ac912793b158cf8a049e4f79d9de4108d30fe",
         "package_verification": "reports/package_verification.json",
         "install_simulated": true,
         "install_simulation": "reports/install_simulation.json"
       },
-      "generated_at": "2026-08-17"
+      "generated_at": "2026-08-25"
     },
     "failures": [],
     "warnings": []
@@ -924,8 +924,8 @@
       "target_count": 2,
       "adapter_count": 2,
       "archive_present": true,
-      "archive_sha256": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe",
-      "archive_entry_count": 42,
+      "archive_sha256": "bbf478d79f14da3e142c2cb4f87ac912793b158cf8a049e4f79d9de4108d30fe",
+      "archive_entry_count": 144,
       "nested_skill_entry_count": 0,
       "failure_count": 0,
       "warning_count": 0
@@ -937,7 +937,7 @@
     "ok": true,
     "summary": {
       "archive_present": true,
-      "archive_entry_count": 42,
+      "archive_entry_count": 144,
       "nested_skill_entry_count": 0,
       "archive_extracted": true,
       "entrypoint_loaded": true,
@@ -958,11 +958,11 @@
   "upgrade_check": {
     "ok": true,
     "summary": {
-      "declared_bump": "patch",
-      "recommended_bump": "patch",
+      "declared_bump": "minor",
+      "recommended_bump": "minor",
       "breaking_change_count": 0,
       "added_target_count": 0,
-      "metadata_change_count": 0,
+      "metadata_change_count": 1,
       "checksum_change_count": 2,
       "failure_count": 0,
       "warning_count": 0
@@ -972,22 +972,28 @@
       "added_targets": [],
       "removed_targets": [],
       "compatibility_changes": [],
-      "metadata_changes": [],
+      "metadata_changes": [
+        {
+          "field": "description",
+          "from": "Connect to an authorized remote TokEMS instance and manage its product administration surface, including organizations, administrators, events, public copy, speakers, schedules, registration forms, structured or HTML templates, users, registrations, orders, refunds, invoices, notifications, check-in operations, integrations, exports, and audit records. Use when the user asks to connect, authorize, inspect, edit, publish, operate, export, revoke, or audit a TokEMS system. Do not use for TokEMS source-code development, deployment, SSH, database access, or attendee self-service.",
+          "to": "Operate an authorized remote TokEMS administration surface for events, public content, speakers, templates, attendee questions, registrations, commerce, invoices, check-in, approved Feishu reads, exports, and audit. Use for connection, inspection, editing, publishing, operation, export, revocation, or audit. Excludes source development, deployment, SSH, database access, attendee self-service, and Feishu sending."
+        }
+      ],
       "checksum_changes": [
         {
           "field": "archive_sha256",
-          "from": "97c750d450aae79bbe066caa5c1d322f215875a55f15b2f4fa3ac3fb969d9ac6",
-          "to": "3c2797baa8573442b974e3aa00547316a65f71c82ca5b327fe2b85e4a5a15cbe"
+          "from": "0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f",
+          "to": "bbf478d79f14da3e142c2cb4f87ac912793b158cf8a049e4f79d9de4108d30fe"
         },
         {
           "field": "package_sha256",
-          "from": "86500de67126b4c33be1a8a2a3294ea168ee87434181fe809796abdf578fc608",
-          "to": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9"
+          "from": "8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9",
+          "to": "9f24e60f17b8b49a4133d8a07cd1c61771eb356130e188bedbb7d51c86e3067c"
         }
       ]
     },
     "release_notes": [
-      "Recommended version bump: patch.",
+      "Recommended version bump: minor.",
       "Package or archive checksum changed; reviewers should verify package artifacts before release.",
       "Package verification evidence: reports/package_verification.md."
     ],
@@ -1056,9 +1062,9 @@
       "invalid_count": 0,
       "covered_gate_count": 0,
       "covered_gate_keys": [],
-      "waiver_candidate_count": 1,
+      "waiver_candidate_count": 2,
       "waiverable_open_count": 1,
-      "non_waivable_count": 0
+      "non_waivable_count": 1
     },
     "policy": {
       "blocker_waivers_allowed": false,
@@ -1321,7 +1327,7 @@
     "source_audit": {
       "json": "reports/skill_os2_audit.json",
       "markdown": "reports/skill_os2_audit.md",
-      "open_gap_count": 11
+      "open_gap_count": 10
     }
   },
   "world_class_evidence_ledger": {
@@ -1869,7 +1875,7 @@
           "external_source_events": 0,
           "adoption_sample_count": 0,
           "raw_content_allowed": false,
-          "risk_band": "no-data",
+          "risk_band": "low",
           "accepted": false
         },
         "source_checklist": [
@@ -1939,7 +1945,6 @@
             "attestation.ledger_reviewed_at must be at or after submitted_at",
             "native-client-telemetry adoption drift summary.source_types.external must be >0",
             "native-client-telemetry adoption drift summary.adoption_sample_count must be >0",
-            "native-client-telemetry adoption drift recent_events must not be empty",
             "native-client-telemetry external event rows must cover summary.source_types.external",
             "native-client-telemetry must include at least one external adoption event row",
             "native-client-telemetry adoption event rows must cover summary.adoption_sample_count",
@@ -1984,6 +1989,6 @@
     ],
     "maturity_tier": "governed",
     "skill_archetype": "governed",
-    "updated_at": "2026-08-17"
+    "updated_at": "2026-08-26"
   }
 }

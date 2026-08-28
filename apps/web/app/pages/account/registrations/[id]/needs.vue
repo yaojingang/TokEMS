@@ -9,7 +9,7 @@ import {
   type AttendeeNeedsProfile,
   type UpdateAttendeeNeeds,
 } from '@conference/contracts';
-import { watch } from 'vue';
+import { nextTick, watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import {
   activeFlowStep,
@@ -28,6 +28,9 @@ const saving = ref(false);
 const deleting = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
+const successDialogOpen = ref(false);
+const savedResult = ref<AttendeeNeedsProfile | null>(null);
+const saveButtonElement = ref<HTMLButtonElement>();
 const fieldErrors = ref<Record<string, string>>({});
 const profile = ref<AttendeeNeedsProfile | null>(null);
 
@@ -189,24 +192,20 @@ async function save() {
     profile.value = value;
     syncForm(value);
     fieldErrors.value = {};
-    const questionCount = value.questions.filter((question) => question.content.trim()).length;
-    const visibility = value.isPublic
-      ? value.effectivePublic
-        ? '当前公开'
-        : '已允许公开，当前未展示'
-      : '仅自己可见';
-    const attribution = value.isPublic
-      ? value.isAnonymous
-        ? '匿名展示'
-        : `公开署名：${value.attributionName}`
-      : '';
-    successMessage.value = `已保存 ${questionCount} 个问题 · ${visibility}${attribution ? ` · ${attribution}` : ''}`;
+    savedResult.value = value;
+    successDialogOpen.value = true;
   } catch (error) {
     const failure = error as { data?: { message?: string } };
     errorMessage.value = failure.data?.message ?? '保存失败，请稍后重试';
   } finally {
     saving.value = false;
   }
+}
+
+async function closeSuccessDialog() {
+  successDialogOpen.value = false;
+  await nextTick();
+  saveButtonElement.value?.focus();
 }
 
 async function deleteAll() {
@@ -454,7 +453,12 @@ useHead(() => ({
           </p>
 
           <div class="needs-actions">
-            <button type="submit" class="primary-action" :disabled="saving || deleting">
+            <button
+              ref="saveButtonElement"
+              type="submit"
+              class="primary-action"
+              :disabled="saving || deleting"
+            >
               {{ saving ? '正在保存…' : '保存参会需求' }}
             </button>
             <NuxtLink class="secondary-action" :to="ticketHref">稍后填写，先看电子票</NuxtLink>
@@ -462,6 +466,20 @@ useHead(() => ({
             <a class="text-action" :href="homeHref">返回大会首页</a>
           </div>
         </form>
+
+        <AttendeeNeedsSuccessDialog
+          v-if="savedResult"
+          :open="successDialogOpen"
+          :question-count="
+            savedResult.questions.filter((question) => question.content.trim()).length
+          "
+          :is-public="savedResult.isPublic"
+          :effective-public="savedResult.effectivePublic"
+          :is-anonymous="savedResult.isAnonymous"
+          :attribution-name="savedResult.attributionName"
+          :home-href="homeHref"
+          @close="closeSuccessDialog"
+        />
       </template>
     </main>
   </div>
@@ -481,7 +499,7 @@ useHead(() => ({
 }
 
 .needs-intro {
-  max-width: 760px;
+  width: 100%;
 }
 
 .needs-intro h1 {
@@ -492,6 +510,7 @@ useHead(() => ({
 }
 
 .needs-intro > p:last-child {
+  max-width: 760px;
   margin: 0;
   color: #5b6980;
   font-size: 17px;

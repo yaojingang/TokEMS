@@ -54,7 +54,6 @@ describe('attendee needs homepage section', () => {
       }),
     ).toBe(true);
   });
-
   it.each([
     ['disabled', false, 4, false, false, false, 'hidden'],
     ['loading', true, 0, true, false, true, 'loading'],
@@ -70,7 +69,6 @@ describe('attendee needs homepage section', () => {
       });
     },
   );
-
   it('never reuses questions from a different event or page after a request failure', () => {
     const previous = {
       eventSlug: 'event-a',

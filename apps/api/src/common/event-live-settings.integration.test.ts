@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_IDS, type EventId } from '@conference/contracts';
 import {
+  auditLogs,
   conferenceTemplates,
   conferenceTemplateVersions,
   customerProfiles,
@@ -456,6 +457,7 @@ describePersistent('live event settings activation', () => {
       eventId,
       DEMO_IDS.adminUser,
       {
+        publicCode: 'qwer',
         name: '嘉宾管理验收',
         role: '大会内容负责人',
         topic: '嘉宾资料管理与发布',
@@ -471,21 +473,72 @@ describePersistent('live event settings activation', () => {
       eventId,
       managedSpeaker.id,
       DEMO_IDS.adminUser,
-      { bio: '保存后立即进入当前生效快照。' },
+      { publicCode: 'asdf', bio: '保存后立即进入当前生效快照。' },
     );
-    expect(managedSpeaker.publicCode).toMatch(/^[a-z]{4}$/u);
+    const updatedManagedSpeaker = await operations.getSpeaker(
+      DEMO_IDS.organization,
+      eventId,
+      managedSpeaker.id,
+    );
+    expect(managedSpeaker.publicCode).toBe('qwer');
+    expect(updatedManagedSpeaker.publicCode).toBe('asdf');
+    const [speakerAudit] = await database
+      .db!.select({ before: auditLogs.before, after: auditLogs.after })
+      .from(auditLogs)
+      .where(
+        and(eq(auditLogs.action, 'speaker.update'), eq(auditLogs.resourceId, managedSpeaker.id)),
+      )
+      .limit(1);
+    expect(speakerAudit?.before).toMatchObject({ publicCode: 'qwer' });
+    expect(speakerAudit?.after).toMatchObject({ publicCode: 'asdf' });
+
+    const collisionSpeaker = await operations.createSpeaker(
+      DEMO_IDS.organization,
+      eventId,
+      DEMO_IDS.adminUser,
+      {
+        publicCode: 'tsta',
+        name: '嘉宾短地址冲突验收',
+        role: '大会测试嘉宾',
+        topic: '公开地址冲突回滚',
+        accentFrom: '#2448a8',
+        accentTo: '#102759',
+        tags: ['管理验收'],
+        socialLinks: [],
+        sortOrder: 102,
+      },
+    );
+    expect(collisionSpeaker.publicCode).toBe('tsta');
+    await expect(
+      operations.updateSpeaker(
+        DEMO_IDS.organization,
+        eventId,
+        managedSpeaker.id,
+        DEMO_IDS.adminUser,
+        { publicCode: collisionSpeaker.publicCode, bio: '这段内容应随冲突一起回滚。' },
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      operations.getSpeaker(DEMO_IDS.organization, eventId, managedSpeaker.id),
+    ).resolves.toMatchObject({
+      publicCode: 'asdf',
+      bio: '保存后立即进入当前生效快照。',
+    });
     await expect(
       repository.getPublicSpeaker(slug, organizationSlug, managedSpeaker.id),
     ).resolves.toMatchObject({ bio: '保存后立即进入当前生效快照。' });
     await expect(
-      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+      repository.getPublicSpeakerByCode(organizationSlug, updatedManagedSpeaker.publicCode),
     ).resolves.toMatchObject({
       id: managedSpeaker.id,
-      publicCode: managedSpeaker.publicCode,
+      publicCode: updatedManagedSpeaker.publicCode,
       bio: '保存后立即进入当前生效快照。',
     });
     await expect(
-      repository.getPublicSpeakerByCode(`other-${organizationSlug}`, managedSpeaker.publicCode),
+      repository.getPublicSpeakerByCode(
+        `other-${organizationSlug}`,
+        updatedManagedSpeaker.publicCode,
+      ),
     ).rejects.toMatchObject({ status: 404 });
 
     const currentSpeakers = await operations.listSpeakers(DEMO_IDS.organization, eventId);
@@ -539,7 +592,7 @@ describePersistent('live event settings activation', () => {
       repository.getPublicSpeaker(slug, organizationSlug, managedSpeaker.id),
     ).rejects.toMatchObject({ status: 404 });
     await expect(
-      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+      repository.getPublicSpeakerByCode(organizationSlug, updatedManagedSpeaker.publicCode),
     ).rejects.toMatchObject({ status: 404 });
 
     await operations.rollbackRelease(
@@ -549,7 +602,7 @@ describePersistent('live event settings activation', () => {
       DEMO_IDS.adminUser,
     );
     await expect(
-      repository.getPublicSpeakerByCode(organizationSlug, managedSpeaker.publicCode),
+      repository.getPublicSpeakerByCode(organizationSlug, updatedManagedSpeaker.publicCode),
     ).resolves.toMatchObject({ id: managedSpeaker.id });
   });
 

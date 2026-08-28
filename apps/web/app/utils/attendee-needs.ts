@@ -7,7 +7,10 @@ export type AttendeeNeedsAccountState = {
   hasMaterial: boolean;
 };
 
-export function attendeeNeedsRequestIsCurrent(requestedEventSlug: string, currentEventSlug: string) {
+export function attendeeNeedsRequestIsCurrent(
+  requestedEventSlug: string,
+  currentEventSlug: string,
+) {
   return requestedEventSlug === currentEventSlug;
 }
 
@@ -82,7 +85,6 @@ export function resolveAttendeeNeedsFallback(
     snapshotAt: new Date().toISOString(),
   };
 }
-
 export function resolveAttendeeNeedsSectionState(input: {
   blockEnabled: boolean;
   total: number;

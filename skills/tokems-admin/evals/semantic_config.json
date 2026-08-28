@@ -12,7 +12,8 @@
       "connect to TokEMS admin",
       "inspect events, templates, users, orders, invoices, or audit",
       "prepare, confirm, execute, verify, or reconcile a TokEMS action",
-      "manage content, templates, members, registrations, finance, notifications, check-in, exports, or integrations"
+      "manage content, templates, attendee questions, members, registrations, finance, notifications, check-in, exports, or integrations",
+      "preview TokEMS Feishu digest metrics or inspect delivery history"
     ],
     "exclusions": [
       "TokEMS source-code development",
@@ -61,7 +62,13 @@
       "weight": 0.25,
       "phrases": [
         "conference",
+        "conferences",
         "template",
+        "attendee needs",
+        "feishu digest",
+        "administrator",
+        "audit",
+        "agent operation",
         "registration",
         "order",
         "refund",
@@ -71,6 +78,12 @@
         "integration",
         "大会",
         "模板",
+        "参会问题",
+        "参会者",
+        "关心的问题",
+        "飞书日报",
+        "管理员",
+        "审计",
         "报名",
         "订单",
         "退款",
@@ -111,6 +124,17 @@
         "browse the public",
         "参会者浏览",
         "前台日程"
+      ]
+    },
+    "direct_feishu_send": {
+      "weight": 0.6,
+      "exclusive": true,
+      "phrases": [
+        "direct feishu",
+        "feishu open platform",
+        "飞书开放平台",
+        "发送大会日报",
+        "群里发送"
       ]
     }
   }

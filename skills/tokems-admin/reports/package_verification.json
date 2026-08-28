@@ -1,15 +1,15 @@
 {
   "ok": true,
   "schema_version": "2.0",
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "package_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/.build/package-full",
   "summary": {
     "target_count": 2,
     "adapter_count": 2,
     "archive_present": true,
-    "archive_sha256": "0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f",
-    "archive_entry_count": 42,
+    "archive_sha256": "eff907147a327273cbc1ad725522d68fc204d5719aa4aa8d25e7f8878b88cb5d",
+    "archive_entry_count": 144,
     "nested_skill_entry_count": 0,
     "failure_count": 0,
     "warning_count": 0

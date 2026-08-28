@@ -37,6 +37,27 @@ describe('speaker profile contracts', () => {
       expect(DEMO_SPEAKER_PROFILES[speaker.id]?.bio.trim()).not.toBe('');
       expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract.trim()).not.toBe('');
     }
+
+    const organizationNames = [
+      '猎河科技',
+      '移山科技',
+      '欧博东方',
+      '爱搜AI',
+      '智推时代',
+      '媒介匣',
+      '思迈特',
+      '大有可为',
+      '北京日报社',
+      '每经科技',
+    ];
+    for (const speaker of DEMO_EVENT.speakers) {
+      expect(organizationNames.some((name) => speaker.topic.includes(name))).toBe(false);
+    }
+
+    expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '刘树勋')).toMatchObject({
+      topic: '品牌企业如何做好 GEO：内容建设与增长实践',
+      tags: ['品牌GEO', '增长实践'],
+    });
   });
 
   it('creates stable four-letter speaker routes without exposing sequential identifiers', () => {
@@ -54,6 +75,7 @@ describe('speaker profile contracts', () => {
 
   it('accepts a complete professional speaker profile', () => {
     const result = CreateSpeakerSchema.parse({
+      publicCode: 'yaoj',
       name: '姚金刚',
       role: '大会发起人 · GEO 方法论研究者',
       topic: '如何在 AI 世界占领消费者心智',
@@ -68,6 +90,7 @@ describe('speaker profile contracts', () => {
 
     expect(result.socialLinks).toHaveLength(1);
     expect(result.bio).toContain('生成式搜索');
+    expect(result.publicCode).toBe('yaoj');
   });
 
   it('rejects private or executable social link schemes', () => {
@@ -96,6 +119,11 @@ describe('speaker profile contracts', () => {
     expect(UpdateSpeakerSchema.parse({ bio: '更新后的简介' })).toEqual({
       bio: '更新后的简介',
     });
+  });
+
+  it('accepts a stable public route code in partial speaker updates', () => {
+    expect(UpdateSpeakerSchema.parse({ publicCode: 'geoa' })).toEqual({ publicCode: 'geoa' });
+    expect(UpdateSpeakerSchema.safeParse({ publicCode: 'GEO1' }).success).toBe(false);
   });
 
   it('parses a public speaker detail from a released snapshot', () => {

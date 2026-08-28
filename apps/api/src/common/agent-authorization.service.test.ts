@@ -20,10 +20,10 @@ describe('Agent authorization bindings', () => {
   });
 
   it('enforces the minimum stable connector version', () => {
-    expect(agentVersionAtLeast('0.1.1', '0.1.1')).toBe(true);
-    expect(agentVersionAtLeast('0.2.0', '0.1.1')).toBe(true);
-    expect(agentVersionAtLeast('0.1.1-beta.1', '0.1.1')).toBe(false);
-    expect(agentVersionAtLeast('0.1.0', '0.1.1')).toBe(false);
+    expect(agentVersionAtLeast('0.2.0', '0.2.0')).toBe(true);
+    expect(agentVersionAtLeast('0.3.0', '0.2.0')).toBe(true);
+    expect(agentVersionAtLeast('0.2.0-beta.1', '0.2.0')).toBe(false);
+    expect(agentVersionAtLeast('0.1.1', '0.2.0')).toBe(false);
   });
 
   it('keeps human governance reads available while Agent Access is disabled', async () => {

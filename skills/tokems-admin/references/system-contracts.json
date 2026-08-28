@@ -1,0 +1,3806 @@
+{
+  "schemaVersion": "1.0.0",
+  "binding": {
+    "apiVersion": "1.0.0",
+    "catalogVersion": "1.2.0",
+    "skillVersion": "0.2.0",
+    "minClientVersion": "0.2.0"
+  },
+  "actionCount": 87,
+  "actions": [
+    {
+      "actionId": "organization.members.list",
+      "method": "GET",
+      "path": "/api/v1/admin/organization/members",
+      "requiredGrants": [
+        "org.member.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.members.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/members/:membershipId",
+      "requiredGrants": [
+        "org.member.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.members.status",
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/members/:membershipId/status",
+      "requiredGrants": [
+        "org.member.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.members.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/organization/members/:membershipId",
+      "requiredGrants": [
+        "org.member.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.administrators.create",
+      "method": "POST",
+      "path": "/api/v1/admin/organization/administrators",
+      "requiredGrants": [
+        "*"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.administrators.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/administrators/:membershipId",
+      "requiredGrants": [
+        "*"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.administrators.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/organization/administrators/:membershipId",
+      "requiredGrants": [
+        "*"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.members.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.settings.get",
+      "method": "GET",
+      "path": "/api/v1/admin/organization/settings",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.settings.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/settings",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.settings.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.analytics.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/analytics",
+      "requiredGrants": [
+        "org.analytics.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.settings.get",
+      "rollback": "调用同一接口停用网站统计。",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.homepage-event.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/homepage-event",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.settings.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events",
+      "requiredGrants": [
+        "event.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId",
+      "requiredGrants": [
+        "event.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.create",
+      "method": "POST",
+      "path": "/api/v1/admin/events",
+      "requiredGrants": [
+        "event.manage",
+        "org.template.use"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "events.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId",
+      "requiredGrants": [
+        "event.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "events.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.public-url.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/public-url",
+      "requiredGrants": [
+        "event.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "events.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.releases.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/releases",
+      "requiredGrants": [
+        "event.site.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.releases.publish",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/releases",
+      "requiredGrants": [
+        "event.site.publish"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "events.releases.list",
+      "rollback": "rollback-to-prior-release",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "events.releases.rollback",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/releases/:releaseId/rollback",
+      "requiredGrants": [
+        "event.site.publish"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "events.releases.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/content",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.speakers.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/speakers",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.speakers.create",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/speakers",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.speakers.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.speakers.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/speakers/:speakerId",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.speakers.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.speakers.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/events/:eventId/speakers/:speakerId",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.speakers.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.sessions.create",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/sessions",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.sessions.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/sessions/:sessionId",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.sessions.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/events/:eventId/sessions/:sessionId",
+      "requiredGrants": [
+        "event.content.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "content.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.registration-forms.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registration-forms",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "content.registration-forms.publish",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/registration-forms/publish",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "content.registration-forms.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.list",
+      "method": "GET",
+      "path": "/api/v1/admin/templates",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.create",
+      "method": "POST",
+      "path": "/api/v1/admin/templates",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.list",
+      "method": "GET",
+      "path": "/api/v1/admin/template-html-imports",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.get",
+      "method": "GET",
+      "path": "/api/v1/admin/template-html-imports/:importId",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.prepare",
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "secret",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "templates.html-imports.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.scan",
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/scan",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": "templates.html-imports.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.retry",
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/retry",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": "templates.html-imports.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.cancel",
+      "method": "DELETE",
+      "path": "/api/v1/admin/template-html-imports/:importId",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.html-imports.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-imports.commit",
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/commit",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "templates.html-imports.get",
+      "rollback": "archive-imported-template",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.get",
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.draft.get",
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/draft",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.draft.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/templates/:templateId/draft",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.draft.get",
+      "rollback": "restore-prior-revision",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.publish",
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/publish",
+      "requiredGrants": [
+        "org.template.publish"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "templates.get",
+      "rollback": "restore-prior-revision",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-document.get",
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/html-document",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-bindings.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/templates/:templateId/html-bindings",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.html-document.get",
+      "rollback": "restore-prior-revision",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.html-preview.create",
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/html-preview",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "secret",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": null,
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.assets.list",
+      "method": "GET",
+      "path": "/api/v1/admin/template-assets",
+      "requiredGrants": [
+        "org.template.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.assets.upload.prepare",
+      "method": "POST",
+      "path": "/api/v1/admin/template-assets/uploads",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "secret",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "templates.assets.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.assets.create",
+      "method": "POST",
+      "path": "/api/v1/admin/template-assets",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.assets.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.assets.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/template-assets/:assetId",
+      "requiredGrants": [
+        "org.template.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.assets.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.event-binding.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/template-binding",
+      "requiredGrants": [
+        "event.site.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "templates.event-binding.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/events/:eventId/template-binding",
+      "requiredGrants": [
+        "event.manage",
+        "org.template.use"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "templates.event-binding.get",
+      "rollback": "restore-prior-binding",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "registrations.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations",
+      "requiredGrants": [
+        "event.registration.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "pii",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "registrations.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId",
+      "requiredGrants": [
+        "event.registration.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "registrations.attendee.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/attendee",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "registrations.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "registrations.review",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/review",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "registrations.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "attendee-needs.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs",
+      "requiredGrants": [
+        "event.registration.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "attendee-needs.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/:questionId",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "attendee-needs.list",
+      "rollback": "restore-prior-revision",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "attendee-needs.moderate",
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/:questionId/moderation",
+      "requiredGrants": [
+        "event.registration.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "attendee-needs.list",
+      "rollback": "use-attendee-needs-moderation-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "attendee-needs.export",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/export.csv",
+      "requiredGrants": [
+        "event.registration.read",
+        "event.registration.export"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii",
+        "tokems:export",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.list",
+      "method": "GET",
+      "path": "/api/v1/admin/customers",
+      "requiredGrants": [
+        "customer.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "pii",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.get",
+      "method": "GET",
+      "path": "/api/v1/admin/customers/:userId",
+      "requiredGrants": [
+        "customer.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.create",
+      "method": "POST",
+      "path": "/api/v1/admin/customers",
+      "requiredGrants": [
+        "customer.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "routine-write",
+      "confirmation": "intent",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "customers.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/customers/:userId",
+      "requiredGrants": [
+        "customer.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "customers.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.delete",
+      "method": "DELETE",
+      "path": "/api/v1/admin/customers/:userId",
+      "requiredGrants": [
+        "customer.delete"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:pii",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "customers.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "customers.export",
+      "method": "GET",
+      "path": "/api/v1/admin/customers/export.csv",
+      "requiredGrants": [
+        "customer.read",
+        "customer.export"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii",
+        "tokems:export",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "commerce.orders.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/orders",
+      "requiredGrants": [
+        "event.order.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "pii",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "commerce.refunds.create",
+      "method": "POST",
+      "path": "/api/v1/admin/orders/:orderId/refunds",
+      "requiredGrants": [
+        "event.order.refund"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:finance",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "commerce.refunds.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "commerce.refunds.list",
+      "method": "GET",
+      "path": "/api/v1/admin/refunds",
+      "requiredGrants": [
+        "event.order.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:finance"
+      ],
+      "dataClass": "pii",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "invoices.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices",
+      "requiredGrants": [
+        "event.read",
+        "org.invoice.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:finance"
+      ],
+      "dataClass": "pii",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "invoices.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId",
+      "requiredGrants": [
+        "event.read",
+        "org.invoice.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:finance",
+        "tokems:pii"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "invoices.approve",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/approve",
+      "requiredGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:finance"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": "invoices.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "invoices.documents.replace",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/replace-file",
+      "requiredGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:finance",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": "invoices.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "communications.notifications.queue",
+      "method": "POST",
+      "path": "/api/v1/admin/notifications/queue",
+      "requiredGrants": [
+        "event.notification.send"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:communications",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": "communications.deliveries.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "communications.deliveries.list",
+      "method": "GET",
+      "path": "/api/v1/admin/notification-deliveries",
+      "requiredGrants": [
+        "event.notification.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:communications"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "checkin.devices.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/checkin-devices",
+      "requiredGrants": [
+        "event.checkin.manage"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "checkin.devices.create",
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/checkin-devices",
+      "requiredGrants": [
+        "event.checkin.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:security",
+        "tokems:dangerous"
+      ],
+      "dataClass": "secret",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "checkin.devices.list",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "checkin.sync",
+      "method": "POST",
+      "path": "/api/v1/admin/checkins/sync",
+      "requiredGrants": [
+        "event.checkin.execute"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:security",
+        "tokems:dangerous"
+      ],
+      "dataClass": "internal",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "domain-key",
+      "verifyActionId": null,
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "integrations.status.get",
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/status",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:security"
+      ],
+      "dataClass": "secret",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "integrations.feishu.get",
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/feishu-bot",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:security"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "integrations.feishu.chats.list",
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/feishu-bot/chats",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:security"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "communications.feishu-digest.get",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:communications"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "communications.feishu-digest.preview",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/preview",
+      "requiredGrants": [
+        "org.settings.read",
+        "event.dashboard.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:finance"
+      ],
+      "dataClass": "internal",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "communications.feishu-digest.deliveries.list",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:communications"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "integrations.wechat-pay.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/integrations/wechat-pay",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:security",
+        "tokems:dangerous"
+      ],
+      "dataClass": "secret",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "integrations.status.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "integrations.aliyun-sms.update",
+      "method": "PATCH",
+      "path": "/api/v1/admin/integrations/aliyun-sms",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:write",
+        "tokems:security",
+        "tokems:dangerous"
+      ],
+      "dataClass": "secret",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "one-time-secret",
+      "verifyActionId": "integrations.status.get",
+      "rollback": "use-domain-history",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "audit.list",
+      "method": "GET",
+      "path": "/api/v1/admin/audit-logs",
+      "requiredGrants": [
+        "event.audit.read"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii",
+        "tokems:security"
+      ],
+      "dataClass": "pii",
+      "riskBase": "sensitive-read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "exports.registrations.create",
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations/export.csv",
+      "requiredGrants": [
+        "event.registration.export"
+      ],
+      "agentScopes": [
+        "tokems:read",
+        "tokems:pii",
+        "tokems:export",
+        "tokems:dangerous"
+      ],
+      "dataClass": "pii",
+      "riskBase": "critical",
+      "confirmation": "step-up",
+      "idempotencyStrategy": "outbox-job",
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    }
+  ],
+  "adminSurface": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/customers/:userId",
+      "handler": "CustomerAdminController.remove",
+      "actionId": "customers.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "customer.delete"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/events/:eventId/sessions/:sessionId",
+      "handler": "ContentFormsController.deleteSession",
+      "actionId": "content.sessions.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/events/:eventId/speakers/:speakerId",
+      "handler": "ContentFormsController.deleteSpeaker",
+      "actionId": "content.speakers.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId",
+      "handler": "ContentFormsController.deleteTicketType",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/organization/administrators/:membershipId",
+      "handler": "OrganizationEventsController.removeAdministrator",
+      "actionId": "organization.administrators.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "*"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/organization/invitations/:invitationId",
+      "handler": "OrganizationEventsController.cancelInvitation",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/organization/members/:membershipId",
+      "handler": "OrganizationEventsController.removeMember",
+      "actionId": "organization.members.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/template-assets/:assetId",
+      "handler": "TemplateController.deleteAsset",
+      "actionId": "templates.assets.delete",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/template-html-imports/:importId",
+      "handler": "TemplateController.cancelHtmlImport",
+      "actionId": "templates.html-imports.cancel",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/agent-authorizations",
+      "handler": "AgentHumanController.resolveAuthorization",
+      "actionId": null,
+      "exclusion": "Human browser authorization code resolution",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/agent-authorizations/:authorizationId",
+      "handler": "AgentHumanController.authorizationDetail",
+      "actionId": null,
+      "exclusion": "Human browser authorization detail",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/agent-connections",
+      "handler": "AgentHumanController.connections",
+      "actionId": null,
+      "exclusion": "Human browser connection governance",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/agent-operations/:operationId",
+      "handler": "AgentHumanController.operationDetail",
+      "actionId": null,
+      "exclusion": "Human browser operation approval detail",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/agent-security-metrics",
+      "handler": "AgentHumanController.securityMetrics",
+      "actionId": null,
+      "exclusion": "Human browser Agent security metrics",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/ai/runs",
+      "handler": "EngagementController.aiRuns",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.ai.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/audit-logs",
+      "handler": "EngagementController.auditLogs",
+      "actionId": "audit.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.audit.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/customers",
+      "handler": "CustomerAdminController.list",
+      "actionId": "customers.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "customer.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/customers/:userId",
+      "handler": "CustomerAdminController.detail",
+      "actionId": "customers.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "customer.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/customers/:userId/invoices",
+      "handler": "CustomerAdminController.invoices",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "customer.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/customers/:userId/registrations",
+      "handler": "CustomerAdminController.registrations",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "customer.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/customers/export.csv",
+      "handler": "CustomerAdminController.exportCustomers",
+      "actionId": "customers.export",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "customer.read",
+        "customer.export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/dashboard",
+      "handler": "AdminController.dashboard",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.dashboard.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/event-blueprints",
+      "handler": "OrganizationEventsController.blueprints",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/event-options",
+      "handler": "OrganizationEventsController.eventOptions",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/event-slugs/availability",
+      "handler": "OrganizationEventsController.eventSlugAvailability",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events",
+      "handler": "OrganizationEventsController.events",
+      "actionId": "events.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId",
+      "handler": "AdminController.event",
+      "actionId": "events.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.read",
+        "event.manage",
+        "event.registration.manage",
+        "event.inventory.read",
+        "event.inventory.manage",
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs",
+      "handler": "AdminAttendeeNeedsController.list",
+      "actionId": "attendee-needs.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/export.csv",
+      "handler": "AdminAttendeeNeedsController.export",
+      "actionId": "attendee-needs.export",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.registration.read",
+        "event.registration.export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/checkin-devices",
+      "handler": "EngagementController.devices",
+      "actionId": "checkin.devices.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.checkin.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/content",
+      "handler": "ContentFormsController.content",
+      "actionId": "content.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/cooperation-requests",
+      "handler": "AdminController.cooperationRequestList",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/cooperation-requests/:requestId",
+      "handler": "AdminController.cooperationRequestDetail",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/dashboard",
+      "handler": "AdminController.dashboard",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.dashboard.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/experience",
+      "handler": "TemplateController.experience",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest",
+      "handler": "OrganizationEventsController.feishuDigestSubscription",
+      "actionId": "communications.feishu-digest.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries",
+      "handler": "OrganizationEventsController.feishuDigestDeliveries",
+      "actionId": "communications.feishu-digest.deliveries.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/preview",
+      "handler": "OrganizationEventsController.feishuDigestPreview",
+      "actionId": "communications.feishu-digest.preview",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.read",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/inventory",
+      "handler": "CommerceController.inventory",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.read",
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices",
+      "handler": "InvoiceController.list",
+      "actionId": "invoices.list",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId",
+      "handler": "InvoiceController.detail",
+      "actionId": "invoices.get",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/download",
+      "handler": "InvoiceController.downloadDocument",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/export-jobs/:exportJobId",
+      "handler": "InvoiceController.exportJob",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/export-jobs/:exportJobId/download",
+      "handler": "InvoiceController.downloadExport",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/export.csv",
+      "handler": "InvoiceController.exportCsv",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.export"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/invoices/pending-count",
+      "handler": "InvoiceController.pendingCount",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/orders",
+      "handler": "AdminController.orders",
+      "actionId": "commerce.orders.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registration-forms",
+      "handler": "ContentFormsController.forms",
+      "actionId": "content.registration-forms.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations",
+      "handler": "AdminController.registrations",
+      "actionId": "registrations.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId",
+      "handler": "AdminController.registrationDetail",
+      "actionId": "registrations.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/operations-detail",
+      "handler": "AdminController.registrationOperationsDetail",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registrations/export.csv",
+      "handler": "EngagementController.exportRegistrations",
+      "actionId": "exports.registrations.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.export"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/releases",
+      "handler": "OrganizationEventsController.releases",
+      "actionId": "events.releases.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/speakers",
+      "handler": "ContentFormsController.speakers",
+      "actionId": "content.speakers.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/speakers/:speakerId",
+      "handler": "ContentFormsController.speaker",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/template-binding",
+      "handler": "TemplateController.binding",
+      "actionId": "templates.event-binding.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/ticket-types/archived",
+      "handler": "ContentFormsController.archivedTicketTypes",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/waitlist",
+      "handler": "AdminController.waitlist",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/aliyun-sms",
+      "handler": "OrganizationEventsController.aliyunSmsConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/feishu-bot",
+      "handler": "OrganizationEventsController.feishuBotConfiguration",
+      "actionId": "integrations.feishu.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/feishu-bot/chats",
+      "handler": "OrganizationEventsController.feishuBotChats",
+      "actionId": "integrations.feishu.chats.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/status",
+      "handler": "OrganizationEventsController.integrationStatus",
+      "actionId": "integrations.status.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read",
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/wechat-pay",
+      "handler": "OrganizationEventsController.weChatPayConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/notification-deliveries",
+      "handler": "EngagementController.deliveries",
+      "actionId": "communications.deliveries.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.notification.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/notification-templates",
+      "handler": "EngagementController.notificationTemplates",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.notification.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/orders",
+      "handler": "AdminController.orders",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/organization/invitations",
+      "handler": "OrganizationEventsController.invitations",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.member.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/organization/members",
+      "handler": "OrganizationEventsController.members",
+      "actionId": "organization.members.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.member.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/organization/settings",
+      "handler": "OrganizationEventsController.organizationSettings",
+      "actionId": "organization.settings.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/refunds",
+      "handler": "CommerceController.refunds",
+      "actionId": "commerce.refunds.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/registrations",
+      "handler": "AdminController.registrations",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-assets",
+      "handler": "TemplateController.assets",
+      "actionId": "templates.assets.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-html-imports",
+      "handler": "TemplateController.htmlImports",
+      "actionId": "templates.html-imports.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-html-imports/:importId",
+      "handler": "TemplateController.htmlImport",
+      "actionId": "templates.html-imports.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-options",
+      "handler": "TemplateController.options",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.use"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-packages",
+      "handler": "OrganizationEventsController.templates",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/template-variable-catalog",
+      "handler": "TemplateController.variableCatalog",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates",
+      "handler": "TemplateController.list",
+      "actionId": "templates.list",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId",
+      "handler": "TemplateController.detail",
+      "actionId": "templates.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/ai-variable-mappings",
+      "handler": "TemplateController.htmlAiRuns",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/draft",
+      "handler": "TemplateController.draft",
+      "actionId": "templates.draft.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/html-document",
+      "handler": "TemplateController.htmlDocument",
+      "actionId": "templates.html-document.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/usages",
+      "handler": "TemplateController.usages",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/templates/:templateId/versions",
+      "handler": "TemplateController.versions",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/agent-connections/:connectionId/policy",
+      "handler": "AgentHumanController.updatePolicy",
+      "actionId": null,
+      "exclusion": "Human browser connection governance",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/customers/:userId",
+      "handler": "CustomerAdminController.update",
+      "actionId": "customers.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "customer.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId",
+      "handler": "AdminController.updateEvent",
+      "actionId": "events.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.manage",
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/:questionId",
+      "handler": "AdminAttendeeNeedsController.update",
+      "actionId": "attendee-needs.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/attendee-needs/:questionId/moderation",
+      "handler": "AdminAttendeeNeedsController.moderate",
+      "actionId": "attendee-needs.moderate",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/cooperation-requests/:requestId",
+      "handler": "AdminController.updateCooperationRequest",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest",
+      "handler": "OrganizationEventsController.updateFeishuDigestSubscription",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.manage",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/member-showcases/:showcaseId/moderation",
+      "handler": "AdminAttendeeShowcaseController.moderate",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "customer.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/public-url",
+      "handler": "OrganizationEventsController.updateEventSlug",
+      "actionId": "events.public-url.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/attendee",
+      "handler": "AdminController.updateRegistrationAttendee",
+      "actionId": "registrations.attendee.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/sessions/:sessionId",
+      "handler": "ContentFormsController.updateSession",
+      "actionId": "content.sessions.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/speakers/:speakerId",
+      "handler": "ContentFormsController.updateSpeaker",
+      "actionId": "content.speakers.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId",
+      "handler": "ContentFormsController.updateTicketType",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/integrations/aliyun-sms",
+      "handler": "OrganizationEventsController.updateAliyunSmsConfiguration",
+      "actionId": "integrations.aliyun-sms.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/integrations/feishu-bot",
+      "handler": "OrganizationEventsController.updateFeishuBotConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/integrations/wechat-pay",
+      "handler": "OrganizationEventsController.updateWeChatPayConfiguration",
+      "actionId": "integrations.wechat-pay.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/administrators/:membershipId",
+      "handler": "OrganizationEventsController.updateAdministratorCredentials",
+      "actionId": "organization.administrators.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "*"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/members/:membershipId",
+      "handler": "OrganizationEventsController.updateMember",
+      "actionId": "organization.members.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/members/:membershipId/status",
+      "handler": "OrganizationEventsController.updateMemberStatus",
+      "actionId": "organization.members.status",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/organization/settings",
+      "handler": "OrganizationEventsController.updateOrganizationSettings",
+      "actionId": "organization.settings.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/templates/:templateId",
+      "handler": "TemplateController.update",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-authorizations/:authorizationId/approve",
+      "handler": "AgentHumanController.approveAuthorization",
+      "actionId": null,
+      "exclusion": "Human browser authorization decision",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-authorizations/:authorizationId/deny",
+      "handler": "AgentHumanController.denyAuthorization",
+      "actionId": null,
+      "exclusion": "Human browser authorization decision",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-connections/:connectionId/revoke",
+      "handler": "AgentHumanController.revokeConnection",
+      "actionId": null,
+      "exclusion": "Human browser connection governance",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-connections/revoke-all",
+      "handler": "AgentHumanController.revokeAll",
+      "actionId": null,
+      "exclusion": "Human browser emergency revocation",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-operations/:operationId/approve",
+      "handler": "AgentHumanController.approveOperation",
+      "actionId": null,
+      "exclusion": "Human browser operation approval",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/agent-operations/:operationId/deny",
+      "handler": "AgentHumanController.denyOperation",
+      "actionId": null,
+      "exclusion": "Human browser operation approval",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/ai/generate",
+      "handler": "EngagementController.generate",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.ai.generate"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/ai/runs/:runId/approve",
+      "handler": "EngagementController.approve",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.ai.approve"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/checkins/sync",
+      "handler": "EngagementController.sync",
+      "actionId": "checkin.sync",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.checkin.execute"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/customers",
+      "handler": "CustomerAdminController.create",
+      "actionId": "customers.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "customer.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events",
+      "handler": "OrganizationEventsController.createEvent",
+      "actionId": "events.create",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.manage",
+        "org.template.use"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/checkin-devices",
+      "handler": "EngagementController.registerDevice",
+      "actionId": "checkin.devices.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.checkin.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/experience/preview",
+      "handler": "TemplateController.preview",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.site.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/experience/validate",
+      "handler": "TemplateController.validateExperience",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/resend",
+      "handler": "OrganizationEventsController.resendFeishuDigestDelivery",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.manage",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/send-test",
+      "handler": "OrganizationEventsController.sendFeishuDigestTest",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.manage",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/approve",
+      "handler": "InvoiceController.approve",
+      "actionId": "invoices.approve",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/cancel",
+      "handler": "InvoiceController.cancel",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/details-reminder",
+      "handler": "InvoiceController.requestDetailsReminder",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/document-uploads",
+      "handler": "InvoiceController.prepareDocumentUpload",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents",
+      "handler": "InvoiceController.document",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/replace-file",
+      "handler": "InvoiceController.replaceDocumentFile",
+      "actionId": "invoices.documents.replace",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/void",
+      "handler": "InvoiceController.voidDocument",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/issue-failed",
+      "handler": "InvoiceController.issueFailed",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/reject",
+      "handler": "InvoiceController.reject",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/retry",
+      "handler": "InvoiceController.retry",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/send",
+      "handler": "InvoiceController.send",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/batch-imports/preflight",
+      "handler": "InvoiceController.preflightBatchImport",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/export-jobs/:exportJobId/retry",
+      "handler": "InvoiceController.retryExport",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.export"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/registration-forms/publish",
+      "handler": "ContentFormsController.publishForm",
+      "actionId": "content.registration-forms.publish",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/notes",
+      "handler": "AdminController.addRegistrationNote",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/registrations/:registrationId/review",
+      "handler": "AdminController.reviewRegistration",
+      "actionId": "registrations.review",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/releases",
+      "handler": "OrganizationEventsController.publish",
+      "actionId": "events.releases.publish",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.site.publish"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/releases/:releaseId/rollback",
+      "handler": "OrganizationEventsController.rollback",
+      "actionId": "events.releases.rollback",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.site.publish"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/save-as-template",
+      "handler": "TemplateController.saveEventAsTemplate",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.manage",
+        "org.template.manage",
+        "org.template.publish"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/sessions",
+      "handler": "ContentFormsController.createSession",
+      "actionId": "content.sessions.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/speaker-images",
+      "handler": "ContentFormsController.createSpeakerImage",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/speaker-images/uploads",
+      "handler": "ContentFormsController.prepareSpeakerImageUpload",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/speakers",
+      "handler": "ContentFormsController.createSpeaker",
+      "actionId": "content.speakers.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/ticket-types",
+      "handler": "ContentFormsController.createTicketType",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId/restore",
+      "handler": "ContentFormsController.restoreTicketType",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/integrations/aliyun-sms/test",
+      "handler": "OrganizationEventsController.testAliyunSmsConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/integrations/feishu-bot/chats/refresh",
+      "handler": "OrganizationEventsController.refreshFeishuBotChats",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/integrations/feishu-bot/verify",
+      "handler": "OrganizationEventsController.verifyFeishuBot",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/integrations/wechat-pay/test",
+      "handler": "OrganizationEventsController.testWeChatPayConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/inventory/release-expired",
+      "handler": "CommerceController.releaseExpired",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.inventory.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/notifications/queue",
+      "handler": "EngagementController.queue",
+      "actionId": "communications.notifications.queue",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.notification.send"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/orders/:orderId/refunds",
+      "handler": "CommerceController.refund",
+      "actionId": "commerce.refunds.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/organization/administrators",
+      "handler": "OrganizationEventsController.createAdministrator",
+      "actionId": "organization.administrators.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "*"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/organization/invitations",
+      "handler": "OrganizationEventsController.createInvitation",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.member.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-assets",
+      "handler": "TemplateController.createAsset",
+      "actionId": "templates.assets.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-assets/uploads",
+      "handler": "TemplateController.prepareAssetUpload",
+      "actionId": "templates.assets.upload.prepare",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports",
+      "handler": "TemplateController.prepareHtmlImport",
+      "actionId": "templates.html-imports.prepare",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/commit",
+      "handler": "TemplateController.commitHtmlImport",
+      "actionId": "templates.html-imports.commit",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/retry",
+      "handler": "TemplateController.retryHtmlImport",
+      "actionId": "templates.html-imports.retry",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/template-html-imports/:importId/scan",
+      "handler": "TemplateController.scanHtmlImport",
+      "actionId": "templates.html-imports.scan",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates",
+      "handler": "TemplateController.create",
+      "actionId": "templates.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/ai-variable-mappings",
+      "handler": "TemplateController.createHtmlAiRun",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.ai.generate"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/ai-variable-mappings/:runId/apply",
+      "handler": "TemplateController.applyHtmlAiRun",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/ai-variable-mappings/:runId/cancel",
+      "handler": "TemplateController.cancelHtmlAiRun",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.ai.generate"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/ai-variable-mappings/:runId/reject",
+      "handler": "TemplateController.rejectHtmlAiRun",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/archive",
+      "handler": "TemplateController.archive",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/duplicate",
+      "handler": "TemplateController.duplicate",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/html-preview",
+      "handler": "TemplateController.htmlPreview",
+      "actionId": "templates.html-preview.create",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/publish",
+      "handler": "TemplateController.publish",
+      "actionId": "templates.publish",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.publish"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/templates/:templateId/restore",
+      "handler": "TemplateController.restore",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/step-up",
+      "handler": "AgentHumanController.stepUp",
+      "actionId": null,
+      "exclusion": "A human super administrator must enter the password in the TokEMS browser",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/events/:eventId/experience/:surface",
+      "handler": "TemplateController.saveExperience",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/events/:eventId/speakers/order",
+      "handler": "ContentFormsController.reorderSpeakers",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.content.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/events/:eventId/template-binding",
+      "handler": "TemplateController.updateBinding",
+      "actionId": "templates.event-binding.update",
+      "exclusion": null,
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.manage",
+        "org.template.use"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/analytics",
+      "handler": "OrganizationEventsController.updateOrganizationAnalytics",
+      "actionId": "organization.analytics.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.analytics.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/homepage-event",
+      "handler": "OrganizationEventsController.setOrganizationHomepageEvent",
+      "actionId": "organization.homepage-event.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/templates/:templateId/draft",
+      "handler": "TemplateController.saveDraft",
+      "actionId": "templates.draft.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/templates/:templateId/html-bindings",
+      "handler": "TemplateController.saveHtmlBindings",
+      "actionId": "templates.html-bindings.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.template.manage"
+      ],
+      "requiredAllGrants": []
+    }
+  ],
+  "templates": {
+    "homeBlockTypes": [
+      "navigation",
+      "hero",
+      "stats",
+      "value",
+      "agenda",
+      "speakers",
+      "members",
+      "attendee-needs",
+      "cooperation",
+      "tickets",
+      "faq-summary",
+      "organizer",
+      "registration-cta",
+      "footer"
+    ],
+    "flowStepTypes": [
+      "ticket-selection",
+      "attendee-form",
+      "review-payment",
+      "success-ticket",
+      "member-profile",
+      "attendee-needs",
+      "waitlist",
+      "manual-review",
+      "invoice-details"
+    ],
+    "stableNodeKeys": {
+      "home": [
+        "home.navigation",
+        "home.hero",
+        "home.stats",
+        "home.value",
+        "home.upgrade",
+        "home.agenda",
+        "home.speakers",
+        "home.members",
+        "home.organizer",
+        "home.cooperation",
+        "home.attendee-needs",
+        "home.tickets",
+        "home.faq-summary",
+        "home.registration-cta",
+        "home.footer"
+      ],
+      "faq": [
+        "faq.platform",
+        "faq.beginner",
+        "faq.returning",
+        "faq.workshop",
+        "faq.materials",
+        "faq.refund",
+        "faq.invoice"
+      ],
+      "registrationFlow": [
+        "flow.ticket-selection",
+        "flow.attendee-form",
+        "flow.review-payment",
+        "flow.success-ticket",
+        "flow.member-profile",
+        "flow.attendee-needs"
+      ]
+    },
+    "organizationGroupFields": [
+      "key",
+      "label",
+      "meta",
+      "organizations"
+    ],
+    "organizationGroupKeys": [
+      "speaker",
+      "media",
+      "member"
+    ],
+    "patchInput": {
+      "topLevelFields": [
+        "faqItems",
+        "flowSteps",
+        "homeBlocks",
+        "homeOrder",
+        "organizationGroups",
+        "seo"
+      ],
+      "homeBlockFields": [
+        "content",
+        "enabled",
+        "label",
+        "nodeKey",
+        "variant"
+      ],
+      "flowStepFields": [
+        "enabled",
+        "helpText",
+        "nodeKey",
+        "title",
+        "variant"
+      ],
+      "faqItemFields": [
+        "answer",
+        "category",
+        "enabled",
+        "nodeKey",
+        "operation",
+        "question"
+      ],
+      "contentNullSemantics": "delete-key",
+      "orderingSemantics": "complete-unique-node-key-list"
+    }
+  },
+  "inputs": {
+    "speakers": {
+      "create": [
+        "accentFrom",
+        "accentTo",
+        "avatarAssetId",
+        "bio",
+        "initials",
+        "name",
+        "publicCode",
+        "role",
+        "socialLinks",
+        "sortOrder",
+        "tags",
+        "topic",
+        "topicAbstract",
+        "websiteUrl"
+      ],
+      "update": [
+        "accentFrom",
+        "accentTo",
+        "avatarAssetId",
+        "bio",
+        "initials",
+        "name",
+        "publicCode",
+        "role",
+        "socialLinks",
+        "sortOrder",
+        "tags",
+        "topic",
+        "topicAbstract",
+        "websiteUrl"
+      ]
+    },
+    "attendeeNeeds": {
+      "list": [
+        "moderationStatus",
+        "page",
+        "pageSize",
+        "query",
+        "questionId",
+        "submittedFrom",
+        "submittedTo",
+        "tag",
+        "visibility"
+      ],
+      "update": [
+        "content",
+        "reason",
+        "tagCodes",
+        "version"
+      ],
+      "moderate": [
+        "action",
+        "reason",
+        "version"
+      ],
+      "export": [
+        "forceAnonymous",
+        "moderationStatus",
+        "query",
+        "questionId",
+        "submittedFrom",
+        "submittedTo",
+        "tag",
+        "variant",
+        "visibility"
+      ]
+    }
+  }
+}

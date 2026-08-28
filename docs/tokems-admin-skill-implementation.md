@@ -1,8 +1,8 @@
 # TokEMS Admin Skill 实施说明
 
-版本：`0.1.1`
+版本：`0.2.0`
 状态：`experimental`
-日期：2026-08-17
+日期：2026-08-25
 
 ## 当前结论
 
@@ -30,6 +30,8 @@ TokEMS Agent 管理平面、Node.js 连接器、后台审批界面和 governed S
 - 覆盖测试从 `AppModule` 递归发现模块，要求未分类 handler、无 handler action 和重复映射均为零。
 - 管理员启停固定升级为 `critical`，要求 `tokems:dangerous` 和浏览器密码 step-up。
 - 订单金额、支付事实、支付流水与任意订单字段修改继续排除。
+- Catalog `1.2.0` 发布 87 个动作。新增四个参会需求动作和五个飞书只读动作；飞书写入、发送、启停、刷新与重发继续排除。
+- 与 catalog 绑定的 `references/system-contracts.json` 保存动作、管理 handler、模板节点和输入字段快照，CI 在漂移时失败。
 
 ### 授权与连接
 
@@ -72,9 +74,11 @@ TokEMS Agent 管理平面、Node.js 连接器、后台审批界面和 governed S
 
 Skill 位于 `skills/tokems-admin/`，支持 Codex macOS 和 Linux desktop，Node.js 最低版本为 24。
 
-连接器提供实例发现、设备授权、连接选择、撤销、诊断、capability 同步、固定 action 检查、敏感读取用途、operation 生命周期、一次性秘密恢复和加密 artifact 下载。所有成功命令向 stdout 写入一个脱敏 JSON 对象，浏览器 URL 与授权进度写入 stderr。
+连接器提供实例发现、设备授权、连接选择、撤销、诊断、capability 同步、固定 action 检查、敏感读取用途、operation 生命周期、安全模板局部修改、一次性秘密恢复和加密 artifact 下载。模板局部修改先读取实时草稿与 revision，再按稳定 `nodeKey` 生成完整草稿请求；未知节点、重复节点和不完整排序会在准备操作前停止。所有成功命令向 stdout 写入一个脱敏 JSON 对象，浏览器 URL 与授权进度写入 stderr。
 
-模板资产与 HTML import 的签名上传元数据通过加密 artifact 交接。版本 `0.1.1` 仍由受保护的 TokEMS 上传流程完成独立对象存储的二进制上传。
+模板 `organizationGroups` 支持嘉宾、媒体和参会会员三组机构覆盖、动态兜底、显式隐藏、顺序控制及跨组去重。嘉宾输入覆盖 `publicCode`、`bio`、`topicAbstract`、`socialLinks` 等完整资料字段。模板资产与 HTML import 的签名上传元数据通过加密 artifact 交接。版本 `0.2.0` 仍由受保护的 TokEMS 上传流程完成独立对象存储的二进制上传。
+
+参会需求读取要求用途与 `tokems:pii`；修改和治理要求版本及原因；导出固定进入关键审批，嘉宾版强制匿名并通过 mode `0600` artifact 下载。飞书日报预览要求用途与 `tokems:finance`。旧连接需要使用 `0.2.0` 重新授权。
 
 ## 审查修复摘要
 

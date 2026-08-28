@@ -4,7 +4,7 @@
     "exact HTTPS TokEMS origin or development loopback",
     "Device Authorization connection approved by a current super administrator",
     "catalog action ID and organization-scoped resource identifiers",
-    "file-backed parameter, request body, and reason inputs",
+    "file-backed parameter, request body, template patch, purpose, and reason inputs",
     "browser approval for the effective risk policy"
   ],
   "primary_output": "One redacted JSON envelope with action, connection, organization, risk, operation state, verification, artifact digest, warnings, rollback boundary, and trace ID.",
@@ -24,7 +24,8 @@
     "missing evidence is reported literally as missing evidence"
   ],
   "standards": [
-    "zero unclassified surfaced management handlers",
+    "87 unique released actions and zero unclassified surfaced management handlers",
+    "catalog-bound system contract snapshot passes runtime drift comparison",
     "positive, negative, near-neighbor, prompt-injection, cross-organization, and output-contract eval coverage",
     "OpenAI and generic conformance, trust, package, install, and upgrade gates pass",
     "status remains experimental until real production acceptance evidence exists"

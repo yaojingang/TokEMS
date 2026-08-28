@@ -11,9 +11,9 @@
       "evidence": ["SKILL.md", "scripts/lib/catalog.mjs", "scripts/lib/operations.mjs"],
       "target_enforcement": {
         "openai": "Codex asks for access to user-selected input files and the connector reads only explicit option values.",
-        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "claude": "Target is not released in version 0.2.0; canonical policy remains authoritative.",
         "generic": "Host must expose only user-selected input files to the connector.",
-        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+        "vscode": "Target is not released in version 0.2.0; canonical policy remains authoritative."
       }
     },
     "network": {
@@ -29,9 +29,9 @@
       ],
       "target_enforcement": {
         "openai": "Connector validates and pins one exact origin; Codex workspace permission remains reviewer-visible.",
-        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "claude": "Target is not released in version 0.2.0; canonical policy remains authoritative.",
         "generic": "Adapter requires the connector origin validator and redirect-denying fetch wrapper.",
-        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+        "vscode": "Target is not released in version 0.2.0; canonical policy remains authoritative."
       }
     },
     "file_write": {
@@ -47,9 +47,9 @@
       ],
       "target_enforcement": {
         "openai": "Connector resolves dedicated state storage, rejects relative artifact paths, and applies mode 0600.",
-        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "claude": "Target is not released in version 0.2.0; canonical policy remains authoritative.",
         "generic": "Host must preserve filesystem permissions and the packaged connector checks them.",
-        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+        "vscode": "Target is not released in version 0.2.0; canonical policy remains authoritative."
       }
     },
     "subprocess": {
@@ -65,9 +65,9 @@
       ],
       "target_enforcement": {
         "openai": "Connector uses spawnSync argument arrays with shell disabled and a strict helper allow-list.",
-        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "claude": "Target is not released in version 0.2.0; canonical policy remains authoritative.",
         "generic": "Adapter requires an approved Keychain or Secret Service helper and the same fixed invocation contract.",
-        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+        "vscode": "Target is not released in version 0.2.0; canonical policy remains authoritative."
       }
     },
     "interactive": {
@@ -79,9 +79,9 @@
       "evidence": ["references/authorization.md", "references/safety-and-approvals.md", "SKILL.md"],
       "target_enforcement": {
         "openai": "Connector emits a browser verification URL to stderr and one redacted JSON result to stdout.",
-        "claude": "Target is not released in version 0.1.1; canonical policy remains authoritative.",
+        "claude": "Target is not released in version 0.2.0; canonical policy remains authoritative.",
         "generic": "Host must display the verification URL and preserve the one-JSON stdout contract.",
-        "vscode": "Target is not released in version 0.1.1; canonical policy remains authoritative."
+        "vscode": "Target is not released in version 0.2.0; canonical policy remains authoritative."
       }
     }
   }

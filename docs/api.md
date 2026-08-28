@@ -44,7 +44,7 @@ Agent Access 默认关闭，通过 OAuth Device Authorization 将本地 `tokems-
 
 写请求需要 `X-Agent-Operation-Id`、`X-Agent-Request-Hash`、`X-Agent-Before-Fingerprint` 与 `X-Agent-Current-Before-Fingerprint`。API 在进入领域逻辑前核对已批准操作、正文哈希、准备时前态、执行前新鲜前态以及路由参数和查询参数的目标指纹。`checkin.sync` 的设备令牌通过固定的 `X-Device-Token` 头传递。敏感读取还需要 `X-Agent-Purpose`。未知管理路由固定拒绝；动作目录未分类检查在 CI 中要求为零。
 
-当前 catalog 版本发布 78 个动作并映射到 78 个管理 handler。普通报名、用户、订单、退款和发票列表在 Agent 响应离开 API 前执行 PII 掩码；敏感详情需要 `tokems:pii`、明确用途和读取审计。公开内容执行成功后，官方连接器同时读取管理验证动作、公开大会或首页 API，以及已发布 `home-document`，再把组合证据摘要写回 operation。
+当前 catalog `1.2.0` 发布 87 个动作并映射到 87 个管理 handler，最低 Skill 版本为 `0.2.0`，API 主版本保持 `1.0.0`。普通报名、用户、订单、退款和发票列表在 Agent 响应离开 API 前执行 PII 掩码；敏感详情和参会需求读取需要 `tokems:pii`、明确用途和读取审计。飞书日报预览需要 `tokems:finance` 和用途说明。公开内容执行成功后，官方连接器同时读取管理验证动作、公开大会或首页 API、已发布 `home-document`，参会问题治理还会读取公开问题列表，再把组合证据摘要写回 operation。
 
 Scope 包含 `tokems:read`、`tokems:pii`、`tokems:write`、`tokems:finance`、`tokems:communications`、`tokems:export`、`tokems:security` 和 `tokems:dangerous`。`tokems:*` 只作为超级管理员授权界面的全量选择语义，令牌中保存展开后的具体 scope。
 

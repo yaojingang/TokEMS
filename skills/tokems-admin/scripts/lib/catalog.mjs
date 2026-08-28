@@ -2,14 +2,30 @@ import { readFile } from 'node:fs/promises';
 import { authenticatedFetch, loadProfile } from './auth.mjs';
 import { saveJson } from './files.mjs';
 
+const CATALOG_VERSION = '1.2.0';
+
 export async function syncCapabilities(connectionId) {
   const profile = loadProfile(connectionId);
+  if (profile.catalogVersion !== CATALOG_VERSION) {
+    const error = new Error(
+      `This connection uses Agent catalog ${profile.catalogVersion || 'unknown'}; reconnect with TokEMS Admin Skill 0.2.0`,
+    );
+    error.code = 'AGENT_REAUTHORIZATION_REQUIRED';
+    throw error;
+  }
   const { value } = await authenticatedFetch(profile.connectionId, '/api/v1/agent/capabilities');
   const clientMajor = 1;
   const apiMajor = Number(String(value.apiVersion || '0').split('.')[0]);
   if (apiMajor !== clientMajor) {
     const error = new Error('TokEMS Agent API major version is unsupported by this Skill');
     error.code = 'AGENT_VERSION_UNSUPPORTED';
+    throw error;
+  }
+  if (value.catalogVersion !== CATALOG_VERSION) {
+    const error = new Error(
+      `TokEMS Agent catalog ${value.catalogVersion || 'unknown'} is unsupported; authorize a 1.2.0 connection`,
+    );
+    error.code = 'AGENT_CATALOG_UNSUPPORTED';
     throw error;
   }
   await saveJson(`catalog-${profile.connectionId}.json`, value);
@@ -64,7 +80,7 @@ export function actionPath(action, params) {
 
 export async function inspectAction(actionId, params, connectionId, purposePath) {
   const { action } = await actionDefinition(actionId, connectionId);
-  if (action.method !== 'GET') {
+  if (action.method !== 'GET' || action.confirmation !== 'none') {
     return { action, target: params, requiresPrepare: true };
   }
   let purpose;

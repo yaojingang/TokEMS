@@ -2,9 +2,9 @@
 
 > 状态：最终待批准
 > 方案版本：v2.0
-> 评审日期：2026-08-17
+> 评审日期：2026-08-25
 > 目标形态：Governed Agent Skill + TokEMS Agent Access
-> 当前阶段：`0.1.1` experimental 已完成安全复审，启用与生产验收见 [TokEMS Admin Skill 实施说明](tokems-admin-skill-implementation.md)
+> 当前阶段：`0.2.0` experimental 已完成 catalog `1.2.0`、模板局部修改、参会需求和飞书只读能力升级，启用与生产验收见 [TokEMS Admin Skill 实施说明](tokems-admin-skill-implementation.md)
 
 ## 方案结论
 
@@ -295,7 +295,7 @@ PII 导出、批量用户明细和发票文件下载均进入浏览器审批。�
   "verifyActionId": "templates.draft.get",
   "reconcileActionId": "templates.draft.get",
   "rollback": "restore-prior-revision",
-  "minClientVersion": "0.1.1"
+  "minClientVersion": "0.2.0"
 }
 ```
 
@@ -507,6 +507,7 @@ tokems-admin connection revoke --connection <id>
 tokems-admin capabilities sync --connection <id>
 tokems-admin action inspect --action <id> --params-file <path>
 tokems-admin action prepare --action <id> --params-file <path> --input-file <path> --reason-file <path>
+tokems-admin template patch --template <id> --patch-file <path> --reason-file <path>
 tokems-admin action confirm --operation <id>
 tokems-admin action execute --operation <id>
 tokems-admin operation status --operation <id>

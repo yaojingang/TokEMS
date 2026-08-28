@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
   "ok": true,
-  "generated_at": "2026-08-17",
+  "generated_at": "2026-08-26",
   "skill_dir": "/Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin",
   "summary": {
     "ledger_ready_to_claim_world_class": false,
     "ledger_pending_count": 4,
-    "claim_surface_count": 113,
-    "json_claim_surface_count": 67,
-    "metadata_claim_surface_count": 68,
+    "claim_surface_count": 116,
+    "json_claim_surface_count": 69,
+    "metadata_claim_surface_count": 70,
     "package_claim_surface_count": 5,
     "violation_count": 0,
     "overclaim_guard_active": true,
@@ -68,6 +68,10 @@
     },
     {
       "path": "manifest.json",
+      "violation_count": 0
+    },
+    {
+      "path": "registry/history/tokems-admin-0.1.1.json",
       "violation_count": 0
     },
     {
@@ -312,6 +316,14 @@
     },
     {
       "path": "reports/route_scorecard.md",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/runtime_permission_matrix.json",
+      "violation_count": 0
+    },
+    {
+      "path": "reports/runtime_permission_matrix.md",
       "violation_count": 0
     },
     {

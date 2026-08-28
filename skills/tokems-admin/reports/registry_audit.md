@@ -2,12 +2,12 @@
 
 - OK: `True`
 - Package: `tokems-admin`
-- Version: `0.1.1`
+- Version: `0.2.0`
 - Maturity: `governed`
 - Owner: `TokEMS Maintainers`
 - License: `AGPL-3.0-only`
-- Package SHA256: `8f766d521278df7badc500f1d59d796cca067631694fe0fdfbbfe3b3da17d6a9`
-- Archive SHA256: `0646cb364af54c44aff1904d9774d6dfde4a939beb5e7d9b22840378e5e5ba0f`
+- Package SHA256: `b29c5a45d4aabb4fdfdf81e4d9f83905c817861ec2d9f0be79b75440b1b08b32`
+- Archive SHA256: `eff907147a327273cbc1ad725522d68fc204d5719aa4aa8d25e7f8878b88cb5d`
 - Install simulated: `True`
 
 ## Compatibility

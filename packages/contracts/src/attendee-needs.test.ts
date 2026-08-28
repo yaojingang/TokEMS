@@ -3,15 +3,16 @@ import {
   ATTENDEE_NEED_CONSENT_VERSION,
   ATTENDEE_NEED_TOPIC_OPTIONS,
   AdminAttendeeNeedItemSchema,
+  AdminAttendeeNeedListQuerySchema,
   ConferenceTemplateDefinitionSchema,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
-  normalizeConferenceTemplateDefinition,
   PublicAttendeeNeedItemSchema,
   PublicAttendeeNeedListQuerySchema,
   PublicAttendeeNeedListSchema,
   ModerateAttendeeNeedQuestionSchema,
   UpdateAdminAttendeeNeedQuestionSchema,
   UpdateAttendeeNeedsSchema,
+  normalizeConferenceTemplateDefinition,
 } from './index.js';
 
 const validQuestion = {
@@ -20,6 +21,26 @@ const validQuestion = {
 };
 
 describe('attendee needs contracts', () => {
+  it('supports exact question targeting for governed admin verification', () => {
+    const questionId = crypto.randomUUID();
+    expect(AdminAttendeeNeedListQuerySchema.parse({ questionId })).toMatchObject({
+      questionId,
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('rejects unclassified moderation fields', () => {
+    expect(
+      ModerateAttendeeNeedQuestionSchema.safeParse({
+        version: 1,
+        action: 'hide',
+        reason: '等待复核',
+        publishImmediately: true,
+      }).success,
+    ).toBe(false);
+  });
+
   it('ships exactly twenty stable topics', () => {
     expect(ATTENDEE_NEED_TOPIC_OPTIONS).toHaveLength(20);
     expect(new Set(ATTENDEE_NEED_TOPIC_OPTIONS.map((item) => item.code)).size).toBe(20);
@@ -213,20 +234,27 @@ describe('attendee needs contracts', () => {
     ).toBe(false);
   });
 
-  it('adds disabled attendee-needs nodes to the structured template', () => {
+  it('publishes attendee questions before tickets and enables the submission flow', () => {
     expect(DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.kind).toBe('structured');
     if (DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.kind !== 'structured') return;
 
-    expect(
-      DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.registrationFlow.steps.some(
-        (step) => step.nodeKey === 'flow.attendee-needs' && !step.enabled,
-      ),
-    ).toBe(true);
-    expect(
-      DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.home.blocks.some(
-        (block) => block.nodeKey === 'home.attendee-needs' && !block.enabled,
-      ),
-    ).toBe(true);
+    const attendeeNeedsStep = DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.registrationFlow.steps.find(
+      (step) => step.nodeKey === 'flow.attendee-needs',
+    );
+    const homeBlocks = DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.home.blocks;
+    const attendeeNeedsIndex = homeBlocks.findIndex(
+      (block) => block.nodeKey === 'home.attendee-needs',
+    );
+    const ticketsIndex = homeBlocks.findIndex((block) => block.nodeKey === 'home.tickets');
+
+    expect(attendeeNeedsStep?.enabled).toBe(true);
+    expect(attendeeNeedsIndex).toBeGreaterThanOrEqual(0);
+    expect(attendeeNeedsIndex + 1).toBe(ticketsIndex);
+    expect(homeBlocks[attendeeNeedsIndex]).toMatchObject({
+      enabled: true,
+      label: '大家关心的问题',
+      content: { title: '大家关心的问题' },
+    });
   });
 
   it('upgrades an existing structured template with disabled attendee-needs nodes', () => {
@@ -315,9 +343,7 @@ describe('attendee needs contracts', () => {
       throw new Error('expected structured template');
     }
     expect(
-      normalized.presentation.home.blocks.find(
-        (block) => block.nodeKey === 'home.attendee-needs',
-      ),
+      normalized.presentation.home.blocks.find((block) => block.nodeKey === 'home.attendee-needs'),
     ).toMatchObject({ type: 'attendee-needs', enabled: false });
     expect(
       normalized.registrationFlow.steps.find((step) => step.nodeKey === 'flow.attendee-needs'),

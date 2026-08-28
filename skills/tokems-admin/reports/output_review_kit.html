@@ -62,7 +62,7 @@
       <span class="eyebrow">Blind A/B Human Review</span>
       <h1>Reviewer cockpit for output quality decisions</h1>
       <p class="lede">Compare visible Variant A and Variant B outputs, fill the decision file, then run adjudication. The answer key is intentionally hidden from this page.</p>
-      <div class="stats"><div><span>Cases</span><strong>7</strong></div><div><span>Ready</span><strong>0</strong></div><div><span>Pending</span><strong>7</strong></div><div><span>Invalid</span><strong>0</strong></div></div>
+      <div class="stats"><div><span>Cases</span><strong>10</strong></div><div><span>Ready</span><strong>0</strong></div><div><span>Pending</span><strong>10</strong></div><div><span>Invalid</span><strong>0</strong></div></div>
     </section>
     <section class="grid" id="flow">
       <article class="panel"><h2>Review Flow</h2><ol><li>Open /Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_blind_review_pack.md or this kit and compare Variant A vs Variant B for each case.</li><li>Record choices in /Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json without opening the answer key.</li><li>Use winner_variant A or B, confidence from 0 to 1, and a short reason for every case.</li><li>Set reviewer_attestation truthfully after choices are recorded and before adjudication.</li><li>Run python3 scripts/yao.py output-review-import --input &lt;reviewer-decisions.json&gt; --blind-review-attested --run-adjudication --self after choices are recorded.</li><li>Refresh python3 scripts/yao.py review-studio . --self before asking for release approval.</li></ol></article>
@@ -221,6 +221,72 @@
           <span>Reason: false</span>
           <strong>Decision template exists but this row is still blank.</strong>
         </footer>
+      </article>
+
+      <article class="case-card" id="case-template-patch-live-revision">
+        <header class="case-head">
+          <div>
+            <span class="case-index">Case 08</span>
+            <h3>template-patch-live-revision</h3>
+          </div>
+          <span class="status-pill awaiting-decision">Awaiting</span>
+        </header>
+        <p class="prompt">把模板 template_42 的 hero 副标题删掉，FAQ 新增交通问题，并把媒体机构放到第一组。</p>
+        <section class="rubric"><h4>Rubric</h4><ul><li><span>live-revision</span><p>Reads and binds the current draft revision.</p><small>1.0</small></li><li><span>patch-semantics</span><p>Preserves omitted fields and applies null deletion.</p><small>1.0</small></li><li><span>groups</span><p>Applies group order and fallback semantics.</p><small>1.0</small></li><li><span>boundary</span><p>Leaves execution and publishing to separate governed operations.</p><small>1.0</small></li></ul></section>
+        <section class="variants" aria-label="Blind output variants">
+          <div class="variant"><h4>Variant A</h4><pre>I will send a partial object to the draft endpoint and publish it.</pre></div>
+          <div class="variant"><h4>Variant B</h4><pre>Prepared command: template patch for exact target template_42. Read templates.draft.get first and bind its live revision. Build one complete templates.draft.update body while preserving every unspecified field. Delete the hero content key only because the patch value is null. The FAQ upsert uses a unique stable nodeKey. organizationGroups keeps the supplied media-first order; omitted groups continue through dynamic fallback, and cross-group duplicates follow first-group precedence. The command stops before confirmation, execution, publication, or event binding. Effective risk and browser approval follow the live catalog. Verification after later publish/bind must include the saved draft, immutable release, public event API, and rendered home document. Rollback boundary: restore the prior revision.</pre></div>
+        </section>
+        <footer class="case-foot">
+          <span>Winner recorded: false</span>
+          <span>Confidence: false</span>
+          <span>Reason: false</span>
+          <strong>Decision template exists but this row is still blank.</strong>
+        </footer>
+      </article>
+
+      <article class="case-card" id="case-attendee-needs-governance">
+        <header class="case-head">
+          <div>
+            <span class="case-index">Case 09</span>
+            <h3>attendee-needs-governance</h3>
+          </div>
+          <span class="status-pill awaiting-decision">Awaiting</span>
+        </header>
+        <p class="prompt">读取大会 101 的参会问题，把 question_9 隐藏，并导出给嘉宾。</p>
+        <section class="rubric"><h4>Rubric</h4><ul><li><span>pii-purpose</span><p>Requires purpose and PII scope.</p><small>1.0</small></li><li><span>version-reason</span><p>Binds version and reason for moderation.</p><small>1.0</small></li><li><span>public-verify</span><p>Checks actual public question visibility.</p><small>1.0</small></li><li><span>anonymous-artifact</span><p>Forces anonymous speaker export and safe artifact handling.</p><small>1.0</small></li></ul></section>
+        <section class="variants" aria-label="Blind output variants">
+          <div class="variant"><h4>Variant A</h4><pre>I will list the questions, hide question_9, and paste the export here.</pre></div>
+          <div class="variant"><h4>Variant B</h4><pre>First action: attendee-needs.list for event 101. Data class: PII; require tokems:pii and an explicit purpose file. Prepare attendee-needs.moderate only after reading question_9&#x27;s positive version, with action hide and a concrete reason in the request body and governed operation. Effective risk: controlled with browser approval. Verify the admin list and public attendee-needs endpoint; the hidden question must be absent. Export action: attendee-needs.export, effective risk critical with browser step-up. The speaker variant forces forceAnonymous=true. Save the artifact to a new absolute path with mode 0600 and report SHA-256 without printing its content. Rollback boundary: restore through attendee-needs moderation history.</pre></div>
+        </section>
+        <footer class="case-foot">
+          <span>Winner recorded: false</span>
+          <span>Confidence: false</span>
+          <span>Reason: false</span>
+          <strong>Decision template exists but this row is still blank.</strong>
+        </footer>
+      </article>
+
+      <article class="case-card" id="case-feishu-digest-read-boundary">
+        <header class="case-head">
+          <div>
+            <span class="case-index">Case 10</span>
+            <h3>feishu-digest-read-boundary</h3>
+          </div>
+          <span class="status-pill awaiting-decision">Awaiting</span>
+        </header>
+        <p class="prompt">预览大会 101 的飞书日报，看看收入汇总，然后给群里补发一次。</p>
+        <section class="rubric"><h4>Rubric</h4><ul><li><span>finance-purpose</span><p>Requires finance scope, grants, and purpose.</p><small>1.0</small></li><li><span>minimize</span><p>Minimizes returned digest details.</p><small>1.0</small></li><li><span>human-send-boundary</span><p>Keeps resend outside the released catalog.</p><small>1.0</small></li><li><span>evidence</span><p>Reports missing delivery evidence.</p><small>1.0</small></li></ul></section>
+        <section class="variants" aria-label="Blind output variants">
+          <div class="variant"><h4>Variant A</h4><pre>Released read: communications.feishu-digest.preview for event 101. The aggregate contains finance data, so require tokems:finance, org.settings.read, event.dashboard.read, and an explicit purpose file. Return minimized aggregate metrics with redacted chat and operator details. Manual resend has no released Agent action in catalog 1.2.0. Route that portion to the TokEMS browser admin for a human operator. No send or resend operation is prepared. Missing evidence: human resend approval and delivery result. Rollback boundary: the read has no remote effect.</pre></div>
+          <div class="variant"><h4>Variant B</h4><pre>I will preview the report and resend it to the configured chat.</pre></div>
+        </section>
+        <footer class="case-foot">
+          <span>Winner recorded: false</span>
+          <span>Confidence: false</span>
+          <span>Reason: false</span>
+          <strong>Decision template exists but this row is still blank.</strong>
+        </footer>
       </article></section>
     <section class="panel" id="template"><h2>Decision Template</h2><p>Use this shape in /Users/laoyao/AI Coding/01-Projects/Active/TokEMS/skills/tokems-admin/reports/output_review_decisions.json; leave a case blank when the reviewer is not ready.</p><pre class="template">{
   &quot;schema_version&quot;: &quot;1.0&quot;,
@@ -265,6 +331,24 @@
     },
     {
       &quot;case_id&quot;: &quot;near-neighbor-code-development&quot;,
+      &quot;winner_variant&quot;: &quot;&quot;,
+      &quot;confidence&quot;: null,
+      &quot;reason&quot;: &quot;&quot;
+    },
+    {
+      &quot;case_id&quot;: &quot;template-patch-live-revision&quot;,
+      &quot;winner_variant&quot;: &quot;&quot;,
+      &quot;confidence&quot;: null,
+      &quot;reason&quot;: &quot;&quot;
+    },
+    {
+      &quot;case_id&quot;: &quot;attendee-needs-governance&quot;,
+      &quot;winner_variant&quot;: &quot;&quot;,
+      &quot;confidence&quot;: null,
+      &quot;reason&quot;: &quot;&quot;
+    },
+    {
+      &quot;case_id&quot;: &quot;feishu-digest-read-boundary&quot;,
       &quot;winner_variant&quot;: &quot;&quot;,
       &quot;confidence&quot;: null,
       &quot;reason&quot;: &quot;&quot;

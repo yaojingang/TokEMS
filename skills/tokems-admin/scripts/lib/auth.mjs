@@ -10,7 +10,8 @@ import { fetchBound, formBody, normalizeOrigin } from './http.mjs';
 import { requireUuid, withLocalLock } from './files.mjs';
 
 const CLIENT_ID = 'tokems-admin-skill';
-const SKILL_VERSION = '0.1.1';
+const SKILL_VERSION = '0.2.0';
+const CATALOG_VERSION = '1.2.0';
 const INDEX_KEY = 'connections:index';
 const ACTIVE_KEY = 'connections:active';
 
@@ -60,6 +61,13 @@ export async function inspectInstance(origin) {
   if (!versionAtLeast(SKILL_VERSION, value.minClientVersion)) {
     const error = new Error(`TokEMS Admin Skill ${value.minClientVersion} or newer is required`);
     error.code = 'AGENT_VERSION_UNSUPPORTED';
+    throw error;
+  }
+  if (value.catalogVersion !== CATALOG_VERSION) {
+    const error = new Error(
+      `TokEMS Admin Skill ${SKILL_VERSION} requires Agent catalog ${CATALOG_VERSION}`,
+    );
+    error.code = 'AGENT_CATALOG_UNSUPPORTED';
     throw error;
   }
   return {

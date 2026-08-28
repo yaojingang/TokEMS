@@ -6,7 +6,7 @@ The connector accepts one exact origin during `instance inspect` or `auth connec
 
 Full connection approval requires the configured TokEMS super administrator, an active browser session, the same device `user_code`, and password step-up. Compare the code displayed by the connector with the code on the TokEMS approval page before approving. Approved scopes are the intersection of requested scopes, delegated grants, catalog requirements, and organization ownership. The default policy asks the browser to approve controlled and critical operations.
 
-The server rejects connector versions below the advertised minimum and rejects active connections when their catalog version no longer matches the live catalog. Reconnect after reviewing the new capability catalog. `tokems:*` expands to the concrete scopes shown on the approval page and never widens the organization boundary.
+Version `0.2.0` is bound to Agent catalog `1.2.0` and API major `1.0.0`. Connections authorized by `0.1.x` must be revoked or left inactive and reauthorized with `0.2.0` after reviewing all 87 actions. The server rejects connector versions below the advertised minimum and active connections whose catalog version differs from the live catalog. `tokems:*` expands to the concrete scopes shown on the approval page and never widens the organization boundary.
 
 Private DPoP material, refresh tokens, the short-lived access-token cache, and the local data key live in macOS Keychain or Linux Secret Service. An unavailable or locked credential store blocks connection. The connector performs a write/read/delete check before starting authorization.
 

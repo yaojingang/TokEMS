@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 export const TOKEMS_AGENT_CLIENT_ID = 'tokems-admin-skill' as const;
 export const TOKEMS_AGENT_API_VERSION = '1.0.0' as const;
-export const TOKEMS_AGENT_CATALOG_VERSION = '1.1.0' as const;
-export const TOKEMS_AGENT_SKILL_VERSION = '0.1.1' as const;
-export const TOKEMS_AGENT_MIN_CLIENT_VERSION = '0.1.1' as const;
+export const TOKEMS_AGENT_CATALOG_VERSION = '1.2.0' as const;
+export const TOKEMS_AGENT_SKILL_VERSION = '0.2.0' as const;
+export const TOKEMS_AGENT_MIN_CLIENT_VERSION = '0.2.0' as const;
 
 export const AgentScopeSchema = z.enum([
   'tokems:read',

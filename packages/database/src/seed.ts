@@ -523,9 +523,9 @@ try {
         rendererPackageId: EDITORIAL_RENDERER_ID,
         schemaVersion: 2,
         definition: templateDefinition,
-        contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+        contentDigest: 'seed-geo-2026-attendee-questions-v4',
         previewAssetKey: 'template-previews/tokems-editorial-standard-v1.webp',
-        changeSummary: '新增报名会员、参会名片、个人海报与第五步信息完善流程。',
+        changeSummary: '开放会员参会问题提交，并在会员报名权益上方展示公开问题。',
         createdBy: adminUserId,
         publishedAt: new Date('2026-07-16T08:30:00+08:00'),
       })
@@ -534,8 +534,8 @@ try {
         set: {
           schemaVersion: 2,
           definition: templateDefinition,
-          contentDigest: 'seed-geo-2026-attendee-showcase-v3',
-          changeSummary: '新增报名会员、参会名片、个人海报与第五步信息完善流程。',
+          contentDigest: 'seed-geo-2026-attendee-questions-v4',
+          changeSummary: '开放会员参会问题提交，并在会员报名权益上方展示公开问题。',
         },
       });
 
@@ -556,7 +556,7 @@ try {
         schemaVersion: 2,
         definition: templateDefinition,
         revision: 1,
-        contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+        contentDigest: 'seed-geo-2026-attendee-questions-v4',
         updatedBy: adminUserId,
       })
       .onConflictDoUpdate({
@@ -565,7 +565,7 @@ try {
           schemaVersion: 2,
           definition: templateDefinition,
           rendererPackageId: EDITORIAL_RENDERER_ID,
-          contentDigest: 'seed-geo-2026-attendee-showcase-v3',
+          contentDigest: 'seed-geo-2026-attendee-questions-v4',
           updatedBy: adminUserId,
           updatedAt: new Date(),
         },

@@ -236,10 +236,7 @@ export class AttendeeNeedsService {
           eq(auditLogs.organizationId, organizationId),
           eq(auditLogs.eventId, eventId),
           eq(auditLogs.resourceType, 'attendee_need_question'),
-          inArray(auditLogs.action, [
-            'attendee_needs.admin_edit',
-            'attendee_needs.anonymize',
-          ]),
+          inArray(auditLogs.action, ['attendee_needs.admin_edit', 'attendee_needs.anonymize']),
           sql`${auditLogs.after}->>'forcedAnonymous' = 'true'`,
         ),
       )
@@ -270,10 +267,7 @@ export class AttendeeNeedsService {
           eq(auditLogs.organizationId, organizationId),
           eq(auditLogs.eventId, eventId),
           eq(auditLogs.resourceType, 'attendee_need_question'),
-          inArray(auditLogs.action, [
-            'attendee_needs.admin_edit',
-            'attendee_needs.anonymize',
-          ]),
+          inArray(auditLogs.action, ['attendee_needs.admin_edit', 'attendee_needs.anonymize']),
           sql`${auditLogs.after}->>'forcedAnonymous' = 'true'`,
         ),
       )
@@ -287,7 +281,11 @@ export class AttendeeNeedsService {
     const submission = row.submission;
     const questions = submission ? await this.activeQuestions(submission.id) : [];
     const forcedAnonymity = submission
-      ? await this.adminForcedAnonymity(submission.id, submission.organizationId, submission.eventId)
+      ? await this.adminForcedAnonymity(
+          submission.id,
+          submission.organizationId,
+          submission.eventId,
+        )
       : { forced: false, reason: null };
     const [adminRemoved] = submission
       ? await this.db()
@@ -767,46 +765,42 @@ export class AttendeeNeedsService {
           release!.organizationId,
           event.id,
         );
-        return Promise.all([
-          tx
-            .select({ value: count(attendeeNeedQuestions.id) })
-            .from(attendeeNeedQuestions)
-            .innerJoin(
-              attendeeNeedSubmissions,
-              eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
-            )
-            .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-            .innerJoin(orders, eq(orders.registrationId, registrations.id))
-            .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
-            .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
-            .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
-            .where(condition),
-          tx
-            .select({
-              question: attendeeNeedQuestions,
-              submission: attendeeNeedSubmissions,
-              attendeeName: sql<string>`${registrations.attendee}->>'name'`,
-              forcedAnonymous: sql<boolean>`${forcedAnonymity.submissionId} is not null`,
-            })
-            .from(attendeeNeedQuestions)
-            .innerJoin(
-              attendeeNeedSubmissions,
-              eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
-            )
-            .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-            .innerJoin(orders, eq(orders.registrationId, registrations.id))
-            .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
-            .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
-            .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
-            .leftJoin(
-              forcedAnonymity,
-              eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id),
-            )
-            .where(condition)
-            .orderBy(desc(attendeeNeedQuestions.firstPublishedAt), asc(attendeeNeedQuestions.id))
-            .limit(ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE)
-            .offset((query.page - 1) * ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE),
-        ]);
+        const totalRows = await tx
+          .select({ value: count(attendeeNeedQuestions.id) })
+          .from(attendeeNeedQuestions)
+          .innerJoin(
+            attendeeNeedSubmissions,
+            eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
+          )
+          .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
+          .innerJoin(orders, eq(orders.registrationId, registrations.id))
+          .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
+          .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
+          .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+          .where(condition);
+        const rows = await tx
+          .select({
+            question: attendeeNeedQuestions,
+            submission: attendeeNeedSubmissions,
+            attendeeName: sql<string>`${registrations.attendee}->>'name'`,
+            forcedAnonymous: sql<boolean>`${forcedAnonymity.submissionId} is not null`,
+          })
+          .from(attendeeNeedQuestions)
+          .innerJoin(
+            attendeeNeedSubmissions,
+            eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
+          )
+          .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
+          .innerJoin(orders, eq(orders.registrationId, registrations.id))
+          .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
+          .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
+          .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
+          .leftJoin(forcedAnonymity, eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id))
+          .where(condition)
+          .orderBy(desc(attendeeNeedQuestions.firstPublishedAt), asc(attendeeNeedQuestions.id))
+          .limit(ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE)
+          .offset((query.page - 1) * ATTENDEE_NEEDS_PUBLIC_PAGE_SIZE);
+        return [totalRows, rows] as const;
       },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     );
@@ -870,6 +864,7 @@ export class AttendeeNeedsService {
     const pattern = query.query ? `%${query.query}%` : null;
     return and(
       this.adminBaseCondition(organizationId, eventId),
+      query.questionId ? eq(attendeeNeedQuestions.id, query.questionId) : undefined,
       visibility,
       moderation,
       query.tag ? sql`${attendeeNeedQuestions.tagCodes} ? ${query.tag}` : undefined,
@@ -895,11 +890,7 @@ export class AttendeeNeedsService {
     eventId: number,
     database: Database | Transaction = this.db(),
   ) {
-    const forcedAnonymity = this.forcedAnonymityBySubmission(
-      database,
-      organizationId,
-      eventId,
-    );
+    const forcedAnonymity = this.forcedAnonymityBySubmission(database, organizationId, eventId);
     return database
       .select({
         question: attendeeNeedQuestions,
@@ -945,10 +936,7 @@ export class AttendeeNeedsService {
           sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
         ),
       )
-      .leftJoin(
-        forcedAnonymity,
-        eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id),
-      );
+      .leftJoin(forcedAnonymity, eq(forcedAnonymity.submissionId, attendeeNeedSubmissions.id));
   }
 
   private adminItem(row: Awaited<ReturnType<AttendeeNeedsService['adminQuery']>>[number]) {
