@@ -61,7 +61,9 @@ export function resolveEventExperience(event: PublicEvent): ResolvedStructuredEx
     },
     registrationFlow: event.experience?.registrationFlow ?? {
       ...fallback.registrationFlow,
-      steps: fallback.registrationFlow.steps.filter((step) => step.type !== 'member-profile'),
+      steps: fallback.registrationFlow.steps.filter(
+        (step) => step.type !== 'member-profile' && step.type !== 'attendee-needs',
+      ),
     },
     initialization: fallback.initialization,
   };

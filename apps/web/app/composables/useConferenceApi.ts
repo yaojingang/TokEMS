@@ -7,6 +7,7 @@ import {
   type Order,
   type PublicSiteConfiguration,
   type PublicEvent,
+  type PublicAttendeeNeedList,
   type PublicEventViewResult,
   type PublicEventMemberDetail,
   type PublicEventMemberList,
@@ -126,6 +127,15 @@ export function useConferenceApi() {
         ...(item.avatarUrl ? { avatarUrl: publicApiResourceUrl(item.avatarUrl) } : {}),
       })),
     };
+  }
+
+  function getEventAttendeeNeeds(slug: string, page = 1, snapshotAt?: string) {
+    return $fetch<PublicAttendeeNeedList>(`/events/${encodeURIComponent(slug)}/attendee-needs`, {
+      baseURL,
+      timeout: 4_000,
+      headers: { 'X-Organization-Slug': organizationSlug },
+      query: { page, ...(snapshotAt ? { snapshotAt } : {}) },
+    });
   }
 
   async function getEventMember(slug: string, publicSlug: string) {
@@ -678,6 +688,7 @@ export function useConferenceApi() {
     getHomepageEvent,
     recordPublicEventView,
     getEventMembers,
+    getEventAttendeeNeeds,
     getEventMember,
     getEventSpeaker,
     getSpeakerByCode,

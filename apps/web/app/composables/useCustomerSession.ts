@@ -2,6 +2,7 @@ import type {
   AttendeeClaimInput,
   AttendeeClaimResult,
   AttendeeShowcaseProfile,
+  AttendeeNeedsProfile,
   CustomerCreateInvoice,
   CustomerInvoiceCenterCategory,
   CustomerInvoiceCenterList,
@@ -19,12 +20,16 @@ import type {
   UpdateCustomerProfile,
   UpdatePurchasedOrderAttendee,
   UpdateAttendeeShowcase,
+  UpdateAttendeeNeeds,
 } from '@conference/contracts';
+
+export const CUSTOMER_SESSION_REQUEST_TIMEOUT_MS = 4_000;
 
 export function useCustomerSession() {
   const config = useRuntimeConfig();
   const session = useState<CustomerSession | null>('customer-session', () => null);
   const loaded = useState('customer-session-loaded', () => false);
+  const refreshFailed = useState('customer-session-refresh-failed', () => false);
   const refreshInFlight = useState<Promise<CustomerSession | null> | null>(
     'customer-session-refresh-in-flight',
     () => null,
@@ -49,7 +54,7 @@ export function useCustomerSession() {
   }
 
   async function refresh(force = false) {
-    if (loaded.value && !force) return session.value;
+    if (loaded.value && !refreshFailed.value && !force) return session.value;
     if (refreshInFlight.value) return refreshInFlight.value;
     refreshInFlight.value = (async () => {
       const result = await $fetch<CustomerSession | { authenticated: false }>(
@@ -58,15 +63,20 @@ export function useCustomerSession() {
           baseURL,
           credentials: 'include',
           headers: headers(),
+          timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
         },
       );
       session.value = result.authenticated ? result : null;
-      loaded.value = true;
+      refreshFailed.value = false;
       return session.value;
     })();
     try {
       return await refreshInFlight.value;
+    } catch (error) {
+      refreshFailed.value = true;
+      throw error;
     } finally {
+      loaded.value = true;
       refreshInFlight.value = null;
     }
   }
@@ -95,6 +105,7 @@ export function useCustomerSession() {
       headers: headers(),
       body: { ...input, consentAccepted: true },
     });
+    refreshFailed.value = false;
     loaded.value = true;
     return session.value;
   }
@@ -109,6 +120,7 @@ export function useCustomerSession() {
       });
     }
     session.value = null;
+    refreshFailed.value = false;
     loaded.value = true;
   }
 
@@ -139,6 +151,7 @@ export function useCustomerSession() {
         baseURL,
         credentials: 'include',
         headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
   }
@@ -182,6 +195,7 @@ export function useCustomerSession() {
         baseURL,
         credentials: 'include',
         headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
   }
@@ -218,6 +232,44 @@ export function useCustomerSession() {
       },
     );
     return withPublicAvatar(profile);
+  }
+
+  function attendeeNeeds(registrationId: string) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        baseURL,
+        credentials: 'include',
+        headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  }
+
+  function updateAttendeeNeeds(registrationId: string, input: UpdateAttendeeNeeds) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        method: 'PATCH',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        body: input,
+      },
+    );
+  }
+
+  function deleteAttendeeNeeds(registrationId: string, version: number) {
+    return $fetch<AttendeeNeedsProfile>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/needs`,
+      {
+        method: 'DELETE',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        query: { version },
+      },
+    );
   }
 
   async function uploadAttendeeAvatar(registrationId: string, file: File) {
@@ -359,6 +411,9 @@ export function useCustomerSession() {
     attendeeShowcase,
     attendeeAvatarBlob,
     updateAttendeeShowcase,
+    attendeeNeeds,
+    updateAttendeeNeeds,
+    deleteAttendeeNeeds,
     uploadAttendeeAvatar,
     removeAttendeeAvatar,
     claimRegistration,

@@ -64,6 +64,13 @@ const navigation = computed(() => [
     grants: ['event.registration.read'],
   },
   {
+    name: 'event-attendee-needs',
+    match: '/attendee-needs',
+    icon: '?',
+    label: '参会需求',
+    grants: ['event.registration.read'],
+  },
+  {
     name: 'event-speakers',
     match: '/speakers',
     icon: '◎',

@@ -9,6 +9,9 @@ import {
   type AdminCooperationRequest,
   type AdminCooperationRequestList,
   type AdminCooperationRequestListQuery,
+  type AdminAttendeeNeedItem,
+  type AdminAttendeeNeedList,
+  type AdminAttendeeNeedListQuery,
   type AdminOrderList,
   type AdminOrderListQuery,
   type AdminOrderRow,
@@ -63,6 +66,7 @@ import {
   type LoginResult,
   type MembershipStatus,
   type ModerateAttendeeShowcase,
+  type ModerateAttendeeNeedQuestion,
   type NotificationTemplate,
   type OfflineCheckInSync,
   type OrganizationHomepageEvent,
@@ -82,6 +86,7 @@ import {
   type TestAliyunSmsConfiguration,
   type UpdateAccountProfile,
   type UpdateAdminRegistrationAttendee,
+  type UpdateAdminAttendeeNeedQuestion,
   type UpdateAliyunSmsConfiguration,
   type UpdateCustomerAdmin,
   type UpdateEvent,
@@ -118,6 +123,8 @@ import { routeEventId } from './route-scope.js';
 export type {
   AdminCooperationRequest,
   AdminCooperationRequestList,
+  AdminAttendeeNeedItem,
+  AdminAttendeeNeedList,
   AdminOrderRow,
   AdminRegistrationDetail,
   AdminRegistrationOperationsDetail,
@@ -762,6 +769,64 @@ export const conferenceApi = {
       `/admin/events/${eventScope(eventId)}/cooperation-requests/${encodeURIComponent(requestId)}`,
       { method: 'PATCH', body: JSON.stringify(input) },
     );
+  },
+  getAttendeeNeeds(filters: Partial<AdminAttendeeNeedListQuery> = {}, eventId?: EventId) {
+    const query = new URLSearchParams();
+    if (filters.query) query.set('query', filters.query);
+    if (filters.tag) query.set('tag', filters.tag);
+    if (filters.visibility) query.set('visibility', filters.visibility);
+    if (filters.moderationStatus) query.set('moderationStatus', filters.moderationStatus);
+    if (filters.submittedFrom) query.set('submittedFrom', filters.submittedFrom);
+    if (filters.submittedTo) query.set('submittedTo', filters.submittedTo);
+    if (filters.page) query.set('page', String(filters.page));
+    if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
+    return request<AdminAttendeeNeedList>(
+      `/admin/events/${eventScope(eventId)}/attendee-needs?${query}`,
+    );
+  },
+  updateAttendeeNeed(
+    questionId: string,
+    input: UpdateAdminAttendeeNeedQuestion,
+    eventId?: EventId,
+  ) {
+    return request<AdminAttendeeNeedItem>(
+      `/admin/events/${eventScope(eventId)}/attendee-needs/${encodeURIComponent(questionId)}`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  moderateAttendeeNeed(questionId: string, input: ModerateAttendeeNeedQuestion, eventId?: EventId) {
+    return request<AdminAttendeeNeedItem>(
+      `/admin/events/${eventScope(eventId)}/attendee-needs/${encodeURIComponent(questionId)}/moderation`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  async exportAttendeeNeeds(
+    variant: 'internal' | 'speaker',
+    forceAnonymous: boolean,
+    filters: Partial<AdminAttendeeNeedListQuery> = {},
+    eventId?: EventId,
+  ) {
+    const scopedEventId = eventScope(eventId);
+    const query = new URLSearchParams({ variant, forceAnonymous: String(forceAnonymous) });
+    if (filters.query) query.set('query', filters.query);
+    if (filters.tag) query.set('tag', filters.tag);
+    if (filters.visibility) query.set('visibility', filters.visibility);
+    if (filters.moderationStatus) query.set('moderationStatus', filters.moderationStatus);
+    if (filters.submittedFrom) query.set('submittedFrom', filters.submittedFrom);
+    if (filters.submittedTo) query.set('submittedTo', filters.submittedTo);
+    const response = await fetch(
+      `${baseURL}/admin/events/${scopedEventId}/attendee-needs/export.csv?${query}`,
+      { headers: { Authorization: `Bearer ${session.token.value}` } },
+    );
+    if (!response.ok) throw new Error('导出参会需求失败');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `attendee-needs-${scopedEventId}-${variant}-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return Number(response.headers.get('X-Export-Row-Count') ?? 0);
   },
   getRegistration(registrationId: string, eventId?: EventId) {
     return request<AdminRegistrationDetail>(

@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { nextTick, watch } from 'vue';
-import { createError, definePageMeta, useAsyncData, useRuntimeConfig } from '#imports';
+import {
+  createError,
+  definePageMeta,
+  useAsyncData,
+  useNuxtApp,
+  useRuntimeConfig,
+  useState,
+} from '#imports';
 import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   publicEventHomePath,
@@ -8,6 +15,7 @@ import {
   publicSpeakerPath,
   speakerAvatarText,
   type EventPurchaseContext,
+  type PublicAttendeeNeedList,
   type PublicEvent,
   type PublicEventMemberList,
   type Session,
@@ -22,12 +30,22 @@ import {
   resolveMemberDirectoryState,
 } from '~/utils/member-directory-state';
 import { attendeeAvatarInitial } from '~/utils/attendee-poster';
+import {
+  attendeeNeedsBlockIsEnabled,
+  attendeeNeedsRequestIsCurrent,
+  attendeeNeedsShouldResetSerializedState,
+  attendeeNeedsValidPage,
+  resolveAttendeeNeedsFallback,
+  resolveAttendeeNeedsSectionState,
+  type AttendeeNeedsLastSuccess,
+} from '~/utils/attendee-needs';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { resolveHomeRegistrationCta } from '~/utils/purchase-journey';
 import {
   createPublicViewRecorder,
   formatTrackingStartDate,
+  offsetPublicMetric,
   resolvePublicMetricFallbacks,
   splitMetricNumber,
 } from '~/utils/public-event-metrics';
@@ -85,6 +103,10 @@ const membersBlock = computed(() =>
 const membersBlockEnabled = computed(() => Boolean(membersBlock.value?.enabled));
 const membersPage = ref(1);
 const membersIndustry = ref('');
+const attendeeNeedsPage = ref(1);
+const attendeeNeedsSnapshotAt = useState<string | null>('attendee-needs-snapshot-at', () => null);
+const attendeeNeedsErrorMessage = ref<HTMLElement | null>(null);
+const attendeeNeedsResults = ref<HTMLElement | null>(null);
 const defaultHomeBlocks =
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.kind === 'structured'
     ? DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.home.blocks
@@ -186,6 +208,133 @@ const blockCopy = (nodeKey: string, key: string, fallback: string) => {
   const defaultValue = defaultHomeBlocks.find((block) => block.nodeKey === nodeKey)?.content[key];
   return typeof defaultValue === 'string' ? defaultValue : fallback;
 };
+const emptyAttendeeNeedList = (page = 1): PublicAttendeeNeedList => ({
+  items: [],
+  total: 0,
+  page,
+  pageSize: 10,
+  totalPages: 1,
+  snapshotAt: new Date().toISOString(),
+});
+const attendeeNeedsBlockEnabled = computed(() =>
+  attendeeNeedsBlockIsEnabled(homeBlock('home.attendee-needs')),
+);
+const attendeeNeedsLastSuccess = useState<AttendeeNeedsLastSuccess | null>(
+  'attendee-needs-last-success',
+  () => null,
+);
+const attendeeNeedsError = useState('attendee-needs-error', () => '');
+const attendeeNeedsFailedPage = useState<number | null>('attendee-needs-failed-page', () => null);
+if (attendeeNeedsShouldResetSerializedState(import.meta.client, Boolean(useNuxtApp().isHydrating))) {
+  attendeeNeedsSnapshotAt.value = null;
+  attendeeNeedsLastSuccess.value = null;
+  attendeeNeedsError.value = '';
+  attendeeNeedsFailedPage.value = null;
+}
+let attendeeNeedsNavigationPending = false;
+const {
+  data: attendeeNeeds,
+  pending: attendeeNeedsPending,
+  refresh: refreshAttendeeNeeds,
+} = await useAsyncData(
+  () => `conference-attendee-needs-${event.value.slug}-${attendeeNeedsPage.value}`,
+  async () => {
+    if (!attendeeNeedsBlockEnabled.value) {
+      attendeeNeedsError.value = '';
+      attendeeNeedsFailedPage.value = null;
+      return emptyAttendeeNeedList(attendeeNeedsPage.value);
+    }
+    const requestedPage = attendeeNeedsPage.value;
+    const requestedEventSlug = event.value.slug;
+    try {
+      const result = await api.getEventAttendeeNeeds(
+        requestedEventSlug,
+        requestedPage,
+        attendeeNeedsSnapshotAt.value ?? undefined,
+      );
+      if (attendeeNeedsRequestIsCurrent(requestedEventSlug, event.value.slug)) {
+        attendeeNeedsSnapshotAt.value = result.snapshotAt;
+        attendeeNeedsLastSuccess.value = {
+          eventSlug: requestedEventSlug,
+          page: requestedPage,
+          result,
+        };
+        attendeeNeedsError.value = '';
+        attendeeNeedsFailedPage.value = null;
+      }
+      return result;
+    } catch {
+      const fallback = resolveAttendeeNeedsFallback(
+        attendeeNeedsLastSuccess.value,
+        requestedEventSlug,
+        requestedPage,
+      );
+      if (attendeeNeedsRequestIsCurrent(requestedEventSlug, event.value.slug)) {
+        attendeeNeedsError.value = fallback.total
+          ? '参会问题暂时没有更新，当前保留本场大会上次成功结果。'
+          : '参会问题暂时无法加载，请稍后重试。';
+        attendeeNeedsFailedPage.value = requestedPage;
+      }
+      return fallback;
+    }
+  },
+  { watch: [attendeeNeedsBlockEnabled] },
+);
+const attendeeNeedsSectionState = computed(() =>
+  resolveAttendeeNeedsSectionState({
+    blockEnabled: attendeeNeedsBlockEnabled.value,
+    total: attendeeNeeds.value?.total ?? 0,
+    pending: attendeeNeedsPending.value,
+    hasError: Boolean(attendeeNeedsError.value),
+  }),
+);
+const attendeeNeedsVisible = computed(() => attendeeNeedsSectionState.value.visible);
+async function changeAttendeeNeedsPage(change: number) {
+  const currentPage = attendeeNeeds.value?.page ?? attendeeNeedsPage.value;
+  const target = attendeeNeedsValidPage(currentPage + change, attendeeNeeds.value?.totalPages ?? 1);
+  if (target === currentPage) return;
+  attendeeNeedsNavigationPending = true;
+  attendeeNeedsPage.value = target;
+}
+watch(
+  () => event.value.slug,
+  () => {
+    attendeeNeedsPage.value = 1;
+    attendeeNeedsSnapshotAt.value = null;
+    attendeeNeedsLastSuccess.value = null;
+    attendeeNeedsError.value = '';
+    attendeeNeedsFailedPage.value = null;
+  },
+);
+async function retryAttendeeNeeds() {
+  const target = attendeeNeedsFailedPage.value ?? attendeeNeedsPage.value;
+  if (target !== attendeeNeedsPage.value) {
+    attendeeNeedsPage.value = target;
+    return;
+  }
+  await refreshAttendeeNeeds();
+}
+watch(
+  attendeeNeeds,
+  async () => {
+    const value = attendeeNeeds.value;
+    if (value && value.page !== attendeeNeedsValidPage(value.page, value.totalPages)) {
+      attendeeNeedsPage.value = attendeeNeedsValidPage(value.page, value.totalPages);
+      return;
+    }
+    if (!attendeeNeedsNavigationPending) return;
+    attendeeNeedsNavigationPending = false;
+    await nextTick();
+    if (attendeeNeedsError.value) {
+      attendeeNeedsErrorMessage.value?.focus({ preventScroll: true });
+      attendeeNeedsErrorMessage.value?.scrollIntoView({ block: 'center' });
+      return;
+    }
+    attendeeNeedsResults.value?.focus({ preventScroll: true });
+    attendeeNeedsResults.value?.scrollIntoView({ block: 'start' });
+  },
+  { immediate: true },
+);
 const liveStatsEnabled = computed(
   () => blockEnabled('home.stats') && blockVariant('home.stats') === 'live',
 );
@@ -237,6 +386,13 @@ const liveStatsItems = computed(() => [
 ]);
 const formatMetricNumber = (value: number) =>
   Math.max(0, Math.trunc(value)).toLocaleString('zh-CN');
+const heroVisitLabel = computed(() => blockCopy('home.hero', 'viewsLabel', '大会访问量'));
+const heroVisitCount = computed(() =>
+  offsetPublicMetric(
+    livePublicMetrics.value.pageViews,
+    blockCopy('home.hero', 'viewsBase', '10000'),
+  ),
+);
 const recordPublicViewOnce = createPublicViewRecorder((slug, pageViewId) =>
   api.recordPublicEventView(slug, pageViewId),
 );
@@ -444,14 +600,14 @@ const marqueeItems = computed(() =>
 );
 const ticketBenefitDetails = computed(() =>
   [
-    '主会场与双分会场任意进出',
-    '完成企业 90 天行动计划',
-    '完整版现场首发',
-    '含 27 套 GEO 提示词合集',
-    '会前预习与会后复训',
-    '会后 3 个工作日发放',
-    '全年案例拆解与工具更新',
-    '含 1 次线上复盘直播 QA',
+    '两天大会完整参会权益',
+    'Day 2 现场实战学习',
+    '加入大会 VIP 会员专属社群',
+    'AI 与 GEO 主题签名书籍各 1 本',
+    '可自愿选择在大会首页展示',
+    '大会年度行业研究成果',
+    '大会嘉宾分享资料统一整理',
+    '会后可回看大会内容',
   ].map((item, index) => blockCopy('home.tickets', `benefit${index + 1}Detail`, item)),
 );
 const ticketBenefits = computed(() =>
@@ -737,7 +893,7 @@ onBeforeUnmount(() => {
         </a>
         <div class="nav-links">
           <a v-if="blockEnabled('home.value')" href="#why">{{
-            blockCopy('home.navigation', 'whyLabel', '为什么')
+            blockCopy('home.navigation', 'whyLabel', '背景')
           }}</a>
           <a v-if="blockEnabled('home.upgrade')" href="#upgrade">{{
             blockCopy('home.navigation', 'editionLabel', '第二届')
@@ -748,7 +904,9 @@ onBeforeUnmount(() => {
           <a v-if="blockEnabled('home.speakers')" href="#speakers">{{
             blockCopy('home.navigation', 'speakersLabel', '嘉宾')
           }}</a>
-          <a v-if="memberDirectoryState.visible" href="#members">报名会员</a>
+          <a v-if="memberDirectoryState.visible" href="#members">{{
+            blockCopy('home.navigation', 'membersLabel', '会员')
+          }}</a>
           <a v-if="blockEnabled('home.tickets')" href="#tickets">{{
             blockCopy('home.navigation', 'ticketsLabel', '门票')
           }}</a>
@@ -783,9 +941,23 @@ onBeforeUnmount(() => {
     >
       <div class="wrap hero-layout">
         <div class="hero-copy">
-          <div class="hero-tag reveal in">
-            <span class="hero-dot"></span>2026 · {{ event.city }} · {{ eventDate.compact }} ·
-            报名进行中
+          <div class="hero-tag-row reveal in">
+            <div class="hero-tag">
+              <span class="hero-dot"></span>2026 · {{ event.city }} · {{ eventDate.compact }} ·
+              报名进行中
+            </div>
+            <div
+              class="hero-tag hero-visit-tag"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              :aria-label="`${heroVisitLabel}：${formatMetricNumber(heroVisitCount)}`"
+            >
+              <span class="hero-visit-dot" aria-hidden="true"></span>
+              <span>{{ heroVisitLabel }}：<strong>{{
+                formatMetricNumber(heroVisitCount)
+              }}</strong></span>
+            </div>
           </div>
           <div class="hero-message">
             <h1 class="hero-h reveal in" data-d="1">
@@ -1237,9 +1409,11 @@ onBeforeUnmount(() => {
             :key="speaker.id"
             class="spk-card reveal"
             :data-d="index % 4 || undefined"
-            :to="speaker.publicCode
-              ? publicSpeakerPath(speaker.publicCode)
-              : publicEventScopedPath(`/speakers/${encodeURIComponent(speaker.id)}`, event.slug)"
+            :to="
+              speaker.publicCode
+                ? publicSpeakerPath(speaker.publicCode)
+                : publicEventScopedPath(`/speakers/${encodeURIComponent(speaker.id)}`, event.slug)
+            "
             external
             :aria-label="`查看嘉宾 ${speaker.name} 的详情`"
           >
@@ -1358,8 +1532,6 @@ onBeforeUnmount(() => {
             :href="
               publicEventScopedPath(`/members/${encodeURIComponent(member.publicSlug)}`, event.slug)
             "
-            target="_blank"
-            rel="noopener noreferrer"
           >
             <span class="member-identity">
               <span class="member-avatar">
@@ -1378,7 +1550,7 @@ onBeforeUnmount(() => {
                 <em v-if="member.company">{{ member.company }}</em>
               </span>
             </span>
-            <span class="member-open" aria-hidden="true">↗</span>
+            <span class="member-open" aria-hidden="true">→</span>
           </a>
         </div>
 
@@ -1493,17 +1665,11 @@ onBeforeUnmount(() => {
       <div class="wrap">
         <div class="sec-head center reveal">
           <span class="kicker">{{ blockCopy('home.tickets', 'kicker', 'TICKETS') }}</span>
-          <h2 class="sec-title">{{ blockCopy('home.tickets', 'title', '一张门票，八项权益') }}</h2>
+          <h2 class="sec-title">{{ blockCopy('home.tickets', 'title', '会员报名权益') }}</h2>
           <p class="sec-sub">
             {{ blockCopy('home.tickets', 'subtitlePrefix', '统一票价') }}
             {{ money(primaryTicket.price)
-            }}{{
-              blockCopy(
-                'home.tickets',
-                'subtitleSuffix',
-                '，两天议程、实战工作坊与会后学习资料均已包含',
-              )
-            }}
+            }}{{ blockCopy('home.tickets', 'subtitleSuffix', '，8 项会员报名权益均已包含') }}
           </p>
         </div>
         <div class="ticket-layout">
@@ -1520,7 +1686,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="ticket-desc">
                 {{ eventDate.compact }} · {{ event.city }}<br />{{
-                  blockCopy('home.tickets', 'description', '一张票，全程参与两天大会')
+                  blockCopy('home.tickets', 'description', '一张票，完整享有 8 项会员报名权益')
                 }}
               </div>
               <a
@@ -1536,7 +1702,7 @@ onBeforeUnmount(() => {
                }}
                 <span class="arr">→</span></a>
               <div class="ticket-note">
-                {{ blockCopy('home.tickets', 'note', '八项参会权益已全部包含') }}
+                {{ blockCopy('home.tickets', 'note', '八项会员权益已全部包含') }}
               </div>
             </div>
             <div class="ticket-benefits">
@@ -1544,7 +1710,7 @@ onBeforeUnmount(() => {
                 blockCopy(
                   'home.tickets',
                   'benefitsEyebrow',
-                  String(primaryTicket.benefits.length) + ' 项权益，全部包含',
+                  String(primaryTicket.benefits.length) + ' 项会员权益，全部包含',
                 )
               }}</span>
               <h3>
@@ -1552,7 +1718,7 @@ onBeforeUnmount(() => {
                   blockCopy(
                     'home.tickets',
                     'benefitsTitle',
-                    '从现场参与到会后复训，一张票覆盖完整学习周期',
+                    '覆盖现场参会、实战学习、会员社群与会后资料',
                   )
                 }}
               </h3>
@@ -1625,6 +1791,120 @@ onBeforeUnmount(() => {
           </div>
           <a :href="faqHref" class="btn btn-primary">打开 FAQ 页面 <span class="arr">→</span></a>
         </div>
+      </div>
+    </section>
+
+    <section
+      v-if="attendeeNeedsVisible"
+      id="attendee-needs"
+      class="attendee-needs-section"
+      :data-template-variant="blockVariant('home.attendee-needs')"
+      :style="blockStyle('home.attendee-needs')"
+    >
+      <div class="wrap">
+        <div class="sec-head attendee-needs-head reveal">
+          <div>
+            <span class="kicker">{{
+              blockCopy('home.attendee-needs', 'kicker', 'ATTENDEE QUESTIONS')
+            }}</span>
+            <h2 class="sec-title">
+              {{ blockCopy('home.attendee-needs', 'title', '这届大会，大家最想解决什么？') }}
+            </h2>
+            <p class="sec-sub">
+              {{
+                blockCopy(
+                  'home.attendee-needs',
+                  'subtitle',
+                  '这些问题来自已报名参会者，大会团队会按主题整理给相关嘉宾',
+                )
+              }}
+            </p>
+          </div>
+          <div class="attendee-needs-count">
+            <span>{{ blockCopy('home.attendee-needs', 'countLabel', '已收集') }}</span>
+            <strong>{{ attendeeNeeds?.total ?? 0 }}</strong>
+            <em>QUESTIONS</em>
+          </div>
+        </div>
+
+        <p
+          v-if="attendeeNeedsError"
+          ref="attendeeNeedsErrorMessage"
+          class="attendee-needs-error"
+          role="status"
+          tabindex="-1"
+        >
+          <span>{{ attendeeNeedsError }}</span>
+          <button type="button" :disabled="attendeeNeedsPending" @click="retryAttendeeNeeds">
+            {{ attendeeNeedsPending ? '正在重试…' : '重新加载' }}
+          </button>
+        </p>
+
+        <div
+          v-if="attendeeNeedsSectionState.status === 'empty'"
+          class="attendee-needs-empty"
+          role="status"
+        >
+          <span aria-hidden="true">OPEN QUESTIONS</span>
+          <strong>{{
+            blockCopy('home.attendee-needs', 'emptyText', '参会问题正在陆续提交')
+          }}</strong>
+        </div>
+
+        <div
+          v-else
+          ref="attendeeNeedsResults"
+          class="attendee-needs-list"
+          tabindex="-1"
+          :aria-busy="attendeeNeedsPending"
+          aria-live="polite"
+        >
+          <article
+            v-for="(item, index) in attendeeNeeds?.items ?? []"
+            :key="item.questionId"
+            class="attendee-need-row reveal"
+          >
+            <span class="attendee-need-number">
+              Q.{{ String(((attendeeNeeds?.page ?? 1) - 1) * 10 + index + 1).padStart(2, '0') }}
+            </span>
+            <div class="attendee-need-copy">
+              <h3>{{ item.content }}</h3>
+              <div class="attendee-need-meta">
+                <ul aria-label="问题主题">
+                  <li v-for="tag in item.tags" :key="tag.code">{{ tag.label }}</li>
+                </ul>
+                <span>{{ item.attribution ?? '匿名参会者' }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <nav
+          v-if="(attendeeNeeds?.totalPages ?? 1) > 1"
+          class="attendee-needs-pagination"
+          aria-label="参会问题分页"
+        >
+          <button
+            type="button"
+            :disabled="(attendeeNeeds?.page ?? 1) <= 1 || attendeeNeedsPending"
+            @click="changeAttendeeNeedsPage(-1)"
+          >
+            ← 上一页
+          </button>
+          <span>
+            PAGE {{ String(attendeeNeeds?.page ?? 1).padStart(2, '0') }} /
+            {{ String(attendeeNeeds?.totalPages ?? 1).padStart(2, '0') }}
+          </span>
+          <button
+            type="button"
+            :disabled="
+              (attendeeNeeds?.page ?? 1) >= (attendeeNeeds?.totalPages ?? 1) || attendeeNeedsPending
+            "
+            @click="changeAttendeeNeedsPage(1)"
+          >
+            下一页 →
+          </button>
+        </nav>
       </div>
     </section>
 

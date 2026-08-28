@@ -108,8 +108,8 @@ const joiningWaitlist = computed(
 const flowSteps = computed(() =>
   event.value
     ? enabledFlowSteps(event.value, {
-      paymentRequired: !isFreeTicket.value,
-      invoiceRequired: invoiceRequired.value,
+        paymentRequired: !isFreeTicket.value,
+        invoiceRequired: invoiceRequired.value,
       })
     : [],
 );
@@ -124,9 +124,7 @@ const accountRequired = computed(
   () => event.value?.registration.accountMode === 'mobile_otp_required',
 );
 const verifiedMobile = computed(() => customer.session.value?.customer.maskedMobile ?? '');
-const canPurchaseAdditional = computed(
-  () => purchaseContext.value?.canPurchaseAdditional === true,
-);
+const canPurchaseAdditional = computed(() => purchaseContext.value?.canPurchaseAdditional === true);
 const pendingOrderHref = computed(() => {
   const orderId = purchaseContext.value?.resumePaymentOrderId;
   if (!orderId || !event.value) return '';
@@ -286,8 +284,7 @@ function restoreRegistrationDraftForCurrentIdentity() {
   const sessionExpired = identityTransition?.kind === 'customer_to_anonymous';
 
   const preserveCurrentAnswers = identityTransition?.migrateCurrentAnswers === true;
-  const customerChanged =
-    previous && identityTransition?.clearAnswers === true;
+  const customerChanged = previous && identityTransition?.clearAnswers === true;
   const purchaseModeChanged = previous && previous.scope.purchaseFor !== next.scope.purchaseFor;
   if ((customerChanged || purchaseModeChanged) && event.value) {
     resetRegistrationAnswers(event.value, false);
@@ -615,9 +612,7 @@ async function submit() {
     attendee: {
       name: answer('name'),
       mobile:
-        purchaseFor.value === 'self'
-          ? customer.session.value.customer.mobile
-          : answer('mobile'),
+        purchaseFor.value === 'self' ? customer.session.value.customer.mobile : answer('mobile'),
       email: answer('email'),
       company: answer('company'),
       title: answer('title'),
@@ -628,8 +623,7 @@ async function submit() {
     termsAccepted: true,
     purchaseFor: purchaseFor.value,
     purchaseIntentId: purchaseIntentId.value,
-    proxyAuthorizationAccepted:
-      purchaseFor.value === 'other' && proxyAuthorizationAccepted.value,
+    proxyAuthorizationAccepted: purchaseFor.value === 'other' && proxyAuthorizationAccepted.value,
     formVersion: event.value.registrationForm?.version ?? 1,
     termsVersion: termsVersion.value,
     formAnswers: Object.fromEntries(
@@ -654,6 +648,7 @@ async function submit() {
         registrationId: checkout.registration.id,
         ticketCode: checkout.ticket?.code,
         memberProfileEnabled: hasEnabledEventFlowStep(event.value, 'member-profile'),
+        attendeeNeedsEnabled: hasEnabledEventFlowStep(event.value, 'attendee-needs'),
       });
       if (destination) {
         await router.push(destination);
@@ -707,7 +702,9 @@ async function submit() {
           当前大会已暂停报名。页面内容仍可查看，报名重新开放后可继续提交。
         </p>
         <div
-          v-if="purchaseContextReady && customer.session.value && purchaseContext?.resumePaymentOrderId"
+          v-if="
+            purchaseContextReady && customer.session.value && purchaseContext?.resumePaymentOrderId
+          "
           class="registration-state-line"
           role="status"
         >
@@ -778,7 +775,10 @@ async function submit() {
                   <span><strong>本人参会</strong><small>使用当前登录手机号核验身份</small></span>
                 </label>
                 <label
-                  :class="{ 'is-selected': purchaseFor === 'other', 'is-disabled': !event.registration.additionalPurchaseEnabled }"
+                  :class="{
+                    'is-selected': purchaseFor === 'other',
+                    'is-disabled': !event.registration.additionalPurchaseEnabled,
+                  }"
                 >
                   <input
                     v-model="purchaseFor"
@@ -796,8 +796,11 @@ async function submit() {
               >
                 <span aria-hidden="true">{{ customer.session.value ? '✓' : '•' }}</span>
                 <p v-if="customer.session.value">
-                  手机号已验证：<strong>{{ verifiedMobile }}</strong>
-                  。{{ purchaseFor === 'self' ? '本人报名将绑定该手机号。' : '代购订单归入你的购买记录。' }}
+                  手机号已验证：<strong>{{ verifiedMobile }}</strong> 。{{
+                    purchaseFor === 'self'
+                      ? '本人报名将绑定该手机号。'
+                      : '代购订单归入你的购买记录。'
+                  }}
                 </p>
                 <p v-else>本场大会需要先验证手机号，验证成功后会保留当前填写内容。</p>
                 <button v-if="!customer.session.value" type="button" @click="customer.openLogin">

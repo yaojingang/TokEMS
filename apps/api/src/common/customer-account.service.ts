@@ -39,6 +39,8 @@ import {
 } from '@conference/contracts';
 import {
   attendeeClaimTokens,
+  attendeeNeedQuestions,
+  attendeeNeedSubmissions,
   attendeeShowcaseProfiles,
   auditLogs,
   customerAuthChallenges,
@@ -629,15 +631,13 @@ export class CustomerAccountService {
     ticketTypeName: string;
     paymentStatus: string | null;
     ticket: { code: string; status: 'valid' | 'used' | 'cancelled' } | null;
-    invoice:
-      | { id: string; status: (typeof invoiceRequests.$inferSelect)['status'] }
-      | null;
+    invoice: { id: string; status: (typeof invoiceRequests.$inferSelect)['status'] } | null;
   }): CustomerPurchasedOrder {
     const isProxyPurchase =
       row.registration.consentSnapshot.purchaseFor === 'other' ||
       Boolean(
         row.order.purchaserCustomerUserId &&
-          row.registration.customerUserId !== row.order.purchaserCustomerUserId,
+        row.registration.customerUserId !== row.order.purchaserCustomerUserId,
       );
     const canAccessTicket = purchaserCanAccessTicket(
       row.order.purchaserCustomerUserId,
@@ -691,10 +691,7 @@ export class CustomerAccountService {
     if (cursor) {
       const decoded = this.decodeCursor(cursor);
       conditions.push(
-        or(
-          lt(sortAt, decoded.date),
-          and(eq(sortAt, decoded.date), lt(orders.id, decoded.id)),
-        )!,
+        or(lt(sortAt, decoded.date), and(eq(sortAt, decoded.date), lt(orders.id, decoded.id)))!,
       );
     }
     const rows = await this.db()
@@ -1214,104 +1211,107 @@ export class CustomerAccountService {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         await db.transaction(async (tx) => {
-        const [orderIdentity] = await tx
-          .select({ eventId: orders.eventId })
-          .from(orders)
-          .where(and(eq(orders.id, orderId), eq(orders.organizationId, session.organizationId)))
-          .limit(1);
-        let requestedMobile: string | undefined;
-        if (input.mobile !== undefined) {
-          try {
-            requestedMobile = normalizeMainlandMobile(input.mobile);
-          } catch {
-            throw new DomainError(
-              API_ERROR_CODES.VALIDATION_ERROR,
-              '请输入有效的中国大陆手机号',
-              HttpStatus.BAD_REQUEST,
+          const [orderIdentity] = await tx
+            .select({ eventId: orders.eventId })
+            .from(orders)
+            .where(and(eq(orders.id, orderId), eq(orders.organizationId, session.organizationId)))
+            .limit(1);
+          let requestedMobile: string | undefined;
+          if (input.mobile !== undefined) {
+            try {
+              requestedMobile = normalizeMainlandMobile(input.mobile);
+            } catch {
+              throw new DomainError(
+                API_ERROR_CODES.VALIDATION_ERROR,
+                '请输入有效的中国大陆手机号',
+                HttpStatus.BAD_REQUEST,
+              );
+            }
+          }
+          if (orderIdentity && requestedMobile) {
+            await tx.execute(
+              sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${orderIdentity.eventId}:${requestedMobile}`}, 0))`,
             );
           }
-        }
-        if (orderIdentity && requestedMobile) {
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${orderIdentity.eventId}:${requestedMobile}`}, 0))`,
-          );
-        }
-        const [order] = await tx
-          .select()
-          .from(orders)
-          .where(and(eq(orders.id, orderId), eq(orders.organizationId, session.organizationId)))
-          .for('update')
-          .limit(1);
-        const [registration] = order
-          ? await tx
-              .select()
-              .from(registrations)
-              .where(
-                and(
-                  eq(registrations.id, order.registrationId),
-                  eq(registrations.organizationId, session.organizationId),
-                  isNull(registrations.supersededAt),
-                ),
-              )
-              .for('update')
-              .limit(1)
-          : [];
-        if (
-          !order ||
-          !registration ||
-          !customerCanManageOrder(
-            order.purchaserCustomerUserId,
-            order.purchaseIntentId,
-            registration.customerUserId,
-            session.customerUserId,
-          )
-        ) {
-          throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
-        }
-        const scope = { order, registration };
-        const [ticket] = await tx
-          .select()
-          .from(tickets)
-          .where(eq(tickets.registrationId, scope.registration.id))
-          .for('update')
-          .limit(1);
-        const activeClaims = await tx
-          .select()
-          .from(attendeeClaimTokens)
-          .where(
-            and(
-              eq(attendeeClaimTokens.registrationId, scope.registration.id),
-              isNull(attendeeClaimTokens.consumedAt),
-              isNull(attendeeClaimTokens.revokedAt),
-            ),
-          )
-          .for('update');
-        if (scope.registration.customerUserId) {
-          throw new DomainError(
-            API_ERROR_CODES.INVALID_STATE_TRANSITION,
-            '参会人已认领该名额，请由参会人维护个人信息',
-            HttpStatus.CONFLICT,
-          );
-        }
-        if (
-          ['refunded', 'closed'].includes(scope.order.status) ||
-          scope.registration.status === 'checked_in' ||
-          ticket?.status === 'used'
-        ) {
-          throw new DomainError(
-            API_ERROR_CODES.INVALID_STATE_TRANSITION,
-            '当前订单或票券状态无法修改参会人',
-            HttpStatus.CONFLICT,
-          );
-        }
-        const currentAttendee = {
-          ...scope.registration.attendee,
-          mobile: scope.registration.attendeeMobileE164,
-          email: scope.registration.attendeeEmailNormalized,
-        };
-        const normalizedEmail = input.email?.trim().toLowerCase();
-        const { attendee: normalizedAttendee, changedFields, contactChanged } =
-          attendeeUpdateDiff(currentAttendee, {
+          const [order] = await tx
+            .select()
+            .from(orders)
+            .where(and(eq(orders.id, orderId), eq(orders.organizationId, session.organizationId)))
+            .for('update')
+            .limit(1);
+          const [registration] = order
+            ? await tx
+                .select()
+                .from(registrations)
+                .where(
+                  and(
+                    eq(registrations.id, order.registrationId),
+                    eq(registrations.organizationId, session.organizationId),
+                    isNull(registrations.supersededAt),
+                  ),
+                )
+                .for('update')
+                .limit(1)
+            : [];
+          if (
+            !order ||
+            !registration ||
+            !customerCanManageOrder(
+              order.purchaserCustomerUserId,
+              order.purchaseIntentId,
+              registration.customerUserId,
+              session.customerUserId,
+            )
+          ) {
+            throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
+          }
+          const scope = { order, registration };
+          const [ticket] = await tx
+            .select()
+            .from(tickets)
+            .where(eq(tickets.registrationId, scope.registration.id))
+            .for('update')
+            .limit(1);
+          const activeClaims = await tx
+            .select()
+            .from(attendeeClaimTokens)
+            .where(
+              and(
+                eq(attendeeClaimTokens.registrationId, scope.registration.id),
+                isNull(attendeeClaimTokens.consumedAt),
+                isNull(attendeeClaimTokens.revokedAt),
+              ),
+            )
+            .for('update');
+          if (scope.registration.customerUserId) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '参会人已认领该名额，请由参会人维护个人信息',
+              HttpStatus.CONFLICT,
+            );
+          }
+          if (
+            ['refunded', 'closed'].includes(scope.order.status) ||
+            scope.registration.status === 'checked_in' ||
+            ticket?.status === 'used'
+          ) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '当前订单或票券状态无法修改参会人',
+              HttpStatus.CONFLICT,
+            );
+          }
+          const currentAttendee = {
+            ...scope.registration.attendee,
+            mobile: scope.registration.attendeeMobileE164,
+            email: scope.registration.attendeeEmailNormalized,
+          };
+          const normalizedEmail = input.email?.trim().toLowerCase();
+          const {
+            attendee: normalizedAttendee,
+            changedFields,
+            contactChanged,
+          } = attendeeUpdateDiff(currentAttendee, {
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(requestedMobile !== undefined ? { mobile: requestedMobile } : {}),
             ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
@@ -1319,120 +1319,120 @@ export class CustomerAccountService {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.city !== undefined ? { city: input.city } : {}),
           });
-        if (changedFields.length === 0) return;
-        const attendee = {
-          ...scope.registration.attendee,
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(requestedMobile !== undefined ? { mobile: requestedMobile } : {}),
-          ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
-          ...(input.company !== undefined ? { company: input.company } : {}),
-          ...(input.title !== undefined ? { title: input.title } : {}),
-          ...(input.city !== undefined ? { city: input.city } : {}),
-        };
+          if (changedFields.length === 0) return;
+          const attendee = {
+            ...scope.registration.attendee,
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(requestedMobile !== undefined ? { mobile: requestedMobile } : {}),
+            ...(normalizedEmail !== undefined ? { email: normalizedEmail } : {}),
+            ...(input.company !== undefined ? { company: input.company } : {}),
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.city !== undefined ? { city: input.city } : {}),
+          };
 
-        const now = new Date();
-        if (contactChanged) {
-          const [recentContactUpdate] = await tx
-            .select({ id: auditLogs.id })
-            .from(auditLogs)
-            .where(
-              and(
-                eq(auditLogs.organizationId, session.organizationId),
-                eq(auditLogs.actorId, session.customerUserId),
-                eq(auditLogs.action, 'customer.order.attendee.update'),
-                eq(auditLogs.resourceType, 'registration'),
-                eq(auditLogs.resourceId, scope.registration.id),
-                gt(auditLogs.createdAt, new Date(now.getTime() - 10 * 60_000)),
-                sql`(${auditLogs.after}->'changedFields') ?| array['mobile', 'email']`,
-              ),
-            )
-            .limit(1);
-          if (recentContactUpdate) {
-            throw new DomainError(
-              API_ERROR_CODES.INVALID_STATE_TRANSITION,
-              '参会人联系方式10分钟内只能修改一次，请稍后再试',
-              HttpStatus.TOO_MANY_REQUESTS,
-            );
-          }
-        }
-        if (changedFields.includes('mobile')) {
-          const [duplicate] = await tx
-            .select({ id: registrations.id })
-            .from(registrations)
-            .where(
-              and(
-                eq(registrations.organizationId, session.organizationId),
-                eq(registrations.eventId, scope.registration.eventId),
-                eq(registrations.attendeeMobileE164, normalizedAttendee.mobile),
-                isNull(registrations.supersededAt),
-                sql`${registrations.id} <> ${scope.registration.id}`,
-              ),
-            )
-            .limit(1);
-          if (duplicate) {
-            throw new DomainError(
-              API_ERROR_CODES.REGISTRATION_IDENTITY_CONFLICT,
-              '该手机号已经报名本场大会',
-              HttpStatus.CONFLICT,
-            );
-          }
-        }
-        await tx
-          .update(registrations)
-          .set({
-            attendee,
-            attendeeMobileE164: normalizedAttendee.mobile,
-            attendeeEmailNormalized: normalizedAttendee.email,
-            updatedAt: now,
-          })
-          .where(eq(registrations.id, scope.registration.id));
-        if (contactChanged) {
-          if (activeClaims.length > 0) {
-            await tx
-              .update(attendeeClaimTokens)
-              .set({ revokedAt: now })
+          const now = new Date();
+          if (contactChanged) {
+            const [recentContactUpdate] = await tx
+              .select({ id: auditLogs.id })
+              .from(auditLogs)
               .where(
-                inArray(
-                  attendeeClaimTokens.id,
-                  activeClaims.map((claim) => claim.id),
+                and(
+                  eq(auditLogs.organizationId, session.organizationId),
+                  eq(auditLogs.actorId, session.customerUserId),
+                  eq(auditLogs.action, 'customer.order.attendee.update'),
+                  eq(auditLogs.resourceType, 'registration'),
+                  eq(auditLogs.resourceId, scope.registration.id),
+                  gt(auditLogs.createdAt, new Date(now.getTime() - 10 * 60_000)),
+                  sql`(${auditLogs.after}->'changedFields') ?| array['mobile', 'email']`,
                 ),
+              )
+              .limit(1);
+            if (recentContactUpdate) {
+              throw new DomainError(
+                API_ERROR_CODES.INVALID_STATE_TRANSITION,
+                '参会人联系方式10分钟内只能修改一次，请稍后再试',
+                HttpStatus.TOO_MANY_REQUESTS,
               );
+            }
           }
-          const claimToken = randomBytes(32).toString('base64url');
-          const [claim] = await tx
-            .insert(attendeeClaimTokens)
-            .values({
-              registrationId: scope.registration.id,
-              tokenHash: sha256(claimToken),
-              mobileDigest: sha256(normalizedAttendee.mobile),
-              expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60_000),
+          if (changedFields.includes('mobile')) {
+            const [duplicate] = await tx
+              .select({ id: registrations.id })
+              .from(registrations)
+              .where(
+                and(
+                  eq(registrations.organizationId, session.organizationId),
+                  eq(registrations.eventId, scope.registration.eventId),
+                  eq(registrations.attendeeMobileE164, normalizedAttendee.mobile),
+                  isNull(registrations.supersededAt),
+                  sql`${registrations.id} <> ${scope.registration.id}`,
+                ),
+              )
+              .limit(1);
+            if (duplicate) {
+              throw new DomainError(
+                API_ERROR_CODES.REGISTRATION_IDENTITY_CONFLICT,
+                '该手机号已经报名本场大会',
+                HttpStatus.CONFLICT,
+              );
+            }
+          }
+          await tx
+            .update(registrations)
+            .set({
+              attendee,
+              attendeeMobileE164: normalizedAttendee.mobile,
+              attendeeEmailNormalized: normalizedAttendee.email,
+              updatedAt: now,
             })
-            .returning({ id: attendeeClaimTokens.id });
-          await tx.insert(outboxEvents).values({
+            .where(eq(registrations.id, scope.registration.id));
+          if (contactChanged) {
+            if (activeClaims.length > 0) {
+              await tx
+                .update(attendeeClaimTokens)
+                .set({ revokedAt: now })
+                .where(
+                  inArray(
+                    attendeeClaimTokens.id,
+                    activeClaims.map((claim) => claim.id),
+                  ),
+                );
+            }
+            const claimToken = randomBytes(32).toString('base64url');
+            const [claim] = await tx
+              .insert(attendeeClaimTokens)
+              .values({
+                registrationId: scope.registration.id,
+                tokenHash: sha256(claimToken),
+                mobileDigest: sha256(normalizedAttendee.mobile),
+                expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60_000),
+              })
+              .returning({ id: attendeeClaimTokens.id });
+            await tx.insert(outboxEvents).values({
+              organizationId: session.organizationId,
+              eventId: scope.registration.eventId,
+              eventType: 'AttendeeClaimInvitationRequested',
+              correlationId: `attendee-claim:update:${scope.registration.id}:${claim!.id}`,
+              payload: {
+                registrationId: scope.registration.id,
+                recipientRole: 'attendee',
+                recipient: normalizedAttendee.email || normalizedAttendee.mobile,
+                sealedAttendeeClaimToken: sealSecret(claimToken, this.notificationSecret()),
+              },
+            });
+          }
+          await tx.insert(auditLogs).values({
             organizationId: session.organizationId,
             eventId: scope.registration.eventId,
-            eventType: 'AttendeeClaimInvitationRequested',
-            correlationId: `attendee-claim:update:${scope.registration.id}:${claim!.id}`,
-            payload: {
-              registrationId: scope.registration.id,
-              recipientRole: 'attendee',
-              recipient: normalizedAttendee.email || normalizedAttendee.mobile,
-              sealedAttendeeClaimToken: sealSecret(claimToken, this.notificationSecret()),
-            },
+            actorId: session.customerUserId,
+            actorType: 'customer',
+            action: 'customer.order.attendee.update',
+            resourceType: 'registration',
+            resourceId: scope.registration.id,
+            before: { attendee: currentAttendee },
+            after: { attendee, changedFields },
+            traceId: crypto.randomUUID(),
           });
-        }
-        await tx.insert(auditLogs).values({
-          organizationId: session.organizationId,
-          eventId: scope.registration.eventId,
-          actorId: session.customerUserId,
-          actorType: 'customer',
-          action: 'customer.order.attendee.update',
-          resourceType: 'registration',
-          resourceId: scope.registration.id,
-          before: { attendee: currentAttendee },
-          after: { attendee, changedFields },
-          traceId: crypto.randomUUID(),
-        });
         });
         break;
       } catch (error) {
@@ -2077,168 +2077,207 @@ export class CustomerAccountService {
     }
     return withPostgresTransactionRetry(() =>
       db.transaction(async (tx) => {
-      const [candidate] = await tx
-        .select({
-          mobileE164: customerUsers.mobileE164,
-        })
-        .from(customerUsers)
-        .where(
-          and(
-            eq(customerUsers.id, customerUserId),
-            eq(customerUsers.organizationId, organizationId),
-          ),
-        )
-        .limit(1);
-      if (!candidate) {
-        return {
-          deleted: true as const,
-          detachedRegistrations: 0,
-          detachedWaitlistEntries: 0,
-          detachedPurchaserOrders: 0,
-        };
-      }
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`customer-user:${organizationId}:${candidate.mobileE164}`}, 0))`,
-      );
-      const [user] = await tx
-        .select({
-          id: customerUsers.id,
-          mobileE164: customerUsers.mobileE164,
-          status: customerUsers.status,
-        })
-        .from(customerUsers)
-        .where(
-          and(
-            eq(customerUsers.id, customerUserId),
-            eq(customerUsers.organizationId, organizationId),
-          ),
-        )
-        .for('update')
-        .limit(1);
-      if (!user) {
-        return {
-          deleted: true as const,
-          detachedRegistrations: 0,
-          detachedWaitlistEntries: 0,
-          detachedPurchaserOrders: 0,
-        };
-      }
+        const [candidate] = await tx
+          .select({
+            mobileE164: customerUsers.mobileE164,
+          })
+          .from(customerUsers)
+          .where(
+            and(
+              eq(customerUsers.id, customerUserId),
+              eq(customerUsers.organizationId, organizationId),
+            ),
+          )
+          .limit(1);
+        if (!candidate) {
+          return {
+            deleted: true as const,
+            detachedRegistrations: 0,
+            detachedWaitlistEntries: 0,
+            detachedPurchaserOrders: 0,
+          };
+        }
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`customer-user:${organizationId}:${candidate.mobileE164}`}, 0))`,
+        );
+        const [user] = await tx
+          .select({
+            id: customerUsers.id,
+            mobileE164: customerUsers.mobileE164,
+            status: customerUsers.status,
+          })
+          .from(customerUsers)
+          .where(
+            and(
+              eq(customerUsers.id, customerUserId),
+              eq(customerUsers.organizationId, organizationId),
+            ),
+          )
+          .for('update')
+          .limit(1);
+        if (!user) {
+          return {
+            deleted: true as const,
+            detachedRegistrations: 0,
+            detachedWaitlistEntries: 0,
+            detachedPurchaserOrders: 0,
+          };
+        }
 
-      const avatarAssets = await tx
-        .select()
-        .from(customerMediaAssets)
-        .where(
-          and(
-            eq(customerMediaAssets.organizationId, organizationId),
-            eq(customerMediaAssets.customerUserId, customerUserId),
-          ),
-        )
-        .for('update');
-      if (avatarAssets.length > 0) {
-        await tx.insert(outboxEvents).values(
-          avatarAssets.map((asset) => ({
-            organizationId,
-            eventType: 'CustomerAvatarDeletionRequested',
-            correlationId: `customer-avatar:account-delete:${asset.id}`,
-            payload: {
-              assetId: asset.id,
+        const avatarAssets = await tx
+          .select()
+          .from(customerMediaAssets)
+          .where(
+            and(
+              eq(customerMediaAssets.organizationId, organizationId),
+              eq(customerMediaAssets.customerUserId, customerUserId),
+            ),
+          )
+          .for('update');
+        if (avatarAssets.length > 0) {
+          await tx.insert(outboxEvents).values(
+            avatarAssets.map((asset) => ({
               organizationId,
-              customerUserId,
-              sourceStorageKey: asset.sourceStorageKey,
-              outputStorageKey:
-                asset.outputStorageKey ??
-                `customers/${organizationId}/${customerUserId}/avatars/${asset.id}/avatar.webp`,
-            },
-          })),
-        );
-      }
+              eventType: 'CustomerAvatarDeletionRequested',
+              correlationId: `customer-avatar:account-delete:${asset.id}`,
+              payload: {
+                assetId: asset.id,
+                organizationId,
+                customerUserId,
+                sourceStorageKey: asset.sourceStorageKey,
+                outputStorageKey:
+                  asset.outputStorageKey ??
+                  `customers/${organizationId}/${customerUserId}/avatars/${asset.id}/avatar.webp`,
+              },
+            })),
+          );
+        }
 
-      await tx
-        .update(customerAuthChallenges)
-        .set({
-          invalidatedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(customerAuthChallenges.organizationId, organizationId),
-            eq(customerAuthChallenges.mobileE164, user.mobileE164),
-            isNull(customerAuthChallenges.consumedAt),
-            isNull(customerAuthChallenges.invalidatedAt),
+        const attendeeNeedResources = await tx
+          .select({
+            submissionId: attendeeNeedSubmissions.id,
+            questionId: attendeeNeedQuestions.id,
+          })
+          .from(attendeeNeedSubmissions)
+          .leftJoin(
+            attendeeNeedQuestions,
+            eq(attendeeNeedQuestions.submissionId, attendeeNeedSubmissions.id),
+          )
+          .where(
+            and(
+              eq(attendeeNeedSubmissions.organizationId, organizationId),
+              eq(attendeeNeedSubmissions.customerUserId, customerUserId),
+            ),
+          );
+        const attendeeNeedResourceIds = [
+          ...new Set(
+            attendeeNeedResources.flatMap((item) =>
+              item.questionId ? [item.submissionId, item.questionId] : [item.submissionId],
+            ),
           ),
-        );
-      const detachedPurchaserOrders = await tx
-        .update(orders)
-        .set({ purchaserCustomerUserId: null, updatedAt: new Date() })
-        .where(
-          and(
-            eq(orders.organizationId, organizationId),
-            eq(orders.purchaserCustomerUserId, customerUserId),
-          ),
-        )
-        .returning({ id: orders.id });
-      const detachedRegistrations = await tx
-        .update(registrations)
-        .set({
-          customerUserId: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(registrations.organizationId, organizationId),
-            eq(registrations.customerUserId, customerUserId),
-          ),
-        )
-        .returning({ id: registrations.id });
-      const detachedWaitlistEntries = await tx
-        .update(waitlistEntries)
-        .set({
-          customerUserId: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(waitlistEntries.organizationId, organizationId),
-            eq(waitlistEntries.customerUserId, customerUserId),
-          ),
-        )
-        .returning({ id: waitlistEntries.id });
+        ];
+        if (attendeeNeedResourceIds.length > 0) {
+          await tx
+            .update(auditLogs)
+            .set({ before: { contentRemoved: true }, after: { contentRemoved: true } })
+            .where(
+              and(
+                eq(auditLogs.organizationId, organizationId),
+                inArray(auditLogs.resourceId, attendeeNeedResourceIds),
+                inArray(auditLogs.resourceType, [
+                  'attendee_need_submission',
+                  'attendee_need_question',
+                ]),
+              ),
+            );
+        }
 
-      await tx
-        .delete(customerSessions)
-        .where(
-          and(
-            eq(customerSessions.organizationId, organizationId),
-            eq(customerSessions.customerUserId, customerUserId),
-          ),
-        );
-      await tx.insert(auditLogs).values({
-        organizationId,
-        actorId,
-        actorType: 'staff',
-        action: 'customer.admin.delete',
-        resourceType: 'customer_user',
-        resourceId: String(publicUserId),
-        before: {
-          status: user.status,
-          maskedMobile: maskMobile(user.mobileE164),
-        },
-        after: {
-          deleted: true,
-          detachedRegistrations: detachedRegistrations.length,
-          detachedWaitlistEntries: detachedWaitlistEntries.length,
-          detachedPurchaserOrders: detachedPurchaserOrders.length,
-        },
-        traceId: crypto.randomUUID(),
-      });
-      await tx
-        .delete(customerUsers)
-        .where(
-          and(
-            eq(customerUsers.id, customerUserId),
-            eq(customerUsers.organizationId, organizationId),
-          ),
-        );
+        await tx
+          .update(customerAuthChallenges)
+          .set({
+            invalidatedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(customerAuthChallenges.organizationId, organizationId),
+              eq(customerAuthChallenges.mobileE164, user.mobileE164),
+              isNull(customerAuthChallenges.consumedAt),
+              isNull(customerAuthChallenges.invalidatedAt),
+            ),
+          );
+        const detachedPurchaserOrders = await tx
+          .update(orders)
+          .set({ purchaserCustomerUserId: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(orders.organizationId, organizationId),
+              eq(orders.purchaserCustomerUserId, customerUserId),
+            ),
+          )
+          .returning({ id: orders.id });
+        const detachedRegistrations = await tx
+          .update(registrations)
+          .set({
+            customerUserId: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(registrations.organizationId, organizationId),
+              eq(registrations.customerUserId, customerUserId),
+            ),
+          )
+          .returning({ id: registrations.id });
+        const detachedWaitlistEntries = await tx
+          .update(waitlistEntries)
+          .set({
+            customerUserId: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(waitlistEntries.organizationId, organizationId),
+              eq(waitlistEntries.customerUserId, customerUserId),
+            ),
+          )
+          .returning({ id: waitlistEntries.id });
+
+        await tx
+          .delete(customerSessions)
+          .where(
+            and(
+              eq(customerSessions.organizationId, organizationId),
+              eq(customerSessions.customerUserId, customerUserId),
+            ),
+          );
+        await tx.insert(auditLogs).values({
+          organizationId,
+          actorId,
+          actorType: 'staff',
+          action: 'customer.admin.delete',
+          resourceType: 'customer_user',
+          resourceId: String(publicUserId),
+          before: {
+            status: user.status,
+            maskedMobile: maskMobile(user.mobileE164),
+          },
+          after: {
+            deleted: true,
+            detachedRegistrations: detachedRegistrations.length,
+            detachedWaitlistEntries: detachedWaitlistEntries.length,
+            detachedPurchaserOrders: detachedPurchaserOrders.length,
+          },
+          traceId: crypto.randomUUID(),
+        });
+        await tx
+          .delete(customerUsers)
+          .where(
+            and(
+              eq(customerUsers.id, customerUserId),
+              eq(customerUsers.organizationId, organizationId),
+            ),
+          );
 
         return {
           deleted: true as const,

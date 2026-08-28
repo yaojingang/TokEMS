@@ -6,6 +6,7 @@ import {
   DEFAULT_ATTENDEE_SHOWCASE_VISIBLE_FIELDS,
   publicEventHomePath,
   publicEventScopedPath,
+  type AttendeeNeedsProfile,
   type AttendeeShowcaseProfile,
   type AttendeeShowcaseVisibleFields,
   type UpdateAttendeeShowcase,
@@ -13,6 +14,7 @@ import {
 import QRCode from 'qrcode.vue';
 import { useAttendeePosterRefresh } from '~/composables/useAttendeePosterRefresh';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
 import {
   activeFlowStep,
   enabledFlowSteps,
@@ -44,6 +46,8 @@ const successMessage = ref('');
 const validationDialogOpen = ref(false);
 const validationIssues = ref<AttendeeShowcaseValidationIssue[]>([]);
 const profile = ref<AttendeeShowcaseProfile | null>(null);
+const attendeeNeedsProfile = ref<AttendeeNeedsProfile | null>(null);
+const attendeeNeedsLoadFailed = ref(false);
 const privateAvatarUrl = ref<string | null>(null);
 const posterCanvas = ref<HTMLCanvasElement | null>(null);
 const qrHolder = ref<HTMLElement | null>(null);
@@ -88,6 +92,21 @@ const invoiceHref = computed(() =>
       )
     : '/account?section=invoices',
 );
+const needsHref = computed(() =>
+  profile.value
+    ? publicEventScopedPath(
+        `/account/registrations/${encodeURIComponent(registrationId)}/needs`,
+        profile.value.eventSlug,
+      )
+    : `/account/registrations/${encodeURIComponent(registrationId)}/needs`,
+);
+const attendeeNeedsEntryEnabled = computed(() => {
+  const state = resolveAttendeeNeedsAccountState(
+    attendeeNeedsProfile.value ?? undefined,
+    attendeeNeedsLoadFailed.value,
+  );
+  return state.canEdit || state.canRetry;
+});
 
 const publicPreviewHref = computed(() => {
   if (!profile.value?.publicSlug) return '';
@@ -181,7 +200,15 @@ async function load() {
     }
     profile.value = value;
     syncForm(value);
-    event.value = await conferenceApi.getEvent(value.eventSlug);
+    const [eventResult, attendeeNeedsResult] = await Promise.all([
+      conferenceApi.getEvent(value.eventSlug),
+      customer.attendeeNeeds(registrationId).catch(() => {
+        attendeeNeedsLoadFailed.value = true;
+        return null;
+      }),
+    ]);
+    event.value = eventResult;
+    attendeeNeedsProfile.value = attendeeNeedsResult;
     await syncPrivateAvatar();
   } catch (error) {
     const failure = error as { data?: { message?: string } };
@@ -884,6 +911,9 @@ useHead(() => ({
               </button>
               <NuxtLink class="secondary-action" :to="homeHref">返回大会首页</NuxtLink>
               <NuxtLink class="secondary-action" :to="accountHref">回到个人中心</NuxtLink>
+              <NuxtLink v-if="attendeeNeedsEntryEnabled" class="secondary-action" :to="needsHref">
+                继续填写参会需求
+              </NuxtLink>
               <NuxtLink v-if="profile.invoiceAvailable" class="text-action" :to="invoiceHref">
                 需要发票？去申请
               </NuxtLink>
