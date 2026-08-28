@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CustomerRegistrationDetail } from '@conference/contracts';
+import type { AttendeeNeedsProfile, CustomerRegistrationDetail } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { customerRegistrationTicketHref } from '~/utils/purchase-journey';
@@ -7,9 +7,10 @@ import { customerRegistrationTicketHref } from '~/utils/purchase-journey';
 const route = useRoute();
 const customer = useCustomerSession();
 const detail = ref<CustomerRegistrationDetail | null>(null);
+const attendeeNeeds = ref<AttendeeNeedsProfile | null>(null);
 const loading = ref(true);
 const errorMessage = ref('');
-const rendersChildPage = computed(() => /\/showcase\/?$/u.test(route.path));
+const rendersChildPage = computed(() => /\/(showcase|needs)\/?$/u.test(route.path));
 
 const money = (amount: number) =>
   amount === 0 ? '免费' : `¥${(amount / 100).toLocaleString('zh-CN')}`;
@@ -23,7 +24,10 @@ async function load() {
       customer.openLogin();
       return;
     }
-    detail.value = await customer.registration(String(route.params.id));
+    [detail.value, attendeeNeeds.value] = await Promise.all([
+      customer.registration(String(route.params.id)),
+      customer.attendeeNeeds(String(route.params.id)).catch(() => null),
+    ]);
   } catch (error) {
     const value = error as { data?: { message?: string } };
     errorMessage.value = value.data?.message ?? '报名详情加载失败';
@@ -106,6 +110,13 @@ useHead({ title: '报名详情' });
             :to="`/account/registrations/${detail.id}/showcase?event=${encodeURIComponent(detail.eventSlug)}`"
           >
             完善参会名片
+          </NuxtLink>
+          <NuxtLink
+            v-if="attendeeNeeds?.id || attendeeNeeds?.canCreate"
+            class="detail-secondary"
+            :to="`/account/registrations/${detail.id}/needs?event=${encodeURIComponent(detail.eventSlug)}`"
+          >
+            编辑参会需求
           </NuxtLink>
           <NuxtLink
             v-if="detail.ticketCode"

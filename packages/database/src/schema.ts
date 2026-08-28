@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -16,8 +17,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { inArray, isNotNull, sql } from 'drizzle-orm';
-import { DEFAULT_ANALYTICS_SETTINGS } from '@conference/contracts';
+import { inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { ATTENDEE_NEED_TOPIC_OPTIONS, DEFAULT_ANALYTICS_SETTINGS } from '@conference/contracts';
 import type {
   AgentApprovalPolicy,
   AgentDataClass,
@@ -28,6 +29,7 @@ import type {
   ConferenceTemplateDefinition,
   CooperationType,
   EventSettings,
+  FeishuDigestSnapshot,
   HtmlTemplateBindingManifest,
   OrganizationRole,
   OrganizationSettings,
@@ -68,6 +70,10 @@ const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 };
+
+const attendeeNeedTopicCodesSql = sql.raw(
+  `'${JSON.stringify(ATTENDEE_NEED_TOPIC_OPTIONS.map((topic) => topic.code))}'::jsonb`,
+);
 
 export const eventStatus = pgEnum('event_status', [
   'draft',
@@ -470,6 +476,7 @@ export const organizationIntegrations = pgTable(
     config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
     encryptedCredentials: text('encrypted_credentials'),
     keyVersion: integer('key_version').notNull().default(1),
+    revision: integer('revision').notNull().default(0),
     lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
     lastError: text('last_error'),
     updatedBy: uuid('updated_by').references(() => users.id),
@@ -604,6 +611,7 @@ export const eventPublicMetrics = pgTable(
     trackingStartedAt: timestamp('tracking_started_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    dailyTrackingStartedAt: timestamp('daily_tracking_started_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -614,6 +622,126 @@ export const eventPublicMetrics = pgTable(
       name: 'event_public_metrics_event_scope_fk',
     }).onDelete('cascade'),
     check('event_public_metrics_page_views_nonnegative', sql`${table.pageViews} >= 0`),
+  ],
+);
+
+export const eventPublicMetricDays = pgTable(
+  'event_public_metric_days',
+  {
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    localDate: date('local_date').notNull(),
+    pageViews: bigint('page_views', { mode: 'number' }).notNull().default(0),
+    timezoneSnapshot: varchar('timezone_snapshot', { length: 80 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.eventId, table.localDate] }),
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_public_metric_days_event_scope_fk',
+    }).onDelete('cascade'),
+    check('event_public_metric_days_page_views_nonnegative', sql`${table.pageViews} >= 0`),
+  ],
+);
+
+export const eventFeishuDigestSubscriptions = pgTable(
+  'event_feishu_digest_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    digestType: varchar('digest_type', { length: 40 }).notNull().default('daily_operations'),
+    enabled: boolean('enabled').notNull().default(false),
+    chatId: varchar('chat_id', { length: 160 }),
+    chatNameSnapshot: varchar('chat_name_snapshot', { length: 200 }),
+    sendLocalTime: varchar('send_local_time', { length: 5 }).notNull().default('09:00'),
+    timezoneSnapshot: varchar('timezone_snapshot', { length: 80 }).notNull(),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    lastSuccessfulAt: timestamp('last_successful_at', { withTimezone: true }),
+    testVerifiedAt: timestamp('test_verified_at', { withTimezone: true }),
+    testVerifiedChatId: varchar('test_verified_chat_id', { length: 160 }),
+    revision: integer('revision').notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_feishu_digest_subscriptions_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('event_feishu_digest_subscriptions_scope_unique').on(
+      table.organizationId,
+      table.eventId,
+      table.digestType,
+    ),
+    index('event_feishu_digest_subscriptions_due_idx').on(table.enabled, table.nextRunAt),
+    check(
+      'event_feishu_digest_subscriptions_type_check',
+      sql`${table.digestType} in ('daily_operations')`,
+    ),
+    check(
+      'event_feishu_digest_subscriptions_time_check',
+      sql`${table.sendLocalTime} ~ '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+  ],
+);
+
+export const feishuDigestDeliveries = pgTable(
+  'feishu_digest_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    subscriptionId: uuid('subscription_id').references(() => eventFeishuDigestSubscriptions.id, {
+      onDelete: 'set null',
+    }),
+    sourceDeliveryId: uuid('source_delivery_id').references(
+      (): AnyPgColumn => feishuDigestDeliveries.id,
+      { onDelete: 'set null' },
+    ),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    kind: varchar('kind', { length: 24 }).notNull(),
+    reportDate: date('report_date').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    windowEnd: timestamp('window_end', { withTimezone: true }).notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }),
+    aggregateSnapshot: jsonb('aggregate_snapshot').$type<FeishuDigestSnapshot>(),
+    cardDigest: varchar('card_digest', { length: 64 }),
+    chatIdSnapshot: varchar('chat_id_snapshot', { length: 160 }).notNull(),
+    chatNameSnapshot: varchar('chat_name_snapshot', { length: 200 }).notNull(),
+    status: varchar('status', { length: 24 }).notNull().default('queued'),
+    providerMessageId: varchar('provider_message_id', { length: 160 }),
+    attempts: integer('attempts').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    lastError: text('last_error'),
+    dedupKey: varchar('dedup_key', { length: 240 }).notNull(),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'feishu_digest_deliveries_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('feishu_digest_deliveries_dedup_unique').on(table.dedupKey),
+    index('feishu_digest_deliveries_event_time_idx').on(
+      table.organizationId,
+      table.eventId,
+      table.createdAt,
+    ),
+    index('feishu_digest_deliveries_status_time_idx').on(table.status, table.updatedAt),
+    check(
+      'feishu_digest_deliveries_kind_check',
+      sql`${table.kind} in ('scheduled', 'manual_test', 'manual_resend')`,
+    ),
+    check(
+      'feishu_digest_deliveries_status_check',
+      sql`${table.status} in ('queued', 'generating', 'sending', 'retrying', 'sent', 'unknown', 'failed', 'skipped', 'cancelled')`,
+    ),
+    check('feishu_digest_deliveries_attempts_nonnegative', sql`${table.attempts} >= 0`),
   ],
 );
 
@@ -1448,6 +1576,110 @@ export const attendeeShowcaseProfiles = pgTable(
   ],
 );
 
+export const attendeeNeedSubmissions = pgTable(
+  'attendee_need_submissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    registrationId: uuid('registration_id')
+      .notNull()
+      .references(() => registrations.id, { onDelete: 'cascade' }),
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => customerUsers.id, { onDelete: 'cascade' }),
+    isPublic: boolean('is_public').notNull().default(false),
+    isAnonymous: boolean('is_anonymous').notNull().default(true),
+    attributionName: varchar('attribution_name', { length: 120 }),
+    consentVersion: varchar('consent_version', { length: 40 }),
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.registrationId, table.organizationId, table.eventId],
+      foreignColumns: [registrations.id, registrations.organizationId, registrations.eventId],
+      name: 'attendee_need_submissions_registration_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.customerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'attendee_need_submissions_customer_org_fk',
+    }),
+    uniqueIndex('attendee_need_submissions_registration_unique').on(table.registrationId),
+    check('attendee_need_submissions_version_positive', sql`${table.version} > 0`),
+    check(
+      'attendee_need_submissions_named_public_attribution',
+      sql`${table.isPublic} = false or ${table.isAnonymous} = true or coalesce(length(trim(${table.attributionName})), 0) > 0`,
+    ),
+    check(
+      'attendee_need_submissions_public_consent',
+      sql`${table.isPublic} = false or (${table.consentVersion} is not null and ${table.consentAt} is not null)`,
+    ),
+    index('attendee_need_submissions_event_public_idx').on(
+      table.eventId,
+      table.isPublic,
+      table.updatedAt,
+    ),
+    index('attendee_need_submissions_customer_idx').on(table.customerUserId, table.updatedAt),
+  ],
+);
+
+export const attendeeNeedQuestions = pgTable(
+  'attendee_need_questions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    submissionId: uuid('submission_id')
+      .notNull()
+      .references(() => attendeeNeedSubmissions.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    content: varchar('content', { length: 200 }).notNull(),
+    tagCodes: jsonb('tag_codes').$type<string[]>().notNull(),
+    firstPublishedAt: timestamp('first_published_at', { withTimezone: true }),
+    adminEditedAt: timestamp('admin_edited_at', { withTimezone: true }),
+    adminEditReason: varchar('admin_edit_reason', { length: 500 }),
+    adminHiddenAt: timestamp('admin_hidden_at', { withTimezone: true }),
+    adminHiddenReason: varchar('admin_hidden_reason', { length: 500 }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedByType: varchar('deleted_by_type', { length: 20 }).$type<'customer' | 'admin'>(),
+    deletedReason: varchar('deleted_reason', { length: 500 }),
+    ...timestamps,
+  },
+  (table) => [
+    check('attendee_need_questions_position_range', sql`${table.position} between 1 and 3`),
+    check(
+      'attendee_need_questions_content_length',
+      sql`char_length(trim(${table.content})) between 5 and 200`,
+    ),
+    check(
+      'attendee_need_questions_tag_count',
+      sql`jsonb_typeof(${table.tagCodes}) = 'array' and jsonb_array_length(${table.tagCodes}) between 1 and 3`,
+    ),
+    check(
+      'attendee_need_questions_tag_values',
+      sql`${table.tagCodes} <@ ${attendeeNeedTopicCodesSql}
+        and (jsonb_array_length(${table.tagCodes}) < 2 or ${table.tagCodes}->0 <> ${table.tagCodes}->1)
+        and (jsonb_array_length(${table.tagCodes}) < 3 or (${table.tagCodes}->0 <> ${table.tagCodes}->2 and ${table.tagCodes}->1 <> ${table.tagCodes}->2))`,
+    ),
+    uniqueIndex('attendee_need_questions_active_position_unique')
+      .on(table.submissionId, table.position)
+      .where(isNull(table.deletedAt)),
+    index('attendee_need_questions_public_idx').on(
+      table.firstPublishedAt,
+      table.id,
+      table.adminHiddenAt,
+      table.deletedAt,
+    ),
+    index('attendee_need_questions_tags_idx').using('gin', table.tagCodes),
+    index('attendee_need_questions_submission_idx').on(table.submissionId, table.position),
+  ],
+);
+
 export const paymentNotificationInbox = pgTable(
   'payment_notification_inbox',
   {
@@ -1839,6 +2071,35 @@ export const speakers = pgTable(
     ...timestamps,
   },
   (table) => [index('speakers_event_order_idx').on(table.eventId, table.sortOrder)],
+);
+
+export const speakerPublicRoutes = pgTable(
+  'speaker_public_routes',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id').notNull(),
+    speakerId: uuid('speaker_id').notNull(),
+    publicCode: varchar('public_code', { length: 4 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'speaker_public_routes_event_scope_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('speaker_public_routes_speaker_unique').on(
+      table.organizationId,
+      table.eventId,
+      table.speakerId,
+    ),
+    uniqueIndex('speaker_public_routes_code_unique').on(table.organizationId, table.publicCode),
+    check('speaker_public_routes_code_format', sql`${table.publicCode} ~ '^[a-z]{4}$'`),
+    index('speaker_public_routes_event_idx').on(table.organizationId, table.eventId),
+  ],
 );
 
 export const cooperationRequests = pgTable(

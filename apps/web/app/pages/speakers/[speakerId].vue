@@ -1,22 +1,53 @@
 <script setup lang="ts">
-import { useAsyncData, useRequestURL } from '#imports';
+import {
+  definePageMeta,
+  navigateTo,
+  setResponseStatus,
+  useAsyncData,
+  useRequestURL,
+} from '#imports';
 import {
   publicEventHomePath,
-  publicEventScopedPath,
+  publicSpeakerPath,
   speakerAvatarText,
+  SpeakerRouteCodeSchema,
 } from '@conference/contracts';
+import QRCode from 'qrcode.vue';
+
+definePageMeta({ alias: ['/s/:speakerId'] });
 
 const route = useRoute();
 const requestUrl = useRequestURL();
 const api = useConferenceApi();
 const eventSlug = computed(() => String(route.query.event ?? ''));
 const speakerId = computed(() => String(route.params.speakerId ?? ''));
+const isLegacyShortRoute = computed(() => route.path.startsWith('/s/'));
+const isPublicCodeRoute = computed(
+  () => isLegacyShortRoute.value || SpeakerRouteCodeSchema.safeParse(speakerId.value).success,
+);
+const copied = ref(false);
 
 const { data: speaker, error } = await useAsyncData(
-  () => `event-speaker:${eventSlug.value}:${speakerId.value}`,
-  () => api.getEventSpeaker(eventSlug.value, speakerId.value),
-  { watch: [eventSlug, speakerId] },
+  () =>
+    isPublicCodeRoute.value
+      ? `public-speaker:${speakerId.value}`
+      : `event-speaker:${eventSlug.value}:${speakerId.value}`,
+  () =>
+    isPublicCodeRoute.value
+      ? api.getSpeakerByCode(speakerId.value)
+      : api.getEventSpeaker(eventSlug.value, speakerId.value),
+  { watch: [eventSlug, speakerId, isPublicCodeRoute] },
 );
+
+if (speaker.value?.publicCode) {
+  const canonicalPath = publicSpeakerPath(speaker.value.publicCode);
+  if (route.path !== canonicalPath || Object.keys(route.query).length) {
+    await navigateTo(canonicalPath, { redirectCode: 308 });
+  }
+}
+if (import.meta.server && error.value) {
+  setResponseStatus(404);
+}
 
 const avatarInitial = computed(() =>
   speakerAvatarText(speaker.value?.name ?? '', speaker.value?.initials),
@@ -38,24 +69,37 @@ const eventDate = computed(() => {
 });
 const homePath = computed(() => {
   try {
-    return publicEventHomePath(eventSlug.value);
+    return publicEventHomePath(speaker.value?.eventSlug ?? eventSlug.value);
   } catch {
     return '/';
   }
 });
-const registrationPath = computed(() => {
-  try {
-    return publicEventScopedPath('/register', eventSlug.value);
-  } catch {
-    return '/register';
-  }
-});
-const canonicalUrl = computed(() => new URL(route.fullPath, requestUrl.origin).toString());
+const canonicalUrl = computed(() =>
+  new URL(
+    speaker.value?.publicCode ? publicSpeakerPath(speaker.value.publicCode) : route.fullPath,
+    requestUrl.origin,
+  ).toString(),
+);
 const socialImageUrl = computed(() =>
   speaker.value?.avatarUrl
     ? new URL(speaker.value.avatarUrl, requestUrl.origin).toString()
     : undefined,
 );
+
+async function shareSpeaker() {
+  if (!import.meta.client || !speaker.value) return;
+  if (navigator.share) {
+    await navigator.share({
+      title: `${speaker.value.name}的嘉宾资料`,
+      text: `${speaker.value.name}将在${speaker.value.eventName}分享“${speaker.value.topic}”。`,
+      url: canonicalUrl.value,
+    });
+    return;
+  }
+  await navigator.clipboard.writeText(canonicalUrl.value);
+  copied.value = true;
+  window.setTimeout(() => (copied.value = false), 1800);
+}
 
 useHead(() => {
   const title = speaker.value ? `${speaker.value.name} · ${speaker.value.eventName}` : '嘉宾详情';
@@ -68,7 +112,7 @@ useHead(() => {
     link: [{ rel: 'canonical', href: canonicalUrl.value }],
     meta: [
       { name: 'description', content: description },
-      { name: 'robots', content: 'index,follow' },
+      { name: 'robots', content: error.value ? 'noindex,follow' : 'index,follow' },
       { property: 'og:title', content: title },
       { property: 'og:description', content: description },
       { property: 'og:type', content: 'profile' },
@@ -120,6 +164,14 @@ useHead(() => {
               </div>
             </header>
 
+            <section v-if="speaker.bio" class="speaker-content-section">
+              <div class="speaker-section-heading">
+                <span>ABOUT</span>
+                <h2>嘉宾简介</h2>
+              </div>
+              <p>{{ speaker.bio }}</p>
+            </section>
+
             <section class="speaker-topic-section">
               <div class="speaker-section-heading">
                 <span>TALK</span>
@@ -129,14 +181,6 @@ useHead(() => {
                 <h2>{{ speaker.topic }}</h2>
                 <p v-if="speaker.topicAbstract">{{ speaker.topicAbstract }}</p>
               </div>
-            </section>
-
-            <section v-if="speaker.bio" class="speaker-content-section">
-              <div class="speaker-section-heading">
-                <span>ABOUT</span>
-                <h2>嘉宾简介</h2>
-              </div>
-              <p>{{ speaker.bio }}</p>
             </section>
 
             <section
@@ -163,29 +207,27 @@ useHead(() => {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <span>{{ link.label }}</span><strong>访问 ↗</strong>
+                  <span>{{ link.label }}</span>
+                  <strong>访问 ↗</strong>
                 </a>
               </div>
             </section>
           </article>
 
           <aside class="speaker-event-card">
-            <p>MEET AT THE EVENT</p>
-            <h2>{{ speaker.eventName }}</h2>
-            <dl class="speaker-event-facts">
-              <div v-if="eventDate">
-                <dt>时间</dt>
-                <dd>{{ eventDate }}</dd>
-              </div>
-              <div>
-                <dt>城市</dt>
-                <dd>{{ speaker.eventCity }}</dd>
-              </div>
-            </dl>
-            <span>在大会现场听见完整分享，与行业同行者继续交流。</span>
+            <div class="speaker-event">
+              <p>MEET AT THE EVENT</p>
+              <h2>{{ speaker.eventName }}</h2>
+              <span>{{ [eventDate, speaker.eventCity].filter(Boolean).join(' · ') }}</span>
+            </div>
+            <div class="speaker-qr" role="img" aria-label="嘉宾资料二维码">
+              <QRCode :value="canonicalUrl" :size="160" level="M" render-as="svg" />
+            </div>
             <div class="speaker-event-actions">
-              <NuxtLink class="primary" :to="registrationPath">立即报名</NuxtLink>
-              <NuxtLink :to="publicEventHomePath(speaker.eventSlug)">查看大会详情</NuxtLink>
+              <button type="button" @click="shareSpeaker">
+                {{ copied ? '链接已复制' : '分享嘉宾资料' }}
+              </button>
+              <NuxtLink :to="publicEventHomePath(speaker.eventSlug)"> 查看大会详情与报名 </NuxtLink>
             </div>
           </aside>
         </div>
@@ -203,22 +245,23 @@ useHead(() => {
 }
 
 .speaker-shell {
-  width: min(100% - 40px, 1080px);
+  width: min(100% - 40px, 1060px);
   margin-inline: auto;
-  padding: 28px 0 70px;
+  padding: 28px 0 64px;
 }
 
 .speaker-back {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 36px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   color: #657186;
   font-size: 13px;
 }
 
 .speaker-back:focus-visible,
 .speaker-event-actions a:focus-visible,
+.speaker-event-actions button:focus-visible,
 .speaker-state a:focus-visible,
 .speaker-links a:focus-visible {
   border-radius: 6px;
@@ -245,52 +288,25 @@ useHead(() => {
   overflow: hidden;
 }
 
-.speaker-event-facts {
-  display: grid;
-  gap: 11px;
-  margin: 22px 0;
-  padding: 17px 0;
-  border-block: 1px solid #e3e8ef;
-}
-
-.speaker-event-facts div {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.speaker-event-facts dt {
-  color: #8a94a4;
-  font-size: 12px;
-}
-
-.speaker-event-facts dd {
-  margin: 0;
-  color: #26354a;
-  font-size: 13px;
-  font-weight: 650;
-  line-height: 1.55;
-}
-
 .speaker-hero {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-columns: 132px minmax(0, 1fr);
   align-items: center;
-  gap: 36px;
-  padding: 40px;
+  gap: 30px;
+  padding: 34px 36px 32px;
 }
 
 .speaker-portrait {
   display: grid;
-  width: 176px;
-  height: 176px;
+  width: 132px;
+  height: 132px;
   place-items: center;
   overflow: hidden;
   border-radius: 50%;
   background: color-mix(in srgb, var(--speaker-accent, #1f5fe8) 12%, white);
-  box-shadow: 0 0 0 7px #f4f7fc;
+  box-shadow: 0 0 0 6px #f4f7fc;
   color: var(--speaker-accent, #1f5fe8);
-  font-size: 56px;
+  font-size: 42px;
   font-weight: 760;
   outline: 1px solid rgb(18 35 61 / 10%);
   outline-offset: -1px;
@@ -321,10 +337,11 @@ useHead(() => {
 }
 
 .speaker-intro h1 {
-  margin: 12px 0 8px;
+  margin: 10px 0 7px;
   color: #172033;
-  font-size: clamp(40px, 5vw, 58px);
-  line-height: 1.05;
+  font-size: clamp(38px, 5vw, 50px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
   overflow-wrap: anywhere;
 }
 
@@ -341,29 +358,30 @@ useHead(() => {
 .speaker-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 16px;
+  gap: 6px;
+  margin-top: 14px;
 }
 
 .speaker-tags span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
   padding: 6px 10px;
   border-radius: 6px;
   background: #eef3fb;
   color: #43536c;
   font-size: 12px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .speaker-topic-section,
 .speaker-content-section {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 26px;
-  padding: 30px 40px;
+  grid-template-columns: 158px minmax(0, 1fr);
+  gap: 24px;
+  padding: 26px 36px;
   border-top: 1px solid #e8edf4;
-}
-
-.speaker-topic-section {
-  background: #f8faff;
 }
 
 .speaker-section-heading > span,
@@ -376,23 +394,24 @@ useHead(() => {
 .speaker-section-heading h2 {
   margin: 6px 0 0;
   color: #172033;
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 .speaker-topic-section > div:last-child h2 {
   margin: 0;
   color: #172033;
-  font-size: clamp(24px, 3vw, 32px);
-  line-height: 1.35;
+  font-size: clamp(21px, 2.4vw, 27px);
+  line-height: 1.45;
   text-wrap: balance;
 }
 
 .speaker-topic-section > div:last-child p,
 .speaker-content-section > p {
-  margin: 15px 0 0;
+  margin: 12px 0 0;
   color: #404c60;
   font-size: 15px;
-  line-height: 1.85;
+  line-height: 1.8;
   white-space: pre-wrap;
   text-wrap: pretty;
 }
@@ -430,38 +449,61 @@ useHead(() => {
 .speaker-event-card {
   position: sticky;
   top: 20px;
-  padding: 24px;
+  padding: 22px;
 }
 
-.speaker-event-card > p {
+.speaker-event {
+  text-align: left;
+}
+
+.speaker-event > p {
   margin: 0;
+  color: #1f5fe8;
+  font: 720 10px var(--conference-font-mono);
+  letter-spacing: 0.09em;
 }
 
-.speaker-event-card h2 {
-  margin: 9px 0 10px;
+.speaker-event h2 {
+  margin: 7px 0;
   color: #172033;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
   text-wrap: balance;
 }
 
-.speaker-event-card > span {
-  display: block;
+.speaker-event > span {
   color: #7a8597;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.6;
+}
+
+.speaker-qr {
+  display: grid;
+  width: 184px;
+  height: 184px;
+  place-items: center;
+  margin: 18px auto;
+  border: 1px solid #e3e8f0;
+  background: #fff;
+}
+
+.speaker-qr :deep(svg) {
+  width: 160px;
+  height: 160px;
 }
 
 .speaker-event-actions {
   display: grid;
   gap: 8px;
-  margin-top: 24px;
 }
 
 .speaker-event-actions a,
+.speaker-event-actions button,
 .speaker-state a {
   display: flex;
-  min-height: 44px;
+  width: 100%;
+  min-height: 42px;
   align-items: center;
   justify-content: center;
   border: 1px solid #d6deea;
@@ -473,17 +515,19 @@ useHead(() => {
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
-    transform 110ms ease;
+    transform 100ms ease;
 }
 
-.speaker-event-actions a.primary,
+.speaker-event-actions button,
 .speaker-state a {
   border-color: #1f5fe8;
   background: #1f5fe8;
   color: #fff;
+  cursor: pointer;
 }
 
 .speaker-event-actions a:active,
+.speaker-event-actions button:active,
 .speaker-state a:active,
 .speaker-links a:active {
   transform: scale(0.98);
@@ -537,27 +581,60 @@ useHead(() => {
     background: #f7f9fc;
   }
 
-  .speaker-event-actions a.primary:hover,
+  .speaker-event-actions button:hover,
   .speaker-state a:hover {
     border-color: #174fc7;
     background: #174fc7;
   }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 800px) {
+  .speaker-shell {
+    width: min(100% - 32px, 680px);
+  }
+
   .speaker-profile-layout {
     grid-template-columns: 1fr;
   }
 
   .speaker-event-card {
     position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 136px;
+    align-items: center;
+    gap: 18px 22px;
+  }
+
+  .speaker-qr {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    width: 136px;
+    height: 136px;
+    margin: 0;
+  }
+
+  .speaker-qr :deep(svg) {
+    width: 116px;
+    height: 116px;
+  }
+
+  .speaker-event-actions {
+    grid-column: 1;
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   .speaker-shell {
     width: min(100% - 24px, 680px);
-    padding: 16px 0 44px;
+    padding: 16px 0 40px;
+  }
+
+  .speaker-back {
+    margin-bottom: 8px;
+  }
+
+  .speaker-profile-layout {
+    gap: 12px;
   }
 
   .speaker-profile,
@@ -566,16 +643,16 @@ useHead(() => {
   }
 
   .speaker-hero {
-    grid-template-columns: 96px minmax(0, 1fr);
-    gap: 20px;
-    padding: 26px 20px;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 18px;
+    padding: 24px 20px;
   }
 
   .speaker-portrait {
-    width: 96px;
-    height: 96px;
+    width: 84px;
+    height: 84px;
     box-shadow: 0 0 0 4px #f4f7fc;
-    font-size: 32px;
+    font-size: 28px;
   }
 
   .speaker-kicker span:last-child {
@@ -584,7 +661,7 @@ useHead(() => {
 
   .speaker-intro h1 {
     margin-top: 8px;
-    font-size: 34px;
+    font-size: 32px;
   }
 
   .speaker-intro > p {
@@ -592,46 +669,66 @@ useHead(() => {
   }
 
   .speaker-tags {
-    margin-top: 11px;
+    margin-top: 10px;
   }
 
   .speaker-topic-section,
   .speaker-content-section {
     grid-template-columns: 1fr;
-    gap: 15px;
-    padding: 24px 20px 28px;
+    gap: 14px;
+    padding: 22px 20px;
   }
 
   .speaker-topic-section > div:last-child h2 {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .speaker-topic-section > div:last-child p,
   .speaker-content-section > p {
     font-size: 14px;
-    line-height: 1.8;
-  }
-}
-
-@media (max-width: 360px) {
-  .speaker-hero {
-    grid-template-columns: 76px minmax(0, 1fr);
-    gap: 15px;
+    line-height: 1.75;
   }
 
-  .speaker-portrait {
-    width: 76px;
-    height: 76px;
-    font-size: 27px;
+  .speaker-event-card {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 16px;
+    padding: 20px;
   }
 
-  .speaker-intro h1 {
-    font-size: 29px;
+  .speaker-event h2 {
+    font-size: 17px;
+  }
+
+  .speaker-event > span {
+    display: none;
+  }
+
+  .speaker-qr {
+    width: 112px;
+    height: 112px;
+  }
+
+  .speaker-qr :deep(svg) {
+    width: 94px;
+    height: 94px;
+  }
+
+  .speaker-event-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .speaker-event-actions a,
+  .speaker-event-actions button {
+    padding-inline: 8px;
+    font-size: 12px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .speaker-event-actions a,
+  .speaker-event-actions button,
   .speaker-state a {
     transition: none;
   }

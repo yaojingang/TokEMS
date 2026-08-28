@@ -19,6 +19,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
+    "@conference/contracts": "workspace:*",
     "@alicloud/dysmsapi20170525": "4.6.0",
     "@alicloud/openapi-client": "0.4.15",
     "@darabonba/typescript": "1.0.5"
@@ -26,6 +27,6 @@
   "devDependencies": {
     "@types/node": "26.2.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

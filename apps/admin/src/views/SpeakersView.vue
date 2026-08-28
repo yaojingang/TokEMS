@@ -8,7 +8,7 @@ import {
 import { useRouter } from 'vue-router';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
-import { conferenceApi, publicEventUrl, session } from '../lib/api';
+import { conferenceApi, publicSpeakerUrl, session } from '../lib/api';
 
 const router = useRouter();
 const speakers = ref<AdminSpeakerSummary[]>([]);
@@ -37,7 +37,7 @@ function profileScore(speaker: AdminSpeakerSummary) {
 
 function publicUrl(speaker: AdminSpeakerSummary) {
   if (!publicEvent.value || !isPublicEventStatus(publicEvent.value.status)) return;
-  return publicEventUrl(`/speakers/${encodeURIComponent(speaker.id)}`);
+  return publicSpeakerUrl(speaker.publicCode);
 }
 
 async function load() {

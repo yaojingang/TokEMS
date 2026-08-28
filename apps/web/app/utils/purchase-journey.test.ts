@@ -138,6 +138,7 @@ describe('purchase journey helpers', () => {
         registrationId: 'registration-1',
         ticketCode: 'TOK-TICKET-1',
         memberProfileEnabled: true,
+        attendeeNeedsEnabled: true,
       }),
     ).toBeNull();
     expect(
@@ -147,8 +148,22 @@ describe('purchase journey helpers', () => {
         registrationId: 'registration-1',
         ticketCode: 'TOK-TICKET-1',
         memberProfileEnabled: true,
+        attendeeNeedsEnabled: true,
       }),
     ).toBe('/account/registrations/registration-1/showcase?event=geo-2026');
+  });
+
+  it('continues to attendee needs when the profile step is disabled', () => {
+    expect(
+      resolveCheckoutSuccessDestination({
+        isProxyPurchase: false,
+        eventSlug: 'geo-2026',
+        registrationId: 'registration-1',
+        ticketCode: 'TOK-TICKET-1',
+        memberProfileEnabled: false,
+        attendeeNeedsEnabled: true,
+      }),
+    ).toBe('/account/registrations/registration-1/needs?event=geo-2026');
   });
 
   it('creates a fresh UUID when the purchaser starts another seat', () => {

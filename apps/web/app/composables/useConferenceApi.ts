@@ -7,6 +7,7 @@ import {
   type Order,
   type PublicSiteConfiguration,
   type PublicEvent,
+  type PublicAttendeeNeedList,
   type PublicEventViewResult,
   type PublicEventMemberDetail,
   type PublicEventMemberList,
@@ -128,6 +129,15 @@ export function useConferenceApi() {
     };
   }
 
+  function getEventAttendeeNeeds(slug: string, page = 1, snapshotAt?: string) {
+    return $fetch<PublicAttendeeNeedList>(`/events/${encodeURIComponent(slug)}/attendee-needs`, {
+      baseURL,
+      timeout: 4_000,
+      headers: { 'X-Organization-Slug': organizationSlug },
+      query: { page, ...(snapshotAt ? { snapshotAt } : {}) },
+    });
+  }
+
   async function getEventMember(slug: string, publicSlug: string) {
     const result = await $fetch<PublicEventMemberDetail>(
       `/events/${encodeURIComponent(slug)}/members/${encodeURIComponent(publicSlug)}`,
@@ -145,6 +155,20 @@ export function useConferenceApi() {
   async function getEventSpeaker(slug: string, speakerId: string) {
     const result = await $fetch<PublicEventSpeakerDetail>(
       `/events/${encodeURIComponent(slug)}/speakers/${encodeURIComponent(speakerId)}`,
+      {
+        baseURL,
+        headers: { 'X-Organization-Slug': organizationSlug },
+      },
+    );
+    return {
+      ...result,
+      ...(result.avatarUrl ? { avatarUrl: publicApiResourceUrl(result.avatarUrl) } : {}),
+    };
+  }
+
+  async function getSpeakerByCode(publicCode: string) {
+    const result = await $fetch<PublicEventSpeakerDetail>(
+      `/speakers/${encodeURIComponent(publicCode)}`,
       {
         baseURL,
         headers: { 'X-Organization-Slug': organizationSlug },
@@ -664,8 +688,10 @@ export function useConferenceApi() {
     getHomepageEvent,
     recordPublicEventView,
     getEventMembers,
+    getEventAttendeeNeeds,
     getEventMember,
     getEventSpeaker,
+    getSpeakerByCode,
     getSiteConfiguration,
     createRegistration,
     createCooperationRequest,

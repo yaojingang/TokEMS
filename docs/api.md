@@ -56,6 +56,9 @@ Scope 包含 `tokems:read`、`tokems:pii`、`tokems:write`、`tokems:finance`、
 | GET    | `/homepage/home-document`                                 | 获取首页默认大会的已发布 HTML 首页          |
 | GET    | `/events/:slug`                                           | 获取当前发布快照及实时库存                  |
 | GET    | `/events/:slug/home-document`                             | 获取指定大会的已发布 HTML 首页              |
+| GET    | `/events/:slug/attendee-needs`                            | 每页读取 10 条有效公开参会问题              |
+| GET    | `/speakers/:publicCode`                                   | 按稳定四字母短编号获取当前公开嘉宾详情      |
+| GET    | `/events/:slug/speakers/:speakerId`                       | 兼容按大会与嘉宾 UUID 获取公开详情          |
 | POST   | `/events/:slug/public-metrics/view`                       | 登记结构化首页单次页面访问                  |
 | POST   | `/cooperation-requests`                                   | 匿名提交单场公开大会的合作申请              |
 | POST   | `/registrations`                                          | 创建报名、订单和库存保留，可领取候补资格    |
@@ -155,6 +158,9 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 | PATCH  | `/customer/profile`                              | 更新可选资料与版本号                                             |
 | GET    | `/customer/registrations`                        | 报名历史游标分页                                                 |
 | GET    | `/customer/registrations/:registrationId`        | 报名、订单、电子票详情                                           |
+| GET    | `/customer/registrations/:registrationId/needs`  | 读取本人报名的参会需求、治理提示和公开资格                       |
+| PATCH  | `/customer/registrations/:registrationId/needs`  | 按版本保存 1 至 3 个问题、标签和独立公开授权                     |
+| DELETE | `/customer/registrations/:registrationId/needs`  | 按版本软删除本人全部参会需求并关闭公开                           |
 | GET    | `/customer/events/:eventId/purchase-context`     | 本人参会、本人购买、可追加名额和推荐动作                         |
 | GET    | `/customer/orders`                               | 按购票人归属返回订单、参会人、支付、发票和票状态                 |
 | PATCH  | `/customer/orders/:orderId/attendee`             | 购票人在名额认领前修改参会人资料并轮换认领邀请                   |
@@ -222,6 +228,8 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 
 前台根地址 `/` 从数据库读取组织首页默认大会并保持根地址展示；兼容地址 `/?event={eventSlug}` 使用 308 跳转到规范地址。报名、FAQ、订单、电子票、发票和账号等共享流程继续通过 `event` 查询参数携带大会范围。
 
+嘉宾详情页使用 `/speakers/{publicCode}` 作为规范地址。`publicCode` 是持久化的四位小写字母随机编号，嘉宾改名、删除和发布版本回滚不会改变地址；公开接口仍以大会当前生效快照作为可见性边界。历史 `/speakers/{speakerId}?event={eventSlug}` 与 `/s/{publicCode}` 页面使用 308 永久跳转到对应短地址。
+
 首页默认大会按组织保存，一次只能选择一场。目标大会必须处于预发布、报名开放、进行中或已结束状态，并且存在当前发布版本。默认大会切换会写入审计记录；当前默认大会在切换到另一场可用大会前不能转为非公开状态。
 
 ## 大会模板
@@ -276,24 +284,28 @@ hex(hmac_sha256(secret, "<timestamp>.<raw-json-body>"))
 
 ## 运营、履约与审计
 
-| Method   | Path                                              | 说明                       |
-| -------- | ------------------------------------------------- | -------------------------- |
-| GET      | `/admin/events/:eventId/dashboard`                | 指标和票种库存             |
-| GET      | `/admin/events/:eventId/registrations`            | 报名分页查询               |
-| GET      | `/admin/events/:eventId/registrations/:id`        | 报名、订单与用户账号详情   |
-| GET      | `/admin/events/:eventId/cooperation-requests`     | 合作申请搜索、筛选与分页   |
-| GET      | `/admin/events/:eventId/cooperation-requests/:id` | 合作申请详情               |
-| PATCH    | `/admin/events/:eventId/cooperation-requests/:id` | 更新跟进状态与内部备注     |
-| GET      | `/admin/events/:eventId/orders`                   | 订单查询                   |
-| GET      | `/admin/events/:eventId/waitlist`                 | 候补队列                   |
-| POST     | `/admin/orders/:orderId/refunds`                  | 全额或部分退款             |
-| GET      | `/admin/refunds`                                  | 退款记录                   |
-| GET      | `/admin/events/:eventId/inventory`                | 实时库存、保留和候补占位   |
-| POST     | `/admin/inventory/release-expired`                | 释放过期库存               |
-| GET/POST | `/admin/events/:eventId/checkin-devices`          | 核销设备列表与登记         |
-| POST     | `/admin/checkins/sync`                            | 设备令牌保护的离线批次同步 |
-| GET      | `/admin/audit-logs`                               | 审计查询                   |
-| GET      | `/admin/events/:eventId/registrations/export.csv` | 报名 CSV 导出              |
+| Method   | Path                                                           | 说明                         |
+| -------- | -------------------------------------------------------------- | ---------------------------- |
+| GET      | `/admin/events/:eventId/dashboard`                             | 指标和票种库存               |
+| GET      | `/admin/events/:eventId/registrations`                         | 报名分页查询                 |
+| GET      | `/admin/events/:eventId/registrations/:id`                     | 报名、订单与用户账号详情     |
+| GET      | `/admin/events/:eventId/cooperation-requests`                  | 合作申请搜索、筛选与分页     |
+| GET      | `/admin/events/:eventId/cooperation-requests/:id`              | 合作申请详情                 |
+| PATCH    | `/admin/events/:eventId/cooperation-requests/:id`              | 更新跟进状态与内部备注       |
+| GET      | `/admin/events/:eventId/attendee-needs`                        | 参会需求筛选、分页和状态统计 |
+| PATCH    | `/admin/events/:eventId/attendee-needs/:questionId`            | 修改问题正文和标签           |
+| PATCH    | `/admin/events/:eventId/attendee-needs/:questionId/moderation` | 隐藏、恢复、软删除或匿名化   |
+| GET      | `/admin/events/:eventId/attendee-needs/export.csv`             | 导出内部版或嘉宾版 CSV       |
+| GET      | `/admin/events/:eventId/orders`                                | 订单查询                     |
+| GET      | `/admin/events/:eventId/waitlist`                              | 候补队列                     |
+| POST     | `/admin/orders/:orderId/refunds`                               | 全额或部分退款               |
+| GET      | `/admin/refunds`                                               | 退款记录                     |
+| GET      | `/admin/events/:eventId/inventory`                             | 实时库存、保留和候补占位     |
+| POST     | `/admin/inventory/release-expired`                             | 释放过期库存                 |
+| GET/POST | `/admin/events/:eventId/checkin-devices`                       | 核销设备列表与登记           |
+| POST     | `/admin/checkins/sync`                                         | 设备令牌保护的离线批次同步   |
+| GET      | `/admin/audit-logs`                                            | 审计查询                     |
+| GET      | `/admin/events/:eventId/registrations/export.csv`              | 报名 CSV 导出                |
 
 原有 `/admin/dashboard?eventId=`、`/admin/registrations?eventId=` 和 `/admin/orders?eventId=` 在兼容周期内继续可用。
 
@@ -303,7 +315,27 @@ Dashboard 指标口径：`paidOrders` 为 `paid` 或 `partially_refunded` 订单
 
 合作申请列表使用 `event.registration.read`，支持 `q`、`status`、`type`、`page` 和 `pageSize`。详情响应使用 `private, no-store`；修改需要 `event.registration.manage`，只接受 `status`、`internalNote` 和 `expectedUpdatedAt`，成功修改会写入审计记录。
 
+参会需求列表读取需要 `event.registration.read`，修改与治理需要 `event.registration.manage`，CSV 导出同时需要 `event.registration.read` 和 `event.registration.export`。用户与管理员写操作都携带提交版本，版本过期时返回 `409`。公共接口只返回问题、标签、首次公开时间和报名姓名署名；匿名记录省略署名字段。分页响应携带服务端生成的 `snapshotAt` 作为新增公开内容的时间水位，后续页沿用该值；隐藏、删除和资格变化会实时生效，因此分页期间可能收缩结果集。嘉宾版 CSV 默认强制匿名，内部版包含报名归属，所有单元格都会处理公式起始字符，单次最多导出 5000 条最终输出记录。
+
 订单分页查询支持 `q`、`status` 和 `page`，固定每页 20 条，响应为 `{ items, total, page, pageSize }`。`q` 会匹配订单号、参会人姓名、手机号和公司。
+
+## 飞书运营日报
+
+| Method | Path                                                                 | 授权或说明                                     |
+| ------ | -------------------------------------------------------------------- | ---------------------------------------------- |
+| GET    | `/admin/integrations/feishu-bot`                                     | `org.settings.read`，读取脱敏后的机器人配置    |
+| PATCH  | `/admin/integrations/feishu-bot`                                     | `org.settings.manage`，保存凭据或启停连接      |
+| POST   | `/admin/integrations/feishu-bot/verify`                              | `org.settings.manage`，校验机器人与群读取能力  |
+| GET    | `/admin/integrations/feishu-bot/chats`                               | `org.settings.manage`，只读查询机器人所在群    |
+| POST   | `/admin/integrations/feishu-bot/chats/refresh`                       | `org.settings.manage`，刷新群并协调失效订阅    |
+| GET    | `/admin/events/:eventId/feishu-digest`                               | `org.settings.read`，读取大会日报订阅          |
+| PATCH  | `/admin/events/:eventId/feishu-digest`                               | `org.settings.manage` + `event.dashboard.read` |
+| GET    | `/admin/events/:eventId/feishu-digest/preview`                       | `org.settings.read` + `event.dashboard.read`   |
+| POST   | `/admin/events/:eventId/feishu-digest/send-test`                     | `org.settings.manage` + `event.dashboard.read` |
+| GET    | `/admin/events/:eventId/feishu-digest/deliveries`                    | `org.settings.read`，查询最近 100 条投递记录   |
+| POST   | `/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/resend` | `org.settings.manage` + `event.dashboard.read` |
+
+测试发送和人工补发必须提供 8–160 字符且每次操作唯一的 `Idempotency-Key`。测试发送请求需要提交 `dataVisibilityConfirmed: true`，确认目标群成员可以查看聚合经营数据。目标群只能从机器人所在群列表中选择；目标群变化后需要重新试发，试发成功后才能开启自动推送。`GET .../chats` 仅读取飞书当前群列表；管理员点击“刷新群列表”时调用 `POST .../chats/refresh`，系统会停用已离开或已解散群对应的自动推送，并保留脱敏审计记录。完整指标口径、调度状态机和飞书管理员拉群流程见 [飞书运营日报方案](./feishu-operations-digest-design.md)。
 
 ## AI 与通知
 

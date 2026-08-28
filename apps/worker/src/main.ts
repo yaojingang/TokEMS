@@ -100,6 +100,7 @@ import {
 import type { ConferenceDatabase } from '@conference/database';
 import { consumeAttendeeClaimInvitation } from './attendee-claim-invitation.worker.js';
 import { financialNotificationRecipient } from './financial-notification-recipient.js';
+import { enqueueDueFeishuDigests, processFeishuDigestDelivery } from './feishu-digest.worker.js';
 import {
   deliverWhileInvoiceCurrent,
   invoiceNotificationIsCurrent,
@@ -132,6 +133,7 @@ const durableSideEffectEvents = new Set([
   'TemplateAssetDeletionRequested',
   'CustomerAvatarDeletionRequested',
   'EventPublished',
+  'FeishuDigestDeliveryRequested',
 ]);
 const OUTBOX_DISPATCH_LEASE_MS = 30_000;
 const OUTBOX_DISPATCH_TIMEOUT_MS = 5_000;
@@ -2973,6 +2975,15 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
       console.info(`[notification] delivery completed id=${deliveryId}`);
       break;
     }
+    case 'FeishuDigestDeliveryRequested': {
+      const deliveryId = String(eventPayload.deliveryId ?? '');
+      if (!deliveryId) throw new Error('FeishuDigestDeliveryRequested is missing deliveryId');
+      const result = await processFeishuDigestDelivery(db, deliveryId);
+      console.info(
+        `[feishu-digest] delivery processed id=${deliveryId} status=${'status' in result ? result.status : 'unchanged'}`,
+      );
+      break;
+    }
     case 'InvoiceDetailsRequested':
     case 'InvoiceIssued':
     case 'InvoiceDeliveryRequested':
@@ -4115,6 +4126,23 @@ async function start() {
   await maintainAgentAccessData(db);
   await cleanupExpiredCustomerAvatarSources(db);
   await reconcileAliyunSmsDeliveries(db);
+  let maintainingFeishuDigests = false;
+  const maintainFeishuDigests = async () => {
+    if (maintainingFeishuDigests) return;
+    maintainingFeishuDigests = true;
+    try {
+      const result = await enqueueDueFeishuDigests(db);
+      if (result.queued || result.skipped || result.cancelled || result.disabled) {
+        console.info(`[feishu-digest] schedule result=${JSON.stringify(result)}`);
+      }
+      await dispatch();
+    } catch (error) {
+      console.error('[feishu-digest] schedule failed', error);
+    } finally {
+      maintainingFeishuDigests = false;
+    }
+  };
+  await maintainFeishuDigests();
   const inventoryTimer = setInterval(() => {
     void releaseExpiredReservations(db);
     void expireWaitlistOffers(db);
@@ -4143,6 +4171,7 @@ async function start() {
     () => void reconcileAliyunSmsDeliveries(db),
     smsReceiptInterval,
   );
+  const feishuDigestTimer = setInterval(() => void maintainFeishuDigests(), 60_000);
   console.info(
     `[worker] ready queue=${queueName} concurrency=${concurrency} htmlQueue=${htmlImportQueueName} htmlConcurrency=${htmlImportConcurrency}`,
   );
@@ -4157,6 +4186,7 @@ async function start() {
     clearInterval(customerAuthMaintenanceTimer);
     clearInterval(agentAccessMaintenanceTimer);
     clearInterval(smsReceiptTimer);
+    clearInterval(feishuDigestTimer);
     await worker.close();
     await htmlImportWorker.close();
     await queue.close();

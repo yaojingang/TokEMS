@@ -557,15 +557,18 @@ async function runVisualSmoke() {
   });
   const page = await desktop.newPage();
   watch(page, 'desktop');
+  let speakerDetailUrl;
 
   if (includeWeb) {
     await page.goto(webBase, { waitUntil: 'networkidle' });
     await page.locator('h1.hero-h').waitFor();
     await screenshot(page, 'web-home-desktop.png', '前台首页桌面端');
-    await page.goto(
-      `${webBase}/speakers/${DEMO_EVENT.speakers[0].id}?event=${encodeURIComponent(DEMO_EVENT.slug)}`,
-      { waitUntil: 'networkidle' },
-    );
+    const firstSpeakerHref = await page.locator('.spk-card').first().getAttribute('href');
+    if (!firstSpeakerHref?.match(/^\/speakers\/[a-z]{4}$/u)) {
+      issues.push(`前台首页桌面端: 嘉宾卡片没有使用短地址，实际为 ${firstSpeakerHref ?? '空'}`);
+    }
+    speakerDetailUrl = new URL(firstSpeakerHref ?? '/', webBase).toString();
+    await page.goto(speakerDetailUrl, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: DEMO_EVENT.speakers[0].name, level: 1 }).waitFor();
     await screenshot(page, 'web-speaker-detail-desktop.png', '嘉宾详情页桌面端');
 
@@ -798,10 +801,7 @@ async function runVisualSmoke() {
   if (includeWeb) {
     await mobile.goto(webBase, { waitUntil: 'networkidle' });
     await screenshot(mobile, 'web-home-mobile.png', '前台首页手机端');
-    await mobile.goto(
-      `${webBase}/speakers/${DEMO_EVENT.speakers[0].id}?event=${encodeURIComponent(DEMO_EVENT.slug)}`,
-      { waitUntil: 'networkidle' },
-    );
+    await mobile.goto(speakerDetailUrl, { waitUntil: 'networkidle' });
     await mobile.getByRole('heading', { name: DEMO_EVENT.speakers[0].name, level: 1 }).waitFor();
     await screenshot(mobile, 'web-speaker-detail-mobile.png', '嘉宾详情页手机端');
     await mobile.goto(`${webBase}/register`, { waitUntil: 'networkidle' });

@@ -34,6 +34,10 @@ const paymentSurface = computed(() => api.isPaymentSurface());
 let countdown: ReturnType<typeof setInterval> | undefined;
 
 const memberProfileEnabled = computed(() => hasEnabledEventFlowStep(event.value, 'member-profile'));
+const attendeeNeedsEnabled = computed(() => hasEnabledEventFlowStep(event.value, 'attendee-needs'));
+const attendeeMaterialsEnabled = computed(
+  () => memberProfileEnabled.value || attendeeNeedsEnabled.value,
+);
 
 async function goToCompletion(registrationId: string, ticket?: Ticket) {
   const eventSlug = event.value.slug || String(route.query.event ?? '');
@@ -43,6 +47,7 @@ async function goToCompletion(registrationId: string, ticket?: Ticket) {
     registrationId,
     ticketCode: ticket?.code,
     memberProfileEnabled: memberProfileEnabled.value,
+    attendeeNeedsEnabled: attendeeNeedsEnabled.value,
   });
   if (!path) return;
   const destination = api.resolveConferenceUrl(path);
@@ -202,6 +207,17 @@ const showcaseHref = computed(() =>
     `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration.id ?? '')}/showcase`,
     event.value.slug,
   ),
+);
+
+const needsHref = computed(() =>
+  publicEventScopedPath(
+    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration.id ?? '')}/needs`,
+    event.value.slug,
+  ),
+);
+
+const attendeeMaterialHref = computed(() =>
+  memberProfileEnabled.value ? showcaseHref.value : needsHref.value,
 );
 
 const registerHref = computed(() => {
@@ -429,7 +445,10 @@ function switchChannelLabel(channel: string) {
             <strong>{{ isFreeOrder ? '免费' : money(order.amount) }}</strong>
           </div>
           <p v-if="displayError && !canPay" class="form-error" role="alert">{{ displayError }}</p>
-          <div v-if="orderAccessToken && !paymentSurface && !isProxyPurchase" class="order-account-link">
+          <div
+            v-if="orderAccessToken && !paymentSurface && !isProxyPurchase"
+            class="order-account-link"
+          >
             <p v-if="claimMessage" class="form-success" role="status">{{ claimMessage }}</p>
             <button
               class="flow-action is-secondary"
@@ -456,9 +475,7 @@ function switchChannelLabel(channel: string) {
             <a class="flow-action is-secondary is-full" :href="conferenceHomeHref">返回大会首页</a>
           </template>
           <template
-            v-else-if="
-              isProxyPurchase && ['paid', 'partially_refunded'].includes(order.status)
-            "
+            v-else-if="isProxyPurchase && ['paid', 'partially_refunded'].includes(order.status)"
           >
             <p>认领邀请已发送给参会人。电子票与参会名片将在对方认领后归入其账户。</p>
             <a class="flow-action is-full" :href="`${accountClaimHref}#purchases`">
@@ -474,15 +491,19 @@ function switchChannelLabel(channel: string) {
             </button>
           </template>
           <template v-else-if="isFreeOrder && order.status === 'paid'">
-            <p v-if="memberProfileEnabled">
-              席位已确认。完善参会名片后，可生成个人海报并选择加入大会主页展示。
+            <p v-if="attendeeMaterialsEnabled">
+              席位已确认。接下来可以完善参会资料，并提交希望通过大会解决的问题。
             </p>
             <p v-else>席位已确认，可继续查看电子票与参会安排。</p>
-            <NuxtLink v-if="memberProfileEnabled" class="flow-action is-full" :to="showcaseHref">
-              完善个人信息
+            <NuxtLink
+              v-if="attendeeMaterialsEnabled"
+              class="flow-action is-full"
+              :to="attendeeMaterialHref"
+            >
+              {{ memberProfileEnabled ? '完善个人信息' : '提交参会需求' }}
             </NuxtLink>
             <NuxtLink class="flow-action is-secondary is-full" :to="ticketHref">
-              {{ memberProfileEnabled ? '稍后完善，先看电子票' : '查看电子票' }}
+              {{ attendeeMaterialsEnabled ? '稍后填写，先看电子票' : '查看电子票' }}
             </NuxtLink>
             <button
               v-if="event.registration.additionalPurchaseEnabled"
@@ -641,15 +662,19 @@ function switchChannelLabel(channel: string) {
             </a>
           </template>
           <template v-else-if="['paid', 'partially_refunded'].includes(order.status)">
-            <p v-if="memberProfileEnabled">
-              {{ statusLabel }}。下一步可完善参会名片，生成专属报名海报。
+            <p v-if="attendeeMaterialsEnabled">
+              {{ statusLabel }}。下一步可完善参会资料，提交希望通过大会解决的问题。
             </p>
             <p v-else>{{ statusLabel }}。可继续查看电子票与参会安排。</p>
-            <NuxtLink v-if="memberProfileEnabled" class="flow-action is-full" :to="showcaseHref">
-              完善个人信息
+            <NuxtLink
+              v-if="attendeeMaterialsEnabled"
+              class="flow-action is-full"
+              :to="attendeeMaterialHref"
+            >
+              {{ memberProfileEnabled ? '完善个人信息' : '提交参会需求' }}
             </NuxtLink>
             <NuxtLink class="flow-action is-secondary is-full" :to="ticketHref">
-              {{ memberProfileEnabled ? '稍后完善，先看电子票' : '查看电子票' }}
+              {{ attendeeMaterialsEnabled ? '稍后填写，先看电子票' : '查看电子票' }}
             </NuxtLink>
             <button
               v-if="event.registration.additionalPurchaseEnabled"

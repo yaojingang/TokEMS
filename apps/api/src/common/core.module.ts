@@ -19,6 +19,7 @@ import { HtmlTemplateOperationsService } from './html-template-operations.servic
 import { RedisService } from './redis.service.js';
 import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
+import { AttendeeNeedsService } from './attendee-needs.service.js';
 import { CooperationRequestService } from './cooperation-request.service.js';
 import { AgentAuthorizationService } from './agent-authorization.service.js';
 import { AgentOperationService } from './agent-operation.service.js';
@@ -26,6 +27,7 @@ import { AgentPolicyService } from './agent-policy.service.js';
 import { AgentPrincipalService } from './agent-principal.service.js';
 import { AgentOperationInterceptor } from './agent-operation.interceptor.js';
 import { EventPublicMetricsService } from './event-public-metrics.service.js';
+import { FeishuDigestService } from './feishu-digest.service.js';
 
 @Global()
 @Module({
@@ -50,6 +52,7 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    AttendeeNeedsService,
     CooperationRequestService,
     AgentAuthorizationService,
     AgentOperationService,
@@ -57,6 +60,7 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     AgentPrincipalService,
     AgentOperationInterceptor,
     EventPublicMetricsService,
+    FeishuDigestService,
   ],
   exports: [
     DatabaseService,
@@ -79,6 +83,7 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     HtmlTemplateOperationsService,
     AdminRegistrationOperationsService,
     AttendeeShowcaseService,
+    AttendeeNeedsService,
     CooperationRequestService,
     AgentAuthorizationService,
     AgentOperationService,
@@ -86,6 +91,7 @@ import { EventPublicMetricsService } from './event-public-metrics.service.js';
     AgentPrincipalService,
     AgentOperationInterceptor,
     EventPublicMetricsService,
+    FeishuDigestService,
   ],
 })
 export class CoreModule {}

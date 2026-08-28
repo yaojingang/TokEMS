@@ -8,6 +8,8 @@ import {
   DEMO_EVENT,
   DEMO_EVENT_EXPERIENCE,
   DEMO_IDS,
+  DEMO_SPEAKER_PROFILES,
+  encodeSpeakerRouteCode,
 } from '@conference/contracts';
 import { createDatabase } from './index.js';
 import {
@@ -36,6 +38,7 @@ import {
   registrationForms,
   registrations,
   sessions,
+  speakerPublicRoutes,
   speakers,
   templatePackages,
   ticketQuotas,
@@ -1026,16 +1029,18 @@ try {
       })
       .onConflictDoNothing();
 
+    const demoSpeakerRows = DEMO_EVENT.speakers.map((speaker, sortOrder) => ({
+      ...speaker,
+      ...DEMO_SPEAKER_PROFILES[speaker.id],
+      socialLinks: DEMO_SPEAKER_PROFILES[speaker.id]?.socialLinks ?? [],
+      organizationId: DEMO_IDS.organization,
+      eventId: DEMO_IDS.event,
+      sortOrder,
+    }));
+
     await tx
       .insert(speakers)
-      .values(
-        DEMO_EVENT.speakers.map((speaker, sortOrder) => ({
-          ...speaker,
-          organizationId: DEMO_IDS.organization,
-          eventId: DEMO_IDS.event,
-          sortOrder,
-        })),
-      )
+      .values(demoSpeakerRows)
       .onConflictDoUpdate({
         target: speakers.id,
         set: {
@@ -1046,10 +1051,26 @@ try {
           accentFrom: sql`excluded.accent_from`,
           accentTo: sql`excluded.accent_to`,
           tags: sql`excluded.tags`,
+          bio: sql`excluded.bio`,
+          topicAbstract: sql`excluded.topic_abstract`,
+          websiteUrl: sql`excluded.website_url`,
+          socialLinks: sql`excluded.social_links`,
           sortOrder: sql`excluded.sort_order`,
           updatedAt: new Date(),
         },
       });
+
+    await tx
+      .insert(speakerPublicRoutes)
+      .values(
+        DEMO_EVENT.speakers.map((speaker, index) => ({
+          organizationId: DEMO_IDS.organization,
+          eventId: DEMO_IDS.event,
+          speakerId: speaker.id,
+          publicCode: encodeSpeakerRouteCode(index + 1),
+        })),
+      )
+      .onConflictDoNothing();
 
     await tx
       .insert(sessions)
@@ -1113,7 +1134,14 @@ try {
         description: DEMO_EVENT.description,
       },
       tickets: DEMO_EVENT.tickets,
-      speakers: DEMO_EVENT.speakers,
+      speakers: demoSpeakerRows.map(
+        ({
+          organizationId: _organizationId,
+          eventId: _eventId,
+          sortOrder: _sortOrder,
+          ...speaker
+        }) => speaker,
+      ),
       sessions: DEMO_EVENT.sessions,
       faqs: DEMO_EVENT.faqs,
       registrationForm: {
