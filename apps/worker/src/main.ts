@@ -14,6 +14,7 @@ import {
 } from '@conference/contracts';
 import {
   ACTIVE_WECHAT_PAYMENT_STATUSES,
+  activeInventoryReservationAt,
   agentConnections,
   agentDeviceAuthorizations,
   agentOperations,
@@ -1490,7 +1491,7 @@ async function offerNextWaitlist(db: ConferenceDatabase, eventId: number, ticket
           eq(inventoryReservations.ticketTypeId, ticket.id),
           isNull(inventoryReservations.releasedAt),
           isNull(inventoryReservations.convertedAt),
-          gt(inventoryReservations.expiresAt, new Date()),
+          activeInventoryReservationAt(new Date()),
         ),
       );
     const [activeOffers] = await tx
@@ -3082,6 +3083,9 @@ async function releaseExpiredReservations(db: ConferenceDatabase) {
   let released = 0;
   for (const candidate of candidates) {
     const success = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${candidate.order.id}`}, 0))`,
+      );
       const [activeWeChatPayment] = await tx
         .select({ id: payments.id })
         .from(payments)
@@ -4193,8 +4197,8 @@ async function start() {
     throw new Error('Worker consumers did not enter the running state');
   }
   await writeFile(workerReadyTempFile, `${JSON.stringify(resolveBuildInfo('worker', process.env))}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
+      encoding: 'utf8',
+      mode: 0o600,
   });
   await rename(workerReadyTempFile, workerReadyFile);
   console.info(

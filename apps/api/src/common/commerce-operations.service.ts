@@ -8,6 +8,7 @@ import {
 } from '@conference/contracts';
 import {
   ACTIVE_WECHAT_PAYMENT_STATUSES,
+  activeInventoryReservationAt,
   auditLogs,
   events,
   inventoryReservations,
@@ -380,6 +381,9 @@ export class CommerceOperationsService {
     const releasedOrderIds: string[] = [];
     for (const candidate of candidates) {
       const released = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${candidate.order.id}`}, 0))`,
+        );
         const [activeWeChatPayment] = await tx
           .select({ id: payments.id })
           .from(payments)
@@ -468,7 +472,7 @@ export class CommerceOperationsService {
           ),
           isNull(inventoryReservations.releasedAt),
           isNull(inventoryReservations.convertedAt),
-          gt(inventoryReservations.expiresAt, new Date()),
+          activeInventoryReservationAt(new Date()),
         ),
       )
       .groupBy(inventoryReservations.ticketTypeId);

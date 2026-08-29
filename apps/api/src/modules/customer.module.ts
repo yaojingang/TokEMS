@@ -34,6 +34,7 @@ import {
   CustomerCreateInvoiceSchema,
   CustomerInvoiceCenterListQuerySchema,
   CustomerRegistrationListQuerySchema,
+  CustomerPurchasedOrderListQuerySchema,
   CustomerUpdateInvoiceSchema,
   DeleteAttendeeNeedsSchema,
   RequestCustomerOtpSchema,
@@ -199,8 +200,13 @@ class CustomerAccountController {
 
   @Get('orders')
   orders(@Req() request: CustomerRequest, @Query() query: Record<string, unknown>) {
-    const input = parse(CustomerRegistrationListQuerySchema, query, '订单分页参数校验失败');
-    return this.customerAccount.purchasedOrders(request.customerSession, input.cursor, input.limit);
+    const input = parse(CustomerPurchasedOrderListQuerySchema, query, '订单分页参数校验失败');
+    return this.customerAccount.purchasedOrders(
+      request.customerSession,
+      input.cursor,
+      input.limit,
+      input.orderId,
+    );
   }
 
   @Post('orders/:orderId/payment-access')

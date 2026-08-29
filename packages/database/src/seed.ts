@@ -10,6 +10,7 @@ import {
 } from '@conference/contracts';
 import { CANONICAL_HOMEPAGE_SNAPSHOT } from '@conference/contracts/canonical-homepage';
 import { createDatabase } from './index.js';
+import { activeInventoryReservationAt } from './inventory-reservation-policy.js';
 import { remapCanonicalReferences } from './canonical-homepage-remap.js';
 import {
   validateCanonicalHomepageSnapshot,
@@ -944,7 +945,7 @@ try {
                 eq(inventoryReservations.ticketTypeId, target.targetId),
                 isNull(inventoryReservations.convertedAt),
                 isNull(inventoryReservations.releasedAt),
-                gt(inventoryReservations.expiresAt, new Date()),
+                activeInventoryReservationAt(new Date()),
               ),
             );
           const [waitlistHeld] = await tx

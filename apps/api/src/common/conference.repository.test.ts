@@ -126,6 +126,10 @@ describe('ConferenceRepository in-memory operational loop', () => {
 
     expect(second.order.id).toBe(first.order.id);
     expect(second.registration.id).toBe(first.registration.id);
+    expect(second.orderAccessToken).not.toBe(first.orderAccessToken);
+    await expect(repository.getOrder(second.order.id, second.orderAccessToken!)).resolves.toMatchObject(
+      { id: second.order.id, status: 'pending_payment' },
+    );
     expect(after.tickets[0]!.remaining).toBe(before.tickets[0]!.remaining - 1);
   });
 
@@ -751,11 +755,8 @@ describe('ConferenceRepository in-memory operational loop', () => {
     });
 
     const resumed = await repository.createCheckout(
-      {
-        ...registrationInput(),
-        purchaseIntentId: '73e2ddc2-c755-4a5f-a61a-c0348917942',
-      },
-      'registration-resume-second-key',
+      registrationInput(),
+      'registration-resume-first-key',
       customerActor(),
     );
 
@@ -764,6 +765,8 @@ describe('ConferenceRepository in-memory operational loop', () => {
     expect(resumed.registration.status).toBe('pending_payment');
     expect(resumed.order.status).toBe('pending_payment');
     expect(new Date(resumed.order.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(orders.get(first.order.id)?.status).toBe('pending_payment');
+    expect(registrations.get(first.registration.id)?.status).toBe('pending_payment');
     expect(orders).toHaveLength(11);
     expect(registrations).toHaveLength(11);
   });

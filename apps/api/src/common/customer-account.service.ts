@@ -38,6 +38,7 @@ import {
   resolveCustomerAdminDisplay,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   attendeeClaimTokens,
   attendeeNeedQuestions,
   attendeeNeedSubmissions,
@@ -490,90 +491,141 @@ export class CustomerAccountService {
     eventId: number,
   ): Promise<EventPurchaseContext> {
     const db = this.db();
-    const [event] = await db
-      .select({ id: events.id, status: events.status, settings: events.settings })
-      .from(events)
-      .where(and(eq(events.id, eventId), eq(events.organizationId, session.organizationId)))
-      .limit(1);
-    if (!event) {
-      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会不存在', HttpStatus.NOT_FOUND);
-    }
-    const eventSettings = event.settings as {
-      currentReleaseId?: string;
-      registration?: PublicEvent['registration'];
-    };
-    let releaseSnapshot: RegistrationReleaseSnapshot | undefined;
-    if (eventSettings.currentReleaseId) {
-      const [release] = await db
-        .select({ snapshot: eventReleases.snapshot })
-        .from(eventReleases)
-        .where(
-          and(
-            eq(eventReleases.id, eventSettings.currentReleaseId),
-            eq(eventReleases.eventId, event.id),
-          ),
-        )
-        .limit(1);
-      if (!release) {
-        throw new DomainError(
-          API_ERROR_CODES.NOT_FOUND,
-          '大会发布版本已失效',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-      releaseSnapshot = release.snapshot as RegistrationReleaseSnapshot;
-    }
-    const [attendance, purchaseSummary] = await Promise.all([
-      db
-        .select({
-          registrationId: registrations.id,
-          registrationStatus: registrations.status,
-          ticketCode: tickets.code,
-          ticketStatus: tickets.status,
-        })
-        .from(registrations)
-        .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
-        .where(
-          and(
-            eq(registrations.organizationId, session.organizationId),
-            eq(registrations.eventId, eventId),
-            eq(registrations.customerUserId, session.customerUserId),
-            isNull(registrations.supersededAt),
-          ),
-        )
-        .orderBy(desc(registrations.createdAt))
-        .limit(1)
-        .then((rows) => rows[0] ?? null),
-      db
-        .select({
-          paidCount: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
-          pendingCount: sql<number>`count(*) filter (where ${orders.status} in ('pending_review', 'processing') or (${orders.status} = 'pending_payment' and ${orders.expiresAt} > now()))::int`,
-          activeSeatCount: sql<number>`count(*) filter (where ${orders.status} in ('pending_review', 'processing', 'paid', 'partially_refunded') or (${orders.status} = 'pending_payment' and ${orders.expiresAt} > now()))::int`,
-          resumePaymentOrderId: sql<string | null>`(
-            array_agg(${orders.id} order by ${orders.createdAt} desc)
-            filter (where ${orders.status} = 'pending_payment' and ${orders.expiresAt} > now())
-          )[1]`,
-        })
-        .from(orders)
-        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-        .where(
-          and(
-            eq(orders.organizationId, session.organizationId),
-            eq(orders.eventId, eventId),
-            this.purchaserScope(session.customerUserId),
-            isNull(registrations.supersededAt),
-          ),
-        )
-        .then(
-          (rows) =>
-            rows[0] ?? {
-              paidCount: 0,
-              pendingCount: 0,
-              activeSeatCount: 0,
-              resumePaymentOrderId: null,
-            },
-        ),
-    ]);
+    const { event, eventSettings, releaseSnapshot, attendance, purchaseSummary } =
+      await db.transaction(
+        async (tx) => {
+          const [event] = await tx
+            .select({
+              id: events.id,
+              status: events.status,
+              settings: events.settings,
+            })
+            .from(events)
+            .where(and(eq(events.id, eventId), eq(events.organizationId, session.organizationId)))
+            .limit(1);
+          if (!event) {
+            throw new DomainError(API_ERROR_CODES.NOT_FOUND, '大会不存在', HttpStatus.NOT_FOUND);
+          }
+          const eventSettings = event.settings as {
+            currentReleaseId?: string;
+            registration?: PublicEvent['registration'];
+          };
+          let releaseSnapshot: RegistrationReleaseSnapshot | undefined;
+          if (eventSettings.currentReleaseId) {
+            const [release] = await tx
+              .select({ snapshot: eventReleases.snapshot })
+              .from(eventReleases)
+              .where(
+                and(
+                  eq(eventReleases.id, eventSettings.currentReleaseId),
+                  eq(eventReleases.eventId, event.id),
+                ),
+              )
+              .limit(1);
+            if (!release) {
+              throw new DomainError(
+                API_ERROR_CODES.NOT_FOUND,
+                '大会发布版本已失效',
+                HttpStatus.NOT_FOUND,
+              );
+            }
+            releaseSnapshot = release.snapshot as RegistrationReleaseSnapshot;
+          }
+          const attendance = await tx
+            .select({
+              registrationId: registrations.id,
+              registrationStatus: registrations.status,
+              ticketCode: tickets.code,
+              ticketStatus: tickets.status,
+              canManageOrder: this.purchaserScope(session.customerUserId),
+              orderIsActive: sql<boolean>`
+                ${orders.id} is null
+                or ${orders.status} in ('pending_review', 'processing', 'paid', 'partially_refunded')
+                or (${orders.status} = 'pending_payment' and ${orders.expiresAt} > now())
+                or exists (
+                  select 1
+                  from ${payments}
+                  where ${payments.orderId} = ${orders.id}
+                    and ${payments.provider} = 'wechatpay'
+                    and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
+                )
+              `,
+            })
+            .from(registrations)
+            .leftJoin(orders, eq(orders.registrationId, registrations.id))
+            .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
+            .where(
+              and(
+                eq(registrations.organizationId, session.organizationId),
+                eq(registrations.eventId, eventId),
+                eq(registrations.customerUserId, session.customerUserId),
+                isNull(registrations.supersededAt),
+              ),
+            )
+            .orderBy(desc(registrations.createdAt))
+            .limit(1)
+            .then((rows) => rows[0] ?? null);
+          const purchaseSummary = await tx
+            .select({
+              paidCount: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
+              pendingCount: sql<number>`count(*) filter (
+                where ${orders.status} in ('pending_review', 'processing')
+                  or (
+                    ${orders.status} = 'pending_payment'
+                    and (
+                      ${orders.expiresAt} > now()
+                      or exists (
+                        select 1 from ${payments}
+                        where ${payments.orderId} = ${orders.id}
+                          and ${payments.provider} = 'wechatpay'
+                          and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
+                      )
+                    )
+                  )
+              )::int`,
+              activeSeatCount: sql<number>`count(*) filter (
+                where ${orders.status} in ('pending_review', 'processing', 'paid', 'partially_refunded')
+                  or (
+                    ${orders.status} = 'pending_payment'
+                    and (
+                      ${orders.expiresAt} > now()
+                      or exists (
+                        select 1 from ${payments}
+                        where ${payments.orderId} = ${orders.id}
+                          and ${payments.provider} = 'wechatpay'
+                          and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
+                      )
+                    )
+                  )
+              )::int`,
+              resumePaymentOrderId: sql<string | null>`(
+                array_agg(${orders.id} order by ${orders.createdAt} desc)
+                filter (where ${orders.status} = 'pending_payment' and ${orders.expiresAt} > now())
+              )[1]`,
+            })
+            .from(orders)
+            .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+            .where(
+              and(
+                eq(orders.organizationId, session.organizationId),
+                eq(orders.eventId, eventId),
+                this.purchaserScope(session.customerUserId),
+                isNull(registrations.supersededAt),
+              ),
+            )
+            .then(
+              (rows) =>
+                rows[0] ?? {
+                  paidCount: 0,
+                  pendingCount: 0,
+                  activeSeatCount: 0,
+                  resumePaymentOrderId: null,
+                },
+            );
+          return { event, eventSettings, releaseSnapshot, attendance, purchaseSummary };
+        },
+        { isolationLevel: 'repeatable read', accessMode: 'read only' },
+      );
     const registrationSettings = resolvePublishedRegistrationSettings(
       eventSettings,
       releaseSnapshot,
@@ -592,8 +644,18 @@ export class CustomerAccountService {
       additionalPurchaseEnabled &&
       pendingCount === 0 &&
       activeSeatCount < maxActiveSeatsPerPurchaser;
-    const hasActiveSelfAttendance =
-      attendance && !['draft', 'cancelled'].includes(attendance.registrationStatus);
+    const selfRegistrationState: EventPurchaseContext['selfRegistrationState'] = !attendance
+      ? 'none'
+      : !['draft', 'cancelled'].includes(attendance.registrationStatus) && attendance.orderIsActive
+        ? 'active'
+        : 'closed';
+    const hasActiveSelfAttendance = selfRegistrationState === 'active';
+    const canRegisterSelf =
+      checkoutAvailable &&
+      pendingCount === 0 &&
+      activeSeatCount < maxActiveSeatsPerPurchaser &&
+      (!attendance || attendance.canManageOrder) &&
+      !hasActiveSelfAttendance;
     const recommendedActions: EventPurchaseContext['recommendedActions'] = [];
     if (purchaseSummary.resumePaymentOrderId) {
       recommendedActions.push('resume_payment');
@@ -602,7 +664,7 @@ export class CustomerAccountService {
       recommendedActions.push('view_ticket');
     }
     if (canPurchaseAdditional) recommendedActions.push('buy_more');
-    if (checkoutAvailable && !hasActiveSelfAttendance) recommendedActions.push('register_self');
+    if (canRegisterSelf) recommendedActions.push('register_self');
     return {
       eventId,
       additionalPurchaseEnabled,
@@ -618,6 +680,7 @@ export class CustomerAccountService {
             ticketStatus: attendance.ticketStatus,
           }
         : null,
+      selfRegistrationState,
       myPurchases: { paidCount, pendingCount, activeSeatCount },
       resumePaymentOrderId: purchaseSummary.resumePaymentOrderId,
       recommendedActions,
@@ -670,6 +733,7 @@ export class CustomerAccountService {
       ticketStatus: canAccessTicket ? (row.ticket?.status ?? null) : null,
       invoiceId: row.invoice?.id ?? null,
       invoiceStatus: row.invoice?.status ?? null,
+      expiresAt: row.order.expiresAt.toISOString(),
       createdAt: row.order.createdAt.toISOString(),
     };
   }

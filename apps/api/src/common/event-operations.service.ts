@@ -27,6 +27,7 @@ import {
   speakerAvatarText,
 } from '@conference/contracts';
 import {
+  activeInventoryReservationAt,
   auditLogs,
   checkinLists,
   conferenceTemplates,
@@ -1585,7 +1586,7 @@ export class EventOperationsService {
                 eq(inventoryReservations.ticketTypeId, ticketTypeId),
                 isNull(inventoryReservations.convertedAt),
                 isNull(inventoryReservations.releasedAt),
-                gt(inventoryReservations.expiresAt, new Date()),
+                activeInventoryReservationAt(new Date()),
               ),
             );
           const [waitlistHeld] = await tx

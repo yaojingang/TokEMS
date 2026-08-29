@@ -20,6 +20,7 @@ import {
   ticketTypes,
   waitlistEntries,
 } from './schema.js';
+import { activeInventoryReservationAt } from './inventory-reservation-policy.js';
 
 export class FeishuDigestEventNotFoundError extends Error {
   constructor() {
@@ -85,7 +86,7 @@ export async function loadFeishuDigestSnapshot(
         where ${inventoryReservations.ticketTypeId} = ${ticketTypes.id}
           and ${inventoryReservations.convertedAt} is null
           and ${inventoryReservations.releasedAt} is null
-          and ${inventoryReservations.expiresAt} > ${generatedAt}
+          and (${activeInventoryReservationAt(generatedAt)})
       ), 0)
       - coalesce((
         select count(*)

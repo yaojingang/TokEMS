@@ -156,12 +156,12 @@ export function useCustomerSession() {
     );
   }
 
-  function purchasedOrders(cursor?: string, limit = 20) {
+  function purchasedOrders(cursor?: string, limit = 20, orderId?: string) {
     return $fetch<CustomerPurchasedOrderList>('/customer/orders', {
       baseURL,
       credentials: 'include',
       headers: headers(),
-      query: { ...(cursor ? { cursor } : {}), limit },
+      query: { ...(cursor ? { cursor } : {}), limit, ...(orderId ? { orderId } : {}) },
     });
   }
 

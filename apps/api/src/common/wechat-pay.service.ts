@@ -1037,6 +1037,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * @param orderId - Order UUID.
    * @param channel - Target channel.
    * @param order - Authorized order row.
+   * @param accessTokenHash - Hash of the token that must remain valid while the attempt is claimed.
    * @param credentialVersion - Integration key version snapshot.
    * @returns Existing reusable attempt or a freshly claimed preparing attempt.
    */
@@ -1044,12 +1045,44 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     orderId: string,
     channel: WeChatPaymentChannel,
     order: AuthorizedOrder['order'],
+    accessTokenHash: string,
     credentialVersion: number,
   ): Promise<{ attempt: PaymentAttempt; reusedCredential: boolean }> {
     return this.db().transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${orderId}`}, 0))`,
       );
+      const [currentAuthorization] = await tx
+        .select({ order: orders, tokenScopes: orderAccessTokens.scopes })
+        .from(orders)
+        .innerJoin(
+          orderAccessTokens,
+          and(
+            eq(orderAccessTokens.orderId, orders.id),
+            eq(orderAccessTokens.tokenHash, accessTokenHash),
+            isNull(orderAccessTokens.revokedAt),
+            gt(orderAccessTokens.expiresAt, new Date()),
+          ),
+        )
+        .where(eq(orders.id, orderId))
+        .limit(1);
+      if (!currentAuthorization || !currentAuthorization.tokenScopes.includes('order:read')) {
+        throw new DomainError(
+          API_ERROR_CODES.UNAUTHORIZED,
+          '订单访问链接无效或已经过期',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      if (
+        currentAuthorization.order.status !== 'pending_payment' ||
+        currentAuthorization.order.expiresAt <= new Date()
+      ) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '当前订单无法发起支付',
+          HttpStatus.CONFLICT,
+        );
+      }
       const [existing] = await tx
         .select()
         .from(payments)
@@ -1248,6 +1281,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       orderId,
       'native',
       authorized.order,
+      authorized.accessTokenHash,
       row.keyVersion,
     );
     if (reusedCredential) {
@@ -1353,6 +1387,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       orderId,
       'jsapi',
       authorized.order,
+      authorized.accessTokenHash,
       row.keyVersion,
     );
     if (reusedCredential) {
@@ -1464,6 +1499,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       orderId,
       'h5',
       authorized.order,
+      authorized.accessTokenHash,
       row.keyVersion,
     );
     if (reusedCredential) {

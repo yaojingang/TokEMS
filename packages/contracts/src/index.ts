@@ -2405,6 +2405,7 @@ export const EventPurchaseContextSchema = z.object({
       ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
     })
     .nullable(),
+  selfRegistrationState: z.enum(['none', 'closed', 'active']),
   myPurchases: z.object({
     paidCount: z.number().int().nonnegative(),
     pendingCount: z.number().int().nonnegative(),
@@ -2521,6 +2522,7 @@ export const CustomerPurchasedOrderSchema = z.object({
   ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
   invoiceId: z.string().nullable(),
   invoiceStatus: InvoiceRequestStatusSchema.nullable(),
+  expiresAt: z.string(),
   createdAt: z.string(),
 });
 
@@ -2913,6 +2915,10 @@ export const CustomerAdminExportQuerySchema = CustomerAdminListQuerySchema.pick(
 export const CustomerRegistrationListQuerySchema = z.object({
   cursor: z.string().trim().min(1).max(300).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const CustomerPurchasedOrderListQuerySchema = CustomerRegistrationListQuerySchema.extend({
+  orderId: z.string().uuid().optional(),
 });
 
 export const OrganizationMemberSchema = z.object({
@@ -4333,6 +4339,7 @@ export type UpdateCustomerAdmin = z.infer<typeof UpdateCustomerAdminSchema>;
 export type CustomerAdminListQuery = z.infer<typeof CustomerAdminListQuerySchema>;
 export type CustomerAdminExportQuery = z.infer<typeof CustomerAdminExportQuerySchema>;
 export type CustomerRegistrationListQuery = z.infer<typeof CustomerRegistrationListQuerySchema>;
+export type CustomerPurchasedOrderListQuery = z.infer<typeof CustomerPurchasedOrderListQuerySchema>;
 export type OrganizationMember = z.infer<typeof OrganizationMemberSchema>;
 export type AccountProfile = z.infer<typeof AccountProfileSchema>;
 export type UpdateAccountProfile = z.infer<typeof UpdateAccountProfileSchema>;
