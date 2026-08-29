@@ -147,7 +147,7 @@ const awaitingReview = computed(
     order.value?.status === 'pending_review' ||
     checkout.value?.registration.status === 'pending_review',
 );
-const canPay = computed(() => paymentCanPay.value && remainingSeconds.value > 0);
+const canPay = computed(() => paymentCanPay.value);
 const stateTitle = computed(() => {
   if (awaitingReview.value) return '报名已提交，等待大会审核';
   if (isProxyPurchase.value && order.value?.status === 'paid') return '代购订单已完成';
@@ -620,11 +620,11 @@ function switchChannelLabel(channel: string) {
               v-if="!localSimulationAllowed"
               class="flow-action is-full"
               type="button"
-              :disabled="paymentPreparing || !canPay"
+              :disabled="paymentPreparing"
               style="margin-top: 8px"
               @click="refreshOrderStatus({ sync: true })"
             >
-              我已完成支付
+              {{ order.status === 'processing' ? '刷新支付结果' : '我已完成支付' }}
             </button>
 
             <div

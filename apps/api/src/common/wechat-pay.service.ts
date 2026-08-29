@@ -127,6 +127,21 @@ type AuthorizedOrder = {
 
 type PaymentAttempt = typeof payments.$inferSelect;
 
+/**
+ * Determines whether an existing provider credential can reopen the same
+ * payment surface without creating the WeChat order again.
+ *
+ * @param status - Current local payment-attempt state
+ * @param hasCredential - Whether the channel credential is persisted
+ * @returns True when the existing credential is safe to return
+ */
+export function isReusablePreparedPaymentCredential(
+  status: PaymentAttempt['status'],
+  hasCredential: boolean,
+) {
+  return hasCredential && (status === 'pending' || status === 'query_pending');
+}
+
 type ParsedPaymentNotification = {
   inboxId: string;
   notificationId: string;
@@ -1111,7 +1126,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           (channel === 'native' && typeof payload.codeUrl === 'string') ||
           (channel === 'jsapi' && typeof payload.prepayId === 'string') ||
           (channel === 'h5' && typeof payload.h5Url === 'string');
-        if (hasCredential && existing.status === 'pending') {
+        if (isReusablePreparedPaymentCredential(existing.status, hasCredential)) {
           return { attempt: existing, reusedCredential: true };
         }
         if (existing.status === 'preparing') {

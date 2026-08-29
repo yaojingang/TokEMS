@@ -29,12 +29,11 @@ export function canRestartSelfOrder(
 }
 
 export function canResumePendingOrder(
-  order: Pick<CustomerPurchasedOrder, 'id' | 'status' | 'expiresAt'>,
+  order: Pick<CustomerPurchasedOrder, 'id' | 'status'>,
   context: EventPurchaseContext | null | undefined,
 ) {
   return (
     order.status === 'pending_payment' &&
-    new Date(order.expiresAt).getTime() > Date.now() &&
     context?.resumePaymentOrderId === order.id &&
     context.recommendedActions.includes('resume_payment')
   );
