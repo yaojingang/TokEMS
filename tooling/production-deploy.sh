@@ -2927,7 +2927,9 @@ if expected_experience.get("overrideRevisions") is None and actual_experience.ge
     actual_experience["overrideRevisions"] = None
 expected_template = expected_experience.get("template") or {}
 actual_template = actual_experience.get("template") or {}
-if expected_template.get("bindingRevision") is None:
+if "bindingRevision" not in expected_template:
+    actual_template.pop("bindingRevision", None)
+elif expected_template.get("bindingRevision") is None:
     actual_template["bindingRevision"] = None
 
 expected_tickets = {item.get("id"): item for item in expected.get("tickets", [])}

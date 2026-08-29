@@ -701,6 +701,31 @@ test('canonical snapshot comparator detects equality, drift, and invalid JSON', 
   }
 });
 
+test('public homepage verifier treats an omitted binding revision as sanitized metadata', () => {
+  const match = source.match(/verify_homepage_file\(\) \{[\s\S]*?<<'PY'\n([\s\S]*?)\nPY/);
+  assert.ok(match, 'public homepage verification Python program was not found');
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-homepage-verifier-'));
+  const actual = resolve(directory, 'actual.json');
+  const expected = resolve(directory, 'expected.json');
+  const publicEvent = {
+    slug: 'tokems26',
+    publicMetrics: null,
+    experience: { template: { id: 'template-current' } },
+    tickets: [],
+  };
+  try {
+    writeFileSync(actual, JSON.stringify(publicEvent));
+    writeFileSync(expected, JSON.stringify({ publicEvent }));
+    const result = spawnSync('python3', ['-', actual, expected, 'tokems26'], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('production network calls are bounded and infrastructure reconciliation is isolated', () => {
   assert.doesNotMatch(source, /curl\s+-f/);
   assert.match(source, /readonly -a CURL_ARGS=/);
