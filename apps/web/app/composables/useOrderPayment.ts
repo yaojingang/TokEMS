@@ -41,7 +41,6 @@ export type OrderPaymentPhase =
   | 'polling'
   | 'paid'
   | 'error'
-  | 'expired'
   | 'closed';
 
 export type WeixinPayInvokeResult = {
@@ -143,6 +142,18 @@ export function shouldPollOrderStatus(order: Order | undefined | null): boolean 
   return ['pending_payment', 'processing'].includes(order.status);
 }
 
+/**
+ * Determines whether the user may initiate or relaunch payment.
+ * The API remains authoritative for the payment deadline so browser clock skew
+ * cannot hide a valid payment action.
+ *
+ * @param order - Latest server order snapshot
+ * @returns True only while the server order state is awaiting payment
+ */
+export function canInitiateOrderPayment(order: Order | undefined | null): boolean {
+  return order?.status === 'pending_payment';
+}
+
 export function shouldAutoPrepareWeChatPayment(
   order: Order | undefined | null,
   localSimulationAllowed: boolean,
@@ -150,8 +161,17 @@ export function shouldAutoPrepareWeChatPayment(
   return Boolean(
     !localSimulationAllowed &&
       order?.paymentMethod === 'wechat' &&
-      shouldPollOrderStatus(order),
+      canInitiateOrderPayment(order),
   );
+}
+
+export function initialOrderPaymentAction(
+  order: Order | undefined | null,
+  localSimulationAllowed: boolean,
+): 'prepare' | 'poll' | 'idle' {
+  if (shouldAutoPrepareWeChatPayment(order, localSimulationAllowed)) return 'prepare';
+  if (order?.status === 'processing') return 'poll';
+  return 'idle';
 }
 
 /**
@@ -316,12 +336,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
   let started = false;
 
   const switchOptions = computed(() => manualSwitchChannels(signals.value, channel.value));
-  const canPay = computed(
-    () =>
-      Boolean(order.value) &&
-      shouldPollOrderStatus(order.value) &&
-      new Date(order.value!.expiresAt).getTime() > Date.now(),
-  );
+  const canPay = computed(() => canInitiateOrderPayment(order.value));
 
   /**
    * Applies a prepare API result to local channel payload state.
@@ -484,7 +499,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
    */
   async function preparePayment(optionsOverride: { userInitiated?: boolean } = {}) {
     if (!order.value || !accessToken.value) return;
-    if (!shouldPollOrderStatus(order.value)) return;
+    if (!canInitiateOrderPayment(order.value)) return;
     if (preparing.value || launching.value) return;
 
     clearPrepareBackoff();
@@ -561,13 +576,6 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
         stopPolling();
         burstUntilMs = 0;
         phase.value = 'closed';
-        return;
-      }
-
-      if (new Date(latest.expiresAt).getTime() <= Date.now()) {
-        stopPolling();
-        burstUntilMs = 0;
-        phase.value = 'expired';
         return;
       }
 
@@ -734,12 +742,11 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
         phase.value = 'closed';
         return;
       }
-      if (new Date(latest.expiresAt).getTime() <= Date.now()) {
-        phase.value = 'expired';
-        return;
-      }
-
-      if (shouldAutoPrepareWeChatPayment(latest, startOptions.localSimulationAllowed === true)) {
+      const initialAction = initialOrderPaymentAction(
+        latest,
+        startOptions.localSimulationAllowed === true,
+      );
+      if (initialAction === 'prepare') {
         // Reuse a server-provided native code URL when already present.
         if (channel.value === 'native' && latest.paymentUrl) {
           codeUrl.value = latest.paymentUrl;
@@ -748,6 +755,8 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
         } else {
           await preparePayment({ userInitiated: false });
         }
+      } else if (initialAction === 'poll') {
+        startPolling();
       }
     } catch (error) {
       phase.value = 'error';
@@ -782,7 +791,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
       return;
     }
     await refreshOrderStatus();
-    if (shouldPollOrderStatus(order.value)) {
+    if (canInitiateOrderPayment(order.value)) {
       await preparePayment({ userInitiated: true });
     }
   }

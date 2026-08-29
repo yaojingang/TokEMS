@@ -271,12 +271,11 @@ describe('purchase journey helpers', () => {
       false,
     );
     expect(canResumePendingOrder({ ...order, status: 'processing' }, resumableContext)).toBe(false);
-    expect(
-      canResumePendingOrder(
-        { ...order, expiresAt: new Date(Date.now() - 60_000).toISOString() },
-        resumableContext,
-      ),
-    ).toBe(false);
+    const locallyExpiredOrder = {
+      ...order,
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    };
+    expect(canResumePendingOrder(locallyExpiredOrder, resumableContext)).toBe(true);
   });
 
   it('refreshes a locally closed order after the same registration becomes active elsewhere', () => {

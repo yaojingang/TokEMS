@@ -10,6 +10,7 @@ import { RedisService } from './redis.service.js';
 import {
   __wechatPayTestUtils,
   buildJsapiSignMessage,
+  isReusablePreparedPaymentCredential,
   resolveTrustedClientIp,
   WeChatPayService,
 } from './wechat-pay.service.js';
@@ -250,6 +251,14 @@ describe('WeChatPayService signed requests', () => {
     expect(value.length).toBeGreaterThanOrEqual(6);
     expect(value.length).toBeLessThanOrEqual(32);
     expect(value).toMatch(/^[A-Za-z0-9]+$/);
+  });
+
+  it('reuses prepared credentials while a payment query is still pending', () => {
+    expect(isReusablePreparedPaymentCredential('pending', true)).toBe(true);
+    expect(isReusablePreparedPaymentCredential('query_pending', true)).toBe(true);
+    expect(isReusablePreparedPaymentCredential('query_pending', false)).toBe(false);
+    expect(isReusablePreparedPaymentCredential('processing', true)).toBe(false);
+    expect(isReusablePreparedPaymentCredential('close_pending', true)).toBe(false);
   });
 
   it('appends redirect_url to H5 URLs only once', () => {

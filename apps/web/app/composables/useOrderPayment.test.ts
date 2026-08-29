@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canInitiateOrderPayment,
+  initialOrderPaymentAction,
   interpretWeixinPayResult,
   isPaidSwitchResult,
   isTransientPaymentFailure,
@@ -57,6 +59,19 @@ describe('shouldPollOrderStatus', () => {
   });
 });
 
+describe('canInitiateOrderPayment', () => {
+  it('uses the server order state instead of the browser clock', () => {
+    const pending = {
+      ...order('pending_payment'),
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    };
+
+    expect(canInitiateOrderPayment(pending)).toBe(true);
+    expect(canInitiateOrderPayment(order('processing'))).toBe(false);
+    expect(canInitiateOrderPayment(order('paid'))).toBe(false);
+  });
+});
+
 describe('interpretWeixinPayResult', () => {
   it('treats ok as success', () => {
     expect(interpretWeixinPayResult({ err_msg: 'get_brand_wcpay_request:ok' })).toBeNull();
@@ -94,7 +109,16 @@ describe('shouldAutoPrepareWeChatPayment', () => {
   it('skips real WeChat prepare for an authorized local simulation order', () => {
     expect(shouldAutoPrepareWeChatPayment(order('pending_payment'), true)).toBe(false);
     expect(shouldAutoPrepareWeChatPayment(order('pending_payment'), false)).toBe(true);
+    expect(shouldAutoPrepareWeChatPayment(order('processing'), false)).toBe(false);
     expect(shouldAutoPrepareWeChatPayment(order('paid'), false)).toBe(false);
+  });
+});
+
+describe('initialOrderPaymentAction', () => {
+  it('polls a processing order without preparing the provider order again', () => {
+    expect(initialOrderPaymentAction(order('pending_payment'), false)).toBe('prepare');
+    expect(initialOrderPaymentAction(order('processing'), false)).toBe('poll');
+    expect(initialOrderPaymentAction(order('paid'), false)).toBe('idle');
   });
 });
 
