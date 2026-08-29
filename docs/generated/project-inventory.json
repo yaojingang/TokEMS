@@ -6,6 +6,6 @@
   "latestMigration": "0057_petite_boom_boom.sql",
   "databaseTables": 78,
   "apiControllers": 32,
-  "apiOperations": 266,
+  "apiOperations": 267,
   "testFiles": 159
 }

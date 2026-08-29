@@ -203,6 +203,16 @@ class CustomerAccountController {
     return this.customerAccount.purchasedOrders(request.customerSession, input.cursor, input.limit);
   }
 
+  @Post('orders/:orderId/payment-access')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  createOrderPaymentAccess(
+    @Req() request: CustomerRequest,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+  ) {
+    return this.customerAccount.createOrderPaymentAccess(request.customerSession, orderId);
+  }
+
   @Patch('orders/:orderId/attendee')
   @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
   updateOrderAttendee(

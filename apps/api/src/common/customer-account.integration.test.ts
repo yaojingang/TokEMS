@@ -15,6 +15,7 @@ import {
   invoiceRequests,
   invoiceStateLogs,
   orders,
+  orderAccessTokens,
   organizations,
   outboxEvents,
   payments,
@@ -801,6 +802,89 @@ describePersistent('customer invoice center', () => {
     await db.delete(organizations).where(eq(organizations.id, organizationId));
     await db.delete(users).where(eq(users.id, adminUserId));
     await database.onModuleDestroy();
+  });
+
+  it('issues fresh payment access to the signed-in purchaser without requiring profile email', async () => {
+    const db = database.db!;
+    const registrationId = randomUUID();
+    const orderId = randomUUID();
+    await db.insert(registrations).values({
+      id: registrationId,
+      organizationId,
+      eventId: eventIds[0]!,
+      ticketTypeId: ticketTypeIds[0]!,
+      customerUserId: null,
+      registrationCode: `PAY-RESUME-${registrationId.slice(0, 8)}`,
+      status: 'pending_payment',
+      attendee: {
+        name: '续付验收用户',
+        mobile: '13980000098',
+        email: 'checkout-only@example.com',
+        company: '续付验收公司',
+        title: '支付负责人',
+        city: '深圳',
+      },
+      attendeeMobileE164: '+8613980000098',
+      attendeeEmailNormalized: 'checkout-only@example.com',
+      consentSnapshot: { purchaseFor: 'other', proxyAuthorizationAccepted: true },
+    });
+    await db.insert(orders).values({
+      id: orderId,
+      organizationId,
+      eventId: eventIds[0]!,
+      registrationId,
+      purchaserCustomerUserId: customerUserId,
+      purchaseIntentId: randomUUID(),
+      orderNo: `PAY-RESUME-${orderId.slice(0, 8)}`,
+      status: 'pending_payment',
+      amount: 39900,
+      currency: 'CNY',
+      pricingSnapshot: { source: 'payment-resume-test' },
+      expiresAt: new Date(Date.now() + 15 * 60_000),
+    });
+
+    const sessionWithoutEmail = {
+      ...session,
+      customer: {
+        ...session.customer,
+        profile: { ...session.customer.profile, email: null },
+      },
+    };
+
+    try {
+      const result = await account.createOrderPaymentAccess(sessionWithoutEmail, orderId);
+      expect(result).toMatchObject({
+        orderId,
+        orderAccessToken: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
+      });
+      const tokenHash = createHash('sha256').update(result.orderAccessToken).digest('hex');
+      const [storedToken] = await db
+        .select({ scopes: orderAccessTokens.scopes })
+        .from(orderAccessTokens)
+        .where(
+          and(
+            eq(orderAccessTokens.orderId, orderId),
+            eq(orderAccessTokens.tokenHash, tokenHash),
+          ),
+        )
+        .limit(1);
+      expect(storedToken?.scopes).toContain('order:read');
+
+      await expect(
+        account.createOrderPaymentAccess(
+          { ...sessionWithoutEmail, customerUserId: randomUUID() },
+          orderId,
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+
+      await db.update(orders).set({ status: 'paid' }).where(eq(orders.id, orderId));
+      await expect(
+        account.createOrderPaymentAccess(sessionWithoutEmail, orderId),
+      ).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await db.delete(orders).where(eq(orders.id, orderId));
+      await db.delete(registrations).where(eq(registrations.id, registrationId));
+    }
   });
 
   it('returns accurate categories, actions and net-paid eligibility', async () => {

@@ -165,6 +165,18 @@ export function useCustomerSession() {
     });
   }
 
+  function createOrderPaymentAccess(orderId: string) {
+    return $fetch<{ orderId: string; orderAccessToken: string }>(
+      `/customer/orders/${encodeURIComponent(orderId)}/payment-access`,
+      {
+        method: 'POST',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+      },
+    );
+  }
+
   function claimAttendee(input: AttendeeClaimInput) {
     return $fetch<AttendeeClaimResult>('/customer/attendee-claims', {
       method: 'POST',
@@ -405,6 +417,7 @@ export function useCustomerSession() {
     registrations,
     purchaseContext,
     purchasedOrders,
+    createOrderPaymentAccess,
     claimAttendee,
     updatePurchasedOrderAttendee,
     registration,
