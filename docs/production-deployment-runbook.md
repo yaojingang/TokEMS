@@ -323,7 +323,7 @@ sudo install -o root -g root -m 0755 \
 sudo bash /usr/local/sbin/tokems-deploy "$deploy_action" --target-sha "$target_sha"
 ```
 
-默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；`--sync-canonical` 可在快照未变化时主动重跑幂等同步；`--skip-canonical` 只接受快照未变化的发布。指定目标提交时使用完整 SHA：
+默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。指定目标提交时使用完整 SHA：
 
 ```bash
 sudo /usr/local/sbin/tokems-deploy deploy \

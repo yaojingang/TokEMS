@@ -602,6 +602,59 @@ test('release verifies public recovery projection and the full canonical backend
   assert.match(source, /backend settings differ from the verified target snapshot/);
 });
 
+test('automatic canonical sync repairs pre-existing production drift', () => {
+  const decision = source.slice(
+    source.indexOf('determine_canonical_sync() {'),
+    source.indexOf('\nassert_standard_release_scope() {'),
+  );
+
+  assert.match(source, /production_canonical_snapshot_matches_target/);
+  assert.match(source, /canonical-probe\.compose/);
+  assert.match(source, /default_transaction_read_only=on/);
+  assert.match(source, /read_only_compose_file="\$previous_read_only_compose_file"/);
+  assert.match(source, /unset TOKEMS_READ_ONLY_DATABASE_URL/);
+  assert.match(decision, /production_canonical_snapshot_matches_target/);
+  assert.match(decision, /canonical_sync_required='true'/);
+  assert.match(decision, /Production canonical snapshot drift detected/);
+  assert.match(decision, /Cannot skip canonical synchronization while production is drifted/);
+});
+
+test('canonical snapshot comparator detects equality, drift, and invalid JSON', () => {
+  const match = source.match(/canonical_snapshot_files_match\(\) \{[\s\S]*?<<'PY'\n([\s\S]*?)\nPY/);
+  assert.ok(match, 'canonical snapshot comparison Python program was not found');
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-canonical-probe-'));
+  const actual = resolve(directory, 'actual.json');
+  const matching = resolve(directory, 'matching.json');
+  const drifted = resolve(directory, 'drifted.json');
+  const invalid = resolve(directory, 'invalid.json');
+  try {
+    writeFileSync(actual, '{"nested":{"value":"大会"},"items":[1,2]}\n');
+    writeFileSync(matching, '{\n  "items": [1, 2],\n  "nested": {"value": "大会"}\n}\n');
+    writeFileSync(drifted, '{"nested":{"value":"旧文案"},"items":[1,2]}\n');
+    writeFileSync(invalid, '{"nested":');
+
+    const equalResult = spawnSync('python3', ['-', actual, matching], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(equalResult.status, 0, equalResult.stderr);
+
+    const driftResult = spawnSync('python3', ['-', actual, drifted], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(driftResult.status, 1, driftResult.stderr);
+
+    const invalidResult = spawnSync('python3', ['-', actual, invalid], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(invalidResult.status, 2, invalidResult.stderr);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('production network calls are bounded and infrastructure reconciliation is isolated', () => {
   assert.doesNotMatch(source, /curl\s+-f/);
   assert.match(source, /readonly -a CURL_ARGS=/);
