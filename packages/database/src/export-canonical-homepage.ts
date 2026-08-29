@@ -15,9 +15,14 @@ const publicSnapshotPath = resolve(
   repositoryRoot,
   'packages/contracts/src/canonical-homepage.public.json',
 );
-const localHomepageUrl = 'http://127.0.0.1:8088/api/v1/homepage';
+const canonicalApiBaseUrl = (
+  process.env.CANONICAL_API_BASE_URL ?? 'http://127.0.0.1:8088/api/v1'
+).replace(/\/$/u, '');
+const localHomepageUrl = `${canonicalApiBaseUrl}/homepage`;
 const localDatabaseUrl =
   process.env.DATABASE_URL ?? 'postgresql://conference:conference@127.0.0.1:15432/conference';
+const trustedComposeInternalExport =
+  process.env.CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL === 'true';
 const canonicalOrganizationSlug = 'geo-conference';
 const canonicalEventSlug = 'tokems26';
 const canonicalBlueprintId = '77777777-7777-4777-8777-777777777777';
@@ -120,6 +125,39 @@ function canonicalDatabaseProof(
       `${challenge}\n${identity.systemIdentifier}\n${identity.databaseName}\n${identity.databaseOid}\n${identity.startedAt}`,
     )
     .digest('hex');
+}
+
+export function validateCanonicalExportTopology(input: {
+  databaseUrl: string;
+  apiBaseUrl: string;
+  trustedComposeInternal: boolean;
+  deploymentMode?: string | undefined;
+}) {
+  const databaseUrl = new URL(input.databaseUrl);
+  const apiUrl = new URL(input.apiBaseUrl);
+  if (input.trustedComposeInternal) {
+    const databaseOptions = databaseUrl.searchParams.getAll('options').join(' ');
+    if (
+      input.deploymentMode !== 'production' ||
+      databaseUrl.hostname !== 'postgres' ||
+      (databaseUrl.port || '5432') !== '5432' ||
+      !/(?:^|\s)-c\s+default_transaction_read_only=on(?:\s|$)/u.test(databaseOptions) ||
+      apiUrl.protocol !== 'http:' ||
+      apiUrl.hostname !== 'api' ||
+      (apiUrl.port || '80') !== '4100' ||
+      apiUrl.pathname !== '/api/v1' ||
+      apiUrl.search ||
+      apiUrl.hash ||
+      apiUrl.username ||
+      apiUrl.password
+    ) {
+      throw new Error('Trusted Compose canonical export requires the production read-only topology');
+    }
+    return;
+  }
+  if (!['127.0.0.1', 'localhost', '::1'].includes(databaseUrl.hostname)) {
+    throw new Error('Canonical export only accepts a loopback DATABASE_URL');
+  }
 }
 
 function canonicalPublicSnapshot(snapshot: JsonRecord) {
@@ -831,7 +869,7 @@ async function downloadAsset(assetId: string, expectedDigest: string, expectedSi
     throw new Error(`Template asset ${assetId} exceeds the canonical per-file size limit`);
   }
   const response = await fetch(
-    `http://127.0.0.1:8088/api/v1/assets/templates/${encodeURIComponent(assetId)}`,
+    `${canonicalApiBaseUrl}/assets/templates/${encodeURIComponent(assetId)}`,
     { redirect: 'follow', signal: AbortSignal.timeout(10_000) },
   );
   if (!response.ok) throw new Error(`Template asset ${assetId} returned HTTP ${response.status}`);
@@ -865,10 +903,12 @@ async function downloadAsset(assetId: string, expectedDigest: string, expectedSi
 }
 
 async function buildSnapshot() {
-  const databaseUrl = new URL(localDatabaseUrl);
-  if (!['127.0.0.1', 'localhost', '::1'].includes(databaseUrl.hostname)) {
-    throw new Error('Canonical export only accepts a loopback DATABASE_URL');
-  }
+  validateCanonicalExportTopology({
+    databaseUrl: localDatabaseUrl,
+    apiBaseUrl: canonicalApiBaseUrl,
+    trustedComposeInternal: trustedComposeInternalExport,
+    deploymentMode: process.env.DEPLOYMENT_MODE,
+  });
 
   const client = new Client({ connectionString: localDatabaseUrl });
   await client.connect();
@@ -1590,12 +1630,18 @@ async function main() {
     await verifyCommittedFile();
     return;
   }
-  if (mode !== '--write' && mode !== '--check') {
-    throw new Error('Usage: export-canonical-homepage.ts --write | --check | --verify-file');
+  if (mode !== '--write' && mode !== '--check' && mode !== '--stdout') {
+    throw new Error(
+      'Usage: export-canonical-homepage.ts --write | --check | --stdout | --verify-file',
+    );
   }
   const snapshot = await buildStableSnapshot();
   const generated = serializedSnapshot(snapshot);
   const generatedPublic = serializedSnapshot(canonicalPublicSnapshot(snapshot));
+  if (mode === '--stdout') {
+    process.stdout.write(generated);
+    return;
+  }
   if (mode === '--write') {
     await writeAtomically(snapshotPath, generated);
     await writeAtomically(publicSnapshotPath, generatedPublic);

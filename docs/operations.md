@@ -2,6 +2,37 @@
 
 本文件说明通用运行、迁移和发布能力。`hui.ailingdaoli.com` 当前生产环境的固定目录、GitHub 推送规则、Docker 构建身份、备份、模板同步、验收和回滚流程见[生产推送与 Docker 发布规范](production-deployment-runbook.md)。每次正式发布的事实记录保存在 [`release-records/`](release-records/)。
 
+## 生产服务器单命令发布
+
+生产服务器源码与 Compose 固定在 `/www/wwwroot/TokEMS`，Git 分支 `production` 跟踪 `origin/main`。部署入口安装为 root 所有的 `/usr/local/sbin/tokems-deploy`；GitHub 主分支合并并完成 CI 后，在服务器运行：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy check
+sudo /usr/local/sbin/tokems-deploy deploy
+```
+
+首次启用前，把现有生产环境文件一次性安装到 `/etc/tokems/production.env`，目录权限为 `root:root 0700`，文件权限为 `root:root 0600`。脚本会为每次运行固定 root-only 环境快照，并从目标 Git 提交创建 root-only 构建上下文；服务器工作区仍由 `ecs-user` 管理，运行与构建均不读取工作区中的实时 `.env`。
+
+历史失败发布导致 `.env` 构建身份与健康运行容器不一致时，先运行 `repair-identity`。该模式验证五类服务和数据库后备份并修正四项 `BUILD_*`，不会重启容器：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy repair-identity
+```
+
+恢复标记存在时，使用已合并并通过 CI 的前向修复继续发布；独立人工恢复完成后可复核写权限、Worker ready、生产数据子集和首页投影并归档标记：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy recover-interrupted
+sudo /usr/local/sbin/tokems-deploy deploy --resume-recovery
+sudo /usr/local/sbin/tokems-deploy resolve-recovery
+```
+
+脚本不依赖宿主机 Node.js 或 pnpm。它会验证目标提交来自已合并 PR 且官方 main push 的 `quality-and-flows` 成功，证明运行 API、目标 Compose 和备份操作使用同一个 PostgreSQL 实例，随后依次执行构建开始备份、镜像回滚标签、root-only 源码与环境快照、Fast-forward、串行镜像构建、写冻结后的最终数据库备份、迁移、按快照差异自动触发的规范模板同步、应用容器切换和完整验收。验收包含公开首页和生产数据库重新导出的脱敏完整后台模板快照。备份与日志保存在 `/www/backup/TokEMS/<时间戳>`，容量检查直接读取这个目录实际所在的文件系统。任何资源、Git、CI、Compose、Nginx、数据保护或健康门禁失败都会终止发布。首次修改源码、环境或镜像前会持久化 `RECOVERY_REQUIRED`；数据库写冻结后把阶段更新为 `write-freeze`，完整发布通过后才归档。`pre-write` 阶段的硬中断使用保存于发布备份中的精确恢复脚本离线恢复；受保护窗口由独立的 systemd 监督单元持续守护，部署控制器退出且恢复标记仍存在时反复停止 API/Worker，再由恢复流程收集数据库迁移证据并恢复应用。数据库不可用时继续保留标记并保持 API/Worker 停止。
+
+每次标准发布都使用短暂写冻结：镜像构建后停止 API/Worker，重新生成包含构建期间新增交易的最终 dump 和业务基线。稳定业务表按主键索引逐表流式取证；带保留期自动清理的数据在只读阶段单独比对，恢复 Worker 后允许既定清理策略运行。迁移与可选规范同步完成后，以只读 API 和暂停 Worker 的状态验收，随后恢复目标 API/Worker。Worker 完成启动维护后会在容器 tmpfs 写入带构建身份的持久 ready 文件，脚本核对该身份后再复核生产主键、计数和销量。窗口内报名、支付回调、后台保存和异步任务需要依赖调用方重试，正式操作安排在业务低峰。
+
+生产主机构建至少需要 10 GiB 的 `MemAvailable + SwapFree`，源码文件系统和 Docker 实际数据目录各需要 12 GiB 可用空间。备份盘预检按四倍当前数据库体积加 4 GiB 保留空间计算；构建开始的主键证据生成后，脚本会用实测文件大小重新预算最终备份、只读验收和恢复写入后的证据，并在每个大文件阶段前复核。数据库证明、查询、dump 和迁移均有超时上限。标准入口会拒绝 Compose 基础设施变更；此类发布使用单独维护窗口。资源不足时先扩容或改用外部预构建镜像。脚本保留历史备份与回滚镜像，清理策略由运维在恢复验证和观察期后单独执行。完整首次安装命令、手工等价步骤和数据库恢复边界见生产 Runbook。
+
 ## 本地 Docker 完整部署
 
 ```bash

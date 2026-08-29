@@ -2,7 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validateCanonicalHomepageSnapshot } from './export-canonical-homepage.js';
+import {
+  validateCanonicalExportTopology,
+  validateCanonicalHomepageSnapshot,
+} from './export-canonical-homepage.js';
 
 async function snapshot() {
   return JSON.parse(
@@ -14,6 +17,52 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it('limits the trusted production exporter to the read-only Compose topology', () => {
+    const trusted = {
+      databaseUrl:
+        'postgresql://conference:conference@postgres:5432/conference?options=-c%20default_transaction_read_only%3Don',
+      apiBaseUrl: 'http://api:4100/api/v1',
+      trustedComposeInternal: true,
+      deploymentMode: 'production',
+    } as const;
+    expect(() => validateCanonicalExportTopology(trusted)).not.toThrow();
+    expect(() =>
+      validateCanonicalExportTopology({
+        ...trusted,
+        databaseUrl: 'postgresql://conference:conference@postgres:5432/conference',
+      }),
+    ).toThrow(/read-only topology/u);
+    expect(() =>
+      validateCanonicalExportTopology({
+        ...trusted,
+        apiBaseUrl: 'https://example.com/api/v1',
+      }),
+    ).toThrow(/read-only topology/u);
+    expect(() =>
+      validateCanonicalExportTopology({
+        ...trusted,
+        deploymentMode: 'local',
+      }),
+    ).toThrow(/read-only topology/u);
+  });
+
+  it('keeps ordinary canonical export bound to a loopback database', () => {
+    expect(() =>
+      validateCanonicalExportTopology({
+        databaseUrl: 'postgresql://conference:conference@127.0.0.1:15432/conference',
+        apiBaseUrl: 'http://127.0.0.1:8088/api/v1',
+        trustedComposeInternal: false,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateCanonicalExportTopology({
+        databaseUrl: 'postgresql://conference:conference@postgres:5432/conference',
+        apiBaseUrl: 'http://127.0.0.1:8088/api/v1',
+        trustedComposeInternal: false,
+      }),
+    ).toThrow(/loopback DATABASE_URL/u);
+  });
+
   it('contains the current public release and sanitized backend defaults', async () => {
     const value = validateCanonicalHomepageSnapshot(await snapshot());
     const backend = value.backend as {

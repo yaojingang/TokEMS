@@ -78,6 +78,7 @@ CMD ["node", "dist/main.js"]
 FROM ${NODE_IMAGE} AS worker
 
 ENV NODE_ENV=production
+LABEL com.tokems.worker-ready-protocol="1"
 
 WORKDIR /app
 

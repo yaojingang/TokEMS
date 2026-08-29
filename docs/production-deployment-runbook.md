@@ -14,6 +14,7 @@
 | 服务器源码与 Compose 目录 | `/www/wwwroot/TokEMS`                         |
 | 宝塔站点与反向代理目录    | `/www/dk_project/wwwroot/hui.ailingdaoli.com` |
 | 生产备份根目录            | `/www/backup/TokEMS`                          |
+| 生产环境文件              | `/etc/tokems/production.env`                  |
 | Compose 项目名            | `tokems`                                      |
 | Gateway 宿主机入口        | `127.0.0.1:8088`                              |
 | 大会前台                  | `https://hui.ailingdaoli.com/`                |
@@ -22,7 +23,7 @@
 | 健康接口                  | `https://hui.ailingdaoli.com/api/v1/health`   |
 | 版本接口                  | `https://hui.ailingdaoli.com/version.json`    |
 
-`/www/wwwroot/TokEMS` 保存 Git 源码、`.env` 和 `docker-compose.yml`，所有迁移、构建和容器操作都从这里执行。
+`/www/wwwroot/TokEMS` 保存 Git 源码和 `docker-compose.yml`，所有迁移、构建和容器操作都从这里执行。生产环境文件独立保存在 `/etc/tokems/production.env`，仅允许 root 读取和原子更新。
 
 `/www/dk_project/wwwroot/hui.ailingdaoli.com` 属于宝塔和外部 Nginx 层。该目录不承载 TokEMS 源码，也不进入应用容器。修改其中的 Nginx 配置时，先运行 `nginx -t`，测试通过后再重载。
 
@@ -57,7 +58,7 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 | 应用发布     | 服务器拉取 `origin/main`，构建镜像，迁移并切换容器                 | GitHub 主分支需要进入生产运行时                    |
 | 规范模板同步 | 把仓库中的 `geo-conference`、`tokems26` 规范模板幂等写入生产数据库 | 仓库模板、前台文案、大会设置或规范发布快照发生变化 |
 
-代码变更进入 `main` 后不会自动出现在当前服务器。当前环境尚未配置 GitHub Actions 自动部署，正式上线仍需执行本手册的服务器流程。
+代码变更进入 `main` 后不会自动出现在当前服务器。当前环境使用仓库内 `tooling/production-deploy.sh` 作为服务器单命令发布入口，尚未配置 GitHub Actions 自动部署。
 
 后台直接修改默认大会时，保存操作会生成新的不可变发布快照并切换公开版本。修改完成后必须运行 `pnpm canonical:export` 回写仓库规范快照；最迟在下一次 GitHub 推送前完成。生产后台发生独立修改时，先同步回本地规范大会并确认公开页面，再更新仓库快照。
 
@@ -149,6 +150,196 @@ gh run list --repo yaojingang/TokEMS --branch main --limit 5
 
 以下命令以生产目录和当前 `ecs-user` Git 所有权为准。执行过程中出现非预期输出时停止发布，先定位当前层级。
 
+### 服务器单命令入口
+
+部署脚本在 GitHub 仓库中的固定位置是 `tooling/production-deploy.sh`。成功发布后，对应服务器文件为 `/www/wwwroot/TokEMS/tooling/production-deploy.sh`。`/www/dk_project/wwwroot/hui.ailingdaoli.com` 只保存站点和反向代理配置，不放置部署脚本、源码或构建产物。
+
+首次安装时不要把脚本直接复制到 `/www/wwwroot/TokEMS/tooling/`。服务器 `production` 仍停留在旧提交时，这样会产生未跟踪文件，Git 清洁门禁会拒绝继续。优先使用本节后面的“首次固定引导流程”，它直接从已经合并且 CI 成功的 `origin/main` 读取精确目标脚本。
+
+需要通过 SCP 上传时，先在本地从已合并的 `origin/main` 导出脚本，再上传到服务器 `/tmp`。将 `<生产服务器>` 替换为实际 SSH 主机：
+
+```bash
+cd /path/to/TokEMS
+git fetch origin main
+target_sha="$(git rev-parse origin/main)"
+git show "${target_sha}:tooling/production-deploy.sh" > /tmp/tokems-production-deploy.sh
+shasum -a 256 /tmp/tokems-production-deploy.sh
+scp /tmp/tokems-production-deploy.sh ecs-user@<生产服务器>:/tmp/tokems-production-deploy.sh
+```
+
+登录服务器后核对 SHA-256，把临时文件安装成 root 持有的稳定入口。服务器输出应与本地校验值完全一致：
+
+```bash
+sha256sum /tmp/tokems-production-deploy.sh
+sudo install -o root -g root -m 0755 \
+  /tmp/tokems-production-deploy.sh /usr/local/sbin/tokems-deploy
+sudo /usr/local/sbin/tokems-deploy --help
+```
+
+`/usr/local/sbin/tokems-deploy` 每次启动都会读取 `origin/main` 的目标脚本，并复核合并 PR、官方 main push CI 和 `quality-and-flows`。日常发布也使用这个 root 所有的入口，避免 root 直接执行由 `ecs-user` 管理的工作区文件。首次基线依次执行以下命令，每一步成功后再继续：
+
+```bash
+sudo install -d -o root -g root -m 0700 /etc/tokems
+sudo install -o root -g root -m 0600 \
+  /www/wwwroot/TokEMS/.env /etc/tokems/production.env
+sudo /usr/local/sbin/tokems-deploy repair-identity --target-sha <origin-main-full-sha>
+sudo /usr/local/sbin/tokems-deploy check --target-sha <origin-main-full-sha>
+sudo /usr/local/sbin/tokems-deploy deploy --target-sha <origin-main-full-sha>
+```
+
+`/etc/tokems` 必须保持 `root:root 0700`，`/etc/tokems/production.env` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。不要把任何生产环境文件上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
+
+当前生产主机的历史内存与交换空间总可用量低于脚本要求的 10 GiB 构建门槛时，`check` 和 `deploy` 会在备份、迁移和容器切换前停止。先扩容，或完成外部预构建镜像改造，再执行正式发布。
+
+服务器已经首次安装 root 所有的稳定入口后，日常发布使用以下两个命令：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy check
+sudo /usr/local/sbin/tokems-deploy deploy
+```
+
+`repair-identity` 是一次性、可审计的基线修复入口。它会同时读取 Gateway、Web、Admin、API、Worker 和数据库迁移身份，确认代码提交、构建时间和数据库健康一致后，先备份 `.env`，再只更新四项 `BUILD_*` 和兼容回滚标记，不重启容器：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy repair-identity
+```
+
+出现 `/www/backup/TokEMS/RECOVERY_REQUIRED` 时，常规 `check` 和 `deploy` 会停止。已合并前向修复时运行：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy deploy --resume-recovery
+```
+
+标记中的 `phase=pre-write` 表示中断发生在数据库操作前。这个阶段使用发布前回滚镜像和 `.env` 自动恢复应用，不执行数据库恢复：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy recover-interrupted
+```
+
+每个恢复标记都固定协议版本、目标提交、目标镜像标签，并引用发布目录中 root-only 的精确恢复脚本及 SHA-256。`recover-interrupted` 可以在 GitHub 或外网不可用时从本机备份恢复；稳定入口会先校验并转交给该次发布保存的脚本。`write-freeze` 阶段恢复会等待遗留的 `db-init` 容器结束，验证当前迁移哈希属于备份基线到目标之间的有序链，再选择回滚镜像或目标镜像继续。
+
+人工恢复已经独立完成时，让脚本验证正常 API 写权限、标准 Worker 启动命令与持久 ready 身份，并把当前生产主键、计数、销量及首页投影重新对照恢复基线；全部通过后才归档恢复标记：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy resolve-recovery
+```
+
+2026-08-24 的失败发布记录明确指出：线上容器已经回到 `01c7b490bb690e4e12695dba2996f7d2864566f4` / `0053_mute_vulcan.sql`，服务器 `.env` 仍留有失败目标的构建身份。首次使用本脚本时先执行 `repair-identity`，再执行 `check` 和 `deploy`。修复证据保存到 `/www/backup/TokEMS/identity-repair-<时间戳>`。
+
+`check` 只读检查当前运行版本、Git 工作区、官方远端、`production → origin/main`、GitHub 合并 PR、`quality-and-flows`、Compose、Nginx、容器、镜像标签、生产环境固定项、磁盘和构建内存。`deploy` 在相同门禁通过后自动完成以下流程：
+
+1. 创建构建开始时的 PostgreSQL custom dump、生产数据证据、旧 `.env`、旧 Compose 配置和运行状态证据。
+2. 给六个当前应用镜像添加 `rollback-<时间戳>` 标签。
+3. 以 Fast-forward 方式把服务器 `production` 更新到已经合并且 CI 成功的 `origin/main`。
+4. 从目标提交生成 root-only 源码快照和 Compose 构建上下文，生成并持久化四项构建身份，按服务串行构建镜像，固定 `COMPOSE_PARALLEL_LIMIT=1`。构建和容器切换全程使用 root-only `.env` 快照及清洁进程环境。
+5. 所有发布在数据库写入前先把 API/Worker 的 Docker 重启策略持久改为 `no`，启动持续重试的写阻断 guard，再落盘 `RECOVERY_REQUIRED` 并停止写服务。随后重新生成最终 PostgreSQL dump、生产主键、计数与销量基线，再以 `SEED_DEMO_DATA=false` 执行迁移；规范快照变化时继续执行受保护的 `geo-conference` / `tokems26` 同步。稳定业务表按主键索引流式取证，带自动保留期的数据在 Worker 暂停的阶段单独比对。
+6. 使用 `--no-build --no-deps --force-recreate --wait` 切换应用容器，不协调 PostgreSQL、Redis、MinIO 等基础设施。验收阶段以数据库只读模式启动 API，并暂停 Worker 任务。
+7. 在写冻结窗口验证容器、迁移、五类构建身份、本机与公网 HTTP、公开首页投影，以及从生产数据库重新导出的脱敏完整规范大会与后台设置；冻结期生产主键集合、计数和票种/配额销量必须精确一致。验证通过后以 `restart: no` 和正常数据库权限重建 API/Worker。Worker 的两类 BullMQ 消费者都完成 Redis ready 后才写入包含 SHA、构建时间和迁移身份的 `/tmp/tokems-worker-ready.json`；脚本核对并观察稳定后恢复 `unless-stopped`，再检查健康、数据库实例和允许正常新增的生产数据。
+8. 失败时先停止 API/Worker，再读取数据库迁移证据并恢复发布前镜像标签与 `.env`。迁移证据不可读取时，旧镜像和环境已经恢复，API/Worker 保持停止，`RECOVERY_REQUIRED` 继续阻止下一次普通发布。数据库 dump 始终保留，脚本不会自动覆盖恢复数据库。
+
+脚本会先验证 `origin/main` 对应的合并 PR 和 CI，再读取该提交中的最新脚本继续执行，因此后续仓库内的部署逻辑更新会随目标提交生效。服务器首次尚未取得该文件时，先用以下固定引导流程完成同样的外部校验，再授予目标脚本 root 权限。当前已知基线第一次把 `deploy_action` 设为 `repair-identity`；随后分别设为 `check` 和 `deploy` 重跑：
+
+```bash
+set -Eeuo pipefail
+
+app_dir=/www/wwwroot/TokEMS
+deploy_action=repair-identity
+sudo -u ecs-user git -C /www/wwwroot/TokEMS fetch --prune origin main
+target_sha="$(sudo -u ecs-user git -C "$app_dir" rev-parse origin/main)"
+bootstrap_dir="$(mktemp -d /tmp/tokems-deploy-bootstrap.XXXXXX)"
+trap 'rm -f -- "$bootstrap_dir/prs.json" "$bootstrap_dir/runs.json" "$bootstrap_dir/checks.json" "$bootstrap_dir/deploy.sh"; rmdir -- "$bootstrap_dir"' EXIT
+
+curl --fail --silent --show-error --location \
+  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H 'User-Agent: TokEMS-production-bootstrap' \
+  "https://api.github.com/repos/yaojingang/TokEMS/commits/${target_sha}/pulls?per_page=100" \
+  >"$bootstrap_dir/prs.json"
+curl --fail --silent --show-error --location \
+  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H 'User-Agent: TokEMS-production-bootstrap' \
+  "https://api.github.com/repos/yaojingang/TokEMS/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100" \
+  >"$bootstrap_dir/runs.json"
+curl --fail --silent --show-error --location \
+  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H 'User-Agent: TokEMS-production-bootstrap' \
+  "https://api.github.com/repos/yaojingang/TokEMS/commits/${target_sha}/check-runs?per_page=100" \
+  >"$bootstrap_dir/checks.json"
+
+python3 - "$target_sha" "$bootstrap_dir/prs.json" "$bootstrap_dir/runs.json" "$bootstrap_dir/checks.json" <<'PY'
+import json
+import sys
+
+target, pulls_file, runs_file, checks_file = sys.argv[1:]
+with open(pulls_file, encoding="utf-8") as handle:
+    pulls = json.load(handle)
+with open(runs_file, encoding="utf-8") as handle:
+    runs = json.load(handle).get("workflow_runs", [])
+with open(checks_file, encoding="utf-8") as handle:
+    checks = json.load(handle).get("check_runs", [])
+if not any(
+    item.get("merged_at")
+    and item.get("merge_commit_sha") == target
+    and (item.get("base") or {}).get("ref") == "main"
+    for item in pulls
+):
+    raise SystemExit("target commit has no merged main PR")
+if not any(
+    item.get("name") == "tokems-ci"
+    and item.get("path") == ".github/workflows/ci.yml"
+    and item.get("event") == "push"
+    and item.get("head_branch") == "main"
+    and item.get("head_sha") == target
+    and item.get("status") == "completed"
+    and item.get("conclusion") == "success"
+    and (item.get("repository") or {}).get("full_name") == "yaojingang/TokEMS"
+    and (item.get("head_repository") or {}).get("full_name") == "yaojingang/TokEMS"
+    for item in runs
+):
+    raise SystemExit("target commit has no successful official main push workflow")
+if not any(
+    item.get("name") == "quality-and-flows"
+    and item.get("head_sha") == target
+    and item.get("status") == "completed"
+    and item.get("conclusion") == "success"
+    and (item.get("app") or {}).get("slug") == "github-actions"
+    and "/yaojingang/TokEMS/actions/runs/" in (item.get("details_url") or "")
+    for item in checks
+):
+    raise SystemExit("target commit has no successful official quality-and-flows job")
+PY
+
+sudo -u ecs-user git -C "$app_dir" \
+  show "${target_sha}:tooling/production-deploy.sh" >"$bootstrap_dir/deploy.sh"
+chmod 700 "$bootstrap_dir/deploy.sh"
+bash -n "$bootstrap_dir/deploy.sh"
+sudo install -o root -g root -m 0755 \
+  "$bootstrap_dir/deploy.sh" /usr/local/sbin/tokems-deploy
+sudo bash /usr/local/sbin/tokems-deploy "$deploy_action" --target-sha "$target_sha"
+```
+
+默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；`--sync-canonical` 可在快照未变化时主动重跑幂等同步；`--skip-canonical` 只接受快照未变化的发布。指定目标提交时使用完整 SHA：
+
+```bash
+sudo /usr/local/sbin/tokems-deploy deploy \
+  --target-sha <origin-main-full-sha>
+```
+
+生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。脚本要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一资源不足时会在备份、迁移和容器变更前停止。当前服务器若仍保持历史资源配置，需要先扩容，或后续改造为外部构建并拉取固定镜像摘要。
+
+标准单命令发布拒绝 `docker-compose.yml` 变化。数据库、缓存、对象存储、卷、端口和服务拓扑变更进入单独评审的基础设施维护窗口。
+
+每次标准发布都有短暂写冻结窗口：六个镜像构建完成后停止 API 和 Worker，持久化恢复标记，在静止写入状态重新生成最终数据库备份与业务基线，再执行迁移和可选的规范同步。语义验收期间 API 仅允许数据库读取，Worker 暂停消费。只读验收阶段公开浏览恢复；报名、支付回调、后台保存及异步任务会在窗口内失败或重试。脚本在恢复正常 API/Worker、核对持久 ready 身份和数据复验后归档恢复标记并记录成功。选择业务低峰执行，并确认支付渠道具备回调重试。
+
+数据库实例证明、查询、dump 和迁移都设置了进程级超时；连接串指向不可达地址或数据库停止响应时，脚本会失败退出并进入受控恢复。脚本保留全部备份和回滚镜像，不会自动清理历史文件。运维侧应按已验证的恢复演练和容量预算另行制定保留周期，删除前确认目标发布已过观察期且仍有可用备份。
+
+下面各节保留为脚本实现依据和人工审计清单。标准发布固定使用单命令脚本；故障处置中的手工命令需要负责人审批并逐项记录结果。
+
 ### 7.1 只读预检
 
 ```bash
@@ -164,7 +355,8 @@ docker compose version
 docker compose config --quiet
 docker compose ps
 nginx -t
-df -h / /var/lib/docker
+docker info --format '{{.DockerRootDir}}'
+df -h / /www/backup "$(docker info --format '{{.DockerRootDir}}')"
 free -h
 ```
 
@@ -198,23 +390,23 @@ curl -fsS http://127.0.0.1:8088/api/v1/health > "$backup_dir/health-before.json"
 
 docker compose exec -T postgres sh -lc \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-acl' \
-  > "$backup_dir/conference.dump"
+  > "$backup_dir/conference-build-start.dump"
 
 docker compose exec -T postgres pg_restore --list \
-  < "$backup_dir/conference.dump" \
-  > "$backup_dir/conference.dump.list"
+  < "$backup_dir/conference-build-start.dump" \
+  > "$backup_dir/conference-build-start.dump.list"
 
 docker compose exec -T postgres sh -lc \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "," -c "select id,sold from ticket_types order by id"' \
-  > "$backup_dir/ticket-types-sold.csv"
+  > "$backup_dir/ticket-types-sold-build-start.csv"
 
 docker compose exec -T postgres sh -lc \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "," -c "select id,sold from ticket_quotas order by id"' \
-  > "$backup_dir/ticket-quotas-sold.csv"
+  > "$backup_dir/ticket-quotas-sold-build-start.csv"
 
-test -s "$backup_dir/conference.dump"
-test -s "$backup_dir/conference.dump.list"
-sha256sum "$backup_dir/conference.dump" > "$backup_dir/conference.dump.sha256"
+test -s "$backup_dir/conference-build-start.dump"
+test -s "$backup_dir/conference-build-start.dump.list"
+sha256sum "$backup_dir/conference-build-start.dump" > "$backup_dir/conference-build-start.dump.sha256"
 printf '%s\n' "$backup_dir" > /www/backup/TokEMS/LATEST
 chmod 600 /www/backup/TokEMS/LATEST
 
@@ -329,13 +521,26 @@ test -z "$(sudo -u ecs-user git status --porcelain --untracked-files=all)"
 
 `payment-web` 使用 `tokems-web:local`，无需单独构建镜像。
 
-### 7.6 迁移数据库
+### 7.6 写冻结、最终备份与迁移
 
-常规发布：
+镜像构建完成后，所有发布都要停止 API 和 Worker 写入，并在静止写入状态重新生成最终备份、业务主键、计数和销量基线。仓库脚本会自动生成 `business-counts-before.csv`、`protected-business-ids-before.csv`、`ticket-types-sold-before.csv` 和 `ticket-quotas-sold-before.csv`。完整主键导出与失败恢复由脚本统一处理。
+
+以下片段展示最终 dump 与迁移的关键顺序，供审计发布日志：
 
 ```bash
 cd /www/wwwroot/TokEMS || exit 1
-SEED_DEMO_DATA=false docker compose run --rm db-init
+backup_dir=$(cat /www/backup/TokEMS/LATEST)
+docker compose stop --timeout 30 api worker
+docker compose exec -T postgres sh -lc \
+  'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-acl' \
+  > "$backup_dir/conference.dump"
+docker compose exec -T postgres pg_restore --list \
+  < "$backup_dir/conference.dump" \
+  > "$backup_dir/conference.dump.list"
+test -s "$backup_dir/conference.dump"
+test -s "$backup_dir/conference.dump.list"
+sha256sum "$backup_dir/conference.dump" > "$backup_dir/conference.dump.sha256"
+SEED_DEMO_DATA=false docker compose run --rm --no-deps db-init
 ```
 
 Docker Compose v2.27 的 `docker compose run` 不支持 `--no-build`。此处不要添加该参数。
@@ -350,7 +555,7 @@ Docker Compose v2.27 的 `docker compose run` 不支持 `--no-build`。此处不
 - 大会 slug 为 `tokems26`。
 - 票种和配额使用稳定 ID。
 - 报名、订单、票、发票和用户记录继续保留。
-- `ticket-types-sold.csv` 与 `ticket-quotas-sold.csv` 已生成且格式有效。
+- `ticket-types-sold-before.csv` 与 `ticket-quotas-sold-before.csv` 已在写冻结后生成且格式有效。
 
 新终端需要先恢复并校验备份目录变量：
 
@@ -361,8 +566,8 @@ case "$backup_dir" in
   *) exit 1 ;;
 esac
 test -s "$backup_dir/conference.dump"
-test -s "$backup_dir/ticket-types-sold.csv"
-test -s "$backup_dir/ticket-quotas-sold.csv"
+test -s "$backup_dir/ticket-types-sold-before.csv"
+test -s "$backup_dir/ticket-quotas-sold-before.csv"
 ```
 
 执行幂等模板同步：
@@ -479,7 +684,17 @@ docker inspect tokems-api-1
 
 ### 10.1 应用镜像回滚
 
-应用回滚优先使用发布前的 `rollback-<时间戳>` 镜像标签，并恢复该版本对应的 `.env` 构建身份：
+进入写冻结后，部署脚本先持久化恢复标记。失败处理会先停止 API/Worker、恢复旧镜像和旧 `.env`，再读取数据库当前迁移哈希。数据库已经前移时，脚本把运行环境的迁移字段对齐到数据库当前值，并以 API 只读、Worker 暂停的状态提供受控访问。数据库迁移身份暂时不可读取时，API/Worker 保持停止，恢复标记和已有证据继续保留。审计证据包括：
+
+- `automatic-rollback-identity.txt`
+- `automatic-rollback-migration-state.txt`
+- `automatic-rollback-health.json`
+- `automatic-rollback.log`
+- `/www/backup/TokEMS/RECOVERY_REQUIRED`
+
+这个受保护恢复状态使用旧应用提交和当前数据库迁移，数据库身份可确认时提供只读公开访问；身份不可确认时保持应用写服务停止。常规 `check` 与 `deploy` 会返回失败，防止把暂停写入误判为健康基线。修复代码已经合并并通过 CI 后，使用 `deploy --resume-recovery` 继续前向发布；人工完成独立恢复后，使用 `resolve-recovery` 复核正常写权限、Worker 持久 ready 身份、生产数据子集及首页投影并清除标记。静态 Gateway/Web/Admin 保留旧镜像内的迁移信息；API/Worker 使用当前数据库迁移信息。提交和构建时间必须保持一致，审计标记必须与两组迁移身份吻合。
+
+以下手工流程只适用于数据库迁移哈希仍等于备份 `.env` 中 `BUILD_MIGRATION_HASH` 的情况：
 
 ```bash
 cd /www/wwwroot/TokEMS || exit 1
@@ -510,13 +725,14 @@ docker compose \
   --env-file .env \
   up -d \
   --no-build \
+  --no-deps \
   --force-recreate \
   --wait \
   --wait-timeout 300 \
   notification-sink api worker web payment-web admin gateway
 ```
 
-发布前的 `docker-compose.yml` 与 `.env` 必须一起使用，避免新版本 Compose 合约驱动旧镜像。回滚后执行与发布相同的容器、数据库、本机 HTTP、公网 HTTP 和版本验证。
+发布前的 `docker-compose.yml` 与 `.env` 必须一起使用，避免新版本 Compose 合约驱动旧镜像。数据库哈希已经变化时，不执行上述简单手工流程；使用脚本生成的受保护恢复证据继续诊断和前向发布。回滚后执行与发布相同的容器、数据库、本机 HTTP、公网 HTTP 和版本验证。
 
 ### 10.2 数据库恢复
 
@@ -534,7 +750,7 @@ docker compose \
 
 - 公开组织 slug：`geo-conference`
 - 当前规范大会 slug：`tokems26`
-- 生产 `.env`：`PUBLIC_ORGANIZATION_SLUG=geo-conference`
+- 生产环境文件 `/etc/tokems/production.env`：`PUBLIC_ORGANIZATION_SLUG=geo-conference`
 - Nuxt 构建参数：`NUXT_PUBLIC_ORGANIZATION_SLUG=geo-conference`
 - 生产常态：`DEPLOYMENT_MODE=production`、`SEED_DEMO_DATA=false`
 - 历史模板 `tokems-demo`、`tokems-demo-2026` 不再作为 GitHub 或生产默认模板
@@ -565,8 +781,8 @@ docker compose \
 
 ## 13. 当前环境待改进项
 
-- 服务器没有 Node.js 和 pnpm，当前使用手工 Docker Compose 发布。后续可以建设基于 GitHub Actions、受保护生产环境和固定镜像摘要的自动发布。
+- 服务器没有 Node.js 和 pnpm，仓库内 Bash 脚本已覆盖单命令 Docker Compose 发布。后续优先建设基于 GitHub Actions、受保护生产环境和固定镜像摘要的外部构建流程，消除生产主机 BuildKit OOM 风险。
 - 当前 `.env` 由服务器权限保护。后续应把生产密钥迁移到 Secret Manager 或等价的受控密钥系统。
 - 服务器操作系统安全更新需要独立维护窗口处理，不能与应用发布混在同一次变更中。
 - MinIO 资产恢复演练和定期备份仍需形成独立记录。
-- 自动发布完成前，每次 GitHub 合并后都要人工执行并记录服务器发布流程。
+- GitHub Actions 自动发布完成前，每次 GitHub 合并后都要人工执行服务器部署脚本，并按模板补充日期化发布记录。
