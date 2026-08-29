@@ -27,7 +27,7 @@ sudo /usr/local/sbin/tokems-deploy deploy --resume-recovery
 sudo /usr/local/sbin/tokems-deploy resolve-recovery
 ```
 
-脚本不依赖宿主机 Node.js 或 pnpm。它会验证目标提交来自已合并 PR 且官方 main push 的 `quality-and-flows` 成功，证明运行 API、目标 Compose 和备份操作使用同一个 PostgreSQL 实例，随后依次执行构建开始备份、镜像回滚标签、root-only 源码与环境快照、Fast-forward、串行镜像构建、写冻结后的最终数据库备份、迁移、按快照差异自动触发的规范模板同步、应用容器切换和完整验收。验收包含公开首页和生产数据库重新导出的脱敏完整后台模板快照。备份与日志保存在 `/www/backup/TokEMS/<时间戳>`，容量检查直接读取这个目录实际所在的文件系统。任何资源、Git、CI、Compose、Nginx、数据保护或健康门禁失败都会终止发布。首次修改源码、环境或镜像前会持久化 `RECOVERY_REQUIRED`；数据库写冻结后把阶段更新为 `write-freeze`，完整发布通过后才归档。`pre-write` 阶段的硬中断使用保存于发布备份中的精确恢复脚本离线恢复；受保护窗口由独立的 systemd 监督单元持续守护，部署控制器退出且恢复标记仍存在时反复停止 API/Worker，再由恢复流程收集数据库迁移证据并恢复应用。数据库不可用时继续保留标记并保持 API/Worker 停止。
+脚本不依赖宿主机 Node.js 或 pnpm。它会验证目标提交来自已合并 PR 且官方 main push 的 `quality-and-flows` 成功，证明运行 API、目标 Compose 和备份操作使用同一个 PostgreSQL 实例，并通过只读导出核对线上完整规范状态与目标快照。Git 快照发生变化或线上已存在漂移时，规范同步会自动启用。随后脚本依次执行构建开始备份、镜像回滚标签、root-only 源码与环境快照、Fast-forward、串行镜像构建、写冻结后的最终数据库备份、迁移、规范模板同步、应用容器切换和完整验收。验收包含公开首页和生产数据库重新导出的脱敏完整后台模板快照。备份与日志保存在 `/www/backup/TokEMS/<时间戳>`，容量检查直接读取这个目录实际所在的文件系统。任何资源、Git、CI、Compose、Nginx、数据保护或健康门禁失败都会终止发布。首次修改源码、环境或镜像前会持久化 `RECOVERY_REQUIRED`；数据库写冻结后把阶段更新为 `write-freeze`，完整发布通过后才归档。`pre-write` 阶段的硬中断使用保存于发布备份中的精确恢复脚本离线恢复；受保护窗口由独立的 systemd 监督单元持续守护，部署控制器退出且恢复标记仍存在时反复停止 API/Worker，再由恢复流程收集数据库迁移证据并恢复应用。数据库不可用时继续保留标记并保持 API/Worker 停止。
 
 每次标准发布都使用短暂写冻结：镜像构建后停止 API/Worker，重新生成包含构建期间新增交易的最终 dump 和业务基线。稳定业务表按主键索引逐表流式取证；带保留期自动清理的数据在只读阶段单独比对，恢复 Worker 后允许既定清理策略运行。迁移与可选规范同步完成后，以只读 API 和暂停 Worker 的状态验收，随后恢复目标 API/Worker。Worker 完成启动维护后会在容器 tmpfs 写入带构建身份的持久 ready 文件，脚本核对该身份后再复核生产主键、计数和销量。窗口内报名、支付回调、后台保存和异步任务需要依赖调用方重试，正式操作安排在业务低峰。
 

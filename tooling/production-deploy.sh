@@ -108,6 +108,9 @@ recovery_marker_armed='false'
 protected_write_block_confirmed='false'
 release_write_freeze='false'
 read_only_compose_file=''
+canonical_probe_compose_file=''
+canonical_probe_target_snapshot=''
+canonical_probe_actual_snapshot=''
 backup_ready='false'
 environment_changed='false'
 images_changed='false'
@@ -149,12 +152,13 @@ Modes:
 Options:
   --target-sha <40-char-sha>    Require origin/main to equal this exact commit.
   --sync-canonical              Run the canonical template sync even when snapshots are unchanged.
-  --skip-canonical              Allowed only when canonical snapshots are unchanged.
+  --skip-canonical              Allowed only when Git snapshots and production already match.
   --resume-recovery             Allow deploy to continue a verified read-only recovery state.
   -h, --help                    Show this help.
 
-The default canonical mode is automatic. A snapshot change always enables the protected
-geo-conference/tokems26 synchronization and preserves production business data.
+The default canonical mode is automatic. A Git snapshot change or production database
+drift enables the protected geo-conference/tokems26 synchronization while preserving
+production business data.
 USAGE
 }
 
@@ -269,7 +273,24 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Required command is unavailable: $1"
 }
 
+cleanup_canonical_probe() {
+  local probe_file
+  for probe_file in \
+    "$canonical_probe_compose_file" \
+    "$canonical_probe_target_snapshot" \
+    "$canonical_probe_actual_snapshot"; do
+    [[ -n "$probe_file" && -f "$probe_file" ]] || continue
+    case "$probe_file" in
+      /run/lock/tokems-production-deploy/canonical-probe.*) rm -f -- "$probe_file" ;;
+    esac
+  done
+  canonical_probe_compose_file=''
+  canonical_probe_target_snapshot=''
+  canonical_probe_actual_snapshot=''
+}
+
 cleanup_temp_script() {
+  cleanup_canonical_probe
   if [[ -f "${BASH_SOURCE[0]}" ]]; then
     case "${BASH_SOURCE[0]}" in
       /run/lock/tokems-production-deploy/bootstrap.*) rm -f -- "${BASH_SOURCE[0]}" ;;
@@ -1670,8 +1691,97 @@ capture_release_baseline() {
   release_baseline_code_migration_hash="$runtime_code_migration_hash"
 }
 
+canonical_snapshot_files_match() {
+  local actual_snapshot="$1"
+  shift
+  [[ $# -gt 0 ]] || return 2
+  python3 - "$actual_snapshot" "$@" <<'PY'
+import json
+import sys
+
+
+def load_snapshot(file_name):
+    with open(file_name, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+try:
+    actual = load_snapshot(sys.argv[1])
+    expected = [load_snapshot(file_name) for file_name in sys.argv[2:]]
+except (OSError, UnicodeError, json.JSONDecodeError):
+    raise SystemExit(2)
+
+raise SystemExit(0 if actual in expected else 1)
+PY
+}
+
+production_canonical_snapshot_matches_target() {
+  local previous_read_only_compose_file="$read_only_compose_file"
+  local read_only_url='' export_status=0 compare_status=0
+  [[ -z "$canonical_probe_compose_file" && -z "$canonical_probe_target_snapshot" && -z "$canonical_probe_actual_snapshot" ]] || {
+    die 'Canonical production probe state was already initialized.'
+  }
+
+  canonical_probe_compose_file="$(mktemp "${LOCK_DIR}/canonical-probe.compose.XXXXXX")" || return 2
+  canonical_probe_target_snapshot="$(mktemp "${LOCK_DIR}/canonical-probe.target.XXXXXX")" || {
+    cleanup_canonical_probe
+    return 2
+  }
+  canonical_probe_actual_snapshot="$(mktemp "${LOCK_DIR}/canonical-probe.actual.XXXXXX")" || {
+    cleanup_canonical_probe
+    return 2
+  }
+  if ! cat >"$canonical_probe_compose_file" <<'YAML'
+services:
+  api:
+    environment:
+      DATABASE_URL: ${TOKEMS_READ_ONLY_DATABASE_URL:?TOKEMS_READ_ONLY_DATABASE_URL is required}
+YAML
+  then
+    cleanup_canonical_probe
+    return 2
+  fi
+  git_as_owner show "${target_sha}:${CANONICAL_SNAPSHOT_PATHS[0]}" >"$canonical_probe_target_snapshot" || {
+    cleanup_canonical_probe
+    return 2
+  }
+  chmod 600 \
+    "$canonical_probe_compose_file" \
+    "$canonical_probe_target_snapshot" \
+    "$canonical_probe_actual_snapshot" || {
+    cleanup_canonical_probe
+    return 2
+  }
+
+  read_only_url="$(read_only_database_url)" || {
+    cleanup_canonical_probe
+    return 2
+  }
+  TOKEMS_READ_ONLY_DATABASE_URL="$read_only_url"
+  export TOKEMS_READ_ONLY_DATABASE_URL
+  read_only_compose_file="$canonical_probe_compose_file"
+  compose_read_only_bounded "$DB_QUERY_TIMEOUT_SECONDS" run --rm --no-deps \
+    -e CANONICAL_API_BASE_URL=http://api:4100/api/v1 \
+    -e CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL=true \
+    api \
+    node node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
+    >"$canonical_probe_actual_snapshot" 2>/dev/null || export_status=$?
+  read_only_compose_file="$previous_read_only_compose_file"
+  unset TOKEMS_READ_ONLY_DATABASE_URL
+  if [[ $export_status -ne 0 ]]; then
+    cleanup_canonical_probe
+    return 2
+  fi
+
+  canonical_snapshot_files_match \
+    "$canonical_probe_actual_snapshot" \
+    "$canonical_probe_target_snapshot" || compare_status=$?
+  cleanup_canonical_probe
+  return "$compare_status"
+}
+
 determine_canonical_sync() {
-  local changed='false' diff_status=0
+  local changed='false' diff_status=0 production_status=0
   if git_as_owner diff --quiet "$release_baseline_sha" "$target_sha" -- "${CANONICAL_SNAPSHOT_PATHS[@]}"; then
     changed='false'
   else
@@ -1680,16 +1790,33 @@ determine_canonical_sync() {
     changed='true'
   fi
 
-  case "$canonical_mode" in
-    always) canonical_sync_required='true' ;;
-    auto) canonical_sync_required="$changed" ;;
-    never)
-      [[ "$changed" == 'false' ]] || {
-        die 'Canonical snapshots changed; this release must run the protected canonical sync.'
-      }
-      canonical_sync_required='false'
-      ;;
-  esac
+  if [[ "$canonical_mode" == 'always' ]]; then
+    canonical_sync_required='true'
+    return 0
+  fi
+  if [[ "$changed" == 'true' ]]; then
+    [[ "$canonical_mode" != 'never' ]] || {
+      die 'Canonical snapshots changed; this release must run the protected canonical sync.'
+    }
+    canonical_sync_required='true'
+    return 0
+  fi
+
+  if production_canonical_snapshot_matches_target; then
+    canonical_sync_required='false'
+    return 0
+  else
+    production_status=$?
+  fi
+  [[ $production_status -eq 1 ]] || {
+    die 'Unable to compare the production canonical snapshot with the target; diagnose the read-only probe or rerun with --sync-canonical.'
+  }
+
+  log 'Production canonical snapshot drift detected.'
+  [[ "$canonical_mode" != 'never' ]] || {
+    die 'Cannot skip canonical synchronization while production is drifted.'
+  }
+  canonical_sync_required='true'
 }
 
 assert_standard_release_scope() {
@@ -2744,25 +2871,12 @@ verify_canonical_full_snapshot() {
     node node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
     >"$actual_snapshot"
   chmod 600 "$actual_snapshot"
-  python3 - "$expected_snapshot" "$actual_snapshot" "$alternate_expected_snapshot" <<'PY'
-import json
-import sys
-
-
-def canonical(file_name):
-    with open(file_name, encoding="utf-8") as handle:
-        return json.dumps(json.load(handle), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-actual = canonical(sys.argv[2])
-expected_files = [sys.argv[1], *([sys.argv[3]] if sys.argv[3] else [])]
-for expected_file in expected_files:
-    if canonical(expected_file) == actual:
-        print("Production canonical homepage and backend settings match a verified release snapshot")
-        break
-else:
-    raise SystemExit("production canonical homepage and backend settings differ from the verified target snapshot")
-PY
+  local -a expected_snapshots=("$expected_snapshot")
+  [[ -z "$alternate_expected_snapshot" ]] || expected_snapshots+=("$alternate_expected_snapshot")
+  canonical_snapshot_files_match "$actual_snapshot" "${expected_snapshots[@]}" || {
+    die 'production canonical homepage and backend settings differ from the verified target snapshot'
+  }
+  log 'Production canonical homepage and backend settings match a verified release snapshot'
 }
 
 verify_release() {
