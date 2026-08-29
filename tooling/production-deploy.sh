@@ -93,6 +93,7 @@ backup_device_id=''
 canonical_sync_required='false'
 canonical_sync_performed='false'
 canonical_update_started='false'
+canonical_repair_mode='false'
 resume_recovery='false'
 recovery_in_progress='false'
 pending_recovery_backup_dir=''
@@ -151,7 +152,8 @@ Modes:
 
 Options:
   --target-sha <40-char-sha>    Require origin/main to equal this exact commit.
-  --sync-canonical              Run the canonical template sync even when snapshots are unchanged.
+  --sync-canonical              Run the canonical template sync even when snapshots are unchanged;
+                                reuse the current images when the target changes only deployment controls.
   --skip-canonical              Allowed only when Git snapshots and production already match.
   --resume-recovery             Allow deploy to continue a verified read-only recovery state.
   -h, --help                    Show this help.
@@ -1825,6 +1827,30 @@ assert_standard_release_scope() {
   fi
 }
 
+canonical_repair_scope_is_compatible() {
+  local changed_path changed_paths
+  if ! git_as_owner diff --quiet "$release_baseline_sha" "$target_sha" -- "${CANONICAL_SNAPSHOT_PATHS[@]}"; then
+    log 'Canonical snapshots changed since the running release; target images must be built.'
+    return 1
+  fi
+
+  changed_paths="$(git_as_owner diff --name-only "$release_baseline_sha" "$target_sha" --)" || {
+    log 'Unable to inspect the target change scope; target images must be built.'
+    return 1
+  }
+  while IFS= read -r changed_path; do
+    [[ -n "$changed_path" ]] || continue
+    case "$changed_path" in
+      AGENTS.md | docs/* | tooling/production-deploy.sh | tooling/lib/production-deploy.test.mjs) ;;
+      *)
+        log "Runtime-affecting target change requires an image build: ${changed_path}"
+        return 1
+        ;;
+    esac
+  done <<<"$changed_paths"
+  return 0
+}
+
 run_full_preflight() {
   log 'Running production preflight'
   assert_minimal_git_state
@@ -1878,7 +1904,12 @@ run_full_preflight() {
   verify_github_release_gate
   assert_standard_release_scope
   determine_canonical_sync
-  assert_build_capacity
+  if [[ "$canonical_sync_required" == 'true' ]] && canonical_repair_scope_is_compatible; then
+    canonical_repair_mode='true'
+    log 'Canonical repair can reuse the verified running images; image-build capacity is not required.'
+  else
+    assert_build_capacity
+  fi
   assert_backup_capacity
 
   log "Runtime commit: ${release_baseline_sha}"
@@ -2457,7 +2488,7 @@ YAML
 
 thaw_release_write_freeze() {
   [[ "$release_write_freeze" == 'true' ]] || return 0
-  log 'Re-enabling production writes with the verified target API and Worker'
+  log 'Re-enabling production writes with the verified API and Worker'
   unset TOKEMS_READ_ONLY_DATABASE_URL
   assert_no_parallel_release
   assert_post_thaw_evidence_capacity
@@ -2531,6 +2562,55 @@ run_database_updates() {
   if [[ "$release_write_freeze" != 'true' ]]; then
     assert_api_uses_compose_database
   fi
+}
+
+run_canonical_database_sync() {
+  local migration_hash_before migration_hash_after
+  [[ "$canonical_sync_required" == 'true' ]] || {
+    die 'Canonical repair requires an explicit canonical synchronization request.'
+  }
+  migration_hash_before="$(read_database_migration_hash)"
+  [[ "$migration_hash_before" == "$release_baseline_migration_hash" ]] || {
+    die 'Canonical repair requires the database migration to match the verified running release.'
+  }
+
+  assert_no_parallel_release
+  log "Synchronizing canonical ${CANONICAL_ORGANIZATION_SLUG}/${CANONICAL_EVENT_SLUG} template with the verified running images"
+  database_update_started='true'
+  canonical_update_started='true'
+  if ! (export SEED_DEMO_DATA=true; compose_bounded "$DB_MIGRATION_TIMEOUT_SECONDS" run --rm --no-deps db-init) >"$backup_dir/canonical-sync.log" 2>&1; then
+    log "Canonical sync failed; protected log: ${backup_dir}/canonical-sync.log"
+    return 1
+  fi
+  migration_hash_after="$(read_database_migration_hash)"
+  [[ "$migration_hash_after" == "$migration_hash_before" ]] || {
+    log 'Canonical repair unexpectedly changed the database migration identity.'
+    return 1
+  }
+  canonical_sync_performed='true'
+}
+
+start_canonical_read_only_verification() {
+  local start_status=0
+  [[ "$release_write_freeze" == 'true' ]] || {
+    die 'Canonical verification requires the protected write freeze.'
+  }
+  log 'Starting the verified API in read-only mode and pausing the Worker for canonical verification'
+  export TOKEMS_READ_ONLY_DATABASE_URL
+  TOKEMS_READ_ONLY_DATABASE_URL="$(read_only_database_url)"
+  compose_read_only_bounded "$SERVICE_TRANSITION_TIMEOUT_SECONDS" up -d \
+    --no-build \
+    --no-deps \
+    --force-recreate \
+    --wait \
+    --wait-timeout 300 \
+    api worker \
+    >"$backup_dir/canonical-verification-start.log" 2>&1 || start_status=$?
+  if [[ $start_status -ne 0 ]]; then
+    tail -n 160 "$backup_dir/canonical-verification-start.log" >&2 || true
+    return 1
+  fi
+  assert_operational_write_state recovery
 }
 
 switch_services() {
@@ -2764,10 +2844,16 @@ PY
 }
 
 verify_build_identity_files() {
+  local expected_sha="${1:-$target_sha}"
+  local expected_migration="${2:-${BUILD_MIGRATION:-}}"
+  local expected_migration_hash="${3:-${BUILD_MIGRATION_HASH:-}}"
+  [[ -n "$expected_sha" && -n "$expected_migration" && -n "$expected_migration_hash" ]] || {
+    die 'Release verification expected an incomplete build identity.'
+  }
   python3 - \
-    "$target_sha" \
-    "$BUILD_MIGRATION" \
-    "$BUILD_MIGRATION_HASH" \
+    "$expected_sha" \
+    "$expected_migration" \
+    "$expected_migration_hash" \
     "$backup_dir/version-after.json" \
     "$backup_dir/web-version-after.json" \
     "$backup_dir/admin-version-after.json" \
@@ -2880,6 +2966,9 @@ verify_canonical_full_snapshot() {
 }
 
 verify_release() {
+  local expected_runtime_sha="${1:-$target_sha}"
+  local expected_migration="${2:-${BUILD_MIGRATION:-}}"
+  local expected_migration_hash="${3:-${BUILD_MIGRATION_HASH:-}}"
   log 'Verifying containers, build identity, HTTP, canonical homepage, and production data'
   local service worker_container
   for service in "${LONG_RUNNING_SERVICES[@]}"; do
@@ -2902,7 +2991,7 @@ verify_release() {
     "console.log(JSON.stringify({service:'worker',sha:process.env.BUILD_SHA,builtAt:process.env.BUILD_TIME,migration:process.env.BUILD_MIGRATION,migrationHash:process.env.BUILD_MIGRATION_HASH}))" \
     >"$backup_dir/worker-version-after.json"
 
-  verify_build_identity_files
+  verify_build_identity_files "$expected_runtime_sha" "$expected_migration" "$expected_migration_hash"
   verify_homepage_file "$backup_dir/homepage-after.json"
 
   curl "${CURL_ARGS[@]}" "${PUBLIC_ORIGIN}/version.json" >"$backup_dir/public-version-after.json"
@@ -2914,8 +3003,8 @@ verify_release() {
   curl "${CURL_ARGS[@]}" --head "${PUBLIC_ORIGIN}/" >"$backup_dir/public-homepage-headers.txt"
   curl "${CURL_ARGS[@]}" --head "${ADMIN_ORIGIN}/admin/" >"$backup_dir/public-admin-headers.txt"
   curl "${CURL_ARGS[@]}" --head "$PAYMENT_URL" >"$backup_dir/public-payment-headers.txt"
-  [[ "$(json_sha_from_stdin <"$backup_dir/public-version-after.json")" == "$target_sha" ]] || {
-    die 'Public version endpoint does not match the target commit.'
+  [[ "$(json_sha_from_stdin <"$backup_dir/public-version-after.json")" == "$expected_runtime_sha" ]] || {
+    die 'Public version endpoint does not match the expected runtime commit.'
   }
   [[ "$(build_fingerprint_from_stdin web <"$backup_dir/public-web-version-after.json")" == \
     "$(build_fingerprint_from_stdin web <"$backup_dir/web-version-after.json")" ]] || {
@@ -3211,10 +3300,33 @@ resolve_pending_recovery() {
   log "Normal API writes and the standard Worker command are verified; recovery evidence remains at ${pending_recovery_backup_dir}."
 }
 
+run_canonical_repair_release() {
+  create_backup_and_rollback_point
+  sync_source
+  enter_release_write_freeze
+  refresh_pre_mutation_database_backup
+  run_canonical_database_sync
+  start_canonical_read_only_verification
+  verify_release \
+    "$release_baseline_sha" \
+    "$release_baseline_migration" \
+    "$release_baseline_migration_hash"
+  thaw_release_write_freeze
+  write_success_summary
+}
+
 write_success_summary() {
   install_active_production_environment
-  printf 'status=deployed\nruntime_before=%s\ntarget_sha=%s\ncanonical_sync=%s\nbackup_dir=%s\nrollback_tag=%s\n' \
+  local result_status='deployed'
+  local runtime_after_sha="$target_sha"
+  if [[ "$canonical_repair_mode" == 'true' ]]; then
+    result_status='canonical-synchronized'
+    runtime_after_sha="$release_baseline_sha"
+  fi
+  printf 'status=%s\nruntime_before=%s\nruntime_after=%s\ntarget_sha=%s\ncanonical_sync=%s\nbackup_dir=%s\nrollback_tag=%s\n' \
+    "$result_status" \
     "$release_baseline_sha" \
+    "$runtime_after_sha" \
     "$target_sha" \
     "$canonical_sync_performed" \
     "$backup_dir" \
@@ -3224,7 +3336,11 @@ write_success_summary() {
   clear_pending_recovery_marker
   stop_thaw_watchdog
   deployment_succeeded='true'
-  log "Deployment completed: ${release_baseline_sha} -> ${target_sha}"
+  if [[ "$canonical_repair_mode" == 'true' ]]; then
+    log "Canonical synchronization completed on runtime ${release_baseline_sha}; source is now ${target_sha}."
+  else
+    log "Deployment completed: ${release_baseline_sha} -> ${target_sha}"
+  fi
   log "Backup: ${backup_dir}"
   log "Rollback images: ${rollback_tag}"
   log "Canonical sync performed: ${canonical_sync_performed}"
@@ -3259,7 +3375,16 @@ main() {
   run_full_preflight
 
   if [[ "$mode" == 'check' ]]; then
-    log 'Production preflight passed; source checkout, environment, database, images, and containers were unchanged.'
+    if [[ "$canonical_repair_mode" == 'true' ]]; then
+      log 'Canonical repair preflight passed; the current images are compatible and the build-memory gate is not required.'
+    else
+      log 'Production preflight passed; source checkout, environment, database, images, and containers were unchanged.'
+    fi
+    return 0
+  fi
+
+  if [[ "$canonical_repair_mode" == 'true' ]]; then
+    run_canonical_repair_release
     return 0
   fi
 

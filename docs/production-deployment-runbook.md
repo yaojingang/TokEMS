@@ -189,7 +189,7 @@ sudo /usr/local/sbin/tokems-deploy deploy --target-sha <origin-main-full-sha>
 
 `/etc/tokems` 必须保持 `root:root 0700`，`/etc/tokems/production.env` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。不要把任何生产环境文件上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
 
-当前生产主机的历史内存与交换空间总可用量低于脚本要求的 10 GiB 构建门槛时，`check` 和 `deploy` 会在备份、迁移和容器切换前停止。先扩容，或完成外部预构建镜像改造，再执行正式发布。
+当前生产主机的历史内存与交换空间总可用量低于脚本要求的 10 GiB 构建门槛时，需要构建镜像的 `check` 和 `deploy` 会在备份、迁移和容器切换前停止。目标规范快照与当前运行提交完全一致，且目标差异仅包含部署控制与文档时，可显式执行 `check --sync-canonical` 和 `deploy --sync-canonical`；脚本复用当前已验证镜像，并继续执行备份、写冻结、规范同步、生产数据保护和完整验收。
 
 服务器已经首次安装 root 所有的稳定入口后，日常发布使用以下两个命令：
 
@@ -323,14 +323,22 @@ sudo install -o root -g root -m 0755 \
 sudo bash /usr/local/sbin/tokems-deploy "$deploy_action" --target-sha "$target_sha"
 ```
 
-默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。指定目标提交时使用完整 SHA：
+默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。常规发布的 `SEED_DEMO_DATA` 始终为 `false`；规范同步阶段才会向一次性 `db-init` 进程临时传入 `SEED_DEMO_DATA=true`。
+
+当线上运行镜像已经包含目标规范快照，且运行提交到目标提交之间的差异仅限 `AGENTS.md`、`docs/`、生产部署脚本及其测试时，自动检测到的规范漂移或显式 `--sync-canonical` 会进入规范修复流程。该流程先复核合并 PR、CI、运行身份、数据库实例和规范目标，再创建两轮数据库备份与镜像回滚标签、Fast-forward 服务器源码、冻结 API/Worker 写入、运行幂等规范同步，并在恢复写入前后核对公开首页、完整后台规范快照、业务主键、计数和销量。当前镜像和数据库迁移身份保持不变，因此无需镜像构建资源。任一运行相关文件或规范快照发生变化时，脚本回到标准构建流程。
+
+指定目标提交时使用完整 SHA。低内存服务器先运行只读预检，再执行同步：
 
 ```bash
+sudo /usr/local/sbin/tokems-deploy check \
+  --target-sha <origin-main-full-sha> \
+  --sync-canonical
 sudo /usr/local/sbin/tokems-deploy deploy \
-  --target-sha <origin-main-full-sha>
+  --target-sha <origin-main-full-sha> \
+  --sync-canonical
 ```
 
-生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。脚本要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一资源不足时会在备份、迁移和容器变更前停止。当前服务器若仍保持历史资源配置，需要先扩容，或后续改造为外部构建并拉取固定镜像摘要。
+生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。标准镜像构建要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。受保护的规范修复流程跳过这组三项构建资源门禁，备份与验收容量门禁保持启用。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一适用资源不足时会在备份、迁移和容器变更前停止。需要构建镜像的发布仍需先扩容，或采用外部构建并拉取固定镜像摘要。
 
 标准单命令发布拒绝 `docker-compose.yml` 变化。数据库、缓存、对象存储、卷、端口和服务拓扑变更进入单独评审的基础设施维护窗口。
 

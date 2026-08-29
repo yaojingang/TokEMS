@@ -46,6 +46,52 @@ test('production deploy script has valid Bash syntax and a read-only help path',
   }
 });
 
+test('forced canonical sync reuses a compatible runtime without building images', () => {
+  const help = spawnSync('bash', [scriptPath, 'deploy', '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /--sync-canonical/);
+
+  const preflight = source.slice(
+    source.indexOf('run_full_preflight() {'),
+    source.indexOf('\ncapture_business_snapshot() {'),
+  );
+  assert.match(preflight, /canonical_repair_scope_is_compatible/);
+  assert.match(
+    preflight,
+    /if \[\[ "\$canonical_sync_required" == 'true' \]\] && canonical_repair_scope_is_compatible; then[\s\S]*?canonical_repair_mode='true'[\s\S]*?else[\s\S]*?assert_build_capacity/,
+  );
+
+  const repair = source.slice(
+    source.indexOf('run_canonical_repair_release() {'),
+    source.indexOf('\nwrite_success_summary() {'),
+  );
+  assert.ok(repair.length > 0, 'canonical repair workflow was not found');
+  const steps = [
+    'create_backup_and_rollback_point',
+    'sync_source',
+    'enter_release_write_freeze',
+    'refresh_pre_mutation_database_backup',
+    'run_canonical_database_sync',
+    'start_canonical_read_only_verification',
+    'verify_release',
+    'thaw_release_write_freeze',
+    'write_success_summary',
+  ];
+  let previous = -1;
+  for (const step of steps) {
+    const current = repair.indexOf(step);
+    assert.ok(current > previous, `${step} must follow the preceding canonical repair step`);
+    previous = current;
+  }
+  assert.doesNotMatch(repair, /write_build_identity|build_images|switch_services/);
+
+  const main = source.slice(source.indexOf('\nmain() {'));
+  assert.match(
+    main,
+    /if \[\[ "\$canonical_repair_mode" == 'true' \]\]; then\n\s+run_canonical_repair_release\n\s+return 0\n\s+fi/,
+  );
+});
+
 test('production deploy script pins the documented topology and release gates', () => {
   for (const required of [
     "readonly APP_DIR='/www/wwwroot/TokEMS'",
