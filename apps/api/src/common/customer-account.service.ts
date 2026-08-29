@@ -729,6 +729,51 @@ export class CustomerAccountService {
     };
   }
 
+  async createOrderPaymentAccess(session: AuthenticatedCustomer, orderId: string) {
+    return this.db().transaction(async (tx) => {
+      const [order] = await tx
+        .select({ id: orders.id, status: orders.status, expiresAt: orders.expiresAt })
+        .from(orders)
+        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+        .where(
+          and(
+            eq(orders.id, orderId),
+            eq(orders.organizationId, session.organizationId),
+            this.purchaserScope(session.customerUserId),
+            isNull(registrations.supersededAt),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!order) {
+        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
+      }
+      if (order.status !== 'pending_payment') {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          order.status === 'processing' ? '支付结果正在确认中，请稍后刷新' : '当前订单无需继续支付',
+          HttpStatus.CONFLICT,
+        );
+      }
+      if (order.expiresAt <= new Date()) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '订单保留时间已结束，请返回报名页重新提交',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const orderAccessToken = randomBytes(32).toString('base64url');
+      await tx.insert(orderAccessTokens).values({
+        orderId: order.id,
+        tokenHash: sha256(orderAccessToken),
+        scopes: ['order:read'],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60_000),
+      });
+      return { orderId: order.id, orderAccessToken };
+    });
+  }
+
   async registration(
     session: AuthenticatedCustomer,
     registrationId: string,

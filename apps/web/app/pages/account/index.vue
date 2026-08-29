@@ -9,7 +9,6 @@ import type {
 } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
-import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { createRegistrationIntent } from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
 
@@ -38,6 +37,7 @@ const nextCursor = ref<string | null>(null);
 const nextOrdersCursor = ref<string | null>(null);
 const editingOrderId = ref('');
 const attendeeSaving = ref(false);
+const resumingOrderId = ref('');
 const attendeeEdit = reactive({ name: '', mobile: '' });
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -186,21 +186,18 @@ async function saveAttendee(order: CustomerPurchasedOrder) {
 }
 
 async function resumeOrder(order: CustomerPurchasedOrder) {
-  const token = readOrderAccessToken(order.id);
-  if (token) {
-    await router.push({ path: `/order/${order.id}`, query: { event: order.eventSlug } });
-    return;
-  }
-  const email = customer.session.value?.customer.profile.email;
-  if (!email) {
-    errorMessage.value = '当前浏览器没有订单访问凭证，请先在常用资料中补充邮箱以接收安全支付链接。';
-    return;
-  }
+  resumingOrderId.value = order.id;
+  errorMessage.value = '';
   try {
-    await api.requestOrderAccessLink(order.orderNo, email);
-    successMessage.value = `安全支付链接已发送至 ${email}`;
-  } catch {
-    errorMessage.value = '安全支付链接发送失败，请稍后重试。';
+    const access = await customer.createOrderPaymentAccess(order.id);
+    window.location.assign(
+      api.resolvePaymentCheckoutUrl(order.id, order.eventSlug, access.orderAccessToken),
+    );
+  } catch (error) {
+    const value = error as { data?: { message?: string } };
+    errorMessage.value = value.data?.message ?? '支付入口恢复失败，请稍后重试。';
+  } finally {
+    resumingOrderId.value = '';
   }
 }
 
@@ -790,9 +787,10 @@ useHead({ title: '个人中心' });
                       v-if="['pending_payment', 'processing'].includes(orderItem.status)"
                       class="registration-primary-action"
                       type="button"
+                      :disabled="resumingOrderId === orderItem.id"
                       @click="resumeOrder(orderItem)"
                     >
-                      {{ readOrderAccessToken(orderItem.id) ? '继续支付' : '发送安全支付链接' }}
+                      {{ resumingOrderId === orderItem.id ? '正在恢复支付…' : '继续支付' }}
                       <span aria-hidden="true">→</span>
                     </button>
                     <NuxtLink
