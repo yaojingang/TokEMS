@@ -42,7 +42,10 @@ import {
 import { buildPartnershipOrganizationGroups } from '~/utils/partnership-organizations';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
-import { resolveHomeRegistrationCta } from '~/utils/purchase-journey';
+import {
+  resolveHomeRegistrationCta,
+  resolveSelfRegistrationState,
+} from '~/utils/purchase-journey';
 import {
   createPublicViewRecorder,
   formatTrackingStartDate,
@@ -211,7 +214,10 @@ const blockCopy = (nodeKey: string, key: string, fallback: string) => {
   return typeof defaultValue === 'string' ? defaultValue : fallback;
 };
 const attendeeNeedsSubmissionAction = computed(() => {
-  const registrationId = purchaseContext.value?.myAttendance?.registrationId;
+  const registrationId =
+    resolveSelfRegistrationState(purchaseContext.value) === 'active'
+      ? purchaseContext.value?.myAttendance?.registrationId
+      : undefined;
   if (registrationId) {
     return {
       href: publicEventScopedPath(

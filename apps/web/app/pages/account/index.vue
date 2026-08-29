@@ -9,7 +9,12 @@ import type {
 } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
-import { createRegistrationIntent } from '~/utils/purchase-journey';
+import {
+  canRestartSelfOrder,
+  canResumePendingOrder,
+  createRegistrationIntent,
+  shouldRefreshPurchasedOrder,
+} from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
 
 const customer = useCustomerSession();
@@ -18,6 +23,7 @@ const router = useRouter();
 const registrations = ref<CustomerRegistrationSummary[]>([]);
 const purchasedOrders = ref<CustomerPurchasedOrder[]>([]);
 const purchaseContexts = ref<Record<number, EventPurchaseContext>>({});
+const purchaseContextErrors = ref<Record<number, boolean>>({});
 const attendeeNeedsProfiles = ref<Record<string, AttendeeNeedsProfile>>({});
 const attendeeNeedsProfileErrors = ref<Record<string, boolean>>({});
 const attendeeNeedsProfilePending = ref<Record<string, boolean>>({});
@@ -38,6 +44,7 @@ const nextOrdersCursor = ref<string | null>(null);
 const editingOrderId = ref('');
 const attendeeSaving = ref(false);
 const resumingOrderId = ref('');
+const refreshingPurchaseContexts = ref(false);
 const attendeeEdit = reactive({ name: '', mobile: '' });
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -194,11 +201,111 @@ async function resumeOrder(order: CustomerPurchasedOrder) {
       api.resolvePaymentCheckoutUrl(order.id, order.eventSlug, access.orderAccessToken),
     );
   } catch (error) {
+    await refreshOrderPurchaseState(order);
     const value = error as { data?: { message?: string } };
     errorMessage.value = value.data?.message ?? '支付入口恢复失败，请稍后重试。';
   } finally {
     resumingOrderId.value = '';
   }
+}
+
+function mergePurchasedOrder(order: CustomerPurchasedOrder | undefined) {
+  if (!order) return;
+  purchasedOrders.value = purchasedOrders.value.map((item) =>
+    item.id === order.id ? order : item,
+  );
+}
+
+async function refreshOrderPurchaseState(order: CustomerPurchasedOrder) {
+  refreshingPurchaseContexts.value = true;
+  try {
+    const [orderResult, contextResult] = await Promise.all([
+      customer.purchasedOrders(undefined, 1, order.id).catch(() => null),
+      customer.purchaseContext(order.eventId).catch(() => null),
+    ]);
+    mergePurchasedOrder(orderResult?.items[0]);
+    purchaseContextErrors.value = {
+      ...purchaseContextErrors.value,
+      [order.eventId]: !contextResult,
+    };
+    if (contextResult) {
+      purchaseContexts.value = {
+        ...purchaseContexts.value,
+        [contextResult.eventId]: contextResult,
+      };
+    }
+  } finally {
+    refreshingPurchaseContexts.value = false;
+  }
+}
+
+async function refreshPurchaseContexts(eventIds: number[]) {
+  if (!eventIds.length || refreshingPurchaseContexts.value) return;
+  refreshingPurchaseContexts.value = true;
+  try {
+    const loadedContexts = await Promise.all(
+      eventIds.map(async (eventId) => {
+        try {
+          return { eventId, context: await customer.purchaseContext(eventId) };
+        } catch {
+          return { eventId, context: null };
+        }
+      }),
+    );
+    purchaseContextErrors.value = {
+      ...purchaseContextErrors.value,
+      ...Object.fromEntries(loadedContexts.map(({ eventId, context }) => [eventId, !context])),
+    };
+    purchaseContexts.value = {
+      ...purchaseContexts.value,
+      ...Object.fromEntries(
+        loadedContexts
+          .map(({ context }) => context)
+          .filter((context): context is EventPurchaseContext => Boolean(context))
+          .map((context) => [context.eventId, context]),
+      ),
+    };
+  } finally {
+    refreshingPurchaseContexts.value = false;
+  }
+}
+
+async function retryPurchaseContext(order: CustomerPurchasedOrder) {
+  errorMessage.value = '';
+  await refreshOrderPurchaseState(order);
+  if (purchaseContextErrors.value[order.eventId]) {
+    errorMessage.value = '报名状态刷新失败，请稍后重试。';
+  }
+}
+
+async function refreshMutablePurchasedOrders() {
+  const targets = purchasedOrders.value.filter((order) =>
+    shouldRefreshPurchasedOrder(order, purchaseContexts.value[order.eventId]),
+  );
+  const results = await Promise.all(
+    targets.map((order) =>
+      customer
+        .purchasedOrders(undefined, 1, order.id)
+        .then((result) => result.items[0])
+        .catch(() => undefined),
+    ),
+  );
+  const refreshedById = new Map(
+    results.filter((order): order is CustomerPurchasedOrder => Boolean(order)).map((order) => [
+      order.id,
+      order,
+    ]),
+  );
+  if (refreshedById.size) {
+    purchasedOrders.value = purchasedOrders.value.map(
+      (order) => refreshedById.get(order.id) ?? order,
+    );
+  }
+}
+
+async function refreshVisiblePurchaseState() {
+  await refreshPurchaseContexts([...new Set(purchasedOrders.value.map((item) => item.eventId))]);
+  await refreshMutablePurchasedOrders();
 }
 
 function additionalPurchase(order: CustomerPurchasedOrder) {
@@ -208,6 +315,17 @@ function additionalPurchase(order: CustomerPurchasedOrder) {
       event: order.eventSlug,
       intent: createRegistrationIntent(),
       purchaseFor: 'other',
+    },
+  });
+}
+
+function restartClosedSelfOrder(order: CustomerPurchasedOrder) {
+  return router.push({
+    path: '/register',
+    query: {
+      event: order.eventSlug,
+      intent: createRegistrationIntent(),
+      purchaseFor: 'self',
     },
   });
 }
@@ -300,24 +418,7 @@ async function loadPurchasedOrders(append = false) {
   );
   purchasedOrders.value = append ? [...purchasedOrders.value, ...result.items] : result.items;
   nextOrdersCursor.value = result.nextCursor;
-  const missingEventIds = [
-    ...new Set(
-      result.items
-        .map((item) => item.eventId)
-        .filter((eventId) => !purchaseContexts.value[eventId]),
-    ),
-  ];
-  const loadedContexts = await Promise.all(
-    missingEventIds.map((eventId) => customer.purchaseContext(eventId).catch(() => null)),
-  );
-  purchaseContexts.value = {
-    ...purchaseContexts.value,
-    ...Object.fromEntries(
-      loadedContexts
-        .filter((context): context is EventPurchaseContext => Boolean(context))
-        .map((context) => [context.eventId, context]),
-    ),
-  };
+  await refreshPurchaseContexts([...new Set(result.items.map((item) => item.eventId))]);
 }
 
 async function loadInvoiceSummary() {
@@ -374,6 +475,7 @@ async function logout() {
   registrations.value = [];
   purchasedOrders.value = [];
   purchaseContexts.value = {};
+  purchaseContextErrors.value = {};
   invoiceHighlights.value = [];
   invoiceCounts.value = {
     all: 0,
@@ -387,7 +489,16 @@ async function logout() {
   nextOrdersCursor.value = null;
 }
 
-onMounted(initialize);
+let purchaseContextRefreshTimer: ReturnType<typeof setInterval> | undefined;
+onMounted(() => {
+  void initialize();
+  purchaseContextRefreshTimer = setInterval(() => {
+    if (customer.session.value) void refreshVisiblePurchaseState();
+  }, 30_000);
+});
+onBeforeUnmount(() => {
+  if (purchaseContextRefreshTimer) clearInterval(purchaseContextRefreshTimer);
+});
 watch(
   () => customer.session.value?.customer.id,
   (id, previous) => {
@@ -735,7 +846,15 @@ useHead({ title: '个人中心' });
                     </div>
                     <div>
                       <dt>认领状态</dt>
-                      <dd>{{ orderItem.attendeeClaimed ? '参会人已认领' : '等待参会人认领' }}</dd>
+                      <dd>
+                        {{
+                          orderItem.status === 'closed' && orderItem.attendeeClaimed
+                            ? '账号已绑定'
+                            : orderItem.attendeeClaimed
+                              ? '参会人已认领'
+                              : '等待参会人认领'
+                        }}
+                      </dd>
                     </div>
                     <div>
                       <dt>支付状态</dt>
@@ -784,7 +903,7 @@ useHead({ title: '个人中心' });
 
                   <div v-else class="registration-row__actions">
                     <button
-                      v-if="['pending_payment', 'processing'].includes(orderItem.status)"
+                      v-if="canResumePendingOrder(orderItem, purchaseContexts[orderItem.eventId])"
                       class="registration-primary-action"
                       type="button"
                       :disabled="resumingOrderId === orderItem.id"
@@ -792,6 +911,38 @@ useHead({ title: '个人中心' });
                     >
                       {{ resumingOrderId === orderItem.id ? '正在恢复支付…' : '继续支付' }}
                       <span aria-hidden="true">→</span>
+                    </button>
+                    <button
+                      v-if="canRestartSelfOrder(orderItem, purchaseContexts[orderItem.eventId])"
+                      class="registration-primary-action"
+                      type="button"
+                      @click="restartClosedSelfOrder(orderItem)"
+                    >
+                      重新报名
+                      <span aria-hidden="true">→</span>
+                    </button>
+                    <button
+                      v-if="
+                        (orderItem.status === 'pending_payment' &&
+                          !canResumePendingOrder(
+                            orderItem,
+                            purchaseContexts[orderItem.eventId],
+                          ) &&
+                          !canRestartSelfOrder(
+                            orderItem,
+                            purchaseContexts[orderItem.eventId],
+                          )) ||
+                          (orderItem.status === 'closed' &&
+                            (!purchaseContexts[orderItem.eventId] ||
+                              purchaseContextErrors[orderItem.eventId] ||
+                              purchaseContexts[orderItem.eventId]?.resumePaymentOrderId ===
+                              orderItem.id))
+                      "
+                      type="button"
+                      :disabled="refreshingPurchaseContexts"
+                      @click="retryPurchaseContext(orderItem)"
+                    >
+                      {{ refreshingPurchaseContexts ? '正在刷新…' : '刷新报名状态' }}
                     </button>
                     <NuxtLink
                       v-if="

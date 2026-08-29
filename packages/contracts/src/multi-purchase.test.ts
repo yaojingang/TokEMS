@@ -81,6 +81,7 @@ describe('multi-purchase customer API contracts', () => {
           ticketCode: 'TICKET-SELF',
           ticketStatus: 'valid',
         },
+        selfRegistrationState: 'active',
         myPurchases: { paidCount: 1, pendingCount: 1, activeSeatCount: 2 },
         resumePaymentOrderId: '44444444-4444-4444-8444-444444444444',
         recommendedActions: ['view_ticket', 'resume_payment', 'buy_more'],
@@ -88,6 +89,7 @@ describe('multi-purchase customer API contracts', () => {
     ).toMatchObject({
       activeSeatCount: 2,
       remainingSeatCount: 3,
+      selfRegistrationState: 'active',
       myPurchases: { paidCount: 1, pendingCount: 1 },
       resumePaymentOrderId: '44444444-4444-4444-8444-444444444444',
     });
@@ -157,6 +159,7 @@ describe('multi-purchase customer API contracts', () => {
             ticketStatus: 'valid',
             invoiceId: null,
             invoiceStatus: null,
+            expiresAt: '2026-08-15T01:15:00.000Z',
             createdAt: '2026-08-15T01:00:00.000Z',
           },
         ],

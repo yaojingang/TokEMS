@@ -1,10 +1,57 @@
-import { publicEventScopedPath, type EventPurchaseContext } from '@conference/contracts';
+import {
+  publicEventScopedPath,
+  type CustomerPurchasedOrder,
+  type EventPurchaseContext,
+} from '@conference/contracts';
 
 export type HomeRegistrationCta = {
   kind: 'loading' | 'register' | 'resume_payment' | 'purchases' | 'view_ticket' | 'attendance';
   label: string;
   href: string;
 };
+
+export function resolveSelfRegistrationState(
+  context: EventPurchaseContext | null | undefined,
+): 'none' | 'closed' | 'active' {
+  return context?.selfRegistrationState ?? 'none';
+}
+
+export function canRestartSelfOrder(
+  order: Pick<CustomerPurchasedOrder, 'registrationId' | 'status' | 'isProxyPurchase'>,
+  context: EventPurchaseContext | null | undefined,
+) {
+  return (
+    ['closed', 'pending_payment'].includes(order.status) &&
+    !order.isProxyPurchase &&
+    context?.myAttendance?.registrationId === order.registrationId &&
+    context?.recommendedActions.includes('register_self') === true
+  );
+}
+
+export function canResumePendingOrder(
+  order: Pick<CustomerPurchasedOrder, 'id' | 'status' | 'expiresAt'>,
+  context: EventPurchaseContext | null | undefined,
+) {
+  return (
+    order.status === 'pending_payment' &&
+    new Date(order.expiresAt).getTime() > Date.now() &&
+    context?.resumePaymentOrderId === order.id &&
+    context.recommendedActions.includes('resume_payment')
+  );
+}
+
+export function shouldRefreshPurchasedOrder(
+  order: Pick<CustomerPurchasedOrder, 'id' | 'registrationId' | 'status'>,
+  context: EventPurchaseContext | null | undefined,
+) {
+  return (
+    ['pending_payment', 'processing'].includes(order.status) ||
+    context?.resumePaymentOrderId === order.id ||
+    (order.status === 'closed' &&
+      context?.selfRegistrationState === 'active' &&
+      context.myAttendance?.registrationId === order.registrationId)
+  );
+}
 
 export function resolveHomeRegistrationCta(input: {
   eventSlug: string;
@@ -24,7 +71,8 @@ export function resolveHomeRegistrationCta(input: {
   }
   if (input.state !== 'ready' || !input.context) return register;
 
-  if (input.context.resumePaymentOrderId) {
+  const recommendedActions = new Set(input.context.recommendedActions);
+  if (input.context.resumePaymentOrderId && recommendedActions.has('resume_payment')) {
     return {
       kind: 'resume_payment',
       label: '继续支付',
@@ -35,24 +83,33 @@ export function resolveHomeRegistrationCta(input: {
         })}#purchases`,
     };
   }
-  if (input.context.myAttendance && input.context.myPurchases.paidCount === 0) {
+  if (recommendedActions.has('view_ticket') && input.context.myAttendance?.ticketCode) {
     const ticketCode = input.context.myAttendance.ticketCode;
-    return ticketCode
-      ? {
-          kind: 'view_ticket',
-          label: '查看电子票',
-          href: publicEventScopedPath(`/ticket/${encodeURIComponent(ticketCode)}`, input.eventSlug),
-        }
-      : {
-          kind: 'attendance',
-          label: '查看参会名额',
-          href: `${publicEventScopedPath('/account', input.eventSlug)}#events`,
-        };
+    return {
+      kind: 'view_ticket',
+      label: '查看电子票',
+      href: publicEventScopedPath(`/ticket/${encodeURIComponent(ticketCode)}`, input.eventSlug),
+    };
   }
+  if (recommendedActions.has('register_self')) return register;
   if (input.context.myPurchases.paidCount > 0) {
     return {
       kind: 'purchases',
       label: `已购 ${input.context.myPurchases.paidCount} 个名额 · 查看报名`,
+      href: `${publicEventScopedPath('/account', input.eventSlug)}#purchases`,
+    };
+  }
+  if (input.context.myAttendance && input.context.selfRegistrationState === 'active') {
+    return {
+      kind: 'attendance',
+      label: '查看参会名额',
+      href: `${publicEventScopedPath('/account', input.eventSlug)}#events`,
+    };
+  }
+  if (input.context.selfRegistrationState === 'closed') {
+    return {
+      kind: 'purchases',
+      label: '查看已关闭订单',
       href: `${publicEventScopedPath('/account', input.eventSlug)}#purchases`,
     };
   }

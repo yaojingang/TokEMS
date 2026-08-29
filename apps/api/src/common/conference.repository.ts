@@ -44,6 +44,7 @@ import {
 } from '@conference/contracts';
 import {
   ACTIVE_WECHAT_PAYMENT_STATUSES,
+  activeInventoryReservationAt,
   attendeeClaimTokens,
   auditLogs,
   checkinLists,
@@ -710,7 +711,7 @@ export class ConferenceRepository {
                 inArray(inventoryReservations.ticketTypeId, ticketIds),
                 isNull(inventoryReservations.convertedAt),
                 isNull(inventoryReservations.releasedAt),
-                gt(inventoryReservations.expiresAt, new Date()),
+                activeInventoryReservationAt(new Date()),
               ),
             )
             .groupBy(inventoryReservations.ticketTypeId),
@@ -1601,7 +1602,7 @@ export class ConferenceRepository {
             eq(inventoryReservations.ticketTypeId, ticket.id),
             isNull(inventoryReservations.convertedAt),
             isNull(inventoryReservations.releasedAt),
-            gt(inventoryReservations.expiresAt, new Date()),
+            activeInventoryReservationAt(new Date()),
           ),
         );
       const [offerCount] = await tx
@@ -1731,19 +1732,44 @@ export class ConferenceRepository {
       input,
       customerUserId: customer.customerUserId,
     });
-    const cached = this.memory.idempotency.get(`registration:${idempotencyKey}`) as
-      { requestHash: string; response: RegistrationCheckout } | undefined;
-    if (cached) {
-      if (cached.requestHash !== requestHash) {
-        throw new DomainError(
-          API_ERROR_CODES.IDEMPOTENCY_CONFLICT,
-          '相同幂等键对应了不同的报名内容',
-          HttpStatus.CONFLICT,
-        );
-      }
-      return cached.response;
-    }
     const db = this.database.db;
+    const memoryIdempotencyKey = `registration:${idempotencyKey}`;
+    if (!db) {
+      const cached = this.memory.idempotency.get(memoryIdempotencyKey) as
+        { requestHash: string; response: RegistrationCheckout } | undefined;
+      if (cached) {
+        if (cached.requestHash !== requestHash) {
+          throw new DomainError(
+            API_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+            '相同幂等键对应了不同的报名内容',
+            HttpStatus.CONFLICT,
+          );
+        }
+        const currentRegistration = this.memory.registrations.get(cached.response.registration.id);
+        const currentOrder = this.memory.orders.get(cached.response.order.id);
+        const replayStateIsCurrent =
+          currentRegistration &&
+          currentOrder &&
+          currentRegistration.status === cached.response.registration.status &&
+          currentOrder.status === cached.response.order.status &&
+          currentOrder.expiresAt === cached.response.order.expiresAt &&
+          !(
+            currentOrder.status === 'pending_payment' &&
+            new Date(currentOrder.expiresAt) <= new Date()
+          );
+        if (replayStateIsCurrent) {
+          const orderAccessToken = randomBytes(32).toString('base64url');
+          this.memoryOrderTokens.set(currentOrder.id, this.tokenHash(orderAccessToken));
+          const response = { ...cached.response, orderAccessToken };
+          this.memory.idempotency.set(memoryIdempotencyKey, {
+            requestHash: cached.requestHash,
+            response,
+          });
+          return response;
+        }
+        this.memory.idempotency.delete(memoryIdempotencyKey);
+      }
+    }
 
     if (!db) {
       const ticket = this.demoEvent.tickets.find((item) => item.id === input.ticketTypeId);
@@ -1788,7 +1814,12 @@ export class ConferenceRepository {
         const intentRegistration = intentOrder
           ? this.memory.registrations.get(intentOrder.registrationId)
           : undefined;
-        if (intentOrder && intentRegistration) {
+        const intentOrderNeedsResume =
+          intentOrder &&
+          (intentOrder.status === 'closed' ||
+            (intentOrder.status === 'pending_payment' &&
+              new Date(intentOrder.expiresAt) <= new Date()));
+        if (intentOrder && intentRegistration && !intentOrderNeedsResume) {
           const intentTicket = [...this.memory.tickets.values()].find(
             (item) => item.registrationId === intentRegistration.id,
           );
@@ -1801,7 +1832,7 @@ export class ConferenceRepository {
             orderAccessToken,
             ...(input.purchaseFor === 'self' && intentTicket ? { ticket: intentTicket } : {}),
           };
-          this.memory.idempotency.set(`registration:${idempotencyKey}`, { requestHash, response });
+          this.memory.idempotency.set(memoryIdempotencyKey, { requestHash, response });
           return response;
         }
       }
@@ -2035,7 +2066,7 @@ export class ConferenceRepository {
             order: resumedOrder,
             orderAccessToken,
           };
-          this.memory.idempotency.set(`registration:${idempotencyKey}`, { requestHash, response });
+          this.memory.idempotency.set(memoryIdempotencyKey, { requestHash, response });
           return response;
         }
         const existingTicket = [...this.memory.tickets.values()].find(
@@ -2050,7 +2081,7 @@ export class ConferenceRepository {
           orderAccessToken,
           ...(input.purchaseFor === 'self' && existingTicket ? { ticket: existingTicket } : {}),
         };
-        this.memory.idempotency.set(`registration:${idempotencyKey}`, { requestHash, response });
+        this.memory.idempotency.set(memoryIdempotencyKey, { requestHash, response });
         return response;
       }
       const purchaserOrders = [...this.memory.orders.values()].filter(
@@ -2209,7 +2240,7 @@ export class ConferenceRepository {
         orderAccessToken,
         ...(input.purchaseFor === 'self' && issuedTicket ? { ticket: issuedTicket } : {}),
       };
-      this.memory.idempotency.set(`registration:${idempotencyKey}`, { requestHash, response });
+      this.memory.idempotency.set(memoryIdempotencyKey, { requestHash, response });
       return response;
     }
 
@@ -2310,17 +2341,41 @@ export class ConferenceRepository {
             RegistrationCheckout,
             'orderAccessToken'
           >;
-          const [activeRegistration] = await tx
-            .select({ id: registrations.id })
-            .from(registrations)
-            .where(
-              and(
-                eq(registrations.id, durableResponse.registration.id),
-                isNull(registrations.supersededAt),
-              ),
-            )
-            .limit(1);
-          if (activeRegistration) {
+          const replayStateMatches = (
+            state:
+              | {
+                  registrationStatus: Registration['status'];
+                  orderStatus: Order['status'];
+                  orderExpiresAt: Date;
+                }
+              | undefined,
+          ) =>
+            Boolean(
+              state &&
+              state.registrationStatus === durableResponse.registration.status &&
+              state.orderStatus === durableResponse.order.status &&
+              state.orderExpiresAt.toISOString() === durableResponse.order.expiresAt &&
+              !(state.orderStatus === 'pending_payment' && state.orderExpiresAt <= new Date()),
+            );
+          const replayStateQuery = () =>
+            tx
+              .select({
+                registrationStatus: registrations.status,
+                orderStatus: orders.status,
+                orderExpiresAt: orders.expiresAt,
+              })
+              .from(orders)
+              .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+              .where(
+                and(
+                  eq(orders.id, durableResponse.order.id),
+                  eq(registrations.id, durableResponse.registration.id),
+                  isNull(registrations.supersededAt),
+                ),
+              );
+          const [observedReplayState] = await replayStateQuery().limit(1);
+          const replayStateIsCurrent = replayStateMatches(observedReplayState);
+          if (replayStateIsCurrent) {
             const replayAccessToken = randomBytes(32).toString('base64url');
             await tx.insert(orderAccessTokens).values({
               orderId: durableResponse.order.id,
@@ -2476,7 +2531,6 @@ export class ConferenceRepository {
               eq(orders.purchaseIntentId, input.purchaseIntentId),
             ),
           )
-          .for('update')
           .limit(1);
         if (intentOrder) {
           const intentSnapshot = intentOrder.pricingSnapshot as { purchaseRequestHash?: string };
@@ -2487,24 +2541,26 @@ export class ConferenceRepository {
               HttpStatus.CONFLICT,
             );
           }
-          const [[intentRegistration], [intentTicketType], [intentTicket]] = await Promise.all([
-            tx
-              .select()
-              .from(registrations)
-              .where(
-                and(
-                  eq(registrations.id, intentOrder.registrationId),
-                  isNull(registrations.supersededAt),
-                ),
-              )
-              .limit(1),
-            tx.select().from(ticketTypes).where(eq(ticketTypes.id, ticketRow.id)).limit(1),
-            tx
-              .select()
-              .from(tickets)
-              .where(eq(tickets.registrationId, intentOrder.registrationId))
-              .limit(1),
-          ]);
+          const [intentRegistration] = await tx
+            .select()
+            .from(registrations)
+            .where(
+              and(
+                eq(registrations.id, intentOrder.registrationId),
+                isNull(registrations.supersededAt),
+              ),
+            )
+            .limit(1);
+          const [intentTicketType] = await tx
+            .select()
+            .from(ticketTypes)
+            .where(eq(ticketTypes.id, ticketRow.id))
+            .limit(1);
+          const [intentTicket] = await tx
+            .select()
+            .from(tickets)
+            .where(eq(tickets.registrationId, intentOrder.registrationId))
+            .limit(1);
           const intentOrderNeedsResume =
             intentOrder.status === 'closed' ||
             (intentOrder.status === 'pending_payment' && intentOrder.expiresAt <= new Date());
@@ -2552,7 +2608,6 @@ export class ConferenceRepository {
             .select()
             .from(orders)
             .where(eq(orders.registrationId, settledRegistration.id))
-            .for('update')
             .limit(1);
           const [lockedSettledRegistration] = await tx
             .select()
@@ -2560,7 +2615,6 @@ export class ConferenceRepository {
             .where(
               and(eq(registrations.id, settledRegistration.id), isNull(registrations.supersededAt)),
             )
-            .for('update')
             .limit(1);
           if (!lockedSettledRegistration) {
             throw new DomainError(
@@ -2822,7 +2876,7 @@ export class ConferenceRepository {
                 eq(inventoryReservations.ticketTypeId, ticketRow.id),
                 isNull(inventoryReservations.convertedAt),
                 isNull(inventoryReservations.releasedAt),
-                gt(inventoryReservations.expiresAt, new Date()),
+                activeInventoryReservationAt(new Date()),
                 excludedOrderId
                   ? sql`${inventoryReservations.orderId} <> ${excludedOrderId}`
                   : undefined,
@@ -2877,10 +2931,25 @@ export class ConferenceRepository {
         }
         let existingRegistration = existingRegistrations[0];
         if (existingRegistration) {
+          const [observedExistingOrder] = await tx
+            .select({ id: orders.id })
+            .from(orders)
+            .where(eq(orders.registrationId, existingRegistration.id))
+            .limit(1);
+          if (observedExistingOrder) {
+            await tx.execute(
+              sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${observedExistingOrder.id}`}, 0))`,
+            );
+          }
           const [existingOrder] = await tx
             .select()
             .from(orders)
-            .where(eq(orders.registrationId, existingRegistration.id))
+            .where(
+              and(
+                eq(orders.registrationId, existingRegistration.id),
+                observedExistingOrder ? eq(orders.id, observedExistingOrder.id) : undefined,
+              ),
+            )
             .for('update')
             .limit(1);
           const [lockedExistingRegistration] = await tx
@@ -2971,6 +3040,12 @@ export class ConferenceRepository {
                 orderNo: orders.orderNo,
                 status: orders.status,
                 expiresAt: orders.expiresAt,
+                hasActivePayment: sql<boolean>`exists (
+                  select 1 from ${payments}
+                  where ${payments.orderId} = ${orders.id}
+                    and ${payments.provider} = 'wechatpay'
+                    and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
+                )`,
               })
               .from(orders)
               .where(
@@ -2991,7 +3066,10 @@ export class ConferenceRepository {
               .for('update');
             const purchaserEvaluationAt = new Date();
             const activeOtherPurchaserOrders = otherPurchaserOrders.filter(
-              (item) => item.status !== 'pending_payment' || item.expiresAt > purchaserEvaluationAt,
+              (item) =>
+                item.status !== 'pending_payment' ||
+                item.expiresAt > purchaserEvaluationAt ||
+                item.hasActivePayment,
             );
             const otherPendingOrder = activeOtherPurchaserOrders.find((item) =>
               ['pending_review', 'pending_payment', 'processing'].includes(item.status),
@@ -3037,6 +3115,15 @@ export class ConferenceRepository {
               resumedAt.getTime() + (manualReview ? 30 * 24 * 60 * 60_000 : 15 * 60_000),
             );
             let resumedAttendeeClaimToken: string | undefined;
+            await tx
+              .update(orderAccessTokens)
+              .set({ revokedAt: resumedAt })
+              .where(
+                and(
+                  eq(orderAccessTokens.orderId, existingOrder.id),
+                  isNull(orderAccessTokens.revokedAt),
+                ),
+              );
             if (input.purchaseFor === 'other' && existingRegistration.customerUserId === null) {
               await tx
                 .update(attendeeClaimTokens)
@@ -3257,7 +3344,17 @@ export class ConferenceRepository {
           );
         }
         const purchaserOrders = await tx
-          .select({ orderNo: orders.orderNo, status: orders.status, expiresAt: orders.expiresAt })
+          .select({
+            orderNo: orders.orderNo,
+            status: orders.status,
+            expiresAt: orders.expiresAt,
+            hasActivePayment: sql<boolean>`exists (
+              select 1 from ${payments}
+              where ${payments.orderId} = ${orders.id}
+                and ${payments.provider} = 'wechatpay'
+                and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
+            )`,
+          })
           .from(orders)
           .where(
             and(
@@ -3276,7 +3373,10 @@ export class ConferenceRepository {
           .for('update');
         const purchaserEvaluationAt = new Date();
         const activePurchaserOrders = purchaserOrders.filter(
-          (item) => item.status !== 'pending_payment' || item.expiresAt > purchaserEvaluationAt,
+          (item) =>
+            item.status !== 'pending_payment' ||
+            item.expiresAt > purchaserEvaluationAt ||
+            item.hasActivePayment,
         );
         const pendingPurchaserOrder = activePurchaserOrders.find((item) =>
           ['pending_review', 'pending_payment', 'processing'].includes(item.status),
@@ -4309,16 +4409,10 @@ export class ConferenceRepository {
         ['preparing', 'pending', 'processing', 'query_pending'].includes(item.status) &&
         typeof item.payload?.codeUrl === 'string',
     );
-    const anyCodeUrl = paymentRows.find(
-      (item) => typeof item.payload?.codeUrl === 'string' && item.payload.codeUrl,
-    );
     const paymentUrl =
-      (activeNative?.payload && typeof activeNative.payload.codeUrl === 'string'
+      activeNative?.payload && typeof activeNative.payload.codeUrl === 'string'
         ? activeNative.payload.codeUrl
-        : undefined) ??
-      (anyCodeUrl?.payload && typeof anyCodeUrl.payload.codeUrl === 'string'
-        ? anyCodeUrl.payload.codeUrl
-        : undefined);
+        : undefined;
     return {
       id: row.id,
       isProxyPurchase:
@@ -4555,7 +4649,7 @@ export class ConferenceRepository {
                 eq(inventoryReservations.ticketTypeId, ticketTypeRow.id),
                 isNull(inventoryReservations.convertedAt),
                 isNull(inventoryReservations.releasedAt),
-                gt(inventoryReservations.expiresAt, now),
+                activeInventoryReservationAt(now),
                 sql`${inventoryReservations.orderId} <> ${orderRow.id}`,
               ),
             );

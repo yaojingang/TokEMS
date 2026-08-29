@@ -19,6 +19,7 @@ import {
   createRegistrationIntent,
   resolveCheckoutSuccessDestination,
   resolveRegistrationIntent,
+  resolveSelfRegistrationState,
 } from '~/utils/purchase-journey';
 import {
   pruneRegistrationDrafts,
@@ -125,6 +126,7 @@ const accountRequired = computed(
 );
 const verifiedMobile = computed(() => customer.session.value?.customer.maskedMobile ?? '');
 const canPurchaseAdditional = computed(() => purchaseContext.value?.canPurchaseAdditional === true);
+const selfRegistrationState = computed(() => resolveSelfRegistrationState(purchaseContext.value));
 const pendingOrderHref = computed(() => {
   const orderId = purchaseContext.value?.resumePaymentOrderId;
   if (!orderId || !event.value) return '';
@@ -716,7 +718,19 @@ async function submit() {
             purchaseContextReady &&
               customer.session.value &&
               purchaseFor === 'self' &&
-              purchaseContext?.myAttendance
+              selfRegistrationState === 'closed'
+          "
+          class="registration-state-line"
+          role="status"
+        >
+          <span>上一笔订单已关闭或超时，名额已释放。请按当前票种和报名规则重新提交。</span>
+        </div>
+        <div
+          v-else-if="
+            purchaseContextReady &&
+              customer.session.value &&
+              purchaseFor === 'self' &&
+              selfRegistrationState === 'active'
           "
           class="registration-state-line"
           role="status"

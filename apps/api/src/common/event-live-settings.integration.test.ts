@@ -12,11 +12,14 @@ import {
   inventoryReservations,
   orders,
   organizations,
+  payments,
   registrations,
   ticketTypes,
 } from '@conference/database';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { ConferenceRepository } from './conference.repository.js';
+import { CustomerAccountService } from './customer-account.service.js';
+import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import { DatabaseService } from './database.service.js';
 import { EventOperationsService } from './event-operations.service.js';
 import { EventReleaseActivationService } from './event-release-activation.service.js';
@@ -28,6 +31,7 @@ describePersistent('live event settings activation', () => {
   const activation = new EventReleaseActivationService(database);
   const operations = new EventOperationsService(database, activation);
   const repository = new ConferenceRepository(database, activation);
+  const account = new CustomerAccountService(database);
   const slug = `live-settings-${randomUUID().slice(0, 8)}`;
   let eventId: EventId;
   let organizationSlug: string;
@@ -660,7 +664,7 @@ describePersistent('live event settings activation', () => {
     );
   });
 
-  it('protects registration ownership and resumes a closed order with the same business IDs', async () => {
+  it('protects registration ownership and resumes a closed order with the same intent and business IDs', async () => {
     const currentEvent = await repository.getAdminEvent(eventId, DEMO_IDS.organization);
     if (currentEvent.status === 'configuring') {
       await repository.updateEvent(
@@ -732,9 +736,23 @@ describePersistent('live event settings activation', () => {
       formVersion: form.version,
       termsVersion: form.termsVersion,
     };
-    const owner = {
+    const owner: AuthenticatedCustomer & {
+      mobile: string;
+      profile: {
+        nickname: null;
+        realName: string;
+        email: null;
+        company: null;
+        title: null;
+        city: null;
+      };
+    } = {
+      sessionId: randomUUID(),
       customerUserId: ownerId,
       organizationId: DEMO_IDS.organization,
+      tokenHash: 'registration-owner-token-hash',
+      expiresAt: new Date(Date.now() + 60_000),
+      csrfToken: 'registration-owner-csrf-token',
       mobile: ownerMobile,
       profile: {
         nickname: null,
@@ -743,6 +761,25 @@ describePersistent('live event settings activation', () => {
         company: null,
         title: null,
         city: null,
+      },
+      customer: {
+        id: 101,
+        organizationId: DEMO_IDS.organization,
+        mobile: ownerMobile,
+        maskedMobile: ownerMobile,
+        status: 'active',
+        verifiedAt: new Date().toISOString(),
+        lastLoginAt: null,
+        createdAt: new Date().toISOString(),
+        profile: {
+          nickname: null,
+          realName: '报名归属验收用户',
+          email: null,
+          company: null,
+          title: null,
+          city: null,
+          version: 1,
+        },
       },
     };
     const otherCustomer = {
@@ -791,7 +828,88 @@ describePersistent('live event settings activation', () => {
 
       await db
         .update(orders)
-        .set({ status: 'closed', expiresAt: new Date(Date.now() - 60_000), updatedAt: new Date() })
+        .set({ expiresAt: new Date(Date.now() - 60_000), updatedAt: new Date() })
+        .where(eq(orders.id, orderId));
+      const expiredContext = await account.purchaseContext(owner, eventId);
+      expect(expiredContext).toMatchObject({
+        myAttendance: { registrationId, registrationStatus: 'pending_payment' },
+        selfRegistrationState: 'closed',
+        resumePaymentOrderId: null,
+      });
+      expect(expiredContext.recommendedActions).toContain('register_self');
+
+      const [oldPayment] = await db
+        .insert(payments)
+        .values({
+          orderId,
+          provider: 'wechatpay',
+          channel: 'native',
+          outTradeNo: `OLD${suffix}`,
+          status: 'pending',
+          amount: checkout.order.amount,
+          currency: checkout.order.currency,
+          prepayExpiresAt: new Date(Date.now() + 60_000),
+          payload: { codeUrl: `weixin://wxpay/bizpayurl?pr=closed-${suffix}` },
+        })
+        .returning({ id: payments.id });
+      const confirmingContext = await account.purchaseContext(owner, eventId);
+      expect(confirmingContext.selfRegistrationState).toBe('active');
+      expect(confirmingContext.myPurchases).toMatchObject({
+        pendingCount: 1,
+        activeSeatCount: 1,
+      });
+      expect(confirmingContext.recommendedActions).not.toContain('register_self');
+      const confirmingPublicEvent = await repository.getPublicEvent(slug, organizationSlug);
+      expect(confirmingPublicEvent.tickets.find((item) => item.id === ticket.id)?.remaining).toBe(
+        ticket.remaining - 1,
+      );
+      const [ticketInventory] = await db
+        .select({ sold: ticketTypes.sold })
+        .from(ticketTypes)
+        .where(eq(ticketTypes.id, ticket.id))
+        .limit(1);
+      await expect(
+        operations.updateTicketType(DEMO_IDS.organization, eventId, ticket.id, DEMO_IDS.adminUser, {
+          capacity: ticketInventory!.sold,
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'INVENTORY_UNAVAILABLE' },
+        status: 409,
+      });
+      await expect(
+        repository.createCheckout(
+          {
+            ...input,
+            attendee: {
+              ...input.attendee,
+              name: '延迟支付期间的代购参会人',
+              mobile: `+86137${suffix}`,
+              email: `registration-delayed-proxy-${suffix}@example.com`,
+            },
+            purchaseFor: 'other',
+            purchaseIntentId: randomUUID(),
+            proxyAuthorizationAccepted: true,
+          },
+          `registration-delayed-proxy-${suffix}`,
+          owner,
+        ),
+      ).rejects.toMatchObject({
+        response: { code: 'INVALID_STATE_TRANSITION' },
+        status: 409,
+      });
+      await db
+        .update(payments)
+        .set({
+          status: 'closed',
+          prepayExpiresAt: new Date(Date.now() - 60_000),
+          closedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(payments.id, oldPayment!.id));
+
+      await db
+        .update(orders)
+        .set({ status: 'closed', updatedAt: new Date() })
         .where(eq(orders.id, orderId));
       await db
         .update(registrations)
@@ -802,15 +920,92 @@ describePersistent('live event settings activation', () => {
         .set({ releasedAt: new Date(), updatedAt: new Date() })
         .where(eq(inventoryReservations.orderId, orderId));
 
+      const closedContext = await account.purchaseContext(owner, eventId);
+      expect(closedContext).toMatchObject({
+        myAttendance: { registrationId, registrationStatus: 'cancelled' },
+        selfRegistrationState: 'closed',
+        resumePaymentOrderId: null,
+      });
+      expect(closedContext.recommendedActions).toContain('register_self');
+      expect(closedContext.recommendedActions).not.toContain('resume_payment');
+
+      const blockingRegistrationId = randomUUID();
+      const blockingOrderId = randomUUID();
+      await db.insert(registrations).values({
+        id: blockingRegistrationId,
+        organizationId: DEMO_IDS.organization,
+        eventId,
+        ticketTypeId: ticket.id,
+        customerUserId: null,
+        registrationCode: `BLOCK-${suffix}`,
+        status: 'pending_payment',
+        attendee: {
+          name: '待支付代购参会人',
+          mobile: otherMobile,
+          email: `registration-blocking-${suffix}@example.com`,
+          company: '',
+          title: '',
+          city: '深圳',
+        },
+        attendeeMobileE164: otherMobile,
+        attendeeEmailNormalized: `registration-blocking-${suffix}@example.com`,
+        consentSnapshot: { purchaseFor: 'other' },
+      });
+      await db.insert(orders).values({
+        id: blockingOrderId,
+        organizationId: DEMO_IDS.organization,
+        eventId,
+        registrationId: blockingRegistrationId,
+        purchaserCustomerUserId: ownerId,
+        purchaseIntentId: randomUUID(),
+        orderNo: `BLOCK-${suffix}`,
+        status: 'pending_payment',
+        amount: checkout.order.amount,
+        currency: checkout.order.currency,
+        pricingSnapshot: {},
+        expiresAt: new Date(Date.now() + 15 * 60_000),
+      });
+      const blockedContext = await account.purchaseContext(owner, eventId);
+      expect(blockedContext.recommendedActions).not.toContain('register_self');
+      await db.delete(orders).where(eq(orders.id, blockingOrderId));
+      await db.delete(registrations).where(eq(registrations.id, blockingRegistrationId));
+
       const resumed = await repository.createCheckout(
         input,
-        `registration-owner-resume-${suffix}`,
+        `registration-owner-create-${suffix}-0`,
         owner,
       );
       expect(resumed.registration.id).toBe(registrationId);
       expect(resumed.order.id).toBe(orderId);
+      expect(resumed.order.orderNo).toBe(checkout.order.orderNo);
       expect(resumed.order.status).toBe('pending_payment');
       expect(new Date(resumed.order.expiresAt).getTime()).toBeGreaterThan(Date.now());
+      await expect(repository.getOrder(orderId, checkout.orderAccessToken!)).rejects.toMatchObject({
+        response: { code: 'UNAUTHORIZED' },
+        status: 401,
+      });
+      await expect(
+        repository.getOrder(orderId, resumed.orderAccessToken!),
+      ).resolves.not.toHaveProperty('paymentUrl');
+      const [activeReservationCount] = await db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(inventoryReservations)
+        .where(
+          and(
+            eq(inventoryReservations.orderId, orderId),
+            isNull(inventoryReservations.releasedAt),
+            isNull(inventoryReservations.convertedAt),
+          ),
+        );
+      expect(Number(activeReservationCount?.value ?? 0)).toBe(1);
+      const resumedContext = await account.purchaseContext(owner, eventId);
+      expect(resumedContext).toMatchObject({
+        myAttendance: { registrationId, registrationStatus: 'pending_payment' },
+        selfRegistrationState: 'active',
+        resumePaymentOrderId: orderId,
+      });
+      expect(resumedContext.recommendedActions).toContain('resume_payment');
+      expect(resumedContext.recommendedActions).not.toContain('register_self');
 
       const paid = await repository.confirmMockPayment(
         orderId,
@@ -958,6 +1153,16 @@ describePersistent('live event settings activation', () => {
         .update(inventoryReservations)
         .set({ releasedAt: new Date(), updatedAt: new Date() })
         .where(eq(inventoryReservations.orderId, orderId));
+
+      const claimedAttendeeContext = await account.purchaseContext(
+        {
+          customerUserId: attendeeId,
+          organizationId: DEMO_IDS.organization,
+        } as AuthenticatedCustomer,
+        eventId,
+      );
+      expect(claimedAttendeeContext.selfRegistrationState).toBe('closed');
+      expect(claimedAttendeeContext.recommendedActions).not.toContain('register_self');
 
       const resumed = await repository.createCheckout(
         { ...input, purchaseIntentId: randomUUID() },
