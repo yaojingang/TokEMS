@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { appendFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Queue, UnrecoverableError, Worker, type ConnectionOptions, type Job } from 'bullmq';
@@ -124,6 +124,8 @@ import {
 
 const queueName = 'conference-domain-events';
 const htmlImportQueueName = 'conference-html-template-imports';
+const workerReadyFile = join(tmpdir(), 'tokems-worker-ready.json');
+const workerReadyTempFile = join(tmpdir(), 'tokems-worker-ready.json.tmp');
 const notificationClaimLeaseMs = 25_000;
 const pollInterval = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 2_000);
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 5);
@@ -3855,6 +3857,8 @@ async function reconcileAliyunSmsDeliveries(db: ConferenceDatabase) {
 }
 
 async function start() {
+  await unlink(workerReadyFile).catch(() => undefined);
+  await unlink(workerReadyTempFile).catch(() => undefined);
   console.info(`[worker] build=${JSON.stringify(resolveBuildInfo('worker', process.env))}`);
   resolveDeploymentOrigins();
   notificationPayloadSecret();
@@ -3913,10 +3917,12 @@ async function start() {
   const worker = new Worker(queueName, (job) => processDomainEvent(job, db), {
     connection: workerConnection,
     concurrency,
+    autorun: false,
   });
   const htmlImportWorker = new Worker(htmlImportQueueName, (job) => processDomainEvent(job, db), {
     connection: workerConnection,
     concurrency: htmlImportConcurrency,
+    autorun: false,
   });
 
   const redriveDurableFailure = async (job: Job<Record<string, unknown>>) => {
@@ -4172,12 +4178,33 @@ async function start() {
     smsReceiptInterval,
   );
   const feishuDigestTimer = setInterval(() => void maintainFeishuDigests(), 60_000);
+  const workerRun = worker.run();
+  const htmlImportWorkerRun = htmlImportWorker.run();
+  void workerRun.catch((error) => {
+    console.error('[worker] domain event consumer stopped unexpectedly', error);
+    process.exit(1);
+  });
+  void htmlImportWorkerRun.catch((error) => {
+    console.error('[worker] HTML import consumer stopped unexpectedly', error);
+    process.exit(1);
+  });
+  await Promise.all([worker.waitUntilReady(), htmlImportWorker.waitUntilReady()]);
+  if (!worker.isRunning() || !htmlImportWorker.isRunning()) {
+    throw new Error('Worker consumers did not enter the running state');
+  }
+  await writeFile(workerReadyTempFile, `${JSON.stringify(resolveBuildInfo('worker', process.env))}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await rename(workerReadyTempFile, workerReadyFile);
   console.info(
     `[worker] ready queue=${queueName} concurrency=${concurrency} htmlQueue=${htmlImportQueueName} htmlConcurrency=${htmlImportConcurrency}`,
   );
 
   const stop = async (signal: string) => {
     console.info(`[worker] stopping signal=${signal}`);
+    await unlink(workerReadyFile).catch(() => undefined);
+    await unlink(workerReadyTempFile).catch(() => undefined);
     clearInterval(timer);
     clearInterval(durableFailureTimer);
     clearInterval(inventoryTimer);

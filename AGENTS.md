@@ -5,6 +5,7 @@
 - 生产发布前必须阅读 `docs/production-deployment-runbook.md`。
 - 唯一上游仓库为 `https://github.com/yaojingang/TokEMS.git`，生产代码只允许来自已合并且 CI 通过的 `origin/main`。
 - 生产服务器源码目录为 `/www/wwwroot/TokEMS`。宝塔站点目录 `/www/dk_project/wwwroot/hui.ailingdaoli.com` 只承载站点和反向代理配置，禁止在该目录拉取代码、构建镜像或执行数据库迁移。
+- 生产环境文件固定为 `/etc/tokems/production.env`，目录权限为 `root:root 0700`，文件权限为 `root:root 0600`。生产 Compose 和发布脚本禁止读取 Git 工作区中的实时 `.env`。
 - 服务器分支 `production` 跟踪 `origin/main`。发布前确认工作区干净，并确认服务器 `HEAD` 与 `origin/main` 完全一致。
 - 每次生产变更都要先创建数据库备份、记录当前提交和容器状态，并为当前应用镜像添加 `rollback-<时间戳>` 标签。
 - Docker 构建和运行必须使用同一组 `BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION`、`BUILD_MIGRATION_HASH`。任何值为 `unknown` 时禁止切换生产流量。
@@ -16,6 +17,7 @@
 - 规范快照包含当前公开发布内容，以及大会基础设置、模板草稿、当前指针引用的发布版本、首页绑定、票种定义与容量、报名表、嘉宾、议程、FAQ、SEO、公开站点设置、蓝图、核销清单、通知模板、AI 文案提示、模板素材和所有被纳入模板定义引用的 HTML 文档。未被当前发布、绑定或默认设置引用的历史版本，以及销量、报名用户、会员资料、订单、支付、票证、发票和审计记录不得进入快照。
 - 管理员账号、姓名、邮箱、密码、权限身份，以及 API 地址、密钥、令牌、Cookie、第三方集成、支付、短信和对象存储凭据不得进入规范快照。管理员信息继续只从部署环境读取。
 - 禁止把 `git reset --hard`、`git clean`、`docker system prune`、`docker compose down -v`、删卷、清库或数据库覆盖恢复写入常规发布流程。
+- 解除生产写冻结前必须启动独立的 systemd 监督单元；恢复标记仍存在且部署控制器退出时，该单元持续停止 API 和 Worker，直至确认写容器已经停止。
 - 发布完成后必须同时验证容器健康、服务器本机 HTTP、公网 HTTP、构建版本、迁移哈希、公开大会内容和生产数据计数。
 - `.env`、数据库连接、密钥、令牌和第三方凭据不得写入 Git、日志、Issue、PR 或发布记录。检查环境时只输出允许公开的键。
 
