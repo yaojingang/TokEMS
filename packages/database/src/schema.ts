@@ -909,11 +909,17 @@ export const templateAssets = pgTable(
     height: integer('height'),
     contentDigest: varchar('content_digest', { length: 128 }).notNull(),
     altText: varchar('alt_text', { length: 500 }).notNull().default(''),
+    purpose: varchar('purpose', { length: 40 }).notNull().default('template'),
     createdBy: uuid('created_by').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('template_assets_org_digest_unique').on(table.organizationId, table.contentDigest),
+    uniqueIndex('template_assets_org_digest_purpose_unique').on(
+      table.organizationId,
+      table.contentDigest,
+      table.purpose,
+    ),
+    check('template_assets_purpose', sql`${table.purpose} in ('template', 'attendee_service_qr')`),
     index('template_assets_org_created_idx').on(table.organizationId, table.createdAt),
   ],
 );

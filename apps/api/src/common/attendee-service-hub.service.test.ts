@@ -107,10 +107,8 @@ describe('attendee service hub state derivation', () => {
 });
 
 describe('organizer QR asset isolation', () => {
-  it('hides an organizer QR asset from the generic public template asset route', async () => {
-    const limit = vi.fn().mockResolvedValue([
-      { storageKey: 'templates/private-qr.png', altText: '大会组织者微信二维码' },
-    ]);
+  it('returns not found when the generic public query excludes a private-purpose asset', async () => {
+    const limit = vi.fn().mockResolvedValue([]);
     const database = {
       db: {
         select: vi.fn(() => ({

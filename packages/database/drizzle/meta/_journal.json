@@ -414,6 +414,13 @@
       "when": 1788062042481,
       "tag": "0058_sweet_joseph",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1788068973836,
+      "tag": "0059_green_rictor",
+      "breakpoints": true
     }
   ]
 }

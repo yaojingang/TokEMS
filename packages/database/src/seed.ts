@@ -361,6 +361,7 @@ try {
         and(
           eq(templateAssets.organizationId, DEMO_IDS.organization),
           eq(templateAssets.contentDigest, asset.contentDigest),
+          eq(templateAssets.purpose, 'template'),
         ),
       )
       .limit(1);
@@ -441,10 +442,15 @@ try {
             height: typeof asset.height === 'number' ? asset.height : null,
             contentDigest: asset.contentDigest,
             altText: typeof asset.altText === 'string' ? asset.altText : '',
+            purpose: 'template',
             createdBy: adminUserId,
           })
           .onConflictDoUpdate({
-            target: [templateAssets.organizationId, templateAssets.contentDigest],
+            target: [
+              templateAssets.organizationId,
+              templateAssets.contentDigest,
+              templateAssets.purpose,
+            ],
             set: {
               mediaType: asset.mediaType,
               size: asset.size,

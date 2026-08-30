@@ -56,6 +56,14 @@ const DEFAULT_ORG_ASSET_COUNT = 10_000;
 const TEMPLATE_ASSET_UPLOAD_URL_TTL_MS = 10 * 60_000;
 const TEMPLATE_ASSET_UPLOAD_CLEANUP_GRACE_MS = 2 * 60_000;
 export const ATTENDEE_SERVICE_QR_ALT_TEXT = '大会组织者微信二维码';
+export const TEMPLATE_ASSET_PURPOSE = 'template' as const;
+export const ATTENDEE_SERVICE_QR_ASSET_PURPOSE = 'attendee_service_qr' as const;
+type TemplateAssetPurpose =
+  typeof TEMPLATE_ASSET_PURPOSE | typeof ATTENDEE_SERVICE_QR_ASSET_PURPOSE;
+
+function assetStorageNamespace(purpose: TemplateAssetPurpose) {
+  return purpose === ATTENDEE_SERVICE_QR_ASSET_PURPOSE ? 'attendee-services' : 'templates';
+}
 
 function deterministicUuid(value: string) {
   const hex = createHash('sha256').update(value).digest('hex').slice(0, 32).split('');
@@ -782,6 +790,7 @@ export class TemplateOperationsService {
             and(
               eq(templateAssets.id, shareAssetId),
               eq(templateAssets.organizationId, organizationId),
+              eq(templateAssets.purpose, TEMPLATE_ASSET_PURPOSE),
             ),
           )
           .limit(1);
@@ -1486,7 +1495,12 @@ export class TemplateOperationsService {
     const assets = await this.db()
       .select()
       .from(templateAssets)
-      .where(eq(templateAssets.organizationId, organizationId))
+      .where(
+        and(
+          eq(templateAssets.organizationId, organizationId),
+          eq(templateAssets.purpose, TEMPLATE_ASSET_PURPOSE),
+        ),
+      )
       .orderBy(desc(templateAssets.createdAt));
     return assets.map((asset) => ({
       ...asset,
@@ -1497,11 +1511,13 @@ export class TemplateOperationsService {
 
   async publicAssetUrl(assetId: string) {
     const [asset] = await this.db()
-      .select({ storageKey: templateAssets.storageKey, altText: templateAssets.altText })
+      .select({ storageKey: templateAssets.storageKey })
       .from(templateAssets)
-      .where(eq(templateAssets.id, assetId))
+      .where(
+        and(eq(templateAssets.id, assetId), eq(templateAssets.purpose, TEMPLATE_ASSET_PURPOSE)),
+      )
       .limit(1);
-    if (!asset || asset.altText === ATTENDEE_SERVICE_QR_ALT_TEXT) {
+    if (!asset) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '模板图片不存在', HttpStatus.NOT_FOUND);
     }
     const url = this.s3Presigned(asset.storageKey, 'GET');
@@ -1519,9 +1535,7 @@ export class TemplateOperationsService {
     const [asset] = await this.db()
       .select({ storageKey: templateAssets.storageKey })
       .from(templateAssets)
-      .where(
-        and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)),
-      )
+      .where(and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)))
       .limit(1);
     if (!asset) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '模板图片不存在', HttpStatus.NOT_FOUND);
@@ -1548,6 +1562,7 @@ export class TemplateOperationsService {
       altText: string;
     },
     commandKey?: string,
+    purpose: TemplateAssetPurpose = TEMPLATE_ASSET_PURPOSE,
   ) {
     const safeName =
       input.fileName
@@ -1560,7 +1575,7 @@ export class TemplateOperationsService {
           `template-asset:upload:${organizationId}:${commandKey}:${this.digest(input)}`,
         )
       : nanoid(16).toLowerCase();
-    const storageKey = `templates/${organizationId}/staged/${uploadToken}-${safeName}`;
+    const storageKey = `${assetStorageNamespace(purpose)}/${organizationId}/staged/${uploadToken}-${safeName}`;
     const uploadUrl = this.s3Presigned(storageKey, 'PUT', input.mediaType, undefined, input.size);
     if (!uploadUrl) {
       throw new DomainError(
@@ -1685,8 +1700,9 @@ export class TemplateOperationsService {
       size: number;
       contentDigest: string;
     },
+    purpose: TemplateAssetPurpose,
   ) {
-    if (!input.storageKey.startsWith(`templates/${organizationId}/`)) {
+    if (!input.storageKey.startsWith(`${assetStorageNamespace(purpose)}/${organizationId}/`)) {
       throw new DomainError(
         API_ERROR_CODES.VALIDATION_ERROR,
         '模板图片不属于当前组织',
@@ -1761,6 +1777,7 @@ export class TemplateOperationsService {
       contentDigest: string;
       altText: string;
     },
+    purpose: TemplateAssetPurpose = TEMPLATE_ASSET_PURPOSE,
   ) {
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(input.mediaType) || input.size > 10 * 1024 * 1024) {
@@ -1807,7 +1824,7 @@ export class TemplateOperationsService {
             ),
           )
           .limit(1);
-        if (!consumedAsset) {
+        if (!consumedAsset || consumedAsset.purpose !== purpose) {
           throw new DomainError(
             API_ERROR_CODES.INVALID_STATE_TRANSITION,
             '模板图片登记结果已经失效，请重新上传',
@@ -1823,7 +1840,7 @@ export class TemplateOperationsService {
           HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
-      await this.assertStoredAsset(organizationId, input);
+      await this.assertStoredAsset(organizationId, input, purpose);
       const [existing] = await tx
         .select()
         .from(templateAssets)
@@ -1831,6 +1848,7 @@ export class TemplateOperationsService {
           and(
             eq(templateAssets.organizationId, organizationId),
             eq(templateAssets.contentDigest, input.contentDigest),
+            eq(templateAssets.purpose, purpose),
           ),
         )
         .limit(1);
@@ -1871,7 +1889,7 @@ export class TemplateOperationsService {
         }
         [asset] = await tx
           .insert(templateAssets)
-          .values({ organizationId, createdBy: actorId, ...input })
+          .values({ organizationId, createdBy: actorId, purpose, ...input })
           .returning();
       }
       if (!asset) throw new Error('模板资产登记失败');
@@ -1922,7 +1940,11 @@ export class TemplateOperationsService {
         .select()
         .from(templateAssets)
         .where(
-          and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)),
+          and(
+            eq(templateAssets.id, assetId),
+            eq(templateAssets.organizationId, organizationId),
+            eq(templateAssets.purpose, TEMPLATE_ASSET_PURPOSE),
+          ),
         )
         .for('update')
         .limit(1);

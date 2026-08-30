@@ -28,6 +28,7 @@ import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import {
   ATTENDEE_SERVICE_QR_ALT_TEXT,
+  ATTENDEE_SERVICE_QR_ASSET_PURPOSE,
   TemplateOperationsService,
 } from './template-operations.service.js';
 
@@ -173,8 +174,7 @@ export function deriveServiceHubInvoiceItem(
 export function serviceHubActionRequiredCount(items: CustomerServiceHubItem[]) {
   return items.filter(
     (item) =>
-      !['poster', 'invoice'].includes(item.code) &&
-      ['pending', 'attention'].includes(item.state),
+      !['poster', 'invoice'].includes(item.code) && ['pending', 'attention'].includes(item.state),
   ).length;
 }
 
@@ -208,7 +208,11 @@ export class AttendeeServiceHubService {
       .from(eventAttendeeServiceConfigs)
       .leftJoin(
         templateAssets,
-        eq(templateAssets.id, eventAttendeeServiceConfigs.organizerQrAssetId),
+        and(
+          eq(templateAssets.id, eventAttendeeServiceConfigs.organizerQrAssetId),
+          eq(templateAssets.organizationId, eventAttendeeServiceConfigs.organizationId),
+          eq(templateAssets.purpose, ATTENDEE_SERVICE_QR_ASSET_PURPOSE),
+        ),
       )
       .where(
         and(
@@ -275,6 +279,7 @@ export class AttendeeServiceHubService {
           mediaType: templateAssets.mediaType,
           size: templateAssets.size,
           altText: templateAssets.altText,
+          purpose: templateAssets.purpose,
         })
         .from(templateAssets)
         .where(
@@ -288,7 +293,8 @@ export class AttendeeServiceHubService {
         !asset ||
         !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mediaType) ||
         asset.size > 2 * 1024 * 1024 ||
-        asset.altText !== ATTENDEE_SERVICE_QR_ALT_TEXT
+        asset.altText !== ATTENDEE_SERVICE_QR_ALT_TEXT ||
+        asset.purpose !== ATTENDEE_SERVICE_QR_ASSET_PURPOSE
       ) {
         throw new DomainError(
           API_ERROR_CODES.VALIDATION_ERROR,
@@ -382,6 +388,7 @@ export class AttendeeServiceHubService {
       actorId,
       { ...input, altText: ATTENDEE_SERVICE_QR_ALT_TEXT },
       commandKey,
+      ATTENDEE_SERVICE_QR_ASSET_PURPOSE,
     );
   }
 
@@ -392,10 +399,15 @@ export class AttendeeServiceHubService {
     input: ConfirmAttendeeServiceQrAsset,
   ) {
     await this.ensureEvent(organizationId, eventId);
-    const asset = await this.templates.createAsset(organizationId, actorId, {
-      ...input,
-      altText: ATTENDEE_SERVICE_QR_ALT_TEXT,
-    });
+    const asset = await this.templates.createAsset(
+      organizationId,
+      actorId,
+      {
+        ...input,
+        altText: ATTENDEE_SERVICE_QR_ALT_TEXT,
+      },
+      ATTENDEE_SERVICE_QR_ASSET_PURPOSE,
+    );
     return { assetId: asset.id, previewUrl: asset.previewUrl };
   }
 
@@ -425,10 +437,7 @@ export class AttendeeServiceHubService {
       registration.registrationStatus as never,
     );
     const activeTicket = ACTIVE_TICKET_STATUSES.includes(registration.ticketStatus as never);
-    const configuration = await this.configurationRow(
-      session.organizationId,
-      registration.eventId,
-    );
+    const configuration = await this.configurationRow(session.organizationId, registration.eventId);
     const enabled = Boolean(
       configuration?.config.enabled &&
       configuration.config.organizerQrAssetId &&

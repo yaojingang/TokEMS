@@ -64,6 +64,7 @@ function order(id: string, eventSlug: string, status: CustomerPurchasedOrder['st
     ticketStatus: null,
     invoiceId: null,
     invoiceStatus: null,
+    expiresAt: '2026-08-30T00:30:00.000Z',
     createdAt: '2026-08-30T00:00:00.000Z',
   } satisfies CustomerPurchasedOrder;
 }

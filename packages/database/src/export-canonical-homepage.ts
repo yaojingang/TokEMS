@@ -151,7 +151,9 @@ export function validateCanonicalExportTopology(input: {
       apiUrl.username ||
       apiUrl.password
     ) {
-      throw new Error('Trusted Compose canonical export requires the production read-only topology');
+      throw new Error(
+        'Trusted Compose canonical export requires the production read-only topology',
+      );
     }
     return;
   }
@@ -1448,7 +1450,8 @@ async function buildSnapshot() {
       }>(
         `select id, storage_key as "storageKey", media_type as "mediaType", size,
                 width, height, content_digest as "contentDigest", alt_text as "altText"
-         from template_assets where id = $1 and organization_id = $2`,
+         from template_assets
+         where id = $1 and organization_id = $2 and purpose = 'template'`,
         [assetId, identity.organizationId],
       );
       const asset = assetResult.rows[0];

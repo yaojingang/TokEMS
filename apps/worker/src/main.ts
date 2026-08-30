@@ -611,12 +611,16 @@ async function processCustomerAvatar(
 
 async function deleteTemplateAsset(db: ConferenceDatabase, payload: Record<string, unknown>) {
   const storageKey = String(payload.storageKey ?? '');
-  if (!storageKey.startsWith('templates/')) {
-    throw new Error('TemplateAssetDeletionRequested has an invalid storageKey');
-  }
   const organizationId = String(payload.organizationId ?? '');
   if (!/^[a-f0-9-]{36}$/iu.test(organizationId)) {
     throw new Error('TemplateAssetDeletionRequested is missing organizationId');
+  }
+  if (
+    ![`templates/${organizationId}/`, `attendee-services/${organizationId}/`].some((prefix) =>
+      storageKey.startsWith(prefix),
+    )
+  ) {
+    throw new Error('TemplateAssetDeletionRequested has an invalid storageKey');
   }
   const reservationId = payload.reservationId ? String(payload.reservationId) : null;
   const finalizeReservation = payload.finalizeReservation === true;
@@ -761,7 +765,11 @@ async function deleteHtmlImportSource(db: ConferenceDatabase, payload: Record<st
         .select()
         .from(templateAssets)
         .where(
-          and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)),
+          and(
+            eq(templateAssets.id, assetId),
+            eq(templateAssets.organizationId, organizationId),
+            eq(templateAssets.purpose, 'template'),
+          ),
         )
         .limit(1);
       if (!asset) return;
@@ -4196,10 +4204,14 @@ async function start() {
   if (!worker.isRunning() || !htmlImportWorker.isRunning()) {
     throw new Error('Worker consumers did not enter the running state');
   }
-  await writeFile(workerReadyTempFile, `${JSON.stringify(resolveBuildInfo('worker', process.env))}\n`, {
+  await writeFile(
+    workerReadyTempFile,
+    `${JSON.stringify(resolveBuildInfo('worker', process.env))}\n`,
+    {
       encoding: 'utf8',
       mode: 0o600,
-  });
+    },
+  );
   await rename(workerReadyTempFile, workerReadyFile);
   console.info(
     `[worker] ready queue=${queueName} concurrency=${concurrency} htmlQueue=${htmlImportQueueName} htmlConcurrency=${htmlImportConcurrency}`,
