@@ -1540,7 +1540,7 @@ export class TemplateOperationsService {
     if (!asset) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '模板图片不存在', HttpStatus.NOT_FOUND);
     }
-    const url = this.s3Presigned(asset.storageKey, 'GET');
+    const url = this.s3Presigned(asset.storageKey, 'GET', undefined, process.env.S3_ENDPOINT);
     if (!url) {
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
