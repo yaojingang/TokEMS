@@ -442,7 +442,7 @@ test('protected rollback blocks writes and persists recovery before database evi
 });
 
 test('worker publishes a persistent release identity only after startup maintenance', () => {
-  const readyWrite = workerSource.indexOf('writeFile(workerReadyTempFile');
+  const readyWrite = workerSource.search(/writeFile\(\s*workerReadyTempFile/u);
   const readyLog = workerSource.indexOf('`[worker] ready queue=');
   assert.ok(readyWrite >= 0 && readyWrite < readyLog);
   const firstConsumerStart = workerSource.indexOf('const workerRun = worker.run()');
