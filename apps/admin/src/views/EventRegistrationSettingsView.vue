@@ -9,6 +9,7 @@ import type {
 import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
 import { isPublicEventStatus } from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
+import AttendeeServiceSettingsPanel from '../components/AttendeeServiceSettingsPanel.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
 import { money } from '../lib/format';
@@ -470,6 +471,8 @@ async function saveFlow() {
       </div>
     </form>
   </section>
+
+  <AttendeeServiceSettingsPanel v-if="session.can('event.registration.manage')" />
 
   <section v-if="canReadInventory || canManageTickets" class="admin-panel ticket-settings-panel">
     <header class="admin-panel-header">

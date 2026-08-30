@@ -773,6 +773,7 @@ export class HtmlTemplateOperationsService {
           .where(
             and(
               eq(templateAssets.organizationId, organizationId),
+              eq(templateAssets.purpose, 'template'),
               inArray(templateAssets.id, uniqueAssetIds),
             ),
           );
@@ -1199,6 +1200,7 @@ export class HtmlTemplateOperationsService {
         .where(
           and(
             eq(templateAssets.organizationId, organizationId),
+            eq(templateAssets.purpose, 'template'),
             inArray(templateAssets.id, assetIds),
           ),
         );

@@ -214,7 +214,13 @@ export class EventOperationsService {
     const [asset] = await tx
       .select({ id: templateAssets.id, mediaType: templateAssets.mediaType })
       .from(templateAssets)
-      .where(and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)))
+      .where(
+        and(
+          eq(templateAssets.id, assetId),
+          eq(templateAssets.organizationId, organizationId),
+          eq(templateAssets.purpose, 'template'),
+        ),
+      )
       .limit(1);
     if (!asset || !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mediaType)) {
       throw new DomainError(

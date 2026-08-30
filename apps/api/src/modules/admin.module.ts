@@ -24,12 +24,15 @@ import {
   AdminDashboardQuerySchema,
   AdminOrderListQuerySchema,
   AdminRegistrationListQuerySchema,
+  AttendeeServiceQrUploadSchema,
+  ConfirmAttendeeServiceQrAssetSchema,
   CreateRegistrationNoteSchema,
   DEMO_IDS,
   ReviewRegistrationSchema,
   UpdateAdminRegistrationAttendeeSchema,
   UpdateCooperationRequestSchema,
   UpdateEventSchema,
+  UpdateEventAttendeeServiceConfigurationSchema,
   type EventId,
 } from '@conference/contracts';
 import {
@@ -44,6 +47,7 @@ import { DomainError } from '../common/domain-error.js';
 import { EventIdPipe, OptionalEventIdPipe } from '../common/event-id.pipe.js';
 import { CooperationRequestService } from '../common/cooperation-request.service.js';
 import { AgentSurface } from '../common/agent-operation-catalog.js';
+import { AttendeeServiceHubService } from '../common/attendee-service-hub.service.js';
 
 function idempotencyKey(value: string | undefined) {
   if (!value || value.length < 8 || value.length > 160) {
@@ -91,6 +95,8 @@ class AdminController {
     private readonly registrationOperations: AdminRegistrationOperationsService,
     @Inject(CooperationRequestService)
     private readonly cooperationRequests: CooperationRequestService,
+    @Inject(AttendeeServiceHubService)
+    private readonly attendeeServiceHub: AttendeeServiceHubService,
   ) {}
 
   @Get(['dashboard', 'events/:eventId/dashboard'])
@@ -158,6 +164,93 @@ class AdminController {
       );
     }
     return this.cooperationRequests.list(request.user!.organizationId, eventId, parsed.data);
+  }
+
+  @Get('events/:eventId/attendee-services')
+  @RequireGrant('event.registration.manage')
+  attendeeServiceConfiguration(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    return this.attendeeServiceHub.adminConfiguration(request.user!.organizationId, eventId);
+  }
+
+  @Patch('events/:eventId/attendee-services')
+  @RequireGrant('event.registration.manage')
+  updateAttendeeServiceConfiguration(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    const parsed = UpdateEventAttendeeServiceConfigurationSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '参会者服务配置校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.attendeeServiceHub.updateAdminConfiguration(
+      request.user!.organizationId,
+      eventId,
+      request.user!.sub,
+      parsed.data,
+    );
+  }
+
+  @Post('events/:eventId/attendee-services/qr-uploads')
+  @RequireGrant('event.registration.manage')
+  prepareAttendeeServiceQrUpload(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+  ) {
+    const parsed = AttendeeServiceQrUploadSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '二维码上传信息校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.attendeeServiceHub.prepareQrUpload(
+      request.user!.organizationId,
+      eventId,
+      request.user!.sub,
+      parsed.data,
+      idempotencyKey(key),
+    );
+  }
+
+  @Post('events/:eventId/attendee-services/qr-assets')
+  @RequireGrant('event.registration.manage')
+  confirmAttendeeServiceQrAsset(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+  ) {
+    const parsed = ConfirmAttendeeServiceQrAssetSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '二维码文件确认信息校验失败',
+        HttpStatus.BAD_REQUEST,
+        { issues: parsed.error.issues },
+      );
+    }
+    return this.attendeeServiceHub.confirmQrAsset(
+      request.user!.organizationId,
+      eventId,
+      request.user!.sub,
+      parsed.data,
+    );
   }
 
   @Get('events/:eventId/cooperation-requests/:requestId')

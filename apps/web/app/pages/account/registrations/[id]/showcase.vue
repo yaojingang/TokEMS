@@ -651,7 +651,12 @@ useHead(() => ({
 
       <template v-else-if="profile">
         <section class="showcase-layout">
-          <form class="profile-editor" novalidate @submit.prevent="save">
+          <form
+            id="showcase-profile-editor"
+            class="profile-editor"
+            novalidate
+            @submit.prevent="save"
+          >
             <div class="editor-section editor-identity">
               <div class="editor-heading">
                 <div>
@@ -920,7 +925,7 @@ useHead(() => ({
             </div>
           </form>
 
-          <aside class="poster-panel">
+          <aside id="showcase-poster" class="poster-panel">
             <div class="poster-heading">
               <div>
                 <span>PERSONAL POSTER</span>

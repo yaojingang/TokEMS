@@ -28,6 +28,7 @@ import { AgentPrincipalService } from './agent-principal.service.js';
 import { AgentOperationInterceptor } from './agent-operation.interceptor.js';
 import { EventPublicMetricsService } from './event-public-metrics.service.js';
 import { FeishuDigestService } from './feishu-digest.service.js';
+import { AttendeeServiceHubService } from './attendee-service-hub.service.js';
 
 @Global()
 @Module({
@@ -61,6 +62,7 @@ import { FeishuDigestService } from './feishu-digest.service.js';
     AgentOperationInterceptor,
     EventPublicMetricsService,
     FeishuDigestService,
+    AttendeeServiceHubService,
   ],
   exports: [
     DatabaseService,
@@ -92,6 +94,7 @@ import { FeishuDigestService } from './feishu-digest.service.js';
     AgentOperationInterceptor,
     EventPublicMetricsService,
     FeishuDigestService,
+    AttendeeServiceHubService,
   ],
 })
 export class CoreModule {}

@@ -351,6 +351,7 @@ async function persistAsset(
         and(
           eq(templateAssets.organizationId, organizationId),
           eq(templateAssets.contentDigest, digest),
+          eq(templateAssets.purpose, 'template'),
         ),
       )
       .limit(1);
@@ -391,6 +392,7 @@ async function persistAsset(
         and(
           eq(templateAssets.organizationId, organizationId),
           eq(templateAssets.contentDigest, digest),
+          eq(templateAssets.purpose, 'template'),
         ),
       )
       .limit(1);
@@ -442,6 +444,7 @@ async function persistAsset(
         height: imageSize.height,
         contentDigest: digest,
         altText: '',
+        purpose: 'template',
         createdBy: actorId,
       })
       .returning();
@@ -472,7 +475,11 @@ async function resolveExistingInternalAssets(
     .select()
     .from(templateAssets)
     .where(
-      and(eq(templateAssets.organizationId, organizationId), inArray(templateAssets.id, assetIds)),
+      and(
+        eq(templateAssets.organizationId, organizationId),
+        eq(templateAssets.purpose, 'template'),
+        inArray(templateAssets.id, assetIds),
+      ),
     );
   const assetMap = new Map(assets.map((asset) => [asset.id, asset]));
   const resolved = candidates.flatMap((candidate) => {
