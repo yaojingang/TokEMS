@@ -1680,6 +1680,93 @@ export const attendeeNeedQuestions = pgTable(
   ],
 );
 
+export const eventAttendeeServiceConfigs = pgTable(
+  'event_attendee_service_configs',
+  {
+    eventId: integer('event_id')
+      .primaryKey()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    enabled: boolean('enabled').notNull().default(false),
+    organizerName: varchar('organizer_name', { length: 120 }).notNull().default(''),
+    organizerRole: varchar('organizer_role', { length: 160 }).notNull().default(''),
+    wechatId: varchar('wechat_id', { length: 80 }).notNull().default(''),
+    instructions: text('instructions').notNull().default(''),
+    organizerQrAssetId: uuid('organizer_qr_asset_id').references(() => templateAssets.id, {
+      onDelete: 'set null',
+    }),
+    version: integer('version').notNull().default(1),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.organizationId, table.eventId],
+      foreignColumns: [events.organizationId, events.id],
+      name: 'event_attendee_service_configs_event_scope_fk',
+    }).onDelete('cascade'),
+    check('event_attendee_service_configs_version_positive', sql`${table.version} > 0`),
+    check(
+      'event_attendee_service_configs_enabled_content',
+      sql`${table.enabled} = false or (
+        length(trim(${table.organizerName})) > 0
+        and length(trim(${table.wechatId})) > 0
+        and length(trim(${table.instructions})) > 0
+        and ${table.organizerQrAssetId} is not null
+      )`,
+    ),
+    index('event_attendee_service_configs_org_idx').on(table.organizationId, table.updatedAt),
+  ],
+);
+
+export const registrationServiceAcknowledgements = pgTable(
+  'registration_service_acknowledgements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    registrationId: uuid('registration_id')
+      .notNull()
+      .references(() => registrations.id, { onDelete: 'cascade' }),
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => customerUsers.id, { onDelete: 'cascade' }),
+    actionCode: varchar('action_code', { length: 80 }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.registrationId, table.organizationId, table.eventId],
+      foreignColumns: [registrations.id, registrations.organizationId, registrations.eventId],
+      name: 'registration_service_acknowledgements_registration_scope_fk',
+    }).onDelete('cascade'),
+    foreignKey({
+      columns: [table.customerUserId, table.organizationId],
+      foreignColumns: [customerUsers.id, customerUsers.organizationId],
+      name: 'registration_service_acknowledgements_customer_org_fk',
+    }).onDelete('cascade'),
+    uniqueIndex('registration_service_acknowledgements_action_unique').on(
+      table.registrationId,
+      table.actionCode,
+    ),
+    check(
+      'registration_service_acknowledgements_action_code',
+      sql`${table.actionCode} = 'organizer_contact_confirmed'`,
+    ),
+    index('registration_service_acknowledgements_customer_idx').on(
+      table.customerUserId,
+      table.completedAt,
+    ),
+  ],
+);
+
 export const paymentNotificationInbox = pgTable(
   'payment_notification_inbox',
   {

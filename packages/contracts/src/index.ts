@@ -2496,6 +2496,131 @@ export const CustomerRegistrationDetailSchema = z.preprocess(
   ]),
 );
 
+export const CustomerServiceHubItemCodeSchema = z.enum([
+  'ticket',
+  'poster',
+  'showcase',
+  'needs',
+  'organizer_contact',
+  'invoice',
+]);
+
+export const CustomerServiceHubItemStateSchema = z.enum([
+  'complete',
+  'available',
+  'pending',
+  'attention',
+  'unavailable',
+]);
+
+export const CustomerServiceHubItemSchema = z.object({
+  code: CustomerServiceHubItemCodeSchema,
+  state: CustomerServiceHubItemStateSchema,
+  label: z.string().trim().min(1).max(80),
+  description: z.string().trim().min(1).max(240),
+});
+
+export const CustomerOrganizerContactSchema = z.object({
+  enabled: z.boolean(),
+  eligible: z.boolean(),
+  organizerName: z.string().nullable(),
+  organizerRole: z.string().nullable(),
+  wechatId: z.string().nullable(),
+  instructions: z.string().nullable(),
+  qrAvailable: z.boolean(),
+  confirmedAt: z.string().nullable(),
+});
+
+export const CustomerAttendeeServiceHubSchema = z.object({
+  registration: CustomerRegistrationDetailSchema,
+  items: z.array(CustomerServiceHubItemSchema).length(6),
+  organizerContact: CustomerOrganizerContactSchema,
+  latestPaymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
+  actionRequiredCount: z.number().int().nonnegative(),
+  updatedAt: z.string(),
+});
+
+export const EventAttendeeServiceConfigurationSchema = z.object({
+  eventId: EventIdSchema,
+  enabled: z.boolean(),
+  organizerName: z.string(),
+  organizerRole: z.string(),
+  wechatId: z.string(),
+  instructions: z.string(),
+  qrAssetId: z.string().uuid().nullable(),
+  qrPreviewUrl: z.string().nullable(),
+  version: z.number().int().nonnegative(),
+  updatedAt: z.string().nullable(),
+});
+
+export const UpdateEventAttendeeServiceConfigurationSchema = z
+  .object({
+    version: z.number().int().nonnegative(),
+    enabled: z.boolean(),
+    organizerName: z.string().trim().max(120),
+    organizerRole: z.string().trim().max(160),
+    wechatId: z.string().trim().max(80),
+    instructions: z.string().trim().max(1000),
+    qrAssetId: z.string().uuid().nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.enabled) return;
+    for (const field of ['organizerName', 'wechatId', 'instructions'] as const) {
+      if (!value[field]) {
+        context.addIssue({
+          code: 'custom',
+          path: [field],
+          message: '启用参会者服务前需要填写完整',
+        });
+      }
+    }
+    if (!value.qrAssetId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['qrAssetId'],
+        message: '启用参会者服务前需要上传组织者二维码',
+      });
+    }
+  });
+
+export const AttendeeServiceQrUploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(2 * 1024 * 1024),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+});
+
+export const AttendeeServiceQrUploadResultSchema = z.object({
+  uploadUrl: z.string().url(),
+  headers: z.record(z.string(), z.string()),
+  storageKey: z.string(),
+});
+
+export const ConfirmAttendeeServiceQrAssetSchema = AttendeeServiceQrUploadSchema.omit({
+  fileName: true,
+}).extend({
+  storageKey: z.string().trim().min(3).max(500),
+});
+
+export const AttendeeServiceQrAssetSchema = z.object({
+  assetId: z.string().uuid(),
+  previewUrl: z.string().nullable(),
+});
+
+export const UpdateRegistrationServiceAcknowledgementSchema = z
+  .object({ confirmed: z.boolean() })
+  .strict();
+
+export const RegistrationServiceAcknowledgementSchema = z.object({
+  confirmed: z.boolean(),
+  confirmedAt: z.string().nullable(),
+});
+
 export const CustomerRegistrationListSchema = z.object({
   items: z.array(CustomerRegistrationSummarySchema),
   nextCursor: z.string().nullable(),
@@ -4308,6 +4433,27 @@ export type UpdateCustomerProfile = z.infer<typeof UpdateCustomerProfileSchema>;
 export type EventPurchaseContext = z.infer<typeof EventPurchaseContextSchema>;
 export type CustomerRegistrationSummary = z.infer<typeof CustomerRegistrationSummarySchema>;
 export type CustomerRegistrationDetail = z.infer<typeof CustomerRegistrationDetailSchema>;
+export type CustomerServiceHubItemCode = z.infer<typeof CustomerServiceHubItemCodeSchema>;
+export type CustomerServiceHubItemState = z.infer<typeof CustomerServiceHubItemStateSchema>;
+export type CustomerServiceHubItem = z.infer<typeof CustomerServiceHubItemSchema>;
+export type CustomerOrganizerContact = z.infer<typeof CustomerOrganizerContactSchema>;
+export type CustomerAttendeeServiceHub = z.infer<typeof CustomerAttendeeServiceHubSchema>;
+export type EventAttendeeServiceConfiguration = z.infer<
+  typeof EventAttendeeServiceConfigurationSchema
+>;
+export type UpdateEventAttendeeServiceConfiguration = z.infer<
+  typeof UpdateEventAttendeeServiceConfigurationSchema
+>;
+export type AttendeeServiceQrUpload = z.infer<typeof AttendeeServiceQrUploadSchema>;
+export type AttendeeServiceQrUploadResult = z.infer<typeof AttendeeServiceQrUploadResultSchema>;
+export type ConfirmAttendeeServiceQrAsset = z.infer<typeof ConfirmAttendeeServiceQrAssetSchema>;
+export type AttendeeServiceQrAsset = z.infer<typeof AttendeeServiceQrAssetSchema>;
+export type UpdateRegistrationServiceAcknowledgement = z.infer<
+  typeof UpdateRegistrationServiceAcknowledgementSchema
+>;
+export type RegistrationServiceAcknowledgement = z.infer<
+  typeof RegistrationServiceAcknowledgementSchema
+>;
 export type CustomerRegistrationList = z.infer<typeof CustomerRegistrationListSchema>;
 export type CustomerPurchasedOrder = z.infer<typeof CustomerPurchasedOrderSchema>;
 export type CustomerPurchasedOrderList = z.infer<typeof CustomerPurchasedOrderListSchema>;

@@ -46,6 +46,7 @@ import {
   UpdateAdminAttendeeNeedQuestionSchema,
   UpdateAttendeeNeedsSchema,
   UpdatePurchasedOrderAttendeeSchema,
+  UpdateRegistrationServiceAcknowledgementSchema,
   VerifyCustomerOtpSchema,
 } from '@conference/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -68,6 +69,7 @@ import { DomainError } from '../common/domain-error.js';
 import { InvoiceOperationsService } from '../common/invoice-operations.service.js';
 import { AttendeeShowcaseService } from '../common/attendee-showcase.service.js';
 import { AttendeeNeedsService } from '../common/attendee-needs.service.js';
+import { AttendeeServiceHubService } from '../common/attendee-service-hub.service.js';
 
 function parse<T>(
   schema: {
@@ -171,6 +173,8 @@ class CustomerAccountController {
     private readonly showcases: AttendeeShowcaseService,
     @Inject(AttendeeNeedsService)
     private readonly attendeeNeeds: AttendeeNeedsService,
+    @Inject(AttendeeServiceHubService)
+    private readonly attendeeServiceHub: AttendeeServiceHubService,
   ) {}
 
   @Get('profile')
@@ -236,6 +240,54 @@ class CustomerAccountController {
   @Get('registrations/:registrationId/showcase')
   showcase(@Req() request: CustomerRequest, @Param('registrationId') registrationId: string) {
     return this.showcases.customerShowcase(request.customerSession, registrationId);
+  }
+
+  @Get('registrations/:registrationId/service-hub')
+  serviceHub(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    return this.attendeeServiceHub.customerHub(request.customerSession, registrationId);
+  }
+
+  @Patch('registrations/:registrationId/service-acknowledgements/organizer-contact')
+  @Throttle({ default: { limit: 30, ttl: 60 * 60_000 } })
+  updateOrganizerContactAcknowledgement(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    const input = parse(
+      UpdateRegistrationServiceAcknowledgementSchema,
+      body,
+      '组织者添加状态校验失败',
+    );
+    return this.attendeeServiceHub.setOrganizerContactConfirmed(
+      request.customerSession,
+      registrationId,
+      input.confirmed,
+    );
+  }
+
+  @Get('registrations/:registrationId/organizer-contact-qr')
+  async organizerContactQr(
+    @Req() request: CustomerRequest,
+    @Param('registrationId', ParseUUIDPipe) registrationId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const result = await this.attendeeServiceHub.customerOrganizerQrContent(
+      request.customerSession,
+      registrationId,
+    );
+    return reply
+      .header('Cache-Control', 'private, no-store')
+      .header('Content-Type', result.contentType)
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(result.body);
   }
 
   @Get('registrations/:registrationId/needs')

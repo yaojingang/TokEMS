@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 16,
   "adminViews": 38,
-  "migrations": 58,
-  "latestMigration": "0057_petite_boom_boom.sql",
-  "databaseTables": 78,
+  "migrations": 59,
+  "latestMigration": "0058_sweet_joseph.sql",
+  "databaseTables": 80,
   "apiControllers": 32,
-  "apiOperations": 267,
-  "testFiles": 159
+  "apiOperations": 274,
+  "testFiles": 163
 }

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type {
   AttendeeNeedsProfile,
+  CustomerAttendeeServiceHub,
   CustomerInvoiceCenterCounts,
   CustomerInvoiceCenterItem,
   CustomerPurchasedOrder,
   CustomerRegistrationSummary,
+  CustomerServiceHubItem,
   EventPurchaseContext,
 } from '@conference/contracts';
-import { watch } from 'vue';
+import { publicEventHomePath } from '@conference/contracts';
+import { nextTick, watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import {
   canRestartSelfOrder,
@@ -16,10 +19,16 @@ import {
   shouldRefreshPurchasedOrder,
 } from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
+import {
+  selectFeaturedAccountContext,
+  visibleServiceHubItems,
+} from '~/utils/account-service-hub';
+import AccountServiceHubIcon from '~/components/AccountServiceHubIcon.vue';
 
 const customer = useCustomerSession();
 const api = useConferenceApi();
 const router = useRouter();
+const route = useRoute();
 const registrations = ref<CustomerRegistrationSummary[]>([]);
 const purchasedOrders = ref<CustomerPurchasedOrder[]>([]);
 const purchaseContexts = ref<Record<number, EventPurchaseContext>>({});
@@ -27,6 +36,12 @@ const purchaseContextErrors = ref<Record<number, boolean>>({});
 const attendeeNeedsProfiles = ref<Record<string, AttendeeNeedsProfile>>({});
 const attendeeNeedsProfileErrors = ref<Record<string, boolean>>({});
 const attendeeNeedsProfilePending = ref<Record<string, boolean>>({});
+const serviceHubs = ref<Record<string, CustomerAttendeeServiceHub>>({});
+const serviceHubPending = ref(false);
+const serviceHubError = ref(false);
+const organizerPanelOpen = ref(false);
+const organizerConfirmationPending = ref(false);
+let serviceHubRequestSequence = 0;
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
   all: 0,
@@ -83,15 +98,32 @@ const pendingActionCount = computed(
     ).length +
     invoiceCounts.value.actionRequired,
 );
-const featuredRegistration = computed(
-  () =>
-    registrations.value.find((item) =>
-      ['pending_review', 'pending_payment'].includes(item.registrationStatus),
-    ) ??
-    registrations.value.find((item) => item.ticketStatus === 'valid') ??
-    registrations.value[0] ??
-    null,
+const featuredAccountContext = computed(() =>
+  selectFeaturedAccountContext(
+    registrations.value,
+    purchasedOrders.value,
+    typeof route.query.event === 'string' ? route.query.event : null,
+  ),
 );
+const featuredRegistration = computed(() => featuredAccountContext.value.registration);
+const featuredOrder = computed(() => featuredAccountContext.value.order);
+const featuredServiceHub = computed(() =>
+  featuredRegistration.value ? serviceHubs.value[featuredRegistration.value.id] : undefined,
+);
+const publicHomepageHref = computed(() => {
+  const slug = featuredRegistration.value?.eventSlug ?? featuredOrder.value?.eventSlug;
+  return slug ? publicEventHomePath(slug) : '/';
+});
+const eventSwitcherOptions = computed(() => {
+  return [
+    ...new Map(
+      [...registrations.value, ...purchasedOrders.value].map((item) => [
+        item.eventSlug,
+        { slug: item.eventSlug, name: item.eventName },
+      ]),
+    ).values(),
+  ];
+});
 const registrationCountLabel = computed(
   () => `${registrations.value.length}${nextCursor.value ? '+' : ''}`,
 );
@@ -118,6 +150,14 @@ const statusLabels: Record<string, string> = {
   rejected: '已驳回',
   adjustment_required: '待调整',
   voided: '已作废',
+};
+const statusLabel = (value: string) => statusLabels[value] ?? value;
+const serviceStateLabels: Record<CustomerServiceHubItem['state'], string> = {
+  complete: '已完成',
+  available: '可使用',
+  pending: '待完善',
+  attention: '需处理',
+  unavailable: '未开放',
 };
 
 const money = (amount: number, currency: string) =>
@@ -151,20 +191,192 @@ const formatDateTime = (value: string | null) =>
       }).format(new Date(value))
     : '暂无记录';
 
-const primaryRegistrationAction = (item: CustomerRegistrationSummary) => {
+const primaryRegistrationAction = (
+  item: CustomerRegistrationSummary,
+  latestPaymentStatus: CustomerAttendeeServiceHub['latestPaymentStatus'] = null,
+) => {
   if (item.ticketCode && item.ticketStatus === 'valid') {
     return {
       label: '打开电子票',
       to: `/ticket/${encodeURIComponent(item.ticketCode)}?event=${encodeURIComponent(item.eventSlug)}`,
     };
   }
-  if (['pending_review', 'pending_payment'].includes(item.registrationStatus)) {
-    return { label: '处理报名', to: `/account/registrations/${item.id}` };
+  if (item.registrationStatus === 'pending_payment') {
+    if (['preparing', 'processing', 'query_pending'].includes(latestPaymentStatus ?? '')) {
+      return { label: '查看支付进度', to: `/account/registrations/${item.id}` };
+    }
+    if (latestPaymentStatus === 'failed' || latestPaymentStatus === 'closed') {
+      return { label: '重新支付', to: `/account/registrations/${item.id}` };
+    }
+    return { label: '继续支付', to: `/account/registrations/${item.id}` };
+  }
+  if (item.registrationStatus === 'pending_review') {
+    return { label: '查看审核进度', to: `/account/registrations/${item.id}` };
   }
   return { label: '查看报名', to: `/account/registrations/${item.id}` };
 };
 
-const statusLabel = (value: string) => statusLabels[value] ?? value;
+const serviceHubNames: Record<CustomerServiceHubItem['code'], string> = {
+  ticket: '门票信息',
+  poster: '个人海报',
+  showcase: '大会首页名片',
+  needs: '参会需求',
+  organizer_contact: '添加大会组织者',
+  invoice: '发票服务',
+};
+const fallbackServiceHubItems = computed<CustomerServiceHubItem[]>(() => {
+  const item = featuredRegistration.value;
+  if (!item) return [];
+  return [
+    {
+      code: 'ticket',
+      state:
+        item.ticketStatus === 'valid' || item.ticketStatus === 'used'
+          ? 'complete'
+          : item.registrationStatus === 'pending_payment'
+            ? 'attention'
+            : 'available',
+      label: item.ticketStatus
+        ? statusLabel(item.ticketStatus)
+        : statusLabel(item.registrationStatus),
+      description: '进入报名详情查看票券与处理进度',
+    },
+    {
+      code: 'poster',
+      state:
+        item.ticketStatus === 'valid' || item.ticketStatus === 'used' ? 'available' : 'unavailable',
+      label:
+        item.ticketStatus === 'valid' || item.ticketStatus === 'used'
+          ? '可以生成海报'
+          : '取得电子票后开放',
+      description: '海报资料与参会名片共用',
+    },
+    {
+      code: 'showcase',
+      state: 'available',
+      label: '进入参会名片',
+      description: '可维护首页展示资料与公开范围',
+    },
+    {
+      code: 'needs',
+      state: attendeeNeedsState(item.id).canEdit ? 'available' : 'unavailable',
+      label: attendeeNeedsStatus(item.id),
+      description: '提交希望大会回应的问题',
+    },
+    {
+      code: 'organizer_contact',
+      state: 'unavailable',
+      label: '状态读取失败',
+      description: '请重试后查看组织者联系方式',
+    },
+    {
+      code: 'invoice',
+      state: item.canManageOrder ? 'available' : 'unavailable',
+      label: item.canManageOrder ? '进入发票服务' : '由购票人管理',
+      description: '发票资料仅向订单购买人开放',
+    },
+  ];
+});
+const serviceHubItems = computed(
+  () =>
+    visibleServiceHubItems(
+      featuredServiceHub.value?.items ?? fallbackServiceHubItems.value,
+      Boolean(featuredRegistration.value?.canManageOrder),
+    ),
+);
+const featuredTicketServiceItem = computed(() =>
+  serviceHubItems.value.find((item) => item.code === 'ticket'),
+);
+const serviceActionCount = computed(
+  () =>
+    featuredServiceHub.value?.actionRequiredCount ??
+    serviceHubItems.value.filter(
+      (item) =>
+        !['poster', 'invoice'].includes(item.code) && ['pending', 'attention'].includes(item.state),
+    ).length,
+);
+
+function serviceHubActionLabel(item: CustomerServiceHubItem) {
+  if (item.code === 'ticket')
+    return primaryRegistrationAction(
+      featuredRegistration.value!,
+      featuredServiceHub.value?.latestPaymentStatus,
+    ).label;
+  if (item.code === 'poster') return '生成个人海报';
+  if (item.code === 'showcase') return '编辑首页信息';
+  if (item.code === 'needs')
+    return item.state === 'unavailable' ? '查看开放状态' : '提交或编辑需求';
+  if (item.code === 'organizer_contact')
+    return item.state === 'unavailable' ? '暂不可查看' : '查看入群方式';
+  return featuredRegistration.value?.canManageOrder ? '进入发票服务' : '由购票人管理';
+}
+
+function serviceHubActionDisabled(item: CustomerServiceHubItem) {
+  return (
+    (item.code === 'organizer_contact' && item.state === 'unavailable') ||
+    (item.code === 'invoice' && !featuredRegistration.value?.canManageOrder)
+  );
+}
+
+async function openServiceHubItem(item: CustomerServiceHubItem) {
+  const registration = featuredRegistration.value;
+  if (!registration || serviceHubActionDisabled(item)) return;
+  if (item.code === 'organizer_contact') {
+    organizerPanelOpen.value = true;
+    await nextTick();
+    document.querySelector<HTMLElement>('#organizer-contact-panel')?.focus();
+    return;
+  }
+  const routes: Record<Exclude<CustomerServiceHubItem['code'], 'organizer_contact'>, string> = {
+    ticket: primaryRegistrationAction(
+      registration,
+      featuredServiceHub.value?.latestPaymentStatus,
+    ).to,
+    poster: `/account/registrations/${registration.id}/showcase?event=${encodeURIComponent(registration.eventSlug)}#showcase-poster`,
+    showcase: `/account/registrations/${registration.id}/showcase?event=${encodeURIComponent(registration.eventSlug)}#showcase-profile-editor`,
+    needs: `/account/registrations/${registration.id}/needs?event=${encodeURIComponent(registration.eventSlug)}`,
+    invoice: `/account/invoices/${registration.orderId}`,
+  };
+  await router.push(routes[item.code]);
+}
+
+function selectEvent(event: Event) {
+  const eventSlug = (event.target as HTMLSelectElement).value;
+  organizerPanelOpen.value = false;
+  void router.replace({ query: { ...route.query, event: eventSlug } });
+}
+
+async function loadServiceHub(registrationId: string) {
+  const requestSequence = ++serviceHubRequestSequence;
+  serviceHubPending.value = true;
+  serviceHubError.value = false;
+  try {
+    const result = await customer.attendeeServiceHub(registrationId);
+    serviceHubs.value = { ...serviceHubs.value, [registrationId]: result };
+  } catch {
+    if (requestSequence === serviceHubRequestSequence) serviceHubError.value = true;
+  } finally {
+    if (requestSequence === serviceHubRequestSequence) serviceHubPending.value = false;
+  }
+}
+
+async function setOrganizerConfirmed(confirmed: boolean) {
+  const registration = featuredRegistration.value;
+  if (!registration) return;
+  organizerConfirmationPending.value = true;
+  errorMessage.value = '';
+  try {
+    await customer.setOrganizerContactConfirmed(registration.id, confirmed);
+    await loadServiceHub(registration.id);
+    successMessage.value = confirmed ? '已确认添加，等待大会组织者邀请入群' : '已恢复为待添加状态';
+  } catch (error) {
+    const value = error as { data?: { message?: string } };
+    errorMessage.value = value.data?.message ?? '组织者添加状态更新失败';
+  } finally {
+    organizerConfirmationPending.value = false;
+  }
+}
+
 function startAttendeeEdit(order: CustomerPurchasedOrder) {
   editingOrderId.value = order.id;
   attendeeEdit.name = order.attendeeName;
@@ -487,6 +699,8 @@ async function logout() {
   };
   nextCursor.value = null;
   nextOrdersCursor.value = null;
+  serviceHubs.value = {};
+  organizerPanelOpen.value = false;
 }
 
 let purchaseContextRefreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -503,6 +717,26 @@ watch(
   () => customer.session.value?.customer.id,
   (id, previous) => {
     if (id && id !== previous && !loading.value) void initialize();
+  },
+);
+watch(
+  () => featuredRegistration.value?.id,
+  (registrationId, previousId) => {
+    if (!registrationId) return;
+    const selected = featuredRegistration.value!;
+    if (registrationId !== previousId) organizerPanelOpen.value = false;
+    if (route.query.event !== selected.eventSlug) {
+      void router.replace({ query: { ...route.query, event: selected.eventSlug } });
+    }
+    void loadServiceHub(registrationId);
+  },
+);
+watch(
+  () => (!featuredRegistration.value ? featuredOrder.value?.eventSlug : undefined),
+  (eventSlug) => {
+    if (eventSlug && route.query.event !== eventSlug) {
+      void router.replace({ query: { ...route.query, event: eventSlug } });
+    }
   },
 );
 useHead({ title: '个人中心' });
@@ -543,10 +777,10 @@ useHead({ title: '个人中心' });
             <h1>个人中心</h1>
             <p>{{ displayName }}，这里汇总了你的参会凭证与账户资料。</p>
           </div>
-          <NuxtLink class="account-back-link" to="/">
+          <a class="account-back-link" :href="publicHomepageHref">
             大会官网
             <span aria-hidden="true">↗</span>
-          </NuxtLink>
+          </a>
         </header>
 
         <p v-if="errorMessage" class="account-message is-error" role="alert">
@@ -606,27 +840,57 @@ useHead({ title: '个人中心' });
               class="account-section account-overview"
               aria-labelledby="overview-title"
             >
-              <div class="account-section__heading is-compact">
+              <div class="account-section__heading is-compact service-hub-heading">
                 <div>
-                  <span class="account-section__index">01 / OVERVIEW</span>
-                  <h2 id="overview-title">下一步</h2>
+                  <span class="account-section__index">01 / EVENT SERVICE HUB</span>
+                  <h2 id="overview-title">我的大会服务台</h2>
                 </div>
-                <p>
-                  {{
-                    pendingActionCount
-                      ? `有 ${pendingActionCount} 项报名需要处理`
-                      : '当前账户状态正常'
-                  }}
-                </p>
+                <div class="service-hub-heading__tools">
+                  <label v-if="eventSwitcherOptions.length > 1">
+                    <span>切换大会</span>
+                    <select
+                      :value="featuredRegistration?.eventSlug ?? featuredOrder?.eventSlug"
+                      @change="selectEvent"
+                    >
+                      <option
+                        v-for="eventOption in eventSwitcherOptions"
+                        :key="eventOption.slug"
+                        :value="eventOption.slug"
+                      >
+                        {{ eventOption.name }}
+                      </option>
+                    </select>
+                  </label>
+                  <p
+                    :class="{ 'is-attention': featuredRegistration && serviceActionCount > 0 }"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <i aria-hidden="true"></i>
+                    {{
+                      featuredRegistration
+                        ? serviceActionCount
+                          ? `还有 ${serviceActionCount} 项可以完善`
+                          : '大会服务已准备就绪'
+                        : featuredOrder
+                          ? '当前为订单服务台'
+                          : '当前账户状态正常'
+                    }}
+                  </p>
+                </div>
               </div>
 
-              <article v-if="featuredRegistration" class="account-pass">
+              <article
+                v-if="featuredRegistration"
+                class="account-pass"
+                :data-state="featuredTicketServiceItem?.state"
+              >
                 <div class="account-pass__main">
                   <div class="account-pass__topline">
                     <span>TOKEMS CONFERENCE · ATTENDEE PASS</span>
-                    <span class="account-pass__status">{{
-                      statusLabel(featuredRegistration.registrationStatus)
-                    }}</span>
+                    <span class="account-pass__status" :data-state="featuredTicketServiceItem?.state">
+                      {{ featuredTicketServiceItem?.label ?? statusLabel(featuredRegistration.registrationStatus) }}
+                    </span>
                   </div>
                   <h3>{{ featuredRegistration.eventName }}</h3>
                   <p>
@@ -637,9 +901,19 @@ useHead({ title: '个人中心' });
                   <div class="account-pass__actions">
                     <NuxtLink
                       class="account-pass__primary"
-                      :to="primaryRegistrationAction(featuredRegistration).to"
+                      :to="
+                        primaryRegistrationAction(
+                          featuredRegistration,
+                          featuredServiceHub?.latestPaymentStatus,
+                        ).to
+                      "
                     >
-                      {{ primaryRegistrationAction(featuredRegistration).label }}
+                      {{
+                        primaryRegistrationAction(
+                          featuredRegistration,
+                          featuredServiceHub?.latestPaymentStatus,
+                        ).label
+                      }}
                       <span aria-hidden="true">→</span>
                     </NuxtLink>
                     <NuxtLink :to="`/account/registrations/${featuredRegistration.id}`">
@@ -654,7 +928,158 @@ useHead({ title: '个人中心' });
                 </div>
               </article>
 
-              <article v-else class="account-pass is-empty">
+              <div v-if="featuredRegistration" class="service-hub-body">
+                <div v-if="serviceHubError" class="service-hub-read-error" role="status">
+                  <span>部分状态读取失败，常用入口仍可使用。</span>
+                  <button type="button" @click="loadServiceHub(featuredRegistration.id)">
+                    重新读取
+                  </button>
+                </div>
+                <div
+                  class="service-hub-grid"
+                  :aria-busy="serviceHubPending"
+                  :data-count="serviceHubItems.length"
+                >
+                  <button
+                    v-for="item in serviceHubItems"
+                    :key="item.code"
+                    class="service-hub-card"
+                    :data-state="item.state"
+                    :data-priority="['pending', 'attention'].includes(item.state)"
+                    type="button"
+                    :disabled="serviceHubActionDisabled(item)"
+                    @click="openServiceHubItem(item)"
+                  >
+                    <span class="service-hub-card__icon" aria-hidden="true">
+                      <AccountServiceHubIcon :code="item.code" />
+                    </span>
+                    <span class="service-hub-card__copy">
+                      <span class="service-hub-card__name">{{ serviceHubNames[item.code] }}</span>
+                      <strong>{{ item.label }}</strong>
+                      <small>{{ item.description }}</small>
+                    </span>
+                    <span class="service-hub-card__action">
+                      {{ serviceHubActionLabel(item) }}
+                      <span v-if="!serviceHubActionDisabled(item)" aria-hidden="true">→</span>
+                    </span>
+                    <span class="service-hub-card__state">{{
+                      serviceStateLabels[item.state]
+                    }}</span>
+                  </button>
+                </div>
+
+                <section
+                  v-if="organizerPanelOpen && featuredServiceHub?.organizerContact"
+                  id="organizer-contact-panel"
+                  class="organizer-contact-panel"
+                  tabindex="-1"
+                  aria-labelledby="organizer-contact-title"
+                >
+                  <header>
+                    <div>
+                      <span>ORGANIZER CONTACT</span>
+                      <h3 id="organizer-contact-title">添加大会组织者</h3>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="关闭组织者信息"
+                      @click="organizerPanelOpen = false"
+                    >
+                      关闭
+                    </button>
+                  </header>
+                  <div class="organizer-contact-panel__body">
+                    <img
+                      v-if="featuredServiceHub.organizerContact.qrAvailable"
+                      :src="customer.organizerContactQrUrl(featuredRegistration.id)"
+                      alt="大会组织者微信二维码"
+                    />
+                    <div>
+                      <strong>{{ featuredServiceHub.organizerContact.organizerName }}</strong>
+                      <span>{{ featuredServiceHub.organizerContact.organizerRole }}</span>
+                      <p>{{ featuredServiceHub.organizerContact.instructions }}</p>
+                      <dl>
+                        <dt>微信号</dt>
+                        <dd>{{ featuredServiceHub.organizerContact.wechatId }}</dd>
+                      </dl>
+                      <button
+                        class="organizer-contact-panel__confirm"
+                        type="button"
+                        :disabled="organizerConfirmationPending"
+                        @click="
+                          setOrganizerConfirmed(!featuredServiceHub.organizerContact.confirmedAt)
+                        "
+                      >
+                        {{
+                          organizerConfirmationPending
+                            ? '正在更新…'
+                            : featuredServiceHub.organizerContact.confirmedAt
+                              ? '恢复为待添加'
+                              : '我已添加，等待邀请入群'
+                        }}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <article v-else-if="featuredOrder" class="account-pass order-service-pass">
+                <div class="account-pass__main">
+                  <div class="account-pass__topline">
+                    <span>TOKEMS CONFERENCE · ORDER SERVICE</span>
+                    <span class="account-pass__status">{{
+                      statusLabel(featuredOrder.status)
+                    }}</span>
+                  </div>
+                  <h3>{{ featuredOrder.eventName }}</h3>
+                  <p>
+                    {{ featuredOrder.ticketTypeName }} · 参会人 {{ featuredOrder.attendeeName }}
+                  </p>
+                  <div class="account-pass__actions">
+                    <button
+                      v-if="['pending_payment', 'processing'].includes(featuredOrder.status)"
+                      class="account-pass__primary"
+                      type="button"
+                      :disabled="resumingOrderId === featuredOrder.id"
+                      @click="resumeOrder(featuredOrder)"
+                    >
+                      {{ resumingOrderId === featuredOrder.id ? '正在恢复支付…' : '继续支付' }}
+                      <span aria-hidden="true">→</span>
+                    </button>
+                    <a href="#purchases">查看订单详情</a>
+                  </div>
+                </div>
+                <div class="account-pass__stub">
+                  <span>ORDER</span>
+                  <strong>{{ purchasedOrders.length }}</strong>
+                  <small>{{ featuredOrder.orderNo }}</small>
+                </div>
+              </article>
+
+              <div v-if="!featuredRegistration && featuredOrder" class="order-service-grid">
+                <a href="#purchases">
+                  <span>01</span><strong>订单与支付</strong><small>{{ statusLabel(featuredOrder.status) }}</small>
+                </a>
+                <NuxtLink
+                  v-if="
+                    featuredOrder.invoiceId ||
+                      ['paid', 'partially_refunded'].includes(featuredOrder.status)
+                  "
+                  :to="`/account/invoices/${featuredOrder.id}`"
+                >
+                  <span>02</span><strong>发票服务</strong><small>{{ featuredOrder.invoiceId ? '查看开票记录' : '当前可以申请' }}</small>
+                </NuxtLink>
+                <a v-else href="#invoices" aria-disabled="true">
+                  <span>02</span><strong>发票服务</strong><small>支付完成后开放</small>
+                </a>
+                <a href="#purchases">
+                  <span>03</span><strong>参会人信息</strong><small>{{
+                    featuredOrder.attendeeClaimed ? '参会人已认领' : '等待参会人认领'
+                  }}</small>
+                </a>
+              </div>
+
+              <article v-if="!featuredRegistration && !featuredOrder" class="account-pass is-empty">
                 <div class="account-pass__main">
                   <div class="account-pass__topline">
                     <span>TOKEMS CONFERENCE · NEXT EVENT</span>
@@ -663,10 +1088,10 @@ useHead({ title: '个人中心' });
                   <h3>下一场大会，从这里开始</h3>
                   <p>完成报名后，进度、电子票与现场签到凭证会自动汇总到个人中心。</p>
                   <div class="account-pass__actions">
-                    <NuxtLink class="account-pass__primary" to="/">
+                    <a class="account-pass__primary" :href="publicHomepageHref">
                       浏览近期大会
                       <span aria-hidden="true">→</span>
-                    </NuxtLink>
+                    </a>
                   </div>
                 </div>
                 <div class="account-pass__stub">
@@ -690,9 +1115,14 @@ useHead({ title: '个人中心' });
                 <div>
                   <dt>待办事项</dt>
                   <dd :class="{ 'is-attention': pendingActionCount > 0 }">
-                    {{ pendingActionCount }}{{ nextCursor ? '+' : '' }}
+                    {{ featuredRegistration ? serviceActionCount : pendingActionCount
+                    }}{{ nextCursor ? '+' : '' }}
                   </dd>
-                  <small>{{ pendingActionCount ? '请及时处理' : '当前无待办' }}</small>
+                  <small>{{
+                    (featuredRegistration ? serviceActionCount : pendingActionCount)
+                      ? '请及时处理'
+                      : '当前无待办'
+                  }}</small>
                 </div>
               </dl>
             </section>
@@ -801,7 +1231,7 @@ useHead({ title: '个人中心' });
                     <p class="account-empty__eyebrow">YOUR EVENT ARCHIVE</p>
                     <h3>还没有报名记录</h3>
                     <p>本人报名或认领他人购买的名额后，会在这里显示参会凭证。</p>
-                    <NuxtLink to="/">查看正在报名的大会 <span aria-hidden="true">→</span></NuxtLink>
+                    <a :href="publicHomepageHref">查看正在报名的大会 <span aria-hidden="true">→</span></a>
                   </div>
                 </div>
               </div>
@@ -1685,13 +2115,70 @@ useHead({ title: '个人中心' });
   text-align: right;
 }
 
+.service-hub-heading__tools {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.service-hub-heading__tools > p {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0 9px;
+  border: 1px solid #dce3ee;
+  border-radius: 999px;
+  background: #fff;
+  color: #596273;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.service-hub-heading__tools > p i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16805b;
+}
+
+.service-hub-heading__tools > p.is-attention {
+  border-color: #fed7aa;
+  background: #fffaf5;
+  color: #9a3412;
+}
+
+.service-hub-heading__tools > p.is-attention i {
+  background: #ea580c;
+}
+
+.service-hub-heading__tools label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #8b9099;
+  font-size: 10px;
+}
+
+.service-hub-heading__tools select {
+  max-width: 260px;
+  min-height: 36px;
+  padding: 0 30px 0 11px;
+  border: 1px solid var(--account-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--account-ink);
+  font-size: 11px;
+}
+
 .account-pass {
   position: relative;
   display: grid;
   width: 100%;
   max-width: 100%;
   grid-template-columns: minmax(0, 1fr) 178px;
-  min-height: 274px;
+  min-height: 252px;
   overflow: hidden;
   border: 1px solid #cedbf1;
   border-top: 3px solid var(--conference-primary);
@@ -1727,6 +2214,18 @@ useHead({ title: '个人中心' });
   background: #f1f6ff;
   color: var(--conference-primary);
   letter-spacing: 0;
+}
+
+.account-pass__status[data-state='complete'] {
+  border-color: #b7dfd0;
+  background: #edf8f3;
+  color: #167653;
+}
+
+.account-pass__status[data-state='attention'] {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .account-pass h3 {
@@ -1765,12 +2264,31 @@ useHead({ title: '个人中心' });
   text-decoration: none;
 }
 
+.account-pass__actions button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 18px;
+  color: var(--conference-primary);
+  font-size: 12px;
+  font-weight: 680;
+}
+
 .account-pass__actions .account-pass__primary {
   padding: 0 16px;
-  border: 1px solid #c9d9f4;
+  border: 1px solid var(--conference-primary);
   border-radius: 7px;
-  background: #f1f6ff;
-  color: #174bb9;
+  background: var(--conference-primary);
+  color: #fff;
+}
+
+.account-pass[data-state='attention'] .account-pass__actions .account-pass__primary {
+  border-color: #be123c;
+  background: #be123c;
+}
+
+.account-pass__actions .account-pass__primary:active {
+  transform: scale(0.97);
 }
 
 .account-pass__stub {
@@ -1815,6 +2333,337 @@ useHead({ title: '个人中心' });
   font-family: var(--conference-font-mono);
   font-size: 44px;
   line-height: 0.95;
+}
+
+.service-hub-body {
+  margin-top: 16px;
+}
+
+.service-hub-read-error {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 11px;
+}
+
+.service-hub-read-error button {
+  min-height: 30px;
+  flex: 0 0 auto;
+  color: #9a3412;
+  font-weight: 750;
+}
+
+.service-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--account-line);
+  border-left: 1px solid var(--account-line);
+}
+
+.service-hub-grid > .service-hub-card {
+  grid-column: span 2;
+}
+
+.service-hub-grid[data-count='5'] > .service-hub-card:nth-last-child(-n + 2) {
+  grid-column: span 3;
+}
+
+.service-hub-grid[aria-busy='true'] {
+  opacity: 0.72;
+}
+
+.service-hub-card {
+  --service-color: #2563eb;
+  --service-soft: #eff6ff;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 168px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 0 13px;
+  padding: 19px 18px 16px;
+  overflow: hidden;
+  border-right: 1px solid var(--account-line);
+  border-bottom: 1px solid var(--account-line);
+  background: #fff;
+  color: var(--account-ink);
+  text-align: left;
+  touch-action: manipulation;
+  transition:
+    background-color 140ms ease,
+    transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.service-hub-card[data-priority='true'] {
+  box-shadow: inset 0 2px 0 var(--service-color);
+  background: color-mix(in srgb, var(--service-soft) 24%, white);
+}
+
+.service-hub-card[data-state='complete'] {
+  --service-color: #167653;
+  --service-soft: #eaf7f1;
+}
+
+.service-hub-card[data-state='pending'] {
+  --service-color: #b45309;
+  --service-soft: #fff3e7;
+}
+
+.service-hub-card[data-state='attention'] {
+  --service-color: #be123c;
+  --service-soft: #fff1f2;
+}
+
+.service-hub-card[data-state='unavailable'] {
+  --service-color: #7b8089;
+  --service-soft: #f1f2f4;
+}
+
+.service-hub-card:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.service-hub-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.76;
+}
+
+.service-hub-card:focus-visible {
+  z-index: 1;
+  outline: 3px solid rgb(37 99 235 / 24%);
+  outline-offset: -3px;
+}
+
+.service-hub-card__icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--service-color) 30%, white);
+  border-radius: 8px;
+  background: var(--service-soft);
+  color: var(--service-color);
+}
+
+.service-hub-card__icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.service-hub-card__copy {
+  display: block;
+  min-width: 0;
+  padding-right: 35px;
+}
+
+.service-hub-card__name,
+.service-hub-card__copy strong,
+.service-hub-card__copy small {
+  display: block;
+}
+
+.service-hub-card__name {
+  color: #8c919a;
+  font: 700 9.5px/1.3 var(--conference-font-mono);
+  letter-spacing: 0.04em;
+}
+
+.service-hub-card__copy strong {
+  margin-top: 6px;
+  color: var(--service-color);
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.service-hub-card__copy small {
+  margin-top: 7px;
+  color: #666d78;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.service-hub-card__action {
+  align-self: end;
+  grid-column: 1 / -1;
+  margin-top: 14px;
+  color: var(--service-color);
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.service-hub-card__state {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 8px 0 0;
+  background: transparent;
+  color: var(--service-color);
+  font-size: 8.5px;
+  font-weight: 760;
+}
+
+.service-hub-card__state::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+
+.organizer-contact-panel {
+  margin-top: 16px;
+  padding: 24px;
+  border: 1px solid #cbd8ef;
+  border-top: 3px solid var(--conference-primary);
+  background: #f8faff;
+  outline: none;
+}
+
+.organizer-contact-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.organizer-contact-panel > header span {
+  color: var(--conference-primary);
+  font: 700 9px/1.2 var(--conference-font-mono);
+  letter-spacing: 0.08em;
+}
+
+.organizer-contact-panel h3 {
+  margin: 7px 0 0;
+  color: var(--account-ink);
+  font-size: 18px;
+}
+
+.organizer-contact-panel > header button {
+  min-height: 36px;
+  color: var(--account-muted);
+  font-size: 10px;
+}
+
+.organizer-contact-panel__body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 26px;
+  margin-top: 22px;
+}
+
+.organizer-contact-panel__body > img {
+  width: 180px;
+  height: 180px;
+  padding: 8px;
+  border: 1px solid #d7dfec;
+  background: #fff;
+  object-fit: contain;
+}
+
+.organizer-contact-panel__body > div {
+  min-width: 0;
+}
+
+.organizer-contact-panel__body strong,
+.organizer-contact-panel__body > div > span {
+  display: block;
+}
+
+.organizer-contact-panel__body strong {
+  font-size: 17px;
+}
+
+.organizer-contact-panel__body > div > span {
+  margin-top: 5px;
+  color: var(--account-muted);
+  font-size: 11px;
+}
+
+.organizer-contact-panel__body p {
+  margin: 16px 0;
+  color: #555b66;
+  font-size: 11px;
+  line-height: 1.75;
+}
+
+.organizer-contact-panel__body dl {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 10px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.organizer-contact-panel__body dt {
+  color: #9297a0;
+}
+
+.organizer-contact-panel__body dd {
+  margin: 0;
+  color: var(--account-ink);
+  font-family: var(--conference-font-mono);
+}
+
+.organizer-contact-panel__confirm {
+  min-height: 42px;
+  margin-top: 20px;
+  padding: 0 15px;
+  border-radius: 6px;
+  background: var(--conference-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.organizer-contact-panel__confirm:active {
+  transform: scale(0.97);
+}
+
+.order-service-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+  border-top: 1px solid var(--account-line);
+  border-left: 1px solid var(--account-line);
+}
+
+.order-service-grid a {
+  display: grid;
+  min-height: 116px;
+  align-content: center;
+  gap: 6px;
+  padding: 18px;
+  border-right: 1px solid var(--account-line);
+  border-bottom: 1px solid var(--account-line);
+  background: #fff;
+  color: var(--account-ink);
+  text-decoration: none;
+}
+
+.order-service-grid span {
+  color: var(--conference-primary);
+  font: 700 9px/1 var(--conference-font-mono);
+}
+
+.order-service-grid strong {
+  font-size: 13px;
+}
+
+.order-service-grid small {
+  color: var(--account-muted);
+  font-size: 9.5px;
 }
 
 .account-summary {
@@ -2564,6 +3413,12 @@ useHead({ title: '个人中心' });
   .registration-more:hover {
     background: #f2f5fb;
   }
+  .service-hub-card:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--service-soft) 34%, white);
+  }
+  .order-service-grid a:hover {
+    background: #f8faff;
+  }
   .account-security__action button:hover {
     background: #f5f5f6;
   }
@@ -2666,6 +3521,16 @@ useHead({ title: '个人中心' });
   .account-pass {
     grid-template-columns: minmax(0, 1fr);
   }
+  .service-hub-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .service-hub-grid > .service-hub-card,
+  .service-hub-grid[data-count='5'] > .service-hub-card:nth-last-child(-n + 2) {
+    grid-column: span 1;
+  }
+  .service-hub-grid[data-count='5'] > .service-hub-card:last-child {
+    grid-column: span 2;
+  }
   .account-pass__main {
     width: 100%;
   }
@@ -2723,6 +3588,9 @@ useHead({ title: '个人中心' });
     align-items: flex-start;
     flex-direction: column;
   }
+  .order-service-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 600px) {
@@ -2733,6 +3601,19 @@ useHead({ title: '个人中心' });
     max-width: none;
     margin-top: 10px;
     text-align: left;
+  }
+  .service-hub-heading__tools {
+    justify-items: start;
+    margin-top: 12px;
+  }
+  .service-hub-heading__tools label {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .service-hub-heading__tools select {
+    width: 100%;
+    max-width: none;
   }
   .account-pass__main {
     padding: 25px 22px;
@@ -2817,6 +3698,17 @@ useHead({ title: '个人中心' });
     width: 100%;
     justify-content: flex-start;
   }
+  .organizer-contact-panel {
+    padding: 20px;
+  }
+  .organizer-contact-panel__body {
+    grid-template-columns: 1fr;
+  }
+  .organizer-contact-panel__body > img {
+    width: min(100%, 220px);
+    height: auto;
+    aspect-ratio: 1;
+  }
 }
 
 @media (max-width: 400px) {
@@ -2850,6 +3742,33 @@ useHead({ title: '个人中心' });
   }
   .account-summary small {
     font-size: 8.5px;
+  }
+  .service-hub-card {
+    min-height: 174px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 0 9px;
+    padding: 18px 13px 14px;
+  }
+  .service-hub-card__icon {
+    width: 30px;
+    height: 30px;
+  }
+  .service-hub-card__icon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .service-hub-card__copy {
+    padding-right: 24px;
+  }
+  .service-hub-card__copy strong {
+    font-size: 12.5px;
+  }
+  .service-hub-card__copy small {
+    font-size: 10px;
+  }
+  .service-hub-card__state {
+    padding-top: 6px;
+    padding-right: 6px;
   }
   .registration-row {
     grid-template-columns: 1fr;

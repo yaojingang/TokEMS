@@ -55,6 +55,7 @@ const DEFAULT_ORG_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_ORG_ASSET_COUNT = 10_000;
 const TEMPLATE_ASSET_UPLOAD_URL_TTL_MS = 10 * 60_000;
 const TEMPLATE_ASSET_UPLOAD_CLEANUP_GRACE_MS = 2 * 60_000;
+export const ATTENDEE_SERVICE_QR_ALT_TEXT = '大会组织者微信二维码';
 
 function deterministicUuid(value: string) {
   const hex = createHash('sha256').update(value).digest('hex').slice(0, 32).split('');
@@ -1496,9 +1497,31 @@ export class TemplateOperationsService {
 
   async publicAssetUrl(assetId: string) {
     const [asset] = await this.db()
-      .select({ storageKey: templateAssets.storageKey })
+      .select({ storageKey: templateAssets.storageKey, altText: templateAssets.altText })
       .from(templateAssets)
       .where(eq(templateAssets.id, assetId))
+      .limit(1);
+    if (!asset || asset.altText === ATTENDEE_SERVICE_QR_ALT_TEXT) {
+      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '模板图片不存在', HttpStatus.NOT_FOUND);
+    }
+    const url = this.s3Presigned(asset.storageKey, 'GET');
+    if (!url) {
+      throw new DomainError(
+        API_ERROR_CODES.INVALID_STATE_TRANSITION,
+        '对象存储尚未配置，暂时无法读取模板图片',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    return url;
+  }
+
+  async protectedAssetUrl(organizationId: string, assetId: string) {
+    const [asset] = await this.db()
+      .select({ storageKey: templateAssets.storageKey })
+      .from(templateAssets)
+      .where(
+        and(eq(templateAssets.id, assetId), eq(templateAssets.organizationId, organizationId)),
+      )
       .limit(1);
     if (!asset) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '模板图片不存在', HttpStatus.NOT_FOUND);

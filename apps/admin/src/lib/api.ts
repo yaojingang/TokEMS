@@ -50,6 +50,7 @@ import {
   type EventBlueprint,
   type EventContextOption,
   type EventExperience,
+  type EventAttendeeServiceConfiguration,
   type EventId,
   type EventRelease,
   type EventSlugAvailability,
@@ -90,6 +91,7 @@ import {
   type UpdateAliyunSmsConfiguration,
   type UpdateCustomerAdmin,
   type UpdateEvent,
+  type UpdateEventAttendeeServiceConfiguration,
   type UpdateCooperationRequest,
   type UpdateEventTemplateBinding,
   type UpdateOrganizationAdministrator,
@@ -734,6 +736,59 @@ export const conferenceApi = {
     session.refreshRuntimeEvent(event);
     session.invalidateEventOptions();
     return event;
+  },
+  getAttendeeServiceConfiguration(eventId?: EventId) {
+    return request<EventAttendeeServiceConfiguration>(
+      `/admin/events/${eventScope(eventId)}/attendee-services`,
+    );
+  },
+  updateAttendeeServiceConfiguration(
+    input: UpdateEventAttendeeServiceConfiguration,
+    eventId?: EventId,
+  ) {
+    return request<EventAttendeeServiceConfiguration>(
+      `/admin/events/${eventScope(eventId)}/attendee-services`,
+      { method: 'PATCH', body: JSON.stringify(input) },
+    );
+  },
+  async uploadAttendeeServiceQr(file: File, eventId?: EventId) {
+    const digestBuffer = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+    const contentDigest = [...new Uint8Array(digestBuffer)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const input = {
+      fileName: file.name,
+      mediaType: file.type,
+      size: file.size,
+      contentDigest,
+    };
+    const prepared = await request<{
+      uploadUrl: string;
+      headers: Record<string, string>;
+      storageKey: string;
+    }>(`/admin/events/${eventScope(eventId)}/attendee-services/qr-uploads`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': `attendee-service-qr-${crypto.randomUUID()}` },
+      body: JSON.stringify(input),
+    });
+    const uploaded = await fetch(prepared.uploadUrl, {
+      method: 'PUT',
+      headers: prepared.headers,
+      body: file,
+    });
+    if (!uploaded.ok) throw new Error('组织者二维码上传失败，请重新选择文件');
+    return request<{ assetId: string; previewUrl: string | null }>(
+      `/admin/events/${eventScope(eventId)}/attendee-services/qr-assets`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          storageKey: prepared.storageKey,
+          mediaType: file.type,
+          size: file.size,
+          contentDigest,
+        }),
+      },
+    );
   },
   getRegistrations(filters: Partial<AdminRegistrationListQuery> = {}, eventId?: EventId) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });

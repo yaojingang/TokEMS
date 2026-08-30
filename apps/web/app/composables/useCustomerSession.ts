@@ -4,6 +4,7 @@ import type {
   AttendeeShowcaseProfile,
   AttendeeNeedsProfile,
   CustomerCreateInvoice,
+  CustomerAttendeeServiceHub,
   CustomerInvoiceCenterCategory,
   CustomerInvoiceCenterList,
   CustomerInvoiceDetail,
@@ -17,6 +18,7 @@ import type {
   EventPurchaseContext,
   CustomerUpdateInvoice,
   RequestCustomerOtpResult,
+  RegistrationServiceAcknowledgement,
   UpdateCustomerProfile,
   UpdatePurchasedOrderAttendee,
   UpdateAttendeeShowcase,
@@ -210,6 +212,36 @@ export function useCustomerSession() {
         timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
       },
     );
+  }
+
+  function attendeeServiceHub(registrationId: string) {
+    return $fetch<CustomerAttendeeServiceHub>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/service-hub`,
+      {
+        baseURL,
+        credentials: 'include',
+        headers: headers(),
+        timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  }
+
+  function setOrganizerContactConfirmed(registrationId: string, confirmed: boolean) {
+    return $fetch<RegistrationServiceAcknowledgement>(
+      `/customer/registrations/${encodeURIComponent(registrationId)}/service-acknowledgements/organizer-contact`,
+      {
+        method: 'PATCH',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        body: { confirmed },
+      },
+    );
+  }
+
+  function organizerContactQrUrl(registrationId: string) {
+    const publicBase = String(config.public.apiBase).replace(/\/$/u, '');
+    return `${publicBase}/customer/registrations/${encodeURIComponent(registrationId)}/organizer-contact-qr`;
   }
 
   async function attendeeShowcase(registrationId: string) {
@@ -421,6 +453,9 @@ export function useCustomerSession() {
     claimAttendee,
     updatePurchasedOrderAttendee,
     registration,
+    attendeeServiceHub,
+    setOrganizerContactConfirmed,
+    organizerContactQrUrl,
     attendeeShowcase,
     attendeeAvatarBlob,
     updateAttendeeShowcase,
