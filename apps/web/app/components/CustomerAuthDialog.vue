@@ -544,12 +544,21 @@ onBeforeUnmount(() => {
     padding: 0;
   }
   .auth-dialog__panel {
+    width: 100%;
+    min-height: 100dvh;
     max-height: 100dvh;
-    padding: 28px 22px calc(24px + env(safe-area-inset-bottom));
-    border-radius: 16px 16px 0 0;
+    padding: calc(28px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));
+    border-radius: 0;
   }
   .auth-code-actions {
     grid-template-columns: 1fr;
+  }
+  .auth-dialog__close {
+    width: 44px;
+    height: 44px;
+  }
+  .auth-mobile-input input {
+    font-size: 16px;
   }
 }
 @media (max-height: 520px) {
@@ -558,6 +567,7 @@ onBeforeUnmount(() => {
     padding: 12px;
   }
   .auth-dialog__panel {
+    min-height: 0;
     max-height: calc(100dvh - 24px);
     padding: 24px 22px;
     border-radius: 12px;

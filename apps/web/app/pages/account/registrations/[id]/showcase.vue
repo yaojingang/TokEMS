@@ -1073,7 +1073,7 @@ useHead(() => ({
 }
 .upload-action {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   padding: 0 14px;
   border: 1px solid #ccd6e6;
@@ -1097,6 +1097,7 @@ useHead(() => ({
   line-height: 1.6;
 }
 .text-action {
+  min-height: 44px;
   border: 0;
   background: transparent;
   color: #3166cf;
@@ -1108,6 +1109,7 @@ useHead(() => ({
 }
 .visibility-toggle {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 7px;
   color: #596579;
@@ -1185,6 +1187,7 @@ useHead(() => ({
 }
 .field-block small {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 6px;
   color: #788497;
@@ -1203,6 +1206,7 @@ useHead(() => ({
 }
 .publish-choice > label {
   display: flex;
+  min-height: 64px;
   align-items: flex-start;
   gap: 12px;
   cursor: pointer;
@@ -1357,7 +1361,21 @@ useHead(() => ({
 @media (max-width: 640px) {
   .showcase-shell {
     width: min(100% - 24px, 1240px);
-    padding-top: 36px;
+    padding: 30px 0 calc(72px + env(safe-area-inset-bottom));
+  }
+  .showcase-intro {
+    margin-bottom: 26px;
+  }
+  .showcase-intro h1 {
+    font-size: 31px;
+    line-height: 1.12;
+  }
+  .showcase-intro > p:last-child {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .showcase-stepper {
+    margin: 0 0 26px;
   }
   .editor-section,
   .publish-choice {
@@ -1375,6 +1393,11 @@ useHead(() => ({
   }
   .visibility-toggle {
     grid-column: 1 / -1;
+  }
+  .field-block input:not([type='checkbox']),
+  .field-block select,
+  .field-block textarea {
+    font-size: 16px;
   }
   .editor-actions {
     padding: 20px 18px;

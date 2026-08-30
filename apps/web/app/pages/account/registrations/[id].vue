@@ -11,6 +11,46 @@ const attendeeNeeds = ref<AttendeeNeedsProfile | null>(null);
 const loading = ref(true);
 const errorMessage = ref('');
 const rendersChildPage = computed(() => /\/(showcase|needs)\/?$/u.test(route.path));
+const registrationStatusLabels: Record<string, string> = {
+  draft: '草稿',
+  pending_review: '待审核',
+  pending_payment: '待支付',
+  confirmed: '已确认',
+  cancelled: '已取消',
+  checked_in: '已签到',
+  completed: '已完成',
+};
+const orderStatusLabels: Record<string, string> = {
+  pending_review: '待审核',
+  pending_payment: '待支付',
+  processing: '处理中',
+  paid: '已支付',
+  partially_refunded: '部分退款',
+  refunded: '已退款',
+  closed: '已关闭',
+};
+const canOpenShowcase = computed(() =>
+  ['confirmed', 'checked_in'].includes(detail.value?.registrationStatus ?? ''),
+);
+const canEditNeeds = computed(() => Boolean(attendeeNeeds.value?.id || attendeeNeeds.value?.canCreate));
+const canOpenTicket = computed(() => Boolean(detail.value?.ticketCode));
+const detailTicketHref = computed(() => {
+  const value = detail.value;
+  return value?.ticketCode
+    ? customerRegistrationTicketHref(value.ticketCode, value.eventSlug)
+    : '/account';
+});
+const canOpenInvoice = computed(() => {
+  const value = detail.value;
+  return Boolean(
+    value?.canManageOrder &&
+      value.amount > 0 &&
+      ['paid', 'partially_refunded'].includes(value.orderStatus),
+  );
+});
+const hasDetailActions = computed(
+  () => canOpenShowcase.value || canEditNeeds.value || canOpenTicket.value || canOpenInvoice.value,
+);
 
 const money = (amount: number) =>
   amount === 0 ? '免费' : `¥${(amount / 100).toLocaleString('zh-CN')}`;
@@ -88,11 +128,13 @@ useHead({ title: '报名详情' });
           </div>
           <div>
             <dt>报名状态</dt>
-            <dd>{{ detail.registrationStatus }}</dd>
+            <dd>
+              {{ registrationStatusLabels[detail.registrationStatus] ?? detail.registrationStatus }}
+            </dd>
           </div>
           <div v-if="detail.canManageOrder">
             <dt>订单状态</dt>
-            <dd>{{ detail.orderStatus }}</dd>
+            <dd>{{ orderStatusLabels[detail.orderStatus] ?? detail.orderStatus }}</dd>
           </div>
           <div>
             <dt>公司</dt>
@@ -103,34 +145,30 @@ useHead({ title: '报名详情' });
             <dd>{{ detail.attendee.email || '未填写' }}</dd>
           </div>
         </dl>
-        <footer>
+        <footer v-if="hasDetailActions">
           <NuxtLink
-            v-if="['confirmed', 'checked_in'].includes(detail.registrationStatus)"
+            v-if="canOpenShowcase"
             class="detail-primary"
             :to="`/account/registrations/${detail.id}/showcase?event=${encodeURIComponent(detail.eventSlug)}`"
           >
             完善参会名片
           </NuxtLink>
           <NuxtLink
-            v-if="attendeeNeeds?.id || attendeeNeeds?.canCreate"
+            v-if="canEditNeeds"
             class="detail-secondary"
             :to="`/account/registrations/${detail.id}/needs?event=${encodeURIComponent(detail.eventSlug)}`"
           >
             编辑参会需求
           </NuxtLink>
           <NuxtLink
-            v-if="detail.ticketCode"
+            v-if="canOpenTicket"
             class="detail-secondary"
-            :to="customerRegistrationTicketHref(detail.ticketCode, detail.eventSlug)"
+            :to="detailTicketHref"
           >
             查看电子票
           </NuxtLink>
           <NuxtLink
-            v-if="
-              detail.canManageOrder &&
-                detail.amount > 0 &&
-                ['paid', 'partially_refunded'].includes(detail.orderStatus)
-            "
+            v-if="canOpenInvoice"
             class="detail-secondary"
             :to="`/account/invoices/${detail.orderId}`"
           >
@@ -150,10 +188,14 @@ useHead({ title: '报名详情' });
 }
 .detail-back {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   color: var(--conference-ink-muted);
   font-size: 13px;
+  transition: transform 110ms ease;
+}
+.detail-back:active {
+  transform: scale(0.98);
 }
 .detail-panel {
   margin-top: 18px;
@@ -173,9 +215,12 @@ useHead({ title: '报名详情' });
   border-bottom: 1px solid var(--conference-line);
 }
 .detail-panel h1 {
+  max-width: 20ch;
   margin: 0;
   font-size: clamp(26px, 4vw, 38px);
   letter-spacing: -0.03em;
+  line-height: 1.18;
+  text-wrap: balance;
 }
 .detail-panel header p:last-child {
   margin: 10px 0 0;
@@ -183,12 +228,14 @@ useHead({ title: '报名详情' });
   font-size: 13px;
 }
 .detail-panel header > span {
+  max-width: 100%;
   padding: 6px 9px;
   border-radius: 6px;
   background: #f4f4f5;
   color: #52525b;
   font-family: var(--conference-font-mono);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .detail-grid {
   display: grid;
@@ -212,6 +259,7 @@ useHead({ title: '报名详情' });
   color: var(--conference-ink);
   font-size: 14px;
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 .detail-panel footer {
   display: flex;
@@ -236,6 +284,10 @@ useHead({ title: '报名详情' });
 .detail-secondary {
   background: #e4e4e7;
   color: #27272a;
+}
+.detail-primary:active,
+.detail-secondary:active {
+  transform: scale(0.98);
 }
 .detail-state {
   padding: 64px 0;
@@ -265,7 +317,26 @@ useHead({ title: '报名详情' });
     border-bottom: 1px solid var(--conference-line);
   }
   .detail-panel footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 18px 20px;
+  }
+  .detail-primary,
+  .detail-secondary {
+    min-height: 44px;
+    justify-content: center;
+    text-align: center;
+  }
+  .detail-primary {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 380px) {
+  .detail-panel footer {
+    grid-template-columns: 1fr;
+  }
+  .detail-primary {
+    grid-column: auto;
   }
 }
 </style>

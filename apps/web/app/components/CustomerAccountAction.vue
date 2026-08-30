@@ -50,7 +50,7 @@ const customer = useCustomerSession();
 <style scoped>
 .customer-account-action {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 44px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -91,6 +91,13 @@ const customer = useCustomerSession();
     border-color: var(--conference-primary, #2563eb);
     background: var(--conference-primary-soft, #eff6ff);
     color: var(--conference-primary, #2563eb);
+  }
+}
+@media (max-width: 640px) {
+  .customer-account-action {
+    min-height: 44px;
+    padding-inline: 11px;
+    font-size: 12.5px;
   }
 }
 </style>

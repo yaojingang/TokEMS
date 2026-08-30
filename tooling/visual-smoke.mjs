@@ -45,6 +45,34 @@ async function runVisualSmoke() {
     });
   }
 
+  async function mockNativePaymentPreparation(page) {
+    await page.route('**/payments/wechat/*/native', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      const pathname = new URL(route.request().url()).pathname;
+      const orderId = pathname.match(/\/payments\/wechat\/([^/]+)\/native$/u)?.[1];
+      if (!orderId) {
+        await route.continue();
+        return;
+      }
+      const attemptId = `visual-${Date.now()}`;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          orderId,
+          channel: 'native',
+          attemptId,
+          outTradeNo: attemptId,
+          codeUrl: 'weixin://wxpay/bizpayurl?pr=tokems-visual-smoke',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        }),
+      });
+    });
+  }
+
   async function assertNoHorizontalOverflow(page, label) {
     const sizes = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -550,14 +578,173 @@ async function runVisualSmoke() {
     checked.push(label);
   }
 
+  async function loginCustomer(page, mobileNumber) {
+    await page.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+    const loginButton = page.getByRole('button', { name: '登录个人中心' });
+    if (!(await loginButton.count())) return;
+    await loginButton.click();
+    const authPanel = page.locator('.auth-dialog__panel');
+    await authPanel.waitFor();
+    await page.getByPlaceholder('请输入 11 位手机号').fill(mobileNumber);
+    await page.getByRole('button', { name: '获取验证码' }).click();
+    const codeText = await page.locator('.auth-development-code strong').textContent();
+    const code = codeText?.match(/\d{6}/u)?.[0];
+    if (!code) throw new Error('个人中心手机端: 演示环境未返回可用验证码');
+    await page.getByPlaceholder('6 位验证码').fill(code);
+    await page.locator('.auth-consent input').check();
+    await page.getByRole('button', { name: '验证并继续' }).click();
+    await page.locator('.auth-dialog').waitFor({ state: 'detached' });
+    await page.getByRole('heading', { name: '个人中心', level: 1 }).waitFor();
+  }
+
+  async function captureCustomerLoginMobile(page) {
+    await page.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '登录个人中心' }).click();
+    await page.locator('.auth-dialog__panel').waitFor();
+    await page.waitForTimeout(220);
+    const authMetrics = await page.evaluate(() => {
+      const panel = document.querySelector('.auth-dialog__panel');
+      const close = document.querySelector('.auth-dialog__close');
+      const input = document.querySelector('.auth-mobile-input input');
+      const panelRect = panel?.getBoundingClientRect();
+      const closeRect = close?.getBoundingClientRect();
+      return {
+        panelTop: panelRect?.top ?? -1,
+        panelBottom: panelRect?.bottom ?? Number.POSITIVE_INFINITY,
+        closeSize: closeRect ? Math.min(closeRect.width, closeRect.height) : 0,
+        inputFontSize: input ? Number.parseFloat(getComputedStyle(input).fontSize) : 0,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    if (authMetrics.panelTop < 0 || authMetrics.panelBottom > authMetrics.viewportHeight) {
+      issues.push('个人中心登录手机端: 登录面板超出可视区域');
+    }
+    if (authMetrics.closeSize < 44) {
+      issues.push(`个人中心登录手机端: 关闭按钮触控尺寸仅 ${authMetrics.closeSize}px`);
+    }
+    if (authMetrics.inputFontSize < 16) {
+      issues.push(`个人中心登录手机端: 手机号输入字号仅 ${authMetrics.inputFontSize}px`);
+    }
+    await page.screenshot({
+      path: resolve(output, 'web-account-login-mobile.png'),
+      fullPage: false,
+    });
+    await page.locator('.auth-dialog__close').click();
+    await page.locator('.auth-dialog').waitFor({ state: 'detached' });
+  }
+
+  async function assertAccountMobileBaseline(page, label) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator('#overview').waitFor();
+    await assertNoHorizontalOverflow(page, label);
+    const layout = await page.evaluate(() => {
+      const trigger = document.querySelector('.account-mobile-navigation__trigger');
+      const desktopNavigation = document.querySelector('.account-nav--desktop');
+      const mobileIdentity = document.querySelector('.account-rail__identity');
+      const primary = document.querySelector('.account-pass__primary');
+      const rect = (element) => {
+        const value = element?.getBoundingClientRect();
+        return value
+          ? {
+              top: Math.round(value.top),
+              bottom: Math.round(value.bottom),
+              height: Math.round(value.height),
+            }
+          : null;
+      };
+      return {
+        viewportHeight: window.innerHeight,
+        trigger: rect(trigger),
+        primary: rect(primary),
+        mobileIdentityDisplay: mobileIdentity ? getComputedStyle(mobileIdentity).display : null,
+        desktopNavigationDisplay: desktopNavigation
+          ? getComputedStyle(desktopNavigation).display
+          : null,
+        zoomProneControlCount: [
+          ...document.querySelectorAll(
+            'input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea',
+          ),
+        ].filter((element) => {
+          const style = getComputedStyle(element);
+          const rectValue = element.getBoundingClientRect();
+          return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            rectValue.width > 0 &&
+            rectValue.height > 0 &&
+            Number.parseFloat(style.fontSize) < 16
+          );
+        }).length,
+      };
+    });
+    if (!layout.trigger || layout.trigger.height < 44) {
+      issues.push(`${label}: 模块导航触控高度不足 44px`);
+    }
+    if (layout.desktopNavigationDisplay !== 'none') {
+      issues.push(`${label}: 桌面账户导航仍在移动端显示`);
+    }
+    if (page.viewportSize()?.width <= 760 && layout.mobileIdentityDisplay !== 'none') {
+      issues.push(`${label}: 重复的账户身份卡仍在手机端显示`);
+    }
+    if (layout.zoomProneControlCount) {
+      issues.push(`${label}: 存在 ${layout.zoomProneControlCount} 个小于 16px 的表单控件`);
+    }
+    if (!layout.primary || layout.primary.bottom > layout.viewportHeight) {
+      issues.push(
+        `${label}: 大会主操作未进入首屏（按钮底部 ${layout.primary?.bottom ?? '缺失'}px，视口 ${layout.viewportHeight}px）`,
+      );
+    }
+
+    const trigger = page.locator('.account-mobile-navigation__trigger');
+    await trigger.click();
+    const links = page.locator('.account-mobile-navigation__links a');
+    if ((await links.count()) !== 7) {
+      issues.push(`${label}: 模块导航预期 7 个入口，实际为 ${await links.count()} 个`);
+    }
+    const undersizedLinks = await links.evaluateAll((elements) =>
+      elements
+        .map((element) => Math.round(element.getBoundingClientRect().height))
+        .filter((height) => height < 44),
+    );
+    if (undersizedLinks.length) {
+      issues.push(`${label}: 模块导航存在小于 44px 的入口`);
+    }
+    const logoutButton = page.locator('.account-mobile-navigation__meta button');
+    if ((await logoutButton.count()) && (await logoutButton.evaluate((element) => element.offsetHeight)) < 44) {
+      issues.push(`${label}: 导航内退出按钮触控高度不足 44px`);
+    }
+    await page.keyboard.press('Escape');
+    if (await page.locator('#account-mobile-navigation-panel').isVisible()) {
+      issues.push(`${label}: Escape 后模块导航仍然展开`);
+    }
+    if (!(await trigger.evaluate((element) => document.activeElement === element))) {
+      issues.push(`${label}: Escape 关闭导航后焦点没有回到触发按钮`);
+    }
+    await trigger.click();
+    await links.first().focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => {
+      const panel = document.querySelector('#account-mobile-navigation-panel');
+      return panel && getComputedStyle(panel).display === 'none';
+    });
+    if (!(await trigger.evaluate((element) => document.activeElement === element))) {
+      issues.push(`${label}: 选择模块后焦点没有回到导航触发按钮`);
+    }
+    checked.push(label);
+  }
+
   const desktop = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
     deviceScaleFactor: 1,
     reducedMotion: 'reduce',
   });
   const page = await desktop.newPage();
+  await mockNativePaymentPreparation(page);
   watch(page, 'desktop');
   let speakerDetailUrl;
+  let visualCustomerMobile = '';
+  let visualTicketUrl = '';
+  let visualCustomerStorageState;
 
   if (includeWeb) {
     await page.goto(webBase, { waitUntil: 'networkidle' });
@@ -578,21 +765,30 @@ async function runVisualSmoke() {
     await page.locator('.faq-page').waitFor();
     await screenshot(page, 'web-faq-desktop.png', 'FAQ 独立页桌面端');
     await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
-    const freeRegistrationButton = page.getByRole('button', { name: '免费报名并领取电子票' });
-    if (
-      (await page.locator('#registration-name').count()) &&
-      (await freeRegistrationButton.count())
-    ) {
-      await page.locator('#registration-name').fill('视觉测试员');
+    const registrationSubmitButton = page.locator('form.flow-card button[type="submit"]');
+    if ((await page.locator('#registration-name').count()) && (await registrationSubmitButton.count())) {
       const visualRunId = Date.now().toString();
-      await page.locator('#registration-mobile').fill(`139${visualRunId.slice(-8)}`);
+      visualCustomerMobile = `139${visualRunId.slice(-8)}`;
+      const registrationMobile = page.locator('#registration-mobile');
+      if (!(await registrationMobile.isEditable())) {
+        await loginCustomer(page, visualCustomerMobile);
+        await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+      }
+      await page.locator('#registration-name').fill('视觉测试员');
+      const verifiedMobile = await page.locator('#registration-mobile').inputValue();
+      if (await page.locator('#registration-mobile').isEditable()) {
+        await page.locator('#registration-mobile').fill(visualCustomerMobile);
+      } else if (!verifiedMobile.endsWith(visualCustomerMobile)) {
+        throw new Error(`报名页登录手机号未正确回填，实际为 ${verifiedMobile || '空'}`);
+      }
       await page.locator('#registration-email').fill(`visual-${visualRunId}@example.com`);
       await page.locator('#registration-city').fill('深圳');
       await page.locator('#registration-company').fill('大会视觉实验室');
       await page.locator('#registration-title').fill('质量负责人');
       await page.getByText('我已阅读并同意').click();
-      await freeRegistrationButton.click();
+      await page.locator('form.flow-card button[type="submit"]').click();
       await page.waitForURL(/\/(order|ticket)\//);
+      visualCustomerStorageState = await desktop.storageState();
       if (new URL(page.url()).pathname.startsWith('/order/')) {
         await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
       } else {
@@ -809,6 +1005,102 @@ async function runVisualSmoke() {
     await mobile.goto(`${webBase}/faq`, { waitUntil: 'networkidle' });
     await mobile.locator('.faq-page').waitFor();
     await screenshot(mobile, 'web-faq-mobile.png', 'FAQ 独立页手机端');
+
+    if (visualCustomerMobile) {
+      await captureCustomerLoginMobile(mobile);
+      if (visualCustomerStorageState?.cookies.length) {
+        await mobileContext.addCookies(visualCustomerStorageState.cookies);
+      }
+      await mobile.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+      await mobile.getByRole('heading', { name: '个人中心', level: 1 }).waitFor();
+      await assertAccountMobileBaseline(mobile, '个人中心手机端');
+      const ticketHref = await mobile.locator('.account-pass__primary').getAttribute('href');
+      if (ticketHref?.startsWith('/ticket/')) {
+        visualTicketUrl = new URL(ticketHref, webBase).toString();
+      }
+      await screenshot(mobile, 'web-account-mobile.png', '个人中心手机端');
+
+      await mobile.setViewportSize({ width: 430, height: 932 });
+      await mobile.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+      await assertAccountMobileBaseline(mobile, '个人中心 430px 手机端');
+      await screenshot(mobile, 'web-account-mobile-430.png', '个人中心 430px 手机端');
+      await mobile.setViewportSize({ width: 375, height: 667 });
+      await mobile.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+      await assertAccountMobileBaseline(mobile, '个人中心 375px 紧凑手机端');
+      await screenshot(mobile, 'web-account-mobile-375.png', '个人中心 375px 紧凑手机端');
+      await mobile.setViewportSize({ width: 768, height: 1024 });
+      await mobile.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+      await assertAccountMobileBaseline(mobile, '个人中心 768px 平板端');
+      await screenshot(mobile, 'web-account-tablet-768.png', '个人中心 768px 平板端');
+      await mobile.setViewportSize({ width: 390, height: 844 });
+      await mobile.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
+
+      const registrationDetailHref = await mobile
+        .getByRole('link', { name: '报名详情' })
+        .first()
+        .getAttribute('href');
+      if (registrationDetailHref) {
+        await mobile.goto(new URL(registrationDetailHref, webBase).toString(), {
+          waitUntil: 'networkidle',
+        });
+        await mobile.locator('.detail-panel').waitFor();
+        const emptyDetailFooter = await mobile
+          .locator('.detail-panel footer')
+          .evaluateAll((elements) =>
+            elements.some(
+              (element) =>
+                getComputedStyle(element).display !== 'none' && element.children.length === 0,
+            ),
+          );
+        if (emptyDetailFooter) {
+          issues.push('报名详情手机端: 无可用操作时仍显示空白操作栏');
+        }
+        await screenshot(mobile, 'web-account-registration-mobile.png', '报名详情手机端');
+
+        const showcaseLink = mobile.getByRole('link', { name: '完善参会名片' });
+        const showcaseHref = (await showcaseLink.count())
+          ? await showcaseLink.getAttribute('href')
+          : null;
+        if (showcaseHref) {
+          await mobile.goto(new URL(showcaseHref, webBase).toString(), {
+            waitUntil: 'domcontentloaded',
+          });
+          await mobile.locator('.profile-editor').waitFor();
+          await screenshot(mobile, 'web-account-showcase-mobile.png', '参会名片手机端');
+        }
+
+        await mobile.goto(new URL(registrationDetailHref, webBase).toString(), {
+          waitUntil: 'networkidle',
+        });
+        const needsLink = mobile.getByRole('link', { name: '编辑参会需求' });
+        const needsHref = (await needsLink.count()) ? await needsLink.getAttribute('href') : null;
+        if (needsHref) {
+          await mobile.goto(new URL(needsHref, webBase).toString(), {
+            waitUntil: 'networkidle',
+          });
+          await mobile.locator('.needs-editor').waitFor();
+          await screenshot(mobile, 'web-account-needs-mobile.png', '参会需求手机端');
+        }
+      } else {
+        issues.push('个人中心手机端: 缺少可用于二级页面验收的报名详情入口');
+      }
+
+      await mobile.goto(`${webBase}/account/attendee-claim`, { waitUntil: 'networkidle' });
+      await mobile.getByRole('heading', { name: '认领链接不完整', level: 2 }).waitFor();
+      await screenshot(mobile, 'web-account-claim-mobile.png', '参会名额认领手机端');
+
+      await mobile.goto(`${webBase}/account/invoices`, { waitUntil: 'networkidle' });
+      await mobile.getByRole('heading', { name: '发票中心', level: 1 }).waitFor();
+      await screenshot(mobile, 'web-account-invoices-mobile.png', '发票中心手机端');
+
+      if (visualTicketUrl) {
+        await mobile.goto(visualTicketUrl, { waitUntil: 'networkidle' });
+        await mobile.getByText('现场扫码签到').waitFor();
+        await screenshot(mobile, 'web-ticket-mobile.png', '电子票手机端');
+      }
+    } else {
+      issues.push('个人中心手机端: 免费报名流程没有生成可登录的演示账号');
+    }
   }
 
   const mobileAdmin = await mobileContext.newPage();

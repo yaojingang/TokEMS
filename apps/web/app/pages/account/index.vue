@@ -19,10 +19,7 @@ import {
   shouldRefreshPurchasedOrder,
 } from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
-import {
-  selectFeaturedAccountContext,
-  visibleServiceHubItems,
-} from '~/utils/account-service-hub';
+import { selectFeaturedAccountContext, visibleServiceHubItems } from '~/utils/account-service-hub';
 import AccountServiceHubIcon from '~/components/AccountServiceHubIcon.vue';
 
 const customer = useCustomerSession();
@@ -159,6 +156,24 @@ const serviceStateLabels: Record<CustomerServiceHubItem['state'], string> = {
   attention: '需处理',
   unavailable: '未开放',
 };
+const accountSections = [
+  { id: 'overview', index: '01', label: '大会服务台' },
+  { id: 'events', index: '02', label: '我的参会名额' },
+  { id: 'purchases', index: '03', label: '我购买的订单' },
+  { id: 'showcases', index: '04', label: '参会资料' },
+  { id: 'invoices', index: '05', label: '发票中心' },
+  { id: 'profile', index: '06', label: '常用资料' },
+  { id: 'security', index: '07', label: '账户安全' },
+] as const;
+const mobileNavigationOpen = ref(false);
+const mobileNavigationRoot = ref<HTMLElement | null>(null);
+const mobileNavigationTrigger = ref<HTMLButtonElement | null>(null);
+const activeAccountSection = ref<(typeof accountSections)[number]['id']>('overview');
+const activeAccountSectionLabel = computed(
+  () =>
+    accountSections.find((section) => section.id === activeAccountSection.value)?.label ??
+    '大会服务台',
+);
 
 const money = (amount: number, currency: string) =>
   new Intl.NumberFormat('zh-CN', {
@@ -277,12 +292,11 @@ const fallbackServiceHubItems = computed<CustomerServiceHubItem[]>(() => {
     },
   ];
 });
-const serviceHubItems = computed(
-  () =>
-    visibleServiceHubItems(
-      featuredServiceHub.value?.items ?? fallbackServiceHubItems.value,
-      Boolean(featuredRegistration.value?.canManageOrder),
-    ),
+const serviceHubItems = computed(() =>
+  visibleServiceHubItems(
+    featuredServiceHub.value?.items ?? fallbackServiceHubItems.value,
+    Boolean(featuredRegistration.value?.canManageOrder),
+  ),
 );
 const featuredTicketServiceItem = computed(() =>
   serviceHubItems.value.find((item) => item.code === 'ticket'),
@@ -328,10 +342,8 @@ async function openServiceHubItem(item: CustomerServiceHubItem) {
     return;
   }
   const routes: Record<Exclude<CustomerServiceHubItem['code'], 'organizer_contact'>, string> = {
-    ticket: primaryRegistrationAction(
-      registration,
-      featuredServiceHub.value?.latestPaymentStatus,
-    ).to,
+    ticket: primaryRegistrationAction(registration, featuredServiceHub.value?.latestPaymentStatus)
+      .to,
     poster: `/account/registrations/${registration.id}/showcase?event=${encodeURIComponent(registration.eventSlug)}#showcase-poster`,
     showcase: `/account/registrations/${registration.id}/showcase?event=${encodeURIComponent(registration.eventSlug)}#showcase-profile-editor`,
     needs: `/account/registrations/${registration.id}/needs?event=${encodeURIComponent(registration.eventSlug)}`,
@@ -344,6 +356,36 @@ function selectEvent(event: Event) {
   const eventSlug = (event.target as HTMLSelectElement).value;
   organizerPanelOpen.value = false;
   void router.replace({ query: { ...route.query, event: eventSlug } });
+}
+
+function selectAccountSection(sectionId: (typeof accountSections)[number]['id']) {
+  activeAccountSection.value = sectionId;
+  mobileNavigationOpen.value = false;
+}
+
+async function selectMobileAccountSection(sectionId: (typeof accountSections)[number]['id']) {
+  selectAccountSection(sectionId);
+  mobileNavigationTrigger.value?.focus({ preventScroll: true });
+  await router.push({ query: route.query, hash: `#${sectionId}` });
+  await nextTick();
+  mobileNavigationTrigger.value?.focus({ preventScroll: true });
+}
+
+async function closeMobileNavigationFromKeyboard() {
+  mobileNavigationOpen.value = false;
+  await nextTick();
+  mobileNavigationTrigger.value?.focus({ preventScroll: true });
+}
+
+function closeMobileNavigationFromOutside(event: PointerEvent) {
+  const target = event.target;
+  if (
+    mobileNavigationOpen.value &&
+    target instanceof Node &&
+    !mobileNavigationRoot.value?.contains(target)
+  ) {
+    mobileNavigationOpen.value = false;
+  }
 }
 
 async function loadServiceHub(registrationId: string) {
@@ -503,10 +545,9 @@ async function refreshMutablePurchasedOrders() {
     ),
   );
   const refreshedById = new Map(
-    results.filter((order): order is CustomerPurchasedOrder => Boolean(order)).map((order) => [
-      order.id,
-      order,
-    ]),
+    results
+      .filter((order): order is CustomerPurchasedOrder => Boolean(order))
+      .map((order) => [order.id, order]),
   );
   if (refreshedById.size) {
     purchasedOrders.value = purchasedOrders.value.map(
@@ -701,18 +742,51 @@ async function logout() {
   nextOrdersCursor.value = null;
   serviceHubs.value = {};
   organizerPanelOpen.value = false;
+  mobileNavigationOpen.value = false;
+  activeAccountSection.value = 'overview';
 }
 
 let purchaseContextRefreshTimer: ReturnType<typeof setInterval> | undefined;
+let accountSectionObserver: IntersectionObserver | undefined;
+
+async function observeAccountSections() {
+  accountSectionObserver?.disconnect();
+  if (!customer.session.value || loading.value) return;
+  await nextTick();
+  const sectionElements = accountSections
+    .map((section) => document.getElementById(section.id))
+    .filter((element): element is HTMLElement => Boolean(element));
+  accountSectionObserver = new IntersectionObserver(
+    (entries) => {
+      const visibleEntry = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+      if (visibleEntry) {
+        activeAccountSection.value = visibleEntry.target
+          .id as (typeof accountSections)[number]['id'];
+      }
+    },
+    { rootMargin: '-18% 0px -68% 0px', threshold: [0, 0.1, 0.4] },
+  );
+  sectionElements.forEach((section) => accountSectionObserver?.observe(section));
+}
+
 onMounted(() => {
   void initialize();
+  document.addEventListener('pointerdown', closeMobileNavigationFromOutside);
   purchaseContextRefreshTimer = setInterval(() => {
     if (customer.session.value) void refreshVisiblePurchaseState();
   }, 30_000);
 });
 onBeforeUnmount(() => {
   if (purchaseContextRefreshTimer) clearInterval(purchaseContextRefreshTimer);
+  accountSectionObserver?.disconnect();
+  document.removeEventListener('pointerdown', closeMobileNavigationFromOutside);
 });
+watch(
+  () => [loading.value, customer.session.value?.customer.id] as const,
+  () => void observeAccountSections(),
+);
 watch(
   () => customer.session.value?.customer.id,
   (id, previous) => {
@@ -802,14 +876,15 @@ useHead({ title: '个人中心' });
             <p class="account-rail__mobile">
               {{ customer.session.value.customer.maskedMobile }}
             </p>
-            <nav class="account-nav" aria-label="个人中心模块">
-              <a href="#overview"><span>01</span> 总览</a>
-              <a href="#events"><span>02</span> 我的参会名额</a>
-              <a href="#purchases"><span>03</span> 我购买的订单</a>
-              <a href="#showcases"><span>04</span> 参会资料</a>
-              <a href="#invoices"><span>05</span> 发票中心</a>
-              <a href="#profile"><span>06</span> 常用资料</a>
-              <a href="#security"><span>07</span> 账户安全</a>
+            <nav class="account-nav account-nav--desktop" aria-label="个人中心模块">
+              <a
+                v-for="section in accountSections"
+                :key="section.id"
+                :href="`#${section.id}`"
+                @click="selectAccountSection(section.id)"
+              >
+                <span>{{ section.index }}</span> {{ section.label }}
+              </a>
             </nav>
             <div class="account-rail__completion">
               <div>
@@ -831,6 +906,47 @@ useHead({ title: '个人中心' });
               <span>最近登录</span>
               <strong>{{ formatDateTime(customer.session.value.customer.lastLoginAt) }}</strong>
               <button type="button" @click="logout">退出登录</button>
+            </div>
+            <div
+              ref="mobileNavigationRoot"
+              class="account-mobile-navigation"
+              @keydown.esc.prevent.stop="closeMobileNavigationFromKeyboard"
+            >
+              <button
+                ref="mobileNavigationTrigger"
+                class="account-mobile-navigation__trigger"
+                type="button"
+                aria-controls="account-mobile-navigation-panel"
+                :aria-expanded="mobileNavigationOpen"
+                @click="mobileNavigationOpen = !mobileNavigationOpen"
+              >
+                <span>页面导航</span>
+                <strong>{{ activeAccountSectionLabel }}</strong>
+                <i aria-hidden="true">{{ mobileNavigationOpen ? '−' : '＋' }}</i>
+              </button>
+              <div
+                v-show="mobileNavigationOpen"
+                id="account-mobile-navigation-panel"
+                class="account-mobile-navigation__panel"
+              >
+                <nav class="account-mobile-navigation__links" aria-label="个人中心移动端模块">
+                  <a
+                    v-for="section in accountSections"
+                    :key="section.id"
+                    :href="`#${section.id}`"
+                    :aria-current="activeAccountSection === section.id ? 'location' : undefined"
+                    @click.prevent="selectMobileAccountSection(section.id)"
+                  >
+                    <span>{{ section.index }}</span>
+                    {{ section.label }}
+                  </a>
+                </nav>
+                <div class="account-mobile-navigation__meta">
+                  <span>{{ customer.session.value.customer.maskedMobile }}</span>
+                  <strong>资料完整度 {{ profileCompletion }}%</strong>
+                  <button type="button" @click="logout">退出登录</button>
+                </div>
+              </div>
             </div>
           </aside>
 
@@ -888,8 +1004,14 @@ useHead({ title: '个人中心' });
                 <div class="account-pass__main">
                   <div class="account-pass__topline">
                     <span>TOKEMS CONFERENCE · ATTENDEE PASS</span>
-                    <span class="account-pass__status" :data-state="featuredTicketServiceItem?.state">
-                      {{ featuredTicketServiceItem?.label ?? statusLabel(featuredRegistration.registrationStatus) }}
+                    <span
+                      class="account-pass__status"
+                      :data-state="featuredTicketServiceItem?.state"
+                    >
+                      {{
+                        featuredTicketServiceItem?.label ??
+                          statusLabel(featuredRegistration.registrationStatus)
+                      }}
                     </span>
                   </div>
                   <h3>{{ featuredRegistration.eventName }}</h3>
@@ -1354,14 +1476,8 @@ useHead({ title: '个人中心' });
                     <button
                       v-if="
                         (orderItem.status === 'pending_payment' &&
-                          !canResumePendingOrder(
-                            orderItem,
-                            purchaseContexts[orderItem.eventId],
-                          ) &&
-                          !canRestartSelfOrder(
-                            orderItem,
-                            purchaseContexts[orderItem.eventId],
-                          )) ||
+                          !canResumePendingOrder(orderItem, purchaseContexts[orderItem.eventId]) &&
+                          !canRestartSelfOrder(orderItem, purchaseContexts[orderItem.eventId])) ||
                           (orderItem.status === 'closed' &&
                             (!purchaseContexts[orderItem.eventId] ||
                               purchaseContextErrors[orderItem.eventId] ||
@@ -1625,7 +1741,7 @@ useHead({ title: '个人中心' });
             <section id="security" class="account-section" aria-labelledby="security-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">06 / SECURITY</span>
+                  <span class="account-section__index">07 / SECURITY</span>
                   <h2 id="security-title">账户与安全</h2>
                 </div>
                 <p>手机号验证保护你的参会凭证与订单信息。</p>
@@ -2062,6 +2178,10 @@ useHead({ title: '个人中心' });
   color: var(--account-muted);
   font-size: 11px;
   font-weight: 650;
+}
+
+.account-mobile-navigation {
+  display: none;
 }
 
 .account-content {
@@ -3429,59 +3549,193 @@ useHead({ title: '个人中心' });
     grid-template-columns: 1fr;
   }
   .account-rail {
-    position: static;
+    position: sticky;
+    z-index: 20;
+    top: max(8px, env(safe-area-inset-top));
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
+    overflow: visible;
+    box-shadow: 0 8px 24px rgb(15 23 42 / 7%);
   }
   .account-rail__identity {
-    padding-bottom: 22px;
+    padding: 14px 16px 12px;
   }
   .account-rail__mobile {
     display: none;
   }
-  .account-nav {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    border-bottom: 0;
+  .account-nav--desktop {
+    display: none;
   }
   .account-rail__completion {
-    min-width: 220px;
+    display: none;
   }
   .account-rail__footer {
     display: none;
+  }
+  .account-mobile-navigation {
+    position: relative;
+    display: block;
+    border-top: 1px solid var(--account-line-soft);
+  }
+  .account-mobile-navigation__trigger {
+    display: grid;
+    width: 100%;
+    min-height: 48px;
+    grid-template-columns: auto minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    color: var(--account-ink);
+    text-align: left;
+    transition: transform 110ms ease;
+  }
+  .account-mobile-navigation__trigger > span {
+    color: var(--conference-primary);
+    font: 720 9px/1 var(--conference-font-mono);
+    letter-spacing: 0.08em;
+  }
+  .account-mobile-navigation__trigger strong {
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 720;
+  }
+  .account-mobile-navigation__trigger i {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    color: var(--account-muted);
+    font-size: 15px;
+    font-style: normal;
+  }
+  .account-mobile-navigation__panel {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 6px);
+    right: -1px;
+    left: -1px;
+    overflow: hidden;
+    border: 1px solid var(--account-line);
+    border-radius: 9px;
+    background: #fff;
+    box-shadow: 0 18px 38px rgb(15 23 42 / 15%);
+  }
+  .account-mobile-navigation__links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px;
+  }
+  .account-mobile-navigation__links a {
+    display: grid;
+    min-width: 0;
+    min-height: 48px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    border-radius: 6px;
+    color: #44474f;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.35;
+    text-decoration: none;
+    transition:
+      background-color 110ms ease,
+      color 110ms ease,
+      transform 110ms ease;
+  }
+  .account-mobile-navigation__links a[aria-current='location'] {
+    background: #eff5ff;
+    color: var(--conference-primary);
+  }
+  .account-mobile-navigation__links a span {
+    color: #9da3ae;
+    font: 650 9px/1 var(--conference-font-mono);
+  }
+  .account-mobile-navigation__meta {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--account-line-soft);
+    background: #fafbfc;
+    color: var(--account-muted);
+    font-size: 10px;
+  }
+  .account-mobile-navigation__meta span {
+    font-family: var(--conference-font-mono);
+  }
+  .account-mobile-navigation__meta strong {
+    margin-left: auto;
+    color: #575b64;
+    font-weight: 680;
+  }
+  .account-mobile-navigation__meta button {
+    min-height: 44px;
+    padding-inline: 8px;
+    color: #9f2736;
+    font-size: 10px;
+    font-weight: 700;
+    transition: transform 110ms ease;
+  }
+  .account-mobile-navigation__trigger:active,
+  .account-mobile-navigation__links a:active,
+  .account-mobile-navigation__meta button:active {
+    transform: scale(0.98);
+  }
+  .service-hub-heading__tools select,
+  .account-form input,
+  .purchase-attendee-edit input {
+    font-size: 16px;
+  }
+  .purchase-attendee-edit input,
+  .registration-row__actions a,
+  .registration-row__actions button,
+  .purchase-attendee-edit button,
+  .account-security__action button {
+    min-height: 44px;
+  }
+  .account-section {
+    scroll-margin-top: 142px;
   }
 }
 
 @media (max-width: 760px) {
   .account-shell {
     width: min(100% - 28px, 1180px);
-    padding: 38px 0 72px;
+    padding: 26px 0 calc(72px + env(safe-area-inset-bottom));
   }
   .account-heading {
     align-items: flex-start;
-    margin-bottom: 32px;
+    margin-bottom: 20px;
   }
   .account-heading h1 {
     font-size: 32px;
   }
   .account-heading > div > p:last-child {
     max-width: 30ch;
+    margin-top: 12px;
     font-size: 12px;
   }
-  .account-back-link {
-    font-size: 0;
+  .account-rail__identity {
+    display: none;
   }
-  .account-back-link span {
-    display: grid;
-    width: 40px;
-    height: 40px;
-    place-items: center;
+  .account-mobile-navigation {
+    border-top: 0;
+  }
+  .account-back-link {
+    min-height: 44px;
+    gap: 6px;
+    padding: 0 12px;
     border: 1px solid var(--account-line);
     border-radius: 7px;
     background: #fff;
-    font-size: 15px;
+    font-size: 11px;
+  }
+  .account-back-link span {
+    font-size: 13px;
   }
   .account-login {
     grid-template-columns: 1fr;
@@ -3492,24 +3746,10 @@ useHead({ title: '个人中心' });
     min-height: 280px;
   }
   .account-workspace {
-    gap: 28px;
-  }
-  .account-rail {
-    grid-template-columns: 1fr;
-  }
-  .account-rail__completion {
-    display: none;
-  }
-  .account-nav {
-    overflow-x: auto;
-  }
-  .account-nav a {
-    min-width: 108px;
-    justify-content: center;
-    padding-inline: 8px;
+    gap: 20px;
   }
   .account-content {
-    gap: 56px;
+    gap: 48px;
   }
   .account-section__heading {
     align-items: flex-start;
@@ -3539,12 +3779,12 @@ useHead({ title: '个人中心' });
     overflow-wrap: anywhere;
   }
   .account-pass__stub {
-    min-height: 100px;
+    min-height: 68px;
     grid-template-columns: auto auto 1fr;
     align-content: center;
     justify-items: start;
     gap: 12px;
-    padding: 0 28px;
+    padding: 0 22px;
     border-top: 1px dashed #b7c7e1;
     border-left: 0;
     text-align: left;
@@ -3563,7 +3803,7 @@ useHead({ title: '个人中心' });
   }
   .account-pass__stub strong {
     margin: 0;
-    font-size: 30px;
+    font-size: 26px;
   }
   .account-pass__stub small {
     justify-self: end;
@@ -3612,18 +3852,31 @@ useHead({ title: '个人中心' });
     flex-direction: column;
   }
   .service-hub-heading__tools select {
+    min-height: 44px;
     width: 100%;
     max-width: none;
   }
   .account-pass__main {
-    padding: 25px 22px;
+    padding: 22px 20px;
   }
   .account-pass__topline {
     align-items: flex-start;
   }
   .account-pass h3 {
-    margin-top: 28px;
+    margin-top: 22px;
     font-size: 24px;
+  }
+  .account-pass__actions {
+    width: 100%;
+    gap: 10px 16px;
+    padding-top: 20px;
+  }
+  .account-pass__actions a,
+  .account-pass__actions button {
+    min-height: 44px;
+  }
+  .account-pass__actions .account-pass__primary {
+    justify-content: space-between;
   }
   .account-summary > div {
     padding-block: 17px;
@@ -3709,6 +3962,16 @@ useHead({ title: '个人中心' });
     height: auto;
     aspect-ratio: 1;
   }
+  .organizer-contact-panel > header button,
+  .organizer-contact-panel__confirm {
+    min-height: 44px;
+  }
+  .organizer-contact-panel__confirm {
+    width: 100%;
+  }
+  .organizer-contact-panel__body dd {
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 400px) {
@@ -3717,15 +3980,6 @@ useHead({ title: '个人中心' });
   }
   .account-heading h1 {
     font-size: 30px;
-  }
-  .account-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: visible;
-  }
-  .account-nav a {
-    min-width: 0;
-    justify-content: flex-start;
-    padding-inline: 12px;
   }
   .account-pass__topline > span:first-child {
     max-width: 180px;
@@ -3794,6 +4048,17 @@ useHead({ title: '个人中心' });
   .account-security__action {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 340px) {
+  .service-hub-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .service-hub-grid > .service-hub-card,
+  .service-hub-grid[data-count='5'] > .service-hub-card:nth-last-child(-n + 2),
+  .service-hub-grid[data-count='5'] > .service-hub-card:last-child {
+    grid-column: span 1;
   }
 }
 
