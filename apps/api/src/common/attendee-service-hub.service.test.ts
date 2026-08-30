@@ -124,4 +124,37 @@ describe('organizer QR asset isolation', () => {
       templates.publicAssetUrl('30000000-0000-4000-8000-000000000001'),
     ).rejects.toMatchObject({ status: 404 });
   });
+
+  it('returns an internal storage URL for server-side private asset reads', async () => {
+    vi.stubEnv('S3_ENDPOINT', 'http://minio:9000');
+    vi.stubEnv('S3_PUBLIC_ENDPOINT', 'http://localhost:19000');
+    vi.stubEnv('S3_ACCESS_KEY', 'test-access');
+    vi.stubEnv('S3_SECRET_KEY', 'test-secret');
+    vi.stubEnv('S3_BUCKET', 'tokems');
+
+    const limit = vi.fn().mockResolvedValue([
+      { storageKey: 'attendee-organizer-qr/org-1/organizer-wechat.png' },
+    ]);
+    const database = {
+      db: {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({ limit })),
+          })),
+        })),
+      },
+    };
+    const templates = new TemplateOperationsService(database as never);
+
+    try {
+      const url = await templates.protectedAssetUrl(
+        '10000000-0000-4000-8000-000000000001',
+        '30000000-0000-4000-8000-000000000001',
+      );
+
+      expect(new URL(url).origin).toBe('http://minio:9000');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
