@@ -112,7 +112,9 @@ useHead({
     <main id="main-content" class="claim-shell">
       <p class="flow-eyebrow">ATTENDEE CLAIM</p>
       <h1>把参会名额保存到你的账户</h1>
-      <p class="claim-lead">认领后可查看本人报名、电子票和参会名片。订单金额与发票仍由购票人管理。</p>
+      <p class="claim-lead">
+        认领后可查看本人报名、电子票和参会名片。订单金额与发票仍由购票人管理。
+      </p>
 
       <p v-if="loading" class="claim-status" role="status">正在确认登录状态…</p>
       <section v-else-if="claimedRegistrationId" class="claim-result" role="status">
@@ -149,11 +151,7 @@ useHead({
         <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
         <button class="flow-action" type="button" :disabled="claiming" @click="claim">
           {{
-            customer.session.value
-              ? claiming
-                ? '正在认领…'
-                : '确认认领参会名额'
-              : '登录后继续'
+            customer.session.value ? (claiming ? '正在认领…' : '确认认领参会名额') : '登录后继续'
           }}
         </button>
         <NuxtLink class="claim-back" to="/account">返回个人中心</NuxtLink>
@@ -200,11 +198,18 @@ useHead({
   justify-self: start;
 }
 .claim-back {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   justify-self: start;
   color: #616b7b;
   font-size: 13px;
   text-decoration: underline;
   text-underline-offset: 3px;
+  transition: transform 110ms ease;
+}
+.claim-back:active {
+  transform: scale(0.98);
 }
 .claim-result {
   display: grid;
@@ -235,7 +240,27 @@ useHead({
 @media (max-width: 520px) {
   .claim-shell {
     width: min(100% - 24px, 680px);
-    padding-top: 80px;
+    padding: 40px 0 calc(64px + env(safe-area-inset-bottom));
+  }
+  .claim-shell h1 {
+    font-size: 31px;
+    line-height: 1.1;
+  }
+  .claim-lead {
+    margin-bottom: 28px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .claim-action .flow-action {
+    width: 100%;
+  }
+  .claim-result {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 13px;
+  }
+  .claim-result > span {
+    width: 40px;
+    height: 40px;
   }
 }
 </style>
