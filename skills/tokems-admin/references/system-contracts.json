@@ -1958,6 +1958,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/attendee-services",
+      "handler": "AdminController.attendeeServiceConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/checkin-devices",
       "handler": "EngagementController.devices",
       "actionId": "checkin.devices.list",
@@ -2627,6 +2638,17 @@
     },
     {
       "method": "PATCH",
+      "path": "/api/v1/admin/events/:eventId/attendee-services",
+      "handler": "AdminController.updateAttendeeServiceConfiguration",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PATCH",
       "path": "/api/v1/admin/events/:eventId/cooperation-requests/:requestId",
       "handler": "AdminController.updateCooperationRequest",
       "actionId": null,
@@ -2911,6 +2933,28 @@
         "event.manage",
         "org.template.use"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/attendee-services/qr-assets",
+      "handler": "AdminController.confirmAttendeeServiceQrAsset",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/attendee-services/qr-uploads",
+      "handler": "AdminController.prepareAttendeeServiceQrUpload",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
     },
     {
       "method": "POST",
