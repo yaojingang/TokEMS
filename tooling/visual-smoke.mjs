@@ -45,6 +45,34 @@ async function runVisualSmoke() {
     });
   }
 
+  async function mockNativePaymentPreparation(page) {
+    await page.route('**/payments/wechat/*/native', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      const pathname = new URL(route.request().url()).pathname;
+      const orderId = pathname.match(/\/payments\/wechat\/([^/]+)\/native$/u)?.[1];
+      if (!orderId) {
+        await route.continue();
+        return;
+      }
+      const attemptId = `visual-${Date.now()}`;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          orderId,
+          channel: 'native',
+          attemptId,
+          outTradeNo: attemptId,
+          codeUrl: 'weixin://wxpay/bizpayurl?pr=tokems-visual-smoke',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        }),
+      });
+    });
+  }
+
   async function assertNoHorizontalOverflow(page, label) {
     const sizes = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -711,6 +739,7 @@ async function runVisualSmoke() {
     reducedMotion: 'reduce',
   });
   const page = await desktop.newPage();
+  await mockNativePaymentPreparation(page);
   watch(page, 'desktop');
   let speakerDetailUrl;
   let visualCustomerMobile = '';

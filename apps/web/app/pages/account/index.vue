@@ -365,6 +365,7 @@ function selectAccountSection(sectionId: (typeof accountSections)[number]['id'])
 
 async function selectMobileAccountSection(sectionId: (typeof accountSections)[number]['id']) {
   selectAccountSection(sectionId);
+  mobileNavigationTrigger.value?.focus({ preventScroll: true });
   await router.push({ query: route.query, hash: `#${sectionId}` });
   await nextTick();
   mobileNavigationTrigger.value?.focus({ preventScroll: true });
