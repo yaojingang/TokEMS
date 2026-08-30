@@ -1,6 +1,28 @@
 <script setup lang="ts">
 import { publicEventHomePath, type PublicEvent } from '@conference/contracts';
-import { createError, useAsyncData } from '#imports';
+import { createError, onBeforeUnmount, useAsyncData } from '#imports';
+import { copyPlainText } from '~/utils/copy-text';
+
+const organizerContact = {
+  name: '姚金刚',
+  wechatId: 'laoyaoke',
+  qrSrc: '/images/contacts/yao-jingang-wechat.jpg',
+} as const;
+const copyStatus = ref('');
+let copyStatusTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copyWechatId() {
+  const copied = await copyPlainText(organizerContact.wechatId);
+  copyStatus.value = copied ? '微信号已复制' : '复制失败，请长按微信号复制';
+  if (copyStatusTimer) clearTimeout(copyStatusTimer);
+  copyStatusTimer = setTimeout(() => {
+    copyStatus.value = '';
+  }, 3000);
+}
+
+onBeforeUnmount(() => {
+  if (copyStatusTimer) clearTimeout(copyStatusTimer);
+});
 
 const cooperationDirections = [
   {
@@ -134,34 +156,39 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
           <h2 id="direct-contact-title">加微信，聊合作</h2>
           <p class="direct-contact__lead">微信沟通更直接，也方便后续发送合作资料。</p>
 
-          <div
-            class="direct-contact__qr"
-            role="img"
-            aria-label="姚金刚微信二维码待补充"
-            data-contact-qr-placeholder
-          >
-            <svg viewBox="0 0 48 48" aria-hidden="true">
-              <path
-                d="M5 19V5h14v14H5Zm4-4h6V9H9v6Zm20 4V5h14v14H29Zm4-4h6V9h-6v6ZM5 43V29h14v14H5Zm4-4h6v-6H9v6Z"
-              />
-              <path d="M29 29h5v5h-5v-5Zm9 0h5v5h-5v-5Zm-9 9h5v5h-5v-5Zm9 0h5v5h-5v-5Z" />
-            </svg>
-            <strong>微信二维码待补充</strong>
-            <span>收到原图后直接替换</span>
-          </div>
+          <figure class="direct-contact__qr">
+            <img
+              :src="organizerContact.qrSrc"
+              width="888"
+              height="1128"
+              alt="姚金刚微信二维码"
+              decoding="async"
+            />
+            <figcaption>长按保存图片，或截图后在微信中识别</figcaption>
+          </figure>
 
           <dl class="direct-contact__details">
             <div>
               <dt>微信联系人</dt>
-              <dd>姚金刚</dd>
+              <dd>{{ organizerContact.name }}</dd>
             </div>
             <div>
               <dt>微信号</dt>
-              <dd>姚金刚</dd>
+              <dd class="direct-contact__wechat-id">
+                <code>{{ organizerContact.wechatId }}</code>
+                <button type="button" @click="copyWechatId">
+                  {{ copyStatus === '微信号已复制' ? '已复制' : '复制' }}
+                </button>
+              </dd>
             </div>
           </dl>
 
-          <p class="direct-contact__note">添加时请备注「大会合作＋公司名」</p>
+          <p class="direct-contact__note">
+            添加好友后，请备注「大会合作＋公司名＋姓名」，方便快速确认来意。
+          </p>
+          <p class="direct-contact__copy-status" role="status" aria-live="polite">
+            {{ copyStatus }}
+          </p>
         </aside>
       </section>
 
@@ -370,35 +397,28 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 }
 
 .direct-contact__qr {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  width: 190px;
+  width: min(100%, 248px);
   margin: 0 auto 25px;
-  padding: 24px 16px 17px;
+  overflow: hidden;
   border-radius: 8px;
   outline: 1px solid rgb(23 23 23 / 10%);
   outline-offset: -1px;
   background: #f8fafc;
-  color: #1d4ed8;
 }
 
-.direct-contact__qr svg {
-  width: 80px;
-  height: 80px;
-  fill: currentColor;
+.direct-contact__qr img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
 }
 
-.direct-contact__qr strong {
-  color: #334155;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.direct-contact__qr span {
+.direct-contact__qr figcaption {
+  padding: 10px 12px 11px;
   color: #64748b;
   font-size: 10px;
-  line-height: 1.4;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .direct-contact__details {
@@ -432,11 +452,54 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
   font-weight: 750;
 }
 
+.direct-contact__wechat-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.direct-contact__wechat-id code {
+  color: inherit;
+  font-family: var(--conference-font-mono);
+  font-size: 14px;
+  user-select: all;
+}
+
+.direct-contact__wechat-id button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgb(239 246 255 / 36%);
+  border-radius: 5px;
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 700;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.direct-contact__wechat-id button:hover {
+  background: rgb(239 246 255 / 12%);
+}
+
+.direct-contact__wechat-id button:active {
+  transform: scale(0.96);
+}
+
 .direct-contact__note {
   margin: 18px 0 0;
   color: rgb(239 246 255 / 72%);
   font-size: 12px;
   line-height: 1.7;
+  text-align: center;
+}
+
+.direct-contact__copy-status {
+  min-height: 18px;
+  margin: 7px 0 -8px;
+  color: #dbeafe;
+  font-size: 10px;
+  line-height: 1.5;
   text-align: center;
 }
 
@@ -548,7 +611,11 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
   }
 
   .direct-contact__qr {
-    width: 176px;
+    width: min(100%, 236px);
+  }
+
+  .direct-contact__wechat-id button {
+    min-height: 44px;
   }
 
   .cooperation-section-head {
