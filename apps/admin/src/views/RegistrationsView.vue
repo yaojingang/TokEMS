@@ -259,8 +259,8 @@ watch(
           <tr>
             <th>购票人</th>
             <th>参会人</th>
-            <th>联系方式</th>
-            <th>票种</th>
+            <th class="registration-contact-column">联系方式</th>
+            <th class="registration-ticket-column">票种</th>
             <th class="registration-status-column">业务状态</th>
             <th>支付与退款</th>
             <th>发票</th>
@@ -279,11 +279,10 @@ watch(
               <span class="row-title">{{ row.attendee.name }}</span>
               <span class="row-sub">{{ row.attendee.company }} · {{ row.attendee.title }}</span>
             </td>
-            <td>
+            <td class="registration-contact-column">
               <span>{{ row.attendee.mobile }}</span>
-              <span class="row-sub">{{ row.attendee.email }}</span>
             </td>
-            <td>{{ row.ticketType.name }}</td>
+            <td class="registration-ticket-column">{{ row.ticketType.name }}</td>
             <td class="registration-status-column">
               <span class="status-badge" :class="statusClass(row.businessStatus)">
                 {{ statusLabel(row.businessStatus) }}
@@ -524,6 +523,17 @@ watch(
 
 .registration-table {
   min-width: 1180px;
+}
+
+.registration-contact-column {
+  width: 156px;
+  min-width: 156px;
+  white-space: nowrap;
+}
+
+.registration-ticket-column {
+  width: 176px;
+  min-width: 176px;
 }
 
 .registration-status-column {
