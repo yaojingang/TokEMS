@@ -255,7 +255,7 @@ export class AttendeeNeedsService {
         submissionId: attendeeNeedQuestions.submissionId,
         reason: sql<string | null>`(
           array_agg(${auditLogs.after}->>'reason' order by ${auditLogs.createdAt} desc)
-        )[1]`,
+        )[1]`.as('reason'),
       })
       .from(auditLogs)
       .innerJoin(

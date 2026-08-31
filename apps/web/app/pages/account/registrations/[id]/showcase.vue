@@ -723,8 +723,10 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('displayName')?.message }}
                   </span>
-                  <small><input v-model="form.visibleFields.displayName" type="checkbox" />
-                    公开姓名</small>
+                  <small
+                    ><input v-model="form.visibleFields.displayName" type="checkbox" />
+                    公开姓名</small
+                  >
                 </label>
                 <label
                   class="field-block"
@@ -757,7 +759,9 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('industryCode')?.message }}
                   </span>
-                  <small><input v-model="form.visibleFields.industry" type="checkbox" /> 公开行业</small>
+                  <small
+                    ><input v-model="form.visibleFields.industry" type="checkbox" /> 公开行业</small
+                  >
                 </label>
                 <label class="field-block">
                   <span>公司 / 组织</span>
@@ -767,7 +771,9 @@ useHead(() => ({
                     maxlength="160"
                     autocomplete="organization"
                   />
-                  <small><input v-model="form.visibleFields.company" type="checkbox" /> 公开公司</small>
+                  <small
+                    ><input v-model="form.visibleFields.company" type="checkbox" /> 公开公司</small
+                  >
                 </label>
                 <label class="field-block">
                   <span>职位</span>
@@ -777,7 +783,9 @@ useHead(() => ({
                     maxlength="100"
                     autocomplete="organization-title"
                   />
-                  <small><input v-model="form.visibleFields.title" type="checkbox" /> 公开职位</small>
+                  <small
+                    ><input v-model="form.visibleFields.title" type="checkbox" /> 公开职位</small
+                  >
                 </label>
               </div>
             </div>
@@ -798,8 +806,10 @@ useHead(() => ({
                   rows="6"
                   placeholder="例如：帮助消费品牌建立 GEO 内容体系，希望认识品牌市场与 AI 产品方向的伙伴。"
                 />
-                <small><input v-model="form.visibleFields.businessIntro" type="checkbox" />
-                  公开业务介绍</small>
+                <small
+                  ><input v-model="form.visibleFields.businessIntro" type="checkbox" />
+                  公开业务介绍</small
+                >
               </label>
               <label class="field-block is-wide">
                 <span>公司或项目网址</span>
@@ -821,8 +831,10 @@ useHead(() => ({
                 >
                   {{ validationIssueFor('businessUrl')?.message }}
                 </span>
-                <small><input v-model="form.visibleFields.businessUrl" type="checkbox" />
-                  公开网址</small>
+                <small
+                  ><input v-model="form.visibleFields.businessUrl" type="checkbox" />
+                  公开网址</small
+                >
               </label>
             </div>
 
@@ -846,8 +858,10 @@ useHead(() => ({
                     maxlength="40"
                     autocomplete="tel"
                   />
-                  <small><input v-model="form.visibleFields.contactPhone" type="checkbox" />
-                    公开电话</small>
+                  <small
+                    ><input v-model="form.visibleFields.contactPhone" type="checkbox" />
+                    公开电话</small
+                  >
                 </label>
                 <label
                   class="field-block"
@@ -874,14 +888,18 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('contactEmail')?.message }}
                   </span>
-                  <small><input v-model="form.visibleFields.contactEmail" type="checkbox" />
-                    公开邮箱</small>
+                  <small
+                    ><input v-model="form.visibleFields.contactEmail" type="checkbox" />
+                    公开邮箱</small
+                  >
                 </label>
                 <label class="field-block">
                   <span>微信号</span>
                   <input id="showcase-wechat-id" v-model="form.wechatId" maxlength="80" />
-                  <small><input v-model="form.visibleFields.wechatId" type="checkbox" />
-                    公开微信号</small>
+                  <small
+                    ><input v-model="form.visibleFields.wechatId" type="checkbox" />
+                    公开微信号</small
+                  >
                 </label>
               </div>
             </div>
@@ -1073,7 +1091,7 @@ useHead(() => ({
 }
 .upload-action {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   padding: 0 14px;
   border: 1px solid #ccd6e6;
@@ -1097,6 +1115,7 @@ useHead(() => ({
   line-height: 1.6;
 }
 .text-action {
+  min-height: 44px;
   border: 0;
   background: transparent;
   color: #3166cf;
@@ -1108,6 +1127,7 @@ useHead(() => ({
 }
 .visibility-toggle {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 7px;
   color: #596579;
@@ -1185,6 +1205,7 @@ useHead(() => ({
 }
 .field-block small {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 6px;
   color: #788497;
@@ -1203,6 +1224,7 @@ useHead(() => ({
 }
 .publish-choice > label {
   display: flex;
+  min-height: 64px;
   align-items: flex-start;
   gap: 12px;
   cursor: pointer;
@@ -1357,7 +1379,21 @@ useHead(() => ({
 @media (max-width: 640px) {
   .showcase-shell {
     width: min(100% - 24px, 1240px);
-    padding-top: 36px;
+    padding: 30px 0 calc(72px + env(safe-area-inset-bottom));
+  }
+  .showcase-intro {
+    margin-bottom: 26px;
+  }
+  .showcase-intro h1 {
+    font-size: 31px;
+    line-height: 1.12;
+  }
+  .showcase-intro > p:last-child {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .showcase-stepper {
+    margin: 0 0 26px;
   }
   .editor-section,
   .publish-choice {
@@ -1375,6 +1411,11 @@ useHead(() => ({
   }
   .visibility-toggle {
     grid-column: 1 / -1;
+  }
+  .field-block input:not([type='checkbox']),
+  .field-block select,
+  .field-block textarea {
+    font-size: 16px;
   }
   .editor-actions {
     padding: 20px 18px;

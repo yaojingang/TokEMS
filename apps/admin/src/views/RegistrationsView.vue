@@ -261,11 +261,11 @@ watch(
             <th>参会人</th>
             <th>联系方式</th>
             <th>票种</th>
-            <th>业务状态</th>
+            <th class="registration-status-column">业务状态</th>
             <th>支付与退款</th>
             <th>发票</th>
             <th>最近更新</th>
-            <th></th>
+            <th class="registration-action-column"><span class="sr-only">操作</span></th>
           </tr>
         </thead>
         <tbody>
@@ -284,11 +284,13 @@ watch(
               <span class="row-sub">{{ row.attendee.email }}</span>
             </td>
             <td>{{ row.ticketType.name }}</td>
-            <td>
+            <td class="registration-status-column">
               <span class="status-badge" :class="statusClass(row.businessStatus)">
                 {{ statusLabel(row.businessStatus) }}
               </span>
-              <span class="row-sub">报名：{{ statusLabel(row.status) }}</span>
+              <span class="row-sub registration-status-detail">
+                报名：{{ statusLabel(row.status) }}
+              </span>
             </td>
             <td>
               <template v-if="row.order">
@@ -310,10 +312,10 @@ watch(
               </span>
             </td>
             <td>{{ dateTime(row.lastBusinessAt) }}</td>
-            <td>
+            <td class="registration-action-column">
               <div class="row-actions">
                 <RouterLink
-                  class="button secondary compact"
+                  class="button secondary compact registration-view-action"
                   :to="{
                     name: 'event-registration-detail',
                     params: { eventId: route.params.eventId, registrationId: row.id },
@@ -521,7 +523,34 @@ watch(
 }
 
 .registration-table {
-  min-width: 920px;
+  min-width: 1180px;
+}
+
+.registration-status-column {
+  width: 132px;
+  min-width: 132px;
+}
+
+.registration-status-detail {
+  white-space: nowrap;
+}
+
+.registration-action-column {
+  width: 84px;
+  min-width: 84px;
+  padding-inline: 12px;
+  text-align: center;
+}
+
+.registration-action-column .row-actions {
+  justify-content: center;
+}
+
+.registration-view-action {
+  min-width: 56px;
+  justify-content: center;
+  padding-inline: 12px;
+  white-space: nowrap;
 }
 
 .order-reference {

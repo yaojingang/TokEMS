@@ -322,15 +322,22 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 520px) {
   .validation-dialog {
-    padding: 16px;
+    align-items: end;
+    padding: 0;
   }
   .validation-dialog__panel {
-    max-height: calc(100dvh - 32px);
-    padding: 26px 20px 22px;
+    width: 100%;
+    max-height: 85dvh;
+    padding: 26px 20px calc(22px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
   }
   .validation-dialog h2 {
     max-width: 280px;
     font-size: 22px;
+  }
+  .validation-dialog__close {
+    width: 44px;
+    height: 44px;
   }
   .validation-dialog__issues button {
     grid-template-columns: 28px minmax(0, 1fr);

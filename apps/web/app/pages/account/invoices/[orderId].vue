@@ -253,8 +253,8 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
             <p>
               {{
                 existingInvoice?.eventName ??
-                  orderContext?.eventName ??
-                  '填写准确的购买方信息，提交后可在这里查看进度。'
+                orderContext?.eventName ??
+                '填写准确的购买方信息，提交后可在这里查看进度。'
               }}
             </p>
           </div>
@@ -557,7 +557,7 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
 
 .invoice-back {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   gap: 9px;
   color: var(--invoice-muted);
@@ -1258,7 +1258,7 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
 @media (max-width: 640px) {
   .invoice-shell {
     width: min(100% - 28px, 1120px);
-    padding-top: 24px;
+    padding: 24px 0 calc(72px + env(safe-area-inset-bottom));
   }
 
   .invoice-heading {
@@ -1297,12 +1297,23 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
     grid-column: auto;
   }
 
+  .invoice-form-grid input {
+    font-size: 16px;
+  }
+
   .invoice-form-action {
     display: grid;
   }
 
   .invoice-form-buttons {
+    display: grid;
+    width: 100%;
     justify-content: flex-start;
+  }
+
+  .invoice-form-buttons .invoice-primary,
+  .invoice-form-buttons .invoice-secondary {
+    width: 100%;
   }
 
   .invoice-details,

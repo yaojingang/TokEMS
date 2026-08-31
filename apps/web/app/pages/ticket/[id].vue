@@ -27,9 +27,7 @@ const dateRange = computed(() => {
   });
   return `${format.format(new Date(event.value.startsAt))} 至 ${format.format(new Date(event.value.endsAt))}`;
 });
-const homeHref = computed(() =>
-  api.resolveConferenceUrl(publicEventHomePath(event.value.slug)),
-);
+const homeHref = computed(() => api.resolveConferenceUrl(publicEventHomePath(event.value.slug)));
 const paymentSurface = computed(() => api.isPaymentSurface());
 const paymentRequired = computed(
   () => checkout.value?.order.amount !== 0 && checkout.value?.order.paymentMethod !== 'free',
@@ -41,12 +39,56 @@ const flowSteps = computed(() =>
     invoiceRequired: Boolean(invoiceAccess.value),
   }),
 );
+const interactiveFlowSteps = computed(() =>
+  flowSteps.value.map((step) => {
+    if (
+      !experience.value.registrationFlow.branches.successActions ||
+      !ticket.value ||
+      ticket.value.status === 'cancelled'
+    ) {
+      return step.title;
+    }
+    if (step.type === 'member-profile') {
+      return {
+        title: step.title,
+        to: api.resolveConferenceUrl(
+          publicEventScopedPath(
+            `/account/registrations/${encodeURIComponent(ticket.value.registrationId)}/showcase`,
+            event.value.slug,
+          ),
+        ),
+        hint: '去完善 →',
+      };
+    }
+    if (step.type === 'attendee-needs') {
+      return {
+        title: step.title,
+        to: api.resolveConferenceUrl(
+          publicEventScopedPath(
+            `/account/registrations/${encodeURIComponent(ticket.value.registrationId)}/needs`,
+            event.value.slug,
+          ),
+        ),
+        hint: '去提交 →',
+      };
+    }
+    return step.title;
+  }),
+);
 const activeStep = computed(() => activeFlowStep(flowSteps.value, 'success-ticket'));
 const invoiceHref = computed(() =>
   invoiceAccess.value
     ? publicEventScopedPath(`/invoice/${invoiceAccess.value.id}`, event.value.slug)
     : '',
 );
+const organizerHref = computed(() => {
+  if (!ticket.value) return '';
+  const path = publicEventScopedPath('/account', event.value.slug, {
+    registration: ticket.value.registrationId,
+    service: 'organizer_contact',
+  });
+  return api.resolveConferenceUrl(path);
+});
 useHead(() => ({ title: `电子票 · ${ticket.value?.eventName ?? event.value.name}` }));
 
 onMounted(async () => {
@@ -88,13 +130,13 @@ function printTicket() {
       <FlowStepper
         :active="activeStep"
         :payment-required="paymentRequired"
-        :steps="flowSteps.map((step) => step.title)"
+        :steps="interactiveFlowSteps"
         :variant="experience.registrationFlow.progressVariant"
       />
 
       <article v-if="ticket" class="ticket-paper">
         <section class="ticket-paper__main">
-          <span class="ticket-status">{{ ticketStatus }}</span>
+          <span class="ticket-status" :data-status="ticket.status">{{ ticketStatus }}</span>
           <h1>{{ ticket.eventName }}</h1>
           <dl class="ticket-meta">
             <div>
@@ -118,7 +160,7 @@ function printTicket() {
         </section>
         <aside class="ticket-paper__aside">
           <div>
-            <QrcodeVue class="ticket-qr" :value="ticket.qrPayload" :size="142" level="H" />
+            <QrcodeVue class="ticket-qr" :value="ticket.qrPayload" :size="184" level="H" />
             <strong>现场扫码签到</strong>
             <small style="color: var(--conference-ink-muted)">一人一码 · 仅限使用一次</small>
           </div>
@@ -140,6 +182,10 @@ function printTicket() {
         <button class="flow-action" type="button" @click="printTicket">打印 / 导出电子票</button>
         <a v-if="paymentSurface" class="flow-action is-secondary" :href="homeHref">返回大会首页</a>
         <NuxtLink v-else class="flow-action is-secondary" :to="homeHref">返回大会首页</NuxtLink>
+        <div v-if="ticket.status !== 'cancelled'" class="ticket-organizer-action">
+          <NuxtLink class="flow-action is-organizer" :to="organizerHref"> 添加大会组织者 </NuxtLink>
+          <small>添加后，等待邀请进入会员群</small>
+        </div>
       </div>
     </main>
   </div>

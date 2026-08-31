@@ -372,17 +372,25 @@ onBeforeUnmount(() => {
 
 @media (max-width: 520px) {
   .needs-success-dialog {
-    padding: 16px;
+    align-items: end;
+    padding: 0;
   }
 
   .needs-success-dialog__panel {
-    max-height: calc(100dvh - 32px);
-    padding: 28px 20px 22px;
+    width: 100%;
+    max-height: 85dvh;
+    padding: 28px 20px calc(22px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
   }
 
   .needs-success-dialog h2 {
     max-width: 280px;
     font-size: 24px;
+  }
+
+  .needs-success-dialog__close {
+    width: 44px;
+    height: 44px;
   }
 
   .needs-success-dialog__summary {

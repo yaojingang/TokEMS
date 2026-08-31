@@ -639,7 +639,7 @@ useHead(() => ({
 
 .topic-grid label {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   padding: 8px 13px;
   border: 1px solid #d5ddec;
@@ -685,7 +685,7 @@ useHead(() => ({
 
 .quiet-action,
 .add-question {
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   background: transparent;
   color: #356be8;
@@ -848,7 +848,7 @@ useHead(() => ({
 }
 
 .text-action {
-  min-height: 40px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   color: #356be8;
@@ -858,7 +858,7 @@ useHead(() => ({
 @media (max-width: 640px) {
   .needs-shell {
     width: min(100% - 24px, 980px);
-    padding: 46px 0 72px;
+    padding: 30px 0 calc(72px + env(safe-area-inset-bottom));
   }
 
   .question-section,
@@ -868,7 +868,17 @@ useHead(() => ({
   }
 
   .needs-intro h1 {
-    font-size: 36px;
+    font-size: 31px;
+    line-height: 1.12;
+  }
+
+  .needs-intro > p:last-child {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .needs-stepper {
+    margin: 26px 0;
   }
 
   .question-meta {
@@ -876,7 +886,26 @@ useHead(() => ({
   }
 
   .needs-actions {
-    align-items: flex-start;
+    display: grid;
+    align-items: stretch;
+  }
+
+  .needs-actions .primary-action,
+  .needs-actions .secondary-action {
+    width: 100%;
+  }
+
+  .choice-row {
+    min-height: 64px;
+  }
+
+  .question-index .quiet-action {
+    flex: 0 0 auto;
+  }
+
+  .question-editor textarea,
+  .attribution-field input {
+    font-size: 16px;
   }
 }
 

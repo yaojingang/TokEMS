@@ -7,6 +7,7 @@ import type {
 import {
   selectFeaturedAccountContext,
   selectFeaturedRegistration,
+  shouldRevealOrganizerContact,
   visibleServiceHubItems,
 } from './account-service-hub';
 
@@ -108,6 +109,51 @@ describe('selectFeaturedRegistration', () => {
 });
 
 describe('selectFeaturedAccountContext', () => {
+  it('uses the requested registration when one大会 has multiple tickets', () => {
+    const first = registration(
+      '1',
+      'shared-event',
+      '2026-09-01T00:00:00.000Z',
+      '2026-09-02T00:00:00.000Z',
+    );
+    const second = registration(
+      '2',
+      'shared-event',
+      '2026-09-01T00:00:00.000Z',
+      '2026-09-02T00:00:00.000Z',
+    );
+
+    expect(
+      selectFeaturedAccountContext([first, second], [], 'shared-event', {
+        requestedRegistrationId: '2',
+      }).registration?.id,
+    ).toBe('2');
+  });
+
+  it('keeps the fixed-date positional contract for existing callers', () => {
+    const ended = registration(
+      '1',
+      'ended',
+      '2026-07-01T00:00:00.000Z',
+      '2026-07-02T00:00:00.000Z',
+    );
+    const upcoming = registration(
+      '2',
+      'upcoming',
+      '2026-09-20T00:00:00.000Z',
+      '2026-09-21T00:00:00.000Z',
+    );
+
+    expect(
+      selectFeaturedAccountContext(
+        [ended, upcoming],
+        [],
+        null,
+        new Date('2026-08-30T12:00:00.000Z'),
+      ).registration?.id,
+    ).toBe('2');
+  });
+
   it('can switch from a personal registration to an order-only event', () => {
     const personal = registration(
       '1',
@@ -146,5 +192,16 @@ describe('visibleServiceHubItems', () => {
     ] satisfies CustomerServiceHubItem[];
     expect(visibleServiceHubItems(items, false).map((item) => item.code)).toEqual(['ticket']);
     expect(visibleServiceHubItems(items, true)).toHaveLength(2);
+  });
+});
+
+describe('shouldRevealOrganizerContact', () => {
+  it('reveals a matching deep link before availability is considered', () => {
+    expect(
+      shouldRevealOrganizerContact('organizer_contact', 'registration-1', 'registration-1'),
+    ).toBe(true);
+    expect(
+      shouldRevealOrganizerContact('organizer_contact', 'registration-2', 'registration-1'),
+    ).toBe(false);
   });
 });

@@ -38,6 +38,7 @@ const nextCursor = ref<string | null>(null);
 const loading = ref(true);
 const loadingMore = ref(false);
 const errorMessage = ref('');
+let loadRequestId = 0;
 
 function itemPresentation(item: CustomerInvoiceCenterItem) {
   if (!item.status) {
@@ -51,32 +52,38 @@ function itemPresentation(item: CustomerInvoiceCenterItem) {
 }
 
 async function load(append = false) {
-  if (append) loadingMore.value = true;
-  else {
-    loading.value = true;
+  const requestId = ++loadRequestId;
+  const requestedCategory = category.value;
+  const requestedCursor = append ? (nextCursor.value ?? undefined) : undefined;
+  const existingItems = append ? items.value : [];
+  loading.value = !append;
+  loadingMore.value = append;
+  if (!append) {
     items.value = [];
     nextCursor.value = null;
   }
   errorMessage.value = '';
   try {
     await customer.refresh();
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
     if (!customer.session.value) {
       customer.openLogin();
       return;
     }
-    const result = await customer.invoices(
-      category.value,
-      append ? (nextCursor.value ?? undefined) : undefined,
-    );
-    items.value = append ? [...items.value, ...result.items] : result.items;
+    const result = await customer.invoices(requestedCategory, requestedCursor);
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
+    items.value = append ? [...existingItems, ...result.items] : result.items;
     counts.value = result.counts;
     nextCursor.value = result.nextCursor;
   } catch (error) {
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
     const value = error as { data?: { message?: string } };
     errorMessage.value = value.data?.message ?? '发票记录加载失败，请稍后重试';
   } finally {
-    loading.value = false;
-    loadingMore.value = false;
+    if (requestId === loadRequestId) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
 }
 
@@ -87,6 +94,10 @@ async function selectCategory(value: CustomerInvoiceCenterCategory) {
     query: value === 'all' ? {} : { category: value },
   });
   await load();
+}
+
+function selectCategoryFromEvent(event: Event) {
+  void selectCategory((event.target as HTMLSelectElement).value as CustomerInvoiceCenterCategory);
 }
 
 onMounted(() => void load());
@@ -186,6 +197,18 @@ useHead({ title: '发票中心' });
               <span>{{ counts[option.countKey] }}</span>
             </button>
           </nav>
+          <label class="invoice-center-mobile-filter">
+            <span>记录分类</span>
+            <select :value="category" @change="selectCategoryFromEvent">
+              <option
+                v-for="option in customerInvoiceCategories"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}（{{ counts[option.countKey] }}）
+              </option>
+            </select>
+          </label>
 
           <div v-if="items.length" class="invoice-center-list">
             <article v-for="item in items" :key="item.orderId" class="invoice-center-row">
@@ -293,7 +316,7 @@ useHead({ title: '发票中心' });
 .invoice-center-back,
 .invoice-center-event-link {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
   gap: 9px;
   color: #6f737c;
@@ -502,6 +525,10 @@ useHead({ title: '发票中心' });
   font-family: var(--conference-font-mono);
   font-size: 8px;
   text-align: center;
+}
+
+.invoice-center-mobile-filter {
+  display: none;
 }
 
 .invoice-center-list {
@@ -795,7 +822,7 @@ useHead({ title: '发票中心' });
 @media (max-width: 560px) {
   .invoice-center-shell {
     width: min(100% - 28px, 1120px);
-    padding-top: 24px;
+    padding: 24px 0 calc(72px + env(safe-area-inset-bottom));
   }
 
   .invoice-center-heading {
@@ -818,6 +845,33 @@ useHead({ title: '发票中心' });
   .invoice-center-section-head,
   .invoice-center-list {
     padding-inline: 18px;
+  }
+
+  .invoice-center-tabs {
+    display: none;
+  }
+
+  .invoice-center-mobile-filter {
+    display: grid;
+    gap: 7px;
+    padding: 14px 18px 16px;
+    border-top: 1px solid #eceef2;
+    border-bottom: 1px solid #dfe3e9;
+    color: #6f737c;
+    font-size: 10px;
+    font-weight: 680;
+  }
+
+  .invoice-center-mobile-filter select {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 34px 0 12px;
+    border: 1px solid #d9dee6;
+    border-radius: 7px;
+    background: #fff;
+    color: #17191d;
+    font-size: 16px;
+    font-weight: 680;
   }
 
   .invoice-center-row {
@@ -849,6 +903,12 @@ useHead({ title: '发票中心' });
   .invoice-center-row__action {
     display: grid;
     justify-content: start;
+  }
+
+  .invoice-center-row__action a,
+  .invoice-center-empty button,
+  .invoice-center-more {
+    min-height: 44px;
   }
 
   .invoice-center-empty {
