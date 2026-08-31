@@ -19,7 +19,11 @@ import {
   shouldRefreshPurchasedOrder,
 } from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
-import { selectFeaturedAccountContext, visibleServiceHubItems } from '~/utils/account-service-hub';
+import {
+  selectFeaturedAccountContext,
+  shouldRevealOrganizerContact,
+  visibleServiceHubItems,
+} from '~/utils/account-service-hub';
 import { copyPlainText } from '~/utils/copy-text';
 import AccountServiceHubIcon from '~/components/AccountServiceHubIcon.vue';
 
@@ -40,6 +44,7 @@ const serviceHubError = ref(false);
 const organizerPanelOpen = ref(false);
 const organizerConfirmationPending = ref(false);
 const organizerCopyStatus = ref('');
+const latestServiceHubRequestByRegistration = new Map<string, number>();
 let serviceHubRequestSequence = 0;
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
@@ -102,6 +107,10 @@ const featuredAccountContext = computed(() =>
     registrations.value,
     purchasedOrders.value,
     typeof route.query.event === 'string' ? route.query.event : null,
+    {
+      requestedRegistrationId:
+        typeof route.query.registration === 'string' ? route.query.registration : null,
+    },
   ),
 );
 const featuredRegistration = computed(() => featuredAccountContext.value.registration);
@@ -303,6 +312,14 @@ const serviceHubItems = computed(() =>
 const featuredTicketServiceItem = computed(() =>
   serviceHubItems.value.find((item) => item.code === 'ticket'),
 );
+const organizerServiceItem = computed(() =>
+  serviceHubItems.value.find((item) => item.code === 'organizer_contact'),
+);
+const organizerContactAvailable = computed(
+  () =>
+    Boolean(featuredServiceHub.value?.organizerContact.enabled) &&
+    Boolean(featuredServiceHub.value?.organizerContact.eligible),
+);
 const serviceActionCount = computed(
   () =>
     featuredServiceHub.value?.actionRequiredCount ??
@@ -338,9 +355,7 @@ async function openServiceHubItem(item: CustomerServiceHubItem) {
   const registration = featuredRegistration.value;
   if (!registration || serviceHubActionDisabled(item)) return;
   if (item.code === 'organizer_contact') {
-    organizerPanelOpen.value = true;
-    await nextTick();
-    document.querySelector<HTMLElement>('#organizer-contact-panel')?.focus();
+    await revealOrganizerPanel();
     return;
   }
   const routes: Record<Exclude<CustomerServiceHubItem['code'], 'organizer_contact'>, string> = {
@@ -354,10 +369,21 @@ async function openServiceHubItem(item: CustomerServiceHubItem) {
   await router.push(routes[item.code]);
 }
 
+async function revealOrganizerPanel() {
+  organizerPanelOpen.value = true;
+  await nextTick();
+  const panel = document.querySelector<HTMLElement>('#organizer-contact-panel');
+  panel?.scrollIntoView({ block: 'center' });
+  panel?.focus({ preventScroll: true });
+}
+
 function selectEvent(event: Event) {
   const eventSlug = (event.target as HTMLSelectElement).value;
   organizerPanelOpen.value = false;
-  void router.replace({ query: { ...route.query, event: eventSlug } });
+  const query = { ...route.query };
+  delete query.registration;
+  delete query.service;
+  void router.replace({ query: { ...query, event: eventSlug }, hash: '' });
 }
 
 function selectAccountSection(sectionId: (typeof accountSections)[number]['id']) {
@@ -392,11 +418,18 @@ function closeMobileNavigationFromOutside(event: PointerEvent) {
 
 async function loadServiceHub(registrationId: string) {
   const requestSequence = ++serviceHubRequestSequence;
+  latestServiceHubRequestByRegistration.set(registrationId, requestSequence);
   serviceHubPending.value = true;
   serviceHubError.value = false;
   try {
     const result = await customer.attendeeServiceHub(registrationId);
+    if (latestServiceHubRequestByRegistration.get(registrationId) !== requestSequence) return;
     serviceHubs.value = { ...serviceHubs.value, [registrationId]: result };
+    if (
+      shouldRevealOrganizerContact(route.query.service, route.query.registration, registrationId)
+    ) {
+      await revealOrganizerPanel();
+    }
   } catch {
     if (requestSequence === serviceHubRequestSequence) serviceHubError.value = true;
   } finally {
@@ -622,7 +655,13 @@ async function loadRegistrations(append = false) {
     const result = await customer.registrations(
       append ? (nextCursor.value ?? undefined) : undefined,
     );
-    registrations.value = append ? [...registrations.value, ...result.items] : result.items;
+    registrations.value = append
+      ? [
+          ...new Map(
+            [...registrations.value, ...result.items].map((item) => [item.id, item]),
+          ).values(),
+        ]
+      : result.items;
     nextCursor.value = result.nextCursor;
     const missing = registrations.value.filter(
       (item) => attendeeNeedsProfiles.value[item.id] === undefined,
@@ -630,6 +669,21 @@ async function loadRegistrations(append = false) {
     void Promise.all(missing.map((item) => loadAttendeeNeedsProfile(item.id)));
   } finally {
     loadingMore.value = false;
+  }
+}
+
+async function loadRequestedRegistration() {
+  const registrationId =
+    typeof route.query.registration === 'string' ? route.query.registration : '';
+  if (!registrationId || registrations.value.some((item) => item.id === registrationId)) return;
+  try {
+    const detail = await customer.registration(registrationId);
+    const { attendee, ...summary } = detail;
+    void attendee;
+    registrations.value = [summary, ...registrations.value];
+    void loadAttendeeNeedsProfile(summary.id);
+  } catch {
+    // A stale or inaccessible deep link falls back to the normal account priority.
   }
 }
 
@@ -702,6 +756,7 @@ async function initialize() {
     if (customer.session.value) {
       syncProfile();
       await Promise.all([loadRegistrations(), loadPurchasedOrders(), loadInvoiceSummary()]);
+      await loadRequestedRegistration();
     }
   } catch {
     errorMessage.value = '个人中心暂时无法加载，请稍后重试';
@@ -1125,7 +1180,7 @@ useHead({ title: '个人中心' });
                       关闭
                     </button>
                   </header>
-                  <div class="organizer-contact-panel__body">
+                  <div v-if="organizerContactAvailable" class="organizer-contact-panel__body">
                     <img
                       v-if="featuredServiceHub.organizerContact.qrAvailable"
                       :src="customer.organizerContactQrUrl(featuredRegistration.id)"
@@ -1194,6 +1249,18 @@ useHead({ title: '个人中心' });
                               : '我已添加并发送报名截图'
                         }}
                       </button>
+                    </div>
+                  </div>
+                  <div v-else class="organizer-contact-panel__unavailable" role="status">
+                    <span aria-hidden="true">i</span>
+                    <div>
+                      <strong>{{ organizerServiceItem?.label ?? '暂不可查看' }}</strong>
+                      <p>
+                        {{
+                          organizerServiceItem?.description ??
+                            '大会团队开放服务并确认参会资格后，可在这里查看组织者信息。'
+                        }}
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -1652,7 +1719,7 @@ useHead({ title: '个人中心' });
             <section id="invoices" class="account-section" aria-labelledby="invoices-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">04 / INVOICES</span>
+                  <span class="account-section__index">05 / INVOICES</span>
                   <h2 id="invoices-title">发票中心</h2>
                 </div>
                 <p>申请、审核、下载和历史记录统一汇总。</p>
@@ -1712,7 +1779,7 @@ useHead({ title: '个人中心' });
             <section id="profile" class="account-section" aria-labelledby="profile-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">05 / COMMON PROFILE</span>
+                  <span class="account-section__index">06 / COMMON PROFILE</span>
                   <h2 id="profile-title">常用资料</h2>
                 </div>
                 <p>这些资料可用于下一次报名预填。</p>
@@ -2856,6 +2923,41 @@ useHead({ title: '个人中心' });
   color: #6f747d;
   font-size: 10px;
   line-height: 1.6;
+}
+
+.organizer-contact-panel__unavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid #d7dfec;
+  background: #fff;
+}
+
+.organizer-contact-panel__unavailable > span {
+  display: grid;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #b9c8e4;
+  border-radius: 50%;
+  color: var(--conference-primary);
+  font: 700 13px/1 var(--conference-font-mono);
+}
+
+.organizer-contact-panel__unavailable strong {
+  display: block;
+  color: var(--account-ink);
+  font-size: 14px;
+}
+
+.organizer-contact-panel__unavailable p {
+  margin: 7px 0 0;
+  color: var(--account-muted);
+  font-size: 11px;
+  line-height: 1.65;
 }
 
 .organizer-contact-panel__confirm {

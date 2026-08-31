@@ -38,6 +38,7 @@ const nextCursor = ref<string | null>(null);
 const loading = ref(true);
 const loadingMore = ref(false);
 const errorMessage = ref('');
+let loadRequestId = 0;
 
 function itemPresentation(item: CustomerInvoiceCenterItem) {
   if (!item.status) {
@@ -51,32 +52,38 @@ function itemPresentation(item: CustomerInvoiceCenterItem) {
 }
 
 async function load(append = false) {
-  if (append) loadingMore.value = true;
-  else {
-    loading.value = true;
+  const requestId = ++loadRequestId;
+  const requestedCategory = category.value;
+  const requestedCursor = append ? (nextCursor.value ?? undefined) : undefined;
+  const existingItems = append ? items.value : [];
+  loading.value = !append;
+  loadingMore.value = append;
+  if (!append) {
     items.value = [];
     nextCursor.value = null;
   }
   errorMessage.value = '';
   try {
     await customer.refresh();
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
     if (!customer.session.value) {
       customer.openLogin();
       return;
     }
-    const result = await customer.invoices(
-      category.value,
-      append ? (nextCursor.value ?? undefined) : undefined,
-    );
-    items.value = append ? [...items.value, ...result.items] : result.items;
+    const result = await customer.invoices(requestedCategory, requestedCursor);
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
+    items.value = append ? [...existingItems, ...result.items] : result.items;
     counts.value = result.counts;
     nextCursor.value = result.nextCursor;
   } catch (error) {
+    if (requestId !== loadRequestId || category.value !== requestedCategory) return;
     const value = error as { data?: { message?: string } };
     errorMessage.value = value.data?.message ?? '发票记录加载失败，请稍后重试';
   } finally {
-    loading.value = false;
-    loadingMore.value = false;
+    if (requestId === loadRequestId) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
 }
 

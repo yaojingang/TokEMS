@@ -578,6 +578,52 @@ async function runVisualSmoke() {
     checked.push(label);
   }
 
+  async function assertRegistrationTableLayout(page, label) {
+    const firstRow = page.locator('.registration-table tbody tr').first();
+    if (!(await firstRow.count())) {
+      issues.push(`${label}: 没有可用于排版验收的报名记录`);
+      return;
+    }
+    const layout = await firstRow.evaluate((row) => {
+      const statusCell = row.querySelector('.registration-status-column');
+      const statusDetail = row.querySelector('.registration-status-detail');
+      const actionCell = row.querySelector('.registration-action-column');
+      const action = row.querySelector('.registration-view-action');
+      const textLines = (element) => {
+        if (!element) return 0;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      };
+      return {
+        statusCellWidth: statusCell?.getBoundingClientRect().width ?? 0,
+        statusDetailLines: textLines(statusDetail),
+        statusDetailWhiteSpace: statusDetail ? getComputedStyle(statusDetail).whiteSpace : '',
+        actionCellWidth: actionCell?.getBoundingClientRect().width ?? 0,
+        actionWidth: action?.getBoundingClientRect().width ?? 0,
+        actionTextLines: textLines(action),
+        actionWhiteSpace: action ? getComputedStyle(action).whiteSpace : '',
+      };
+    });
+    if (layout.statusCellWidth < 132 || layout.statusDetailWhiteSpace !== 'nowrap') {
+      issues.push(`${label}: 业务状态列宽度或单行约束失效`);
+    }
+    if (layout.statusDetailLines !== 1) {
+      issues.push(`${label}: 业务状态详情断成 ${layout.statusDetailLines} 行`);
+    }
+    if (
+      layout.actionCellWidth < 84 ||
+      layout.actionWidth < 56 ||
+      layout.actionWhiteSpace !== 'nowrap'
+    ) {
+      issues.push(`${label}: 查看操作列宽度或单行约束失效`);
+    }
+    if (layout.actionTextLines !== 1) {
+      issues.push(`${label}: 查看按钮文字断成 ${layout.actionTextLines} 行`);
+    }
+    checked.push(label);
+  }
+
   async function loginCustomer(page, mobileNumber) {
     await page.goto(`${webBase}/account`, { waitUntil: 'networkidle' });
     const loginButton = page.getByRole('button', { name: '登录个人中心' });
@@ -710,7 +756,10 @@ async function runVisualSmoke() {
       issues.push(`${label}: 模块导航存在小于 44px 的入口`);
     }
     const logoutButton = page.locator('.account-mobile-navigation__meta button');
-    if ((await logoutButton.count()) && (await logoutButton.evaluate((element) => element.offsetHeight)) < 44) {
+    if (
+      (await logoutButton.count()) &&
+      (await logoutButton.evaluate((element) => element.offsetHeight)) < 44
+    ) {
       issues.push(`${label}: 导航内退出按钮触控高度不足 44px`);
     }
     await page.keyboard.press('Escape');
@@ -727,7 +776,15 @@ async function runVisualSmoke() {
       const panel = document.querySelector('#account-mobile-navigation-panel');
       return panel && getComputedStyle(panel).display === 'none';
     });
-    if (!(await trigger.evaluate((element) => document.activeElement === element))) {
+    const navigationFocusRestored = await page
+      .waitForFunction(
+        () => document.activeElement?.classList.contains('account-mobile-navigation__trigger'),
+        undefined,
+        { timeout: 2500 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!navigationFocusRestored) {
       issues.push(`${label}: 选择模块后焦点没有回到导航触发按钮`);
     }
     checked.push(label);
@@ -766,7 +823,10 @@ async function runVisualSmoke() {
     await screenshot(page, 'web-faq-desktop.png', 'FAQ 独立页桌面端');
     await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
     const registrationSubmitButton = page.locator('form.flow-card button[type="submit"]');
-    if ((await page.locator('#registration-name').count()) && (await registrationSubmitButton.count())) {
+    if (
+      (await page.locator('#registration-name').count()) &&
+      (await registrationSubmitButton.count())
+    ) {
       const visualRunId = Date.now().toString();
       visualCustomerMobile = `139${visualRunId.slice(-8)}`;
       const registrationMobile = page.locator('#registration-mobile');
@@ -789,7 +849,7 @@ async function runVisualSmoke() {
       await page.locator('form.flow-card button[type="submit"]').click();
       await page.waitForURL(/\/(order|ticket)\//);
       visualCustomerStorageState = await desktop.storageState();
-      if (new URL(page.url()).pathname.startsWith('/order/')) {
+      if (new URL(page.url()).pathname.includes('/order/')) {
         await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
       } else {
         await page.getByText('现场扫码签到').waitFor();
@@ -960,6 +1020,7 @@ async function runVisualSmoke() {
 
   await admin.goto(`${adminBase}${eventBase}/registrations`, { waitUntil: 'networkidle' });
   await assertRegistrationToolbarLayout(admin, '报名管理筛选栏桌面端');
+  await assertRegistrationTableLayout(admin, '报名管理列表桌面端');
   const registrationPageSize = admin.getByLabel('每页显示条数');
   await registrationPageSize.fill('3');
   await registrationPageSize.press('Enter');
@@ -1193,6 +1254,7 @@ async function runVisualSmoke() {
 
   await mobileAdmin.goto(`${adminBase}${eventBase}/registrations`, { waitUntil: 'networkidle' });
   await assertRegistrationToolbarLayout(mobileAdmin, '报名管理筛选栏手机端');
+  await assertRegistrationTableLayout(mobileAdmin, '报名管理列表手机端');
   const mobileRegistrationView = mobileAdmin.getByRole('link', { name: '查看' }).first();
   if (await mobileRegistrationView.count()) {
     await mobileRegistrationView.click();

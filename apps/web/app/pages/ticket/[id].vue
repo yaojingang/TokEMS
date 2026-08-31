@@ -39,12 +39,56 @@ const flowSteps = computed(() =>
     invoiceRequired: Boolean(invoiceAccess.value),
   }),
 );
+const interactiveFlowSteps = computed(() =>
+  flowSteps.value.map((step) => {
+    if (
+      !experience.value.registrationFlow.branches.successActions ||
+      !ticket.value ||
+      ticket.value.status === 'cancelled'
+    ) {
+      return step.title;
+    }
+    if (step.type === 'member-profile') {
+      return {
+        title: step.title,
+        to: api.resolveConferenceUrl(
+          publicEventScopedPath(
+            `/account/registrations/${encodeURIComponent(ticket.value.registrationId)}/showcase`,
+            event.value.slug,
+          ),
+        ),
+        hint: '去完善 →',
+      };
+    }
+    if (step.type === 'attendee-needs') {
+      return {
+        title: step.title,
+        to: api.resolveConferenceUrl(
+          publicEventScopedPath(
+            `/account/registrations/${encodeURIComponent(ticket.value.registrationId)}/needs`,
+            event.value.slug,
+          ),
+        ),
+        hint: '去提交 →',
+      };
+    }
+    return step.title;
+  }),
+);
 const activeStep = computed(() => activeFlowStep(flowSteps.value, 'success-ticket'));
 const invoiceHref = computed(() =>
   invoiceAccess.value
     ? publicEventScopedPath(`/invoice/${invoiceAccess.value.id}`, event.value.slug)
     : '',
 );
+const organizerHref = computed(() => {
+  if (!ticket.value) return '';
+  const path = publicEventScopedPath('/account', event.value.slug, {
+    registration: ticket.value.registrationId,
+    service: 'organizer_contact',
+  });
+  return api.resolveConferenceUrl(path);
+});
 useHead(() => ({ title: `电子票 · ${ticket.value?.eventName ?? event.value.name}` }));
 
 onMounted(async () => {
@@ -86,7 +130,7 @@ function printTicket() {
       <FlowStepper
         :active="activeStep"
         :payment-required="paymentRequired"
-        :steps="flowSteps.map((step) => step.title)"
+        :steps="interactiveFlowSteps"
         :variant="experience.registrationFlow.progressVariant"
       />
 
@@ -138,6 +182,10 @@ function printTicket() {
         <button class="flow-action" type="button" @click="printTicket">打印 / 导出电子票</button>
         <a v-if="paymentSurface" class="flow-action is-secondary" :href="homeHref">返回大会首页</a>
         <NuxtLink v-else class="flow-action is-secondary" :to="homeHref">返回大会首页</NuxtLink>
+        <div v-if="ticket.status !== 'cancelled'" class="ticket-organizer-action">
+          <NuxtLink class="flow-action is-organizer" :to="organizerHref"> 添加大会组织者 </NuxtLink>
+          <small>添加后，等待邀请进入会员群</small>
+        </div>
       </div>
     </main>
   </div>

@@ -32,7 +32,9 @@ const orderStatusLabels: Record<string, string> = {
 const canOpenShowcase = computed(() =>
   ['confirmed', 'checked_in'].includes(detail.value?.registrationStatus ?? ''),
 );
-const canEditNeeds = computed(() => Boolean(attendeeNeeds.value?.id || attendeeNeeds.value?.canCreate));
+const canEditNeeds = computed(() =>
+  Boolean(attendeeNeeds.value?.id || attendeeNeeds.value?.canCreate),
+);
 const canOpenTicket = computed(() => Boolean(detail.value?.ticketCode));
 const detailTicketHref = computed(() => {
   const value = detail.value;
@@ -44,8 +46,8 @@ const canOpenInvoice = computed(() => {
   const value = detail.value;
   return Boolean(
     value?.canManageOrder &&
-      value.amount > 0 &&
-      ['paid', 'partially_refunded'].includes(value.orderStatus),
+    value.amount > 0 &&
+    ['paid', 'partially_refunded'].includes(value.orderStatus),
   );
 });
 const hasDetailActions = computed(
@@ -160,11 +162,7 @@ useHead({ title: '报名详情' });
           >
             编辑参会需求
           </NuxtLink>
-          <NuxtLink
-            v-if="canOpenTicket"
-            class="detail-secondary"
-            :to="detailTicketHref"
-          >
+          <NuxtLink v-if="canOpenTicket" class="detail-secondary" :to="detailTicketHref">
             查看电子票
           </NuxtLink>
           <NuxtLink

@@ -991,13 +991,13 @@ onBeforeUnmount(() => {
         <thead>
           <tr>
             <th class="customer-id-column">用户 ID</th>
-            <th>手机号</th>
-            <th>姓名</th>
-            <th>公司</th>
-            <th>账号注册时间</th>
+            <th class="customer-mobile-column">手机号</th>
+            <th class="customer-name-column">姓名</th>
+            <th class="customer-company-column">公司</th>
+            <th class="customer-created-column">账号注册时间</th>
             <th class="customer-registration-column">报名记录</th>
-            <th>参会名片</th>
-            <th>最新报名大会</th>
+            <th class="customer-showcase-column">参会名片</th>
+            <th class="customer-latest-column">最新报名大会</th>
             <th class="customer-status-column">状态</th>
             <th class="customer-actions-column">操作</th>
           </tr>
@@ -1020,17 +1020,17 @@ onBeforeUnmount(() => {
             </td>
             <td class="customer-name-cell" data-label="姓名">
               <span class="row-title customer-sourced-value">
-                {{ item.displayName }}
+                <span class="customer-sourced-text">{{ item.displayName }}</span>
                 <small v-if="item.displayNameSource === 'registration'">来自最近报名</small>
               </span>
             </td>
             <td class="customer-company-cell" data-label="公司">
               <span class="customer-sourced-value">
-                {{ item.displayCompany }}
+                <span class="customer-sourced-text">{{ item.displayCompany }}</span>
                 <small v-if="item.displayCompanySource === 'registration'">来自最近报名</small>
               </span>
             </td>
-            <td class="customer-created-cell" data-label="账号注册时间">
+            <td class="customer-created-cell customer-created-column" data-label="账号注册时间">
               {{ date(item.createdAt) }}
             </td>
             <td
@@ -1040,7 +1040,7 @@ onBeforeUnmount(() => {
               {{ item.registrationsCount }}
               <span class="row-sub">{{ item.eventCount }} 场大会</span>
             </td>
-            <td data-label="参会名片">
+            <td class="customer-showcase-column" data-label="参会名片">
               <span class="row-title">{{ item.showcaseCount }}</span>
               <span class="row-sub">{{ item.publicShowcaseCount }} 张公开</span>
             </td>
@@ -1117,8 +1117,8 @@ onBeforeUnmount(() => {
               </div>
             </td>
           </tr>
-          <tr v-if="!items.length">
-            <td colspan="9" class="admin-empty">当前筛选条件下没有普通用户。</td>
+          <tr v-if="!items.length" class="customer-empty-row">
+            <td colspan="10" class="admin-empty">当前筛选条件下没有普通用户。</td>
           </tr>
         </tbody>
       </table>
@@ -1210,7 +1210,7 @@ onBeforeUnmount(() => {
         <tbody>
           <tr v-for="administrator in administrators" :key="administrator.id">
             <td class="administrator-id" data-label="用户 ID">{{ administrator.userId }}</td>
-            <td data-label="管理员">
+            <td class="administrator-person" data-label="管理员">
               <span class="row-title">
                 {{ administrator.name }}
                 <small v-if="administrator.userId === session.identity.value?.user.id">你</small>
@@ -1223,8 +1223,10 @@ onBeforeUnmount(() => {
                 }}
               </span>
             </td>
-            <td data-label="手机号">{{ domesticMobile(administrator.mobile) || '未填写' }}</td>
-            <td data-label="角色">
+            <td class="administrator-mobile" data-label="手机号">
+              {{ domesticMobile(administrator.mobile) || '未填写' }}
+            </td>
+            <td class="administrator-role" data-label="角色">
               <span class="status-badge">
                 {{
                   administrator.isSuperAdministrator
@@ -1233,13 +1235,13 @@ onBeforeUnmount(() => {
                 }}
               </span>
             </td>
-            <td data-label="公司与职位">
+            <td class="administrator-profile" data-label="公司与职位">
               {{ administrator.profile?.company || '未填写' }}
               <span v-if="administrator.profile?.title" class="row-sub">
                 {{ administrator.profile.title }}
               </span>
             </td>
-            <td data-label="状态">
+            <td class="administrator-status" data-label="状态">
               <span
                 class="status-badge"
                 :class="administrator.status === 'active' ? 'paid' : 'draft'"
@@ -1247,7 +1249,7 @@ onBeforeUnmount(() => {
                 {{ administrator.status === 'active' ? '已启用' : '已停用' }}
               </span>
             </td>
-            <td v-if="isSuperAdministrator" data-label="操作">
+            <td v-if="isSuperAdministrator" class="administrator-actions-cell" data-label="操作">
               <div v-if="canManageAdministrator(administrator)" class="administrator-actions">
                 <button
                   class="button secondary compact"
@@ -1267,7 +1269,7 @@ onBeforeUnmount(() => {
               <span v-else class="administrator-protected">受保护</span>
             </td>
           </tr>
-          <tr v-if="!administrators.length">
+          <tr v-if="!administrators.length" class="administrator-empty-row">
             <td :colspan="isSuperAdministrator ? 7 : 6" class="admin-empty">
               当前没有可显示的管理员。
             </td>
@@ -2118,8 +2120,17 @@ onBeforeUnmount(() => {
   border-color: transparent;
 }
 
+.customer-list-panel {
+  container: customer-directory / inline-size;
+}
+
+.administrator-list-panel {
+  container: administrator-directory / inline-size;
+}
+
 .customer-list-tools {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -2127,6 +2138,7 @@ onBeforeUnmount(() => {
 
 .customer-filters {
   display: flex;
+  min-width: 0;
   gap: 8px;
   align-items: center;
 }
@@ -2184,7 +2196,8 @@ onBeforeUnmount(() => {
 }
 
 .customer-table {
-  min-width: 1100px;
+  min-width: 1160px;
+  table-layout: fixed;
 }
 
 .customer-table th,
@@ -2203,6 +2216,10 @@ onBeforeUnmount(() => {
   width: 92px;
 }
 
+.customer-id-column {
+  width: 82px;
+}
+
 .customer-id-column,
 .customer-registration-column,
 .customer-status-column,
@@ -2210,19 +2227,23 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+.customer-mobile-column,
 .customer-mobile-cell {
   width: 118px;
   font-variant-numeric: tabular-nums;
 }
 
+.customer-name-column,
 .customer-name-cell {
-  width: 136px;
+  width: 150px;
 }
 
+.customer-company-column,
 .customer-company-cell {
-  width: 132px;
+  width: 154px;
 }
 
+.customer-created-column,
 .customer-created-cell {
   width: 132px;
   font-variant-numeric: tabular-nums;
@@ -2232,8 +2253,13 @@ onBeforeUnmount(() => {
   width: 82px;
 }
 
+.customer-showcase-column {
+  width: 88px;
+}
+
+.customer-latest-column,
 .customer-latest-cell {
-  min-width: 210px;
+  width: 194px;
 }
 
 .customer-actions-column {
@@ -2288,6 +2314,13 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   gap: 5px;
+}
+
+.customer-sourced-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .customer-sourced-value small {
@@ -3588,6 +3621,327 @@ onBeforeUnmount(() => {
 
   .customer-delete-dialog footer .button {
     width: 100%;
+  }
+}
+
+@container customer-directory (max-width: 1120px) {
+  .customer-id-column,
+  .customer-created-column {
+    display: none;
+  }
+
+  .customer-table {
+    min-width: 900px;
+  }
+
+  .customer-mobile-column,
+  .customer-mobile-cell {
+    width: 112px;
+  }
+
+  .customer-name-column,
+  .customer-name-cell {
+    width: 134px;
+  }
+
+  .customer-company-column,
+  .customer-company-cell {
+    width: 140px;
+  }
+
+  .customer-registration-column {
+    width: 76px;
+  }
+
+  .customer-showcase-column {
+    width: 82px;
+  }
+
+  .customer-latest-column,
+  .customer-latest-cell {
+    width: 176px;
+  }
+
+  .customer-status-column {
+    width: 72px;
+  }
+
+  .customer-actions-column {
+    width: 124px;
+    min-width: 124px;
+  }
+}
+
+@container customer-directory (max-width: 900px) {
+  .customer-list-panel .admin-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .customer-list-tools {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .customer-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 116px auto auto;
+  }
+
+  .customer-filters input {
+    width: 100%;
+  }
+}
+
+@container administrator-directory (max-width: 1000px) {
+  .administrator-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+}
+
+@container customer-directory (max-width: 860px) {
+  .customer-table {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: auto;
+  }
+
+  .customer-table thead {
+    display: none;
+  }
+
+  .customer-table tbody {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .customer-table tr {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    overflow: hidden;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .customer-table td,
+  .customer-table .customer-id-column,
+  .customer-table .customer-created-column {
+    width: auto;
+    min-width: 0;
+    min-height: 58px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    padding: 9px 12px;
+    overflow: hidden;
+    border-bottom: 0;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .customer-table td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+
+  .customer-table .customer-name-cell,
+  .customer-table .customer-company-cell,
+  .customer-table .customer-latest-cell,
+  .customer-table .customer-actions-column {
+    grid-column: 1 / -1;
+  }
+
+  .customer-table .customer-name-cell,
+  .customer-table .customer-company-cell,
+  .customer-table .customer-latest-cell,
+  .customer-table .customer-actions-column,
+  .customer-table .customer-registration-column,
+  .customer-table .customer-registration-column .row-sub {
+    text-align: left;
+  }
+
+  .customer-table .customer-sourced-value,
+  .customer-table .customer-latest-registration {
+    width: 100%;
+  }
+
+  .customer-table .customer-sourced-value {
+    flex-wrap: nowrap;
+  }
+
+  .customer-table .customer-copy-value {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .customer-table .customer-row-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customer-table .customer-row-actions .button,
+  .customer-table .customer-more,
+  .customer-table .customer-more > .button {
+    width: 100%;
+  }
+
+  .customer-table .customer-actions-column {
+    position: static;
+    box-shadow: none;
+  }
+
+  .customer-table .customer-empty-row {
+    grid-column: 1 / -1;
+    display: block;
+  }
+
+  .customer-table .admin-empty {
+    display: block;
+    padding: 32px 18px;
+    text-align: center;
+  }
+
+  .customer-table .admin-empty::before {
+    content: none;
+  }
+}
+
+@container administrator-directory (max-width: 860px) {
+  .administrator-list-panel .admin-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .administrator-table {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .administrator-table thead {
+    display: none;
+  }
+
+  .administrator-table tbody {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .administrator-table tr {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    overflow: hidden;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .administrator-table td {
+    min-width: 0;
+    min-height: 58px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    padding: 9px 12px;
+    overflow: hidden;
+    border-bottom: 0;
+  }
+
+  .administrator-table td::before {
+    color: var(--muted);
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+
+  .administrator-table .administrator-person,
+  .administrator-table .administrator-profile,
+  .administrator-table .administrator-actions-cell {
+    grid-column: 1 / -1;
+  }
+
+  .administrator-table .administrator-actions,
+  .administrator-table .administrator-actions .button {
+    width: 100%;
+  }
+
+  .administrator-table .administrator-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .administrator-table .administrator-empty-row {
+    grid-column: 1 / -1;
+    display: block;
+  }
+
+  .administrator-table .admin-empty {
+    display: block;
+    padding: 32px 18px;
+    text-align: center;
+  }
+
+  .administrator-table .admin-empty::before {
+    content: none;
+  }
+}
+
+@container customer-directory (max-width: 620px) {
+  .customer-list-tools {
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .customer-filters {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .customer-filters input {
+    grid-column: 1 / -1;
+  }
+
+  .customer-export-button {
+    width: 100%;
+  }
+
+  .customer-table tbody {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container administrator-directory (max-width: 620px) {
+  .administrator-table tbody {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -46,17 +46,30 @@ export function selectFeaturedAccountContext(
   registrations: CustomerRegistrationSummary[],
   orders: CustomerPurchasedOrder[],
   requestedEventSlug: string | null,
-  now = new Date(),
+  options: Date | { requestedRegistrationId?: string | null; now?: Date } = new Date(),
 ) {
+  const now = options instanceof Date ? options : (options.now ?? new Date());
+  const requestedRegistrationId = options instanceof Date ? null : options.requestedRegistrationId;
+  const requestedRegistration = requestedRegistrationId
+    ? registrations.find((item) => item.id === requestedRegistrationId)
+    : undefined;
+  if (requestedRegistration) {
+    return {
+      registration: requestedRegistration,
+      order:
+        orders.find((item) => item.registrationId === requestedRegistration.id) ??
+        orders.find((item) => item.eventSlug === requestedRegistration.eventSlug) ??
+        null,
+    };
+  }
   const requestedExists = Boolean(
     requestedEventSlug &&
-      (registrations.some((item) => item.eventSlug === requestedEventSlug) ||
-        orders.some((item) => item.eventSlug === requestedEventSlug)),
+    (registrations.some((item) => item.eventSlug === requestedEventSlug) ||
+      orders.some((item) => item.eventSlug === requestedEventSlug)),
   );
   if (requestedExists) {
     return {
-      registration:
-        registrations.find((item) => item.eventSlug === requestedEventSlug) ?? null,
+      registration: registrations.find((item) => item.eventSlug === requestedEventSlug) ?? null,
       order: orders.find((item) => item.eventSlug === requestedEventSlug) ?? null,
     };
   }
@@ -71,9 +84,18 @@ export function selectFeaturedAccountContext(
   };
 }
 
-export function visibleServiceHubItems(
-  items: CustomerServiceHubItem[],
-  canManageOrder: boolean,
-) {
+export function visibleServiceHubItems(items: CustomerServiceHubItem[], canManageOrder: boolean) {
   return canManageOrder ? items : items.filter((item) => item.code !== 'invoice');
+}
+
+export function shouldRevealOrganizerContact(
+  requestedService: unknown,
+  requestedRegistrationId: unknown,
+  loadedRegistrationId: string,
+) {
+  return (
+    requestedService === 'organizer_contact' &&
+    (typeof requestedRegistrationId !== 'string' ||
+      requestedRegistrationId === loadedRegistrationId)
+  );
 }
