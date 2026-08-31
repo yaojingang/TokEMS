@@ -253,8 +253,8 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
             <p>
               {{
                 existingInvoice?.eventName ??
-                orderContext?.eventName ??
-                '填写准确的购买方信息，提交后可在这里查看进度。'
+                  orderContext?.eventName ??
+                  '填写准确的购买方信息，提交后可在这里查看进度。'
               }}
             </p>
           </div>

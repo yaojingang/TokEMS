@@ -24,6 +24,7 @@ import {
   shouldRevealOrganizerContact,
   visibleServiceHubItems,
 } from '~/utils/account-service-hub';
+import { copyPlainText } from '~/utils/copy-text';
 import AccountServiceHubIcon from '~/components/AccountServiceHubIcon.vue';
 
 const customer = useCustomerSession();
@@ -42,8 +43,9 @@ const serviceHubPending = ref(false);
 const serviceHubError = ref(false);
 const organizerPanelOpen = ref(false);
 const organizerConfirmationPending = ref(false);
-let serviceHubRequestSequence = 0;
+const organizerCopyStatus = ref('');
 const latestServiceHubRequestByRegistration = new Map<string, number>();
+let serviceHubRequestSequence = 0;
 const invoiceHighlights = ref<CustomerInvoiceCenterItem[]>([]);
 const invoiceCounts = ref<CustomerInvoiceCenterCounts>({
   all: 0,
@@ -393,6 +395,8 @@ async function selectMobileAccountSection(sectionId: (typeof accountSections)[nu
   selectAccountSection(sectionId);
   mobileNavigationTrigger.value?.focus({ preventScroll: true });
   await router.push({ query: route.query, hash: `#${sectionId}` });
+  await nextTick();
+  mobileNavigationTrigger.value?.focus({ preventScroll: true });
 }
 
 async function closeMobileNavigationFromKeyboard() {
@@ -448,6 +452,18 @@ async function setOrganizerConfirmed(confirmed: boolean) {
   } finally {
     organizerConfirmationPending.value = false;
   }
+}
+
+let organizerCopyStatusTimer: ReturnType<typeof setTimeout> | undefined;
+async function copyOrganizerWechatId() {
+  const wechatId = featuredServiceHub.value?.organizerContact.wechatId;
+  if (!wechatId) return;
+  const copied = await copyPlainText(wechatId);
+  organizerCopyStatus.value = copied ? '微信号已复制' : '复制失败，请长按微信号复制';
+  if (organizerCopyStatusTimer) clearTimeout(organizerCopyStatusTimer);
+  organizerCopyStatusTimer = setTimeout(() => {
+    organizerCopyStatus.value = '';
+  }, 3000);
 }
 
 function startAttendeeEdit(order: CustomerPurchasedOrder) {
@@ -833,6 +849,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   if (purchaseContextRefreshTimer) clearInterval(purchaseContextRefreshTimer);
+  if (organizerCopyStatusTimer) clearTimeout(organizerCopyStatusTimer);
   accountSectionObserver?.disconnect();
   document.removeEventListener('pointerdown', closeMobileNavigationFromOutside);
 });
@@ -1063,7 +1080,7 @@ useHead({ title: '个人中心' });
                     >
                       {{
                         featuredTicketServiceItem?.label ??
-                        statusLabel(featuredRegistration.registrationStatus)
+                          statusLabel(featuredRegistration.registrationStatus)
                       }}
                     </span>
                   </div>
@@ -1167,16 +1184,55 @@ useHead({ title: '个人中心' });
                     <img
                       v-if="featuredServiceHub.organizerContact.qrAvailable"
                       :src="customer.organizerContactQrUrl(featuredRegistration.id)"
-                      alt="大会组织者微信二维码"
+                      :alt="`${featuredServiceHub.organizerContact.organizerName}微信二维码`"
                     />
-                    <div>
-                      <strong>{{ featuredServiceHub.organizerContact.organizerName }}</strong>
-                      <span>{{ featuredServiceHub.organizerContact.organizerRole }}</span>
-                      <p>{{ featuredServiceHub.organizerContact.instructions }}</p>
-                      <dl>
-                        <dt>微信号</dt>
-                        <dd>{{ featuredServiceHub.organizerContact.wechatId }}</dd>
-                      </dl>
+                    <div class="organizer-contact-panel__content">
+                      <div class="organizer-contact-panel__identity">
+                        <strong>{{ featuredServiceHub.organizerContact.organizerName }}</strong>
+                        <span>{{ featuredServiceHub.organizerContact.organizerRole }}</span>
+                        <p>{{ featuredServiceHub.organizerContact.instructions }}</p>
+                      </div>
+                      <div class="organizer-contact-panel__wechat">
+                        <span>微信号</span>
+                        <code>{{ featuredServiceHub.organizerContact.wechatId }}</code>
+                        <button type="button" @click="copyOrganizerWechatId">
+                          {{ organizerCopyStatus === '微信号已复制' ? '已复制' : '复制微信号' }}
+                        </button>
+                      </div>
+                      <p
+                        class="organizer-contact-panel__copy-status"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {{ organizerCopyStatus }}
+                      </p>
+                      <ol class="organizer-contact-panel__steps" aria-label="会员入群步骤">
+                        <li>
+                          <span>01</span>
+                          <div>
+                            <strong>添加大会组织者</strong>
+                            <p>
+                              扫码添加{{
+                                featuredServiceHub.organizerContact.organizerName
+                              }}，好友申请按上方说明备注。
+                            </p>
+                          </div>
+                        </li>
+                        <li>
+                          <span>02</span>
+                          <div>
+                            <strong>发送报名信息截图</strong>
+                            <p>进入报名详情，截图含姓名和报名编号的信息并发送。</p>
+                          </div>
+                        </li>
+                        <li>
+                          <span>03</span>
+                          <div>
+                            <strong>等待会员群邀请</strong>
+                            <p>组织者核验参会资格后，会邀请你进入大会会员群。</p>
+                          </div>
+                        </li>
+                      </ol>
                       <button
                         class="organizer-contact-panel__confirm"
                         type="button"
@@ -1190,7 +1246,7 @@ useHead({ title: '个人中心' });
                             ? '正在更新…'
                             : featuredServiceHub.organizerContact.confirmedAt
                               ? '恢复为待添加'
-                              : '我已添加，等待邀请入群'
+                              : '我已添加并发送报名截图'
                         }}
                       </button>
                     </div>
@@ -1202,7 +1258,7 @@ useHead({ title: '个人中心' });
                       <p>
                         {{
                           organizerServiceItem?.description ??
-                          '大会团队开放服务并确认参会资格后，可在这里查看组织者信息。'
+                            '大会团队开放服务并确认参会资格后，可在这里查看组织者信息。'
                         }}
                       </p>
                     </div>
@@ -1245,25 +1301,22 @@ useHead({ title: '个人中心' });
 
               <div v-if="!featuredRegistration && featuredOrder" class="order-service-grid">
                 <a href="#purchases">
-                  <span>01</span><strong>订单与支付</strong
-                  ><small>{{ statusLabel(featuredOrder.status) }}</small>
+                  <span>01</span><strong>订单与支付</strong><small>{{ statusLabel(featuredOrder.status) }}</small>
                 </a>
                 <NuxtLink
                   v-if="
                     featuredOrder.invoiceId ||
-                    ['paid', 'partially_refunded'].includes(featuredOrder.status)
+                      ['paid', 'partially_refunded'].includes(featuredOrder.status)
                   "
                   :to="`/account/invoices/${featuredOrder.id}`"
                 >
-                  <span>02</span><strong>发票服务</strong
-                  ><small>{{ featuredOrder.invoiceId ? '查看开票记录' : '当前可以申请' }}</small>
+                  <span>02</span><strong>发票服务</strong><small>{{ featuredOrder.invoiceId ? '查看开票记录' : '当前可以申请' }}</small>
                 </NuxtLink>
                 <a v-else href="#invoices" aria-disabled="true">
                   <span>02</span><strong>发票服务</strong><small>支付完成后开放</small>
                 </a>
                 <a href="#purchases">
-                  <span>03</span><strong>参会人信息</strong
-                  ><small>{{
+                  <span>03</span><strong>参会人信息</strong><small>{{
                     featuredOrder.attendeeClaimed ? '参会人已认领' : '等待参会人认领'
                   }}</small>
                 </a>
@@ -1421,9 +1474,7 @@ useHead({ title: '个人中心' });
                     <p class="account-empty__eyebrow">YOUR EVENT ARCHIVE</p>
                     <h3>还没有报名记录</h3>
                     <p>本人报名或认领他人购买的名额后，会在这里显示参会凭证。</p>
-                    <a :href="publicHomepageHref"
-                      >查看正在报名的大会 <span aria-hidden="true">→</span></a
-                    >
+                    <a :href="publicHomepageHref">查看正在报名的大会 <span aria-hidden="true">→</span></a>
                   </div>
                 </div>
               </div>
@@ -1548,10 +1599,10 @@ useHead({ title: '个人中心' });
                         (orderItem.status === 'pending_payment' &&
                           !canResumePendingOrder(orderItem, purchaseContexts[orderItem.eventId]) &&
                           !canRestartSelfOrder(orderItem, purchaseContexts[orderItem.eventId])) ||
-                        (orderItem.status === 'closed' &&
-                          (!purchaseContexts[orderItem.eventId] ||
-                            purchaseContextErrors[orderItem.eventId] ||
-                            purchaseContexts[orderItem.eventId]?.resumePaymentOrderId ===
+                          (orderItem.status === 'closed' &&
+                            (!purchaseContexts[orderItem.eventId] ||
+                              purchaseContextErrors[orderItem.eventId] ||
+                              purchaseContexts[orderItem.eventId]?.resumePaymentOrderId ===
                               orderItem.id))
                       "
                       type="button"
@@ -1563,7 +1614,7 @@ useHead({ title: '个人中心' });
                     <NuxtLink
                       v-if="
                         orderItem.invoiceId ||
-                        ['paid', 'partially_refunded'].includes(orderItem.status)
+                          ['paid', 'partially_refunded'].includes(orderItem.status)
                       "
                       :to="`/account/invoices/${orderItem.id}`"
                     >
@@ -1668,7 +1719,7 @@ useHead({ title: '个人中心' });
             <section id="invoices" class="account-section" aria-labelledby="invoices-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">04 / INVOICES</span>
+                  <span class="account-section__index">05 / INVOICES</span>
                   <h2 id="invoices-title">发票中心</h2>
                 </div>
                 <p>申请、审核、下载和历史记录统一汇总。</p>
@@ -1728,7 +1779,7 @@ useHead({ title: '个人中心' });
             <section id="profile" class="account-section" aria-labelledby="profile-title">
               <div class="account-section__heading">
                 <div>
-                  <span class="account-section__index">05 / COMMON PROFILE</span>
+                  <span class="account-section__index">06 / COMMON PROFILE</span>
                   <h2 id="profile-title">常用资料</h2>
                 </div>
                 <p>这些资料可用于下一次报名预填。</p>
@@ -2748,22 +2799,130 @@ useHead({ title: '个人中心' });
 
 .organizer-contact-panel__body {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 26px;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+  gap: 30px;
   margin-top: 22px;
 }
 
 .organizer-contact-panel__body > img {
-  width: 180px;
-  height: 180px;
-  padding: 8px;
+  display: block;
+  width: 100%;
+  height: auto;
   border: 1px solid #d7dfec;
   background: #fff;
-  object-fit: contain;
 }
 
-.organizer-contact-panel__body > div {
+.organizer-contact-panel__content {
   min-width: 0;
+}
+
+.organizer-contact-panel__identity strong,
+.organizer-contact-panel__identity > span {
+  display: block;
+}
+
+.organizer-contact-panel__identity strong {
+  font-size: 17px;
+}
+
+.organizer-contact-panel__identity > span {
+  margin-top: 5px;
+  color: var(--account-muted);
+  font-size: 11px;
+}
+
+.organizer-contact-panel__identity p {
+  margin: 16px 0;
+  color: #555b66;
+  font-size: 11px;
+  line-height: 1.75;
+}
+
+.organizer-contact-panel__wechat {
+  display: grid;
+  min-height: 46px;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #dce4f1;
+  border-bottom: 1px solid #dce4f1;
+}
+
+.organizer-contact-panel__wechat > span {
+  color: #9297a0;
+  font-size: 11px;
+}
+
+.organizer-contact-panel__wechat code {
+  color: var(--account-ink);
+  font-family: var(--conference-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  user-select: all;
+}
+
+.organizer-contact-panel__wechat button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #c5d2e6;
+  border-radius: 5px;
+  color: var(--conference-primary);
+  font-size: 10px;
+  font-weight: 720;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.organizer-contact-panel__wechat button:hover {
+  background: #edf3ff;
+}
+
+.organizer-contact-panel__wechat button:active {
+  transform: scale(0.96);
+}
+
+.organizer-contact-panel__copy-status {
+  min-height: 18px;
+  margin: 5px 0 0;
+  color: #3571d2;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.organizer-contact-panel__steps {
+  display: grid;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid #dce4f1;
+  list-style: none;
+}
+
+.organizer-contact-panel__steps li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #dce4f1;
+}
+
+.organizer-contact-panel__steps li > span {
+  padding-top: 3px;
+  color: var(--conference-primary);
+  font: 700 9px/1 var(--conference-font-mono);
+}
+
+.organizer-contact-panel__steps strong {
+  color: var(--account-ink);
+  font-size: 11px;
+}
+
+.organizer-contact-panel__steps p {
+  margin: 3px 0 0;
+  color: #6f747d;
+  font-size: 10px;
+  line-height: 1.6;
 }
 
 .organizer-contact-panel__unavailable {
@@ -2799,46 +2958,6 @@ useHead({ title: '个人中心' });
   color: var(--account-muted);
   font-size: 11px;
   line-height: 1.65;
-}
-
-.organizer-contact-panel__body strong,
-.organizer-contact-panel__body > div > span {
-  display: block;
-}
-
-.organizer-contact-panel__body strong {
-  font-size: 17px;
-}
-
-.organizer-contact-panel__body > div > span {
-  margin-top: 5px;
-  color: var(--account-muted);
-  font-size: 11px;
-}
-
-.organizer-contact-panel__body p {
-  margin: 16px 0;
-  color: #555b66;
-  font-size: 11px;
-  line-height: 1.75;
-}
-
-.organizer-contact-panel__body dl {
-  display: grid;
-  grid-template-columns: 62px 1fr;
-  gap: 10px;
-  margin: 0;
-  font-size: 11px;
-}
-
-.organizer-contact-panel__body dt {
-  color: #9297a0;
-}
-
-.organizer-contact-panel__body dd {
-  margin: 0;
-  color: var(--account-ink);
-  font-family: var(--conference-font-mono);
 }
 
 .organizer-contact-panel__confirm {
@@ -4063,18 +4182,18 @@ useHead({ title: '个人中心' });
     grid-template-columns: 1fr;
   }
   .organizer-contact-panel__body > img {
-    width: min(100%, 220px);
+    width: min(100%, 300px);
     height: auto;
-    aspect-ratio: 1;
   }
   .organizer-contact-panel > header button,
+  .organizer-contact-panel__wechat button,
   .organizer-contact-panel__confirm {
     min-height: 44px;
   }
   .organizer-contact-panel__confirm {
     width: 100%;
   }
-  .organizer-contact-panel__body dd {
+  .organizer-contact-panel__wechat code {
     overflow-wrap: anywhere;
   }
 }

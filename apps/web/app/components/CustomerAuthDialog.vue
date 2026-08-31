@@ -285,8 +285,7 @@ onBeforeUnmount(() => {
                   :href="siteConfiguration.customerAccounts.termsUrl"
                   target="_blank"
                   rel="noreferrer"
-                  >用户协议</a
-                >
+                >用户协议</a>
                 <span v-else>用户协议</span>
                 和
                 <a
@@ -294,8 +293,7 @@ onBeforeUnmount(() => {
                   :href="siteConfiguration.customerAccounts.privacyUrl"
                   target="_blank"
                   rel="noreferrer"
-                  >隐私政策</a
-                >
+                >隐私政策</a>
                 <span v-else>隐私政策</span>
               </span>
             </label>

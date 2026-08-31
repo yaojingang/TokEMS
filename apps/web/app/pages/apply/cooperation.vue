@@ -1,6 +1,27 @@
 <script setup lang="ts">
 import { publicEventHomePath, type PublicEvent } from '@conference/contracts';
-import { createError, useAsyncData } from '#imports';
+import { createError, onBeforeUnmount, useAsyncData } from '#imports';
+import { copyPlainText } from '~/utils/copy-text';
+
+const organizerContact = {
+  wechatId: 'laoyaoke',
+  qrSrc: '/images/contacts/yao-jingang-wechat.jpg',
+} as const;
+const copyStatus = ref('');
+let copyStatusTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copyWechatId() {
+  const copied = await copyPlainText(organizerContact.wechatId);
+  copyStatus.value = copied ? '微信号已复制' : '复制失败，请长按微信号复制';
+  if (copyStatusTimer) clearTimeout(copyStatusTimer);
+  copyStatusTimer = setTimeout(() => {
+    copyStatus.value = '';
+  }, 3000);
+}
+
+onBeforeUnmount(() => {
+  if (copyStatusTimer) clearTimeout(copyStatusTimer);
+});
 
 const cooperationDirections = [
   {
@@ -127,56 +148,46 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
           <p class="cooperation-scope__other">
             有其他合作想法，也欢迎直接沟通。我们会结合大会内容和现场安排一起判断可行方式。
           </p>
+
+          <section class="conversation-guide" aria-labelledby="conversation-guide-title">
+            <div class="conversation-guide__head">
+              <p class="flow-eyebrow">LET'S TALK</p>
+              <h2 id="conversation-guide-title">首次沟通建议带上</h2>
+            </div>
+            <ol>
+              <li v-for="item in conversationGuide" :key="item.no">
+                <span>{{ item.no }}</span>
+                <strong>{{ item.label }}</strong>
+                <p>{{ item.detail }}</p>
+              </li>
+            </ol>
+          </section>
         </div>
 
-        <aside class="direct-contact" aria-labelledby="direct-contact-title">
-          <p class="direct-contact__eyebrow">DIRECT CONTACT</p>
-          <h2 id="direct-contact-title">加微信，聊合作</h2>
-          <p class="direct-contact__lead">微信沟通更直接，也方便后续发送合作资料。</p>
+        <aside class="direct-contact" aria-label="大会合作微信">
+          <figure class="direct-contact__qr">
+            <img
+              :src="organizerContact.qrSrc"
+              width="888"
+              height="1128"
+              alt="姚金刚微信二维码"
+              decoding="async"
+            />
+          </figure>
 
-          <div
-            class="direct-contact__qr"
-            role="img"
-            aria-label="姚金刚微信二维码待补充"
-            data-contact-qr-placeholder
-          >
-            <svg viewBox="0 0 48 48" aria-hidden="true">
-              <path
-                d="M5 19V5h14v14H5Zm4-4h6V9H9v6Zm20 4V5h14v14H29Zm4-4h6V9h-6v6ZM5 43V29h14v14H5Zm4-4h6v-6H9v6Z"
-              />
-              <path d="M29 29h5v5h-5v-5Zm9 0h5v5h-5v-5Zm-9 9h5v5h-5v-5Zm9 0h5v5h-5v-5Z" />
-            </svg>
-            <strong>微信二维码待补充</strong>
-            <span>收到原图后直接替换</span>
+          <div class="direct-contact__wechat">
+            <span>微信号</span>
+            <code>{{ organizerContact.wechatId }}</code>
+            <button type="button" @click="copyWechatId">
+              {{ copyStatus === '微信号已复制' ? '已复制' : '复制' }}
+            </button>
           </div>
 
-          <dl class="direct-contact__details">
-            <div>
-              <dt>微信联系人</dt>
-              <dd>姚金刚</dd>
-            </div>
-            <div>
-              <dt>微信号</dt>
-              <dd>姚金刚</dd>
-            </div>
-          </dl>
-
-          <p class="direct-contact__note">添加时请备注「大会合作＋公司名」</p>
+          <p class="direct-contact__note">添加好友请备注「大会合作＋公司名＋姓名」</p>
+          <p class="direct-contact__copy-status" role="status" aria-live="polite">
+            {{ copyStatus }}
+          </p>
         </aside>
-      </section>
-
-      <section class="conversation-guide" aria-labelledby="conversation-guide-title">
-        <div class="conversation-guide__head">
-          <p class="flow-eyebrow">LET'S TALK</p>
-          <h2 id="conversation-guide-title">沟通时带上这些信息</h2>
-        </div>
-        <ol>
-          <li v-for="item in conversationGuide" :key="item.no">
-            <span>{{ item.no }}</span>
-            <strong>{{ item.label }}</strong>
-            <p>{{ item.detail }}</p>
-          </li>
-        </ol>
       </section>
     </main>
   </div>
@@ -257,9 +268,13 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 .cooperation-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
-  align-items: start;
+  align-items: stretch;
   gap: clamp(40px, 5vw, 64px);
   padding: 52px 0 56px;
+}
+
+.cooperation-scope {
+  min-width: 0;
 }
 
 .cooperation-section-head {
@@ -339,113 +354,105 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 }
 
 .direct-contact {
-  padding: 34px 32px 32px;
+  display: grid;
+  align-content: center;
+  padding: 30px 32px 28px;
   border-radius: 0 0 18px 18px;
   background: #1d4ed8;
   color: #eff6ff;
 }
 
-.direct-contact__eyebrow {
-  margin: 0 0 9px;
-  color: #bfdbfe;
-  font-family: var(--conference-font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-}
-
-.direct-contact h2 {
-  margin: 0;
-  color: #f8fafc;
-  font-size: 28px;
-  line-height: 1.2;
-  text-wrap: balance;
-}
-
-.direct-contact__lead {
-  margin: 10px 0 24px;
-  color: rgb(239 246 255 / 76%);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
 .direct-contact__qr {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  width: 190px;
-  margin: 0 auto 25px;
-  padding: 24px 16px 17px;
+  width: min(100%, 236px);
+  margin: 0 auto 24px;
+  overflow: hidden;
   border-radius: 8px;
   outline: 1px solid rgb(23 23 23 / 10%);
   outline-offset: -1px;
   background: #f8fafc;
-  color: #1d4ed8;
 }
 
-.direct-contact__qr svg {
-  width: 80px;
-  height: 80px;
-  fill: currentColor;
+.direct-contact__qr img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
 }
 
-.direct-contact__qr strong {
-  color: #334155;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.direct-contact__qr span {
-  color: #64748b;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.direct-contact__details {
-  margin: 0;
+.direct-contact__wechat {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   border-top: 1px solid rgb(239 246 255 / 24%);
   border-bottom: 1px solid rgb(239 246 255 / 24%);
 }
 
-.direct-contact__details > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 12px 0;
-}
-
-.direct-contact__details > div + div {
-  border-top: 1px solid rgb(239 246 255 / 18%);
-}
-
-.direct-contact__details dt {
+.direct-contact__wechat > span {
   color: rgb(239 246 255 / 58%);
   font-size: 11px;
   letter-spacing: 0.05em;
 }
 
-.direct-contact__details dd {
-  margin: 0;
+.direct-contact__wechat code {
   color: #f8fafc;
-  font-size: 15px;
+  font-family: var(--conference-font-mono);
+  font-size: 14px;
   font-weight: 750;
+  user-select: all;
+}
+
+.direct-contact__wechat button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgb(239 246 255 / 36%);
+  border-radius: 5px;
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 700;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.direct-contact__wechat button:hover {
+  background: rgb(239 246 255 / 12%);
+}
+
+.direct-contact__wechat button:active {
+  transform: scale(0.96);
 }
 
 .direct-contact__note {
-  margin: 18px 0 0;
+  margin: 16px 0 0;
   color: rgb(239 246 255 / 72%);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.7;
+  text-align: center;
+}
+
+.direct-contact__copy-status {
+  min-height: 18px;
+  margin: 7px 0 -8px;
+  color: #dbeafe;
+  font-size: 10px;
+  line-height: 1.5;
   text-align: center;
 }
 
 .conversation-guide {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 2.2fr);
-  gap: clamp(40px, 6vw, 76px);
-  padding: 42px 0 0;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: clamp(28px, 4vw, 46px);
+  margin-top: 28px;
+  padding: 28px 0 0;
   border-top: 1px solid var(--line);
+}
+
+.conversation-guide__head h2 {
+  font-size: 20px;
+  line-height: 1.4;
 }
 
 .conversation-guide ol {
@@ -506,7 +513,17 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 
   .conversation-guide {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 20px;
+  }
+
+  .conversation-guide ol {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 20px;
+  }
+
+  .conversation-guide li:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
   }
 }
 
@@ -540,15 +557,15 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 
   .direct-contact {
     order: -1;
-    padding: 30px 22px 27px;
-  }
-
-  .direct-contact h2 {
-    font-size: 27px;
+    padding: 26px 22px 24px;
   }
 
   .direct-contact__qr {
-    width: 176px;
+    width: min(100%, 224px);
+  }
+
+  .direct-contact__wechat button {
+    min-height: 44px;
   }
 
   .cooperation-section-head {

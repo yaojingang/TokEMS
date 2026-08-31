@@ -45,6 +45,34 @@ async function runVisualSmoke() {
     });
   }
 
+  async function mockNativePaymentPreparation(page) {
+    await page.route('**/payments/wechat/*/native', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      const pathname = new URL(route.request().url()).pathname;
+      const orderId = pathname.match(/\/payments\/wechat\/([^/]+)\/native$/u)?.[1];
+      if (!orderId) {
+        await route.continue();
+        return;
+      }
+      const attemptId = `visual-${Date.now()}`;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          orderId,
+          channel: 'native',
+          attemptId,
+          outTradeNo: attemptId,
+          codeUrl: 'weixin://wxpay/bizpayurl?pr=tokems-visual-smoke',
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        }),
+      });
+    });
+  }
+
   async function assertNoHorizontalOverflow(page, label) {
     const sizes = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -748,7 +776,15 @@ async function runVisualSmoke() {
       const panel = document.querySelector('#account-mobile-navigation-panel');
       return panel && getComputedStyle(panel).display === 'none';
     });
-    if (!(await trigger.evaluate((element) => document.activeElement === element))) {
+    const navigationFocusRestored = await page
+      .waitForFunction(
+        () => document.activeElement?.classList.contains('account-mobile-navigation__trigger'),
+        undefined,
+        { timeout: 2500 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!navigationFocusRestored) {
       issues.push(`${label}: 选择模块后焦点没有回到导航触发按钮`);
     }
     checked.push(label);
@@ -760,6 +796,7 @@ async function runVisualSmoke() {
     reducedMotion: 'reduce',
   });
   const page = await desktop.newPage();
+  await mockNativePaymentPreparation(page);
   watch(page, 'desktop');
   let speakerDetailUrl;
   let visualCustomerMobile = '';
@@ -812,7 +849,7 @@ async function runVisualSmoke() {
       await page.locator('form.flow-card button[type="submit"]').click();
       await page.waitForURL(/\/(order|ticket)\//);
       visualCustomerStorageState = await desktop.storageState();
-      if (new URL(page.url()).pathname.startsWith('/order/')) {
+      if (new URL(page.url()).pathname.includes('/order/')) {
         await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
       } else {
         await page.getByText('现场扫码签到').waitFor();

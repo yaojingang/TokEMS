@@ -723,10 +723,8 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('displayName')?.message }}
                   </span>
-                  <small
-                    ><input v-model="form.visibleFields.displayName" type="checkbox" />
-                    公开姓名</small
-                  >
+                  <small><input v-model="form.visibleFields.displayName" type="checkbox" />
+                    公开姓名</small>
                 </label>
                 <label
                   class="field-block"
@@ -759,9 +757,7 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('industryCode')?.message }}
                   </span>
-                  <small
-                    ><input v-model="form.visibleFields.industry" type="checkbox" /> 公开行业</small
-                  >
+                  <small><input v-model="form.visibleFields.industry" type="checkbox" /> 公开行业</small>
                 </label>
                 <label class="field-block">
                   <span>公司 / 组织</span>
@@ -771,9 +767,7 @@ useHead(() => ({
                     maxlength="160"
                     autocomplete="organization"
                   />
-                  <small
-                    ><input v-model="form.visibleFields.company" type="checkbox" /> 公开公司</small
-                  >
+                  <small><input v-model="form.visibleFields.company" type="checkbox" /> 公开公司</small>
                 </label>
                 <label class="field-block">
                   <span>职位</span>
@@ -783,9 +777,7 @@ useHead(() => ({
                     maxlength="100"
                     autocomplete="organization-title"
                   />
-                  <small
-                    ><input v-model="form.visibleFields.title" type="checkbox" /> 公开职位</small
-                  >
+                  <small><input v-model="form.visibleFields.title" type="checkbox" /> 公开职位</small>
                 </label>
               </div>
             </div>
@@ -806,10 +798,8 @@ useHead(() => ({
                   rows="6"
                   placeholder="例如：帮助消费品牌建立 GEO 内容体系，希望认识品牌市场与 AI 产品方向的伙伴。"
                 />
-                <small
-                  ><input v-model="form.visibleFields.businessIntro" type="checkbox" />
-                  公开业务介绍</small
-                >
+                <small><input v-model="form.visibleFields.businessIntro" type="checkbox" />
+                  公开业务介绍</small>
               </label>
               <label class="field-block is-wide">
                 <span>公司或项目网址</span>
@@ -831,10 +821,8 @@ useHead(() => ({
                 >
                   {{ validationIssueFor('businessUrl')?.message }}
                 </span>
-                <small
-                  ><input v-model="form.visibleFields.businessUrl" type="checkbox" />
-                  公开网址</small
-                >
+                <small><input v-model="form.visibleFields.businessUrl" type="checkbox" />
+                  公开网址</small>
               </label>
             </div>
 
@@ -858,10 +846,8 @@ useHead(() => ({
                     maxlength="40"
                     autocomplete="tel"
                   />
-                  <small
-                    ><input v-model="form.visibleFields.contactPhone" type="checkbox" />
-                    公开电话</small
-                  >
+                  <small><input v-model="form.visibleFields.contactPhone" type="checkbox" />
+                    公开电话</small>
                 </label>
                 <label
                   class="field-block"
@@ -888,18 +874,14 @@ useHead(() => ({
                   >
                     {{ validationIssueFor('contactEmail')?.message }}
                   </span>
-                  <small
-                    ><input v-model="form.visibleFields.contactEmail" type="checkbox" />
-                    公开邮箱</small
-                  >
+                  <small><input v-model="form.visibleFields.contactEmail" type="checkbox" />
+                    公开邮箱</small>
                 </label>
                 <label class="field-block">
                   <span>微信号</span>
                   <input id="showcase-wechat-id" v-model="form.wechatId" maxlength="80" />
-                  <small
-                    ><input v-model="form.visibleFields.wechatId" type="checkbox" />
-                    公开微信号</small
-                  >
+                  <small><input v-model="form.visibleFields.wechatId" type="checkbox" />
+                    公开微信号</small>
                 </label>
               </div>
             </div>

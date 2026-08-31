@@ -194,7 +194,6 @@ describe('visibleServiceHubItems', () => {
     expect(visibleServiceHubItems(items, true)).toHaveLength(2);
   });
 });
-
 describe('shouldRevealOrganizerContact', () => {
   it('reveals a matching deep link before availability is considered', () => {
     expect(
