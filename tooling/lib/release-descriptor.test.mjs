@@ -33,7 +33,7 @@ function descriptorLabels(overrides = {}) {
   };
   services.forEach((service, index) => {
     labels[`com.tokems.release.image.${service}`] =
-      `ghcr.io/yaojingang/tokems-production@sha256:${String(index + 1).repeat(64)}`;
+      `ghcr.io/yaojingang/tokems-production-private@sha256:${String(index + 1).repeat(64)}`;
   });
   return { ...labels, ...overrides };
 }
@@ -72,7 +72,7 @@ test('release descriptor verifier emits a complete immutable image set', () => {
       assert.match(
         records,
         new RegExp(
-          `^image\\t${service.replace('-', '\\-')}\\tghcr\\.io/yaojingang/tokems-production@sha256:[0-9]+$`,
+          `^image\\t${service.replace('-', '\\-')}\\tghcr\\.io/yaojingang/tokems-production-private@sha256:[0-9]+$`,
           'm',
         ),
       );
@@ -110,7 +110,7 @@ test('release descriptor verifier rejects partial, drifting, and non-atomic desc
         'duplicate digest',
         descriptorLabels({
           'com.tokems.release.image.worker':
-            'ghcr.io/yaojingang/tokems-production@sha256:' + '1'.repeat(64),
+            'ghcr.io/yaojingang/tokems-production-private@sha256:' + '1'.repeat(64),
         }),
         /unique digest/i,
       ],
@@ -122,10 +122,18 @@ test('release descriptor verifier rejects partial, drifting, and non-atomic desc
         /private TokEMS package/i,
       ],
       [
+        'legacy dedicated package',
+        descriptorLabels({
+          'com.tokems.release.image.worker':
+            'ghcr.io/yaojingang/tokems-production@sha256:' + '8'.repeat(64),
+        }),
+        /private TokEMS package/i,
+      ],
+      [
         'extra service',
         descriptorLabels({
           'com.tokems.release.image.debug':
-            'ghcr.io/yaojingang/tokems-production@sha256:' + '9'.repeat(64),
+            'ghcr.io/yaojingang/tokems-production-private@sha256:' + '9'.repeat(64),
         }),
         /exactly the six supported service images/i,
       ],
