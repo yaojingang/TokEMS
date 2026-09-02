@@ -53,7 +53,14 @@ test('production deploy script has valid Bash syntax and a read-only help path',
 
 test('prebuilt images are the default release path and host builds remain resource-gated', () => {
   assert.match(source, /GHCR_TOKEN_FILE='\/etc\/tokems\/ghcr-read-token'/);
-  assert.match(source, /GHCR_PACKAGE='ghcr\.io\/yaojingang\/tokems'/);
+  assert.match(source, /GHCR_PACKAGE='ghcr\.io\/yaojingang\/tokems-production'/);
+  assert.doesNotMatch(source, /GHCR_PACKAGE='ghcr\.io\/yaojingang\/tokems'/);
+  assert.match(source, /package_name="\$\{GHCR_PACKAGE##\*\/\}"/);
+  assert.match(source, /packages\/container\/\$\{package_name\}/);
+  assert.match(
+    descriptorVerifierSource,
+    /EXPECTED_PACKAGE = "ghcr\.io\/yaojingang\/tokems-production"/,
+  );
   assert.match(source, /verify_image_publish_gate/);
   assert.match(source, /verify_release_descriptor/);
   assert.match(source, /pull_prebuilt_images/);
