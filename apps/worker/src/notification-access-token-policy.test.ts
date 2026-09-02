@@ -10,6 +10,7 @@ const persistedToken = {
   sealedToken: 'sealed-token-1',
   expiresAt: new Date('2026-09-01T00:00:00.000Z'),
 };
+const activeTokenNow = new Date('2026-08-16T00:00:00.000Z');
 
 describe('notification access token policy', () => {
   it.each(['queued', 'retrying', 'claimed', 'sending', 'unknown'])(
@@ -19,6 +20,7 @@ describe('notification access token policy', () => {
         planNotificationAccessToken({
           deliveryStatus: status,
           hasPayloadToken: false,
+          now: activeTokenNow,
           persistedToken,
         }),
       ).toBe('reuse');
