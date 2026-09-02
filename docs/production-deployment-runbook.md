@@ -42,6 +42,8 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 
 长期基础服务包括 PostgreSQL、Redis、MinIO 和 Mailpit。一次性任务 `db-init`、`minio-init` 正常结束状态为 `Exited (0)`。
 
+标准生产镜像由 `.github/workflows/publish-images.yml` 在官方 `main push` 的 `tokems-ci` 成功完成后构建，统一写入私有包 `ghcr.io/yaojingang/tokems`。六个服务镜像全部完成并生成 GitHub provenance 后，工作流最后发布 `release-<SHA>` descriptor。schema 2 descriptor 固定四项构建身份、生产平台、六个 digest，以及目标提交的完整 Git Bundle 和 verifier SHA-256，是完整可部署版本的唯一标志。生产机通过 GitHub API 核对 `main`、PR 和 CI，通过 GHCR 获取并证明源码与镜像；标准路径不要求生产机直连 `github.com` Git Smart HTTP。
+
 持久数据卷为：
 
 - `tokems-postgres`
@@ -55,10 +57,10 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 | 动作         | 结果                                                               | 何时使用                                           |
 | ------------ | ------------------------------------------------------------------ | -------------------------------------------------- |
 | 源码推送     | 校验本地规范大会快照后，本地分支通过 PR 合并到 GitHub `main`       | 所有代码、文档、规范快照、模板种子和迁移变更       |
-| 应用发布     | 服务器拉取 `origin/main`，构建镜像，迁移并切换容器                 | GitHub 主分支需要进入生产运行时                    |
+| 应用发布     | Actions 构建镜像；服务器拉取 digest，迁移并切换容器                | GitHub 主分支需要进入生产运行时                    |
 | 规范模板同步 | 把仓库中的 `geo-conference`、`tokems26` 规范模板幂等写入生产数据库 | 仓库模板、前台文案、大会设置或规范发布快照发生变化 |
 
-代码变更进入 `main` 后不会自动出现在当前服务器。当前环境使用仓库内 `tooling/production-deploy.sh` 作为服务器单命令发布入口，尚未配置 GitHub Actions 自动部署。
+代码变更进入 `main` 后不会自动出现在当前服务器。当前阶段使用仓库内 `tooling/production-deploy.sh` 作为服务器单命令发布入口；GitHub Actions 负责镜像构建和证明。带 Production Environment 审批的 SSH 自动部署会在三个不同 SHA 的预构建生产发布成功后进入独立 PR。
 
 后台直接修改默认大会时，保存操作会生成新的不可变发布快照并切换公开版本。修改完成后必须运行 `pnpm canonical:export` 回写仓库规范快照；最迟在下一次 GitHub 推送前完成。生产后台发生独立修改时，先同步回本地规范大会并确认公开页面，再更新仓库快照。
 
@@ -66,7 +68,7 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 
 1. **唯一来源**：生产只使用 `yaojingang/TokEMS` 的 `origin/main`。`majin72/TokEMS` 仅保留为历史 fork，不再接收生产推送。
 2. **PR 先行**：功能分支使用 `codex/*` 或项目约定的功能分支，经 PR、评审和 CI 后合并。服务器禁止直接部署未合并提交。
-3. **干净构建**：本地和服务器发布构建前，Git 工作区必须干净。构建开始后再次核对 `HEAD` 和工作区，避免镜像混入未提交文件。
+3. **干净构建**：Actions 和人工应急构建都只能读取精确目标提交。生产发布前 Git 工作区必须干净，源码导入后再次核对 `HEAD` 和工作区。
 4. **一个发布进程**：服务器同一时间只运行一个拉取、构建、迁移或切换任务。
 5. **先备份再写入**：数据库迁移、规范模板同步和容器切换前，必须创建可读取的数据库备份并记录回滚镜像。
 6. **四项构建身份完整**：`BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION`、`BUILD_MIGRATION_HASH` 必须在构建和运行阶段保持一致，任何值都不能为 `unknown`。
@@ -78,6 +80,8 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 12. **逐层验证**：发布结论需要同时满足 GitHub、容器、数据库、本机 HTTP、公网 HTTP 和版本身份六层验证。
 13. **规范快照随推送**：`pnpm install` 会启用仓库内的 `pre-push` 门禁，每次 GitHub 推送自动运行 `pnpm canonical:check`。默认大会或后台设置有变化时先运行 `pnpm canonical:export`。检查失败时禁止推送。
 14. **快照严格脱敏**：规范快照只包含模板及可复用后台设置。管理员身份、凭据、API/第三方集成配置、个人数据、交易数据、销量和审计记录不得进入 Git。
+15. **原子源码与镜像集合**：`release-<SHA>` descriptor 在完整 Git Bundle、verifier、六个服务镜像与构建证明全部完成后发布。同一 SHA 的有效 descriptor 只允许复用，禁止覆盖。服务器导入 Bundle 前必须核对 provenance、payload SHA-256、固定 ref 和目标 SHA；仅允许 Fast-forward 更新 `origin/main`。
+16. **私有 registry 最小权限**：生产机只使用 `/etc/tokems/ghcr-read-token` 中的 `read:packages` PAT classic。登录配置只存在于 root-only `/run` 临时目录。
 
 ## 5. 发布类型判断
 
@@ -146,6 +150,10 @@ git rev-parse origin/main
 gh run list --repo yaojingang/TokEMS --branch main --limit 5
 ```
 
+首次启用镜像工作流前，先从生产机执行 `uname -m`。`x86_64` 对应仓库变量 `PRODUCTION_PLATFORM=linux/amd64`，`aarch64` 或 `arm64` 对应 `linux/arm64`。该变量缺失或超出允许值时，`tokems-image-publish` 会在构建前失败。GHCR 包保持 Private；仓库 Actions 只拥有当前工作流需要的 `contents: read`、`packages: write`、`id-token: write` 和 `attestations: write`。
+
+恢复 SSH 后连续执行三轮只读网络与鉴权探测，记录时间和结果：访问 `https://ghcr.io/v2/`、通过临时 Docker 配置执行 GHCR 登录、读取已发布 descriptor 或最小测试镜像的 manifest。三轮都失败时，在合并本方案前把相同 descriptor 接口切换到阿里云 ACR。一次生产发布固定使用一个 registry。
+
 ## 7. 服务器标准发布流程
 
 以下命令以生产目录和当前 `ecs-user` Git 所有权为准。执行过程中出现非预期输出时停止发布，先定位当前层级。
@@ -154,7 +162,7 @@ gh run list --repo yaojingang/TokEMS --branch main --limit 5
 
 部署脚本在 GitHub 仓库中的固定位置是 `tooling/production-deploy.sh`。成功发布后，对应服务器文件为 `/www/wwwroot/TokEMS/tooling/production-deploy.sh`。`/www/dk_project/wwwroot/hui.ailingdaoli.com` 只保存站点和反向代理配置，不放置部署脚本、源码或构建产物。
 
-首次安装时不要把脚本直接复制到 `/www/wwwroot/TokEMS/tooling/`。服务器 `production` 仍停留在旧提交时，这样会产生未跟踪文件，Git 清洁门禁会拒绝继续。优先使用本节后面的“首次固定引导流程”，它直接从已经合并且 CI 成功的 `origin/main` 读取精确目标脚本。
+首次安装时不要把脚本直接复制到 `/www/wwwroot/TokEMS/tooling/`。服务器 `production` 仍停留在旧提交时，这样会产生未跟踪文件，Git 清洁门禁会拒绝继续。使用下面的 SCP 固定引导流程，从本地已经合并且 CI 成功的 `origin/main` 导出精确目标脚本。
 
 需要通过 SCP 上传时，先在本地从已合并的 `origin/main` 导出脚本，再上传到服务器 `/tmp`。将 `<生产服务器>` 替换为实际 SSH 主机：
 
@@ -176,20 +184,23 @@ sudo install -o root -g root -m 0755 \
 sudo /usr/local/sbin/tokems-deploy --help
 ```
 
-`/usr/local/sbin/tokems-deploy` 每次启动都会读取 `origin/main` 的目标脚本，并复核合并 PR、官方 main push CI 和 `quality-and-flows`。日常发布也使用这个 root 所有的入口，避免 root 直接执行由 `ecs-user` 管理的工作区文件。首次基线依次执行以下命令，每一步成功后再继续：
+`/usr/local/sbin/tokems-deploy` 每次启动都会从 GitHub API 解析最新 `main`，复核合并 PR、官方 main push CI、`quality-and-flows` 与镜像发布工作流，再从经过证明的 GHCR descriptor 导入目标 Git Bundle 并读取目标脚本。日常发布也使用这个 root 所有的入口，避免 root 直接执行由 `ecs-user` 管理的工作区文件。首次基线依次执行以下命令，每一步成功后再继续：
 
 ```bash
 sudo install -d -o root -g root -m 0700 /etc/tokems
 sudo install -o root -g root -m 0600 \
   /www/wwwroot/TokEMS/.env /etc/tokems/production.env
+# 在本机安全准备只含 read:packages 的 PAT 文件后安装；不要把 Token 写入命令行或日志。
+sudo install -o root -g root -m 0600 \
+  /tmp/tokems-ghcr-read-token /etc/tokems/ghcr-read-token
 sudo /usr/local/sbin/tokems-deploy repair-identity --target-sha <origin-main-full-sha>
 sudo /usr/local/sbin/tokems-deploy check --target-sha <origin-main-full-sha>
 sudo /usr/local/sbin/tokems-deploy deploy --target-sha <origin-main-full-sha>
 ```
 
-`/etc/tokems` 必须保持 `root:root 0700`，`/etc/tokems/production.env` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。不要把任何生产环境文件上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
+`/etc/tokems` 必须保持 `root:root 0700`，`production.env` 与 `ghcr-read-token` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。GHCR 登录通过 `password-stdin` 完成，临时 Docker 配置在退出路径清除。不要把生产环境文件或 Token 上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
 
-当前生产主机的历史内存与交换空间总可用量低于脚本要求的 10 GiB 构建门槛时，需要构建镜像的 `check` 和 `deploy` 会在备份、迁移和容器切换前停止。目标规范快照与当前运行提交完全一致，且目标差异仅包含部署控制与文档时，可显式执行 `check --sync-canonical` 和 `deploy --sync-canonical`；脚本复用当前已验证镜像，并继续执行备份、写冻结、规范同步、生产数据保护和完整验收。
+4 核 8G 生产主机的标准 `check` 和 `deploy` 使用预构建镜像，不执行 Docker 构建，也不应用 10 GiB 构建内存门禁。Docker 磁盘、备份容量、数据库和数据保护门禁保持启用。人工应急构建使用 `--build-on-host`，资源不足时会在备份、迁移和容器切换前停止。目标规范快照与当前运行提交完全一致，且目标差异仅包含部署控制与文档时，可显式执行 `check --sync-canonical` 和 `deploy --sync-canonical`；脚本复用当前已验证镜像，并继续执行备份、写冻结、规范同步、生产数据保护和完整验收。
 
 服务器已经首次安装 root 所有的稳定入口后，日常发布使用以下两个命令：
 
@@ -226,106 +237,21 @@ sudo /usr/local/sbin/tokems-deploy resolve-recovery
 
 2026-08-24 的失败发布记录明确指出：线上容器已经回到 `01c7b490bb690e4e12695dba2996f7d2864566f4` / `0053_mute_vulcan.sql`，服务器 `.env` 仍留有失败目标的构建身份。首次使用本脚本时先执行 `repair-identity`，再执行 `check` 和 `deploy`。修复证据保存到 `/www/backup/TokEMS/identity-repair-<时间戳>`。
 
-`check` 只读检查当前运行版本、Git 工作区、官方远端、`production → origin/main`、GitHub 合并 PR、`quality-and-flows`、Compose、Nginx、容器、镜像标签、生产环境固定项、磁盘和构建内存。`deploy` 在相同门禁通过后自动完成以下流程：
+`check` 检查当前运行版本、Git 工作区、官方远端、`production → origin/main`、GitHub 合并 PR、`quality-and-flows`、`tokems-image-publish`、descriptor、源码 Bundle 与服务镜像 provenance、Compose、Nginx、容器、镜像标签、生产环境固定项、平台和磁盘。它可能把经过证明的 Bundle 对象导入 `.git` 并 Fast-forward 远端跟踪 ref，不更新工作树、环境文件、运行容器或数据库。`--build-on-host` 额外检查构建内存。`deploy` 在相同门禁通过后自动完成以下流程：
 
-1. 创建构建开始时的 PostgreSQL custom dump、生产数据证据、旧 `.env`、旧 Compose 配置和运行状态证据。
-2. 给六个当前应用镜像添加 `rollback-<时间戳>` 标签。
-3. 以 Fast-forward 方式把服务器 `production` 更新到已经合并且 CI 成功的 `origin/main`。
-4. 从目标提交生成 root-only 源码快照和 Compose 构建上下文，生成并持久化四项构建身份，按服务串行构建镜像，固定 `COMPOSE_PARALLEL_LIMIT=1`。构建和容器切换全程使用 root-only `.env` 快照及清洁进程环境。
-5. 所有发布在数据库写入前先把 API/Worker 的 Docker 重启策略持久改为 `no`，启动持续重试的写阻断 guard，再落盘 `RECOVERY_REQUIRED` 并停止写服务。随后重新生成最终 PostgreSQL dump、生产主键、计数与销量基线，再以 `SEED_DEMO_DATA=false` 执行迁移；规范快照变化时继续执行受保护的 `geo-conference` / `tokems26` 同步。稳定业务表按主键索引流式取证，带自动保留期的数据在 Worker 暂停的阶段单独比对。
-6. 使用 `--no-build --no-deps --force-recreate --wait` 切换应用容器，不协调 PostgreSQL、Redis、MinIO 等基础设施。验收阶段以数据库只读模式启动 API，并暂停 Worker 任务。
-7. 在写冻结窗口验证容器、迁移、五类构建身份、本机与公网 HTTP、公开首页投影，以及从生产数据库重新导出的脱敏完整规范大会与后台设置；冻结期生产主键集合、计数和票种/配额销量必须精确一致。验证通过后以 `restart: no` 和正常数据库权限重建 API/Worker。Worker 的两类 BullMQ 消费者都完成 Redis ready 后才写入包含 SHA、构建时间和迁移身份的 `/tmp/tokems-worker-ready.json`；脚本核对并观察稳定后恢复 `unless-stopped`，再检查健康、数据库实例和允许正常新增的生产数据。
-8. 失败时先停止 API/Worker，再读取数据库迁移证据并恢复发布前镜像标签与 `.env`。迁移证据不可读取时，旧镜像和环境已经恢复，API/Worker 保持停止，`RECOVERY_REQUIRED` 继续阻止下一次普通发布。数据库 dump 始终保留，脚本不会自动覆盖恢复数据库。
+1. 验证 descriptor provenance、Git Bundle 与 verifier SHA-256，确认 Bundle 只公开固定 ref 的精确目标 SHA，且服务器当前 `origin/main`、`production` 都是其祖先；随后 Fast-forward 远端跟踪 ref，工作树保持不变。
+2. 创建构建开始时的 PostgreSQL custom dump、生产数据证据、旧 `.env`、旧 Compose 配置、运行状态证据和目标提交的 root-only 源码快照，并给六个当前应用镜像添加 `rollback-<时间戳>` 标签。
+3. Fast-forward 服务器 `production` 到已验证目标，按 descriptor digest 拉取六个镜像，逐个校验平台、服务标签、四项构建身份和源码迁移哈希。全部候选验证成功后写入 descriptor 的四项 `BUILD_*`，再成组更新本机发布标签；中途失败由既有 rollback handler 恢复整组旧标签。`--build-on-host` 应急路径继续使用 root-only 构建上下文和 `COMPOSE_PARALLEL_LIMIT=1` 串行构建。
+4. 所有发布在数据库写入前先把 API/Worker 的 Docker 重启策略持久改为 `no`，启动持续重试的写阻断 guard，再落盘 `RECOVERY_REQUIRED` 并停止写服务。随后重新生成最终 PostgreSQL dump、生产主键、计数与销量基线，再以 `SEED_DEMO_DATA=false` 执行迁移；规范快照变化时继续执行受保护的 `geo-conference` / `tokems26` 同步。稳定业务表按主键索引流式取证，带自动保留期的数据在 Worker 暂停的阶段单独比对。
+5. 使用 `--no-build --no-deps --force-recreate --wait` 切换应用容器，不协调 PostgreSQL、Redis、MinIO 等基础设施。验收阶段以数据库只读模式启动 API，并暂停 Worker 任务。
+6. 在写冻结窗口验证容器、迁移、五类构建身份、本机与公网 HTTP、公开首页投影，以及从生产数据库重新导出的脱敏完整规范大会与后台设置；冻结期生产主键集合、计数和票种/配额销量必须精确一致。验证通过后以 `restart: no` 和正常数据库权限重建 API/Worker。Worker 的两类 BullMQ 消费者都完成 Redis ready 后才写入包含 SHA、构建时间和迁移身份的 `/tmp/tokems-worker-ready.json`；脚本核对并观察稳定后恢复 `unless-stopped`，再检查健康、数据库实例和允许正常新增的生产数据。
+7. 失败时先停止 API/Worker，再读取数据库迁移证据并恢复发布前镜像标签与 `.env`。迁移证据不可读取时，旧镜像和环境已经恢复，API/Worker 保持停止，`RECOVERY_REQUIRED` 继续阻止下一次普通发布。数据库 dump 始终保留，脚本不会自动覆盖恢复数据库。
 
-脚本会先验证 `origin/main` 对应的合并 PR 和 CI，再读取该提交中的最新脚本继续执行，因此后续仓库内的部署逻辑更新会随目标提交生效。服务器首次尚未取得该文件时，先用以下固定引导流程完成同样的外部校验，再授予目标脚本 root 权限。当前已知基线第一次把 `deploy_action` 设为 `repair-identity`；随后分别设为 `check` 和 `deploy` 重跑：
-
-```bash
-set -Eeuo pipefail
-
-app_dir=/www/wwwroot/TokEMS
-deploy_action=repair-identity
-sudo -u ecs-user git -C /www/wwwroot/TokEMS fetch --prune origin main
-target_sha="$(sudo -u ecs-user git -C "$app_dir" rev-parse origin/main)"
-bootstrap_dir="$(mktemp -d /tmp/tokems-deploy-bootstrap.XXXXXX)"
-trap 'rm -f -- "$bootstrap_dir/prs.json" "$bootstrap_dir/runs.json" "$bootstrap_dir/checks.json" "$bootstrap_dir/deploy.sh"; rmdir -- "$bootstrap_dir"' EXIT
-
-curl --fail --silent --show-error --location \
-  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
-  -H 'Accept: application/vnd.github+json' \
-  -H 'X-GitHub-Api-Version: 2022-11-28' \
-  -H 'User-Agent: TokEMS-production-bootstrap' \
-  "https://api.github.com/repos/yaojingang/TokEMS/commits/${target_sha}/pulls?per_page=100" \
-  >"$bootstrap_dir/prs.json"
-curl --fail --silent --show-error --location \
-  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
-  -H 'Accept: application/vnd.github+json' \
-  -H 'X-GitHub-Api-Version: 2022-11-28' \
-  -H 'User-Agent: TokEMS-production-bootstrap' \
-  "https://api.github.com/repos/yaojingang/TokEMS/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100" \
-  >"$bootstrap_dir/runs.json"
-curl --fail --silent --show-error --location \
-  --connect-timeout 10 --max-time 60 --retry 2 --retry-delay 2 --retry-connrefused \
-  -H 'Accept: application/vnd.github+json' \
-  -H 'X-GitHub-Api-Version: 2022-11-28' \
-  -H 'User-Agent: TokEMS-production-bootstrap' \
-  "https://api.github.com/repos/yaojingang/TokEMS/commits/${target_sha}/check-runs?per_page=100" \
-  >"$bootstrap_dir/checks.json"
-
-python3 - "$target_sha" "$bootstrap_dir/prs.json" "$bootstrap_dir/runs.json" "$bootstrap_dir/checks.json" <<'PY'
-import json
-import sys
-
-target, pulls_file, runs_file, checks_file = sys.argv[1:]
-with open(pulls_file, encoding="utf-8") as handle:
-    pulls = json.load(handle)
-with open(runs_file, encoding="utf-8") as handle:
-    runs = json.load(handle).get("workflow_runs", [])
-with open(checks_file, encoding="utf-8") as handle:
-    checks = json.load(handle).get("check_runs", [])
-if not any(
-    item.get("merged_at")
-    and item.get("merge_commit_sha") == target
-    and (item.get("base") or {}).get("ref") == "main"
-    for item in pulls
-):
-    raise SystemExit("target commit has no merged main PR")
-if not any(
-    item.get("name") == "tokems-ci"
-    and item.get("path") == ".github/workflows/ci.yml"
-    and item.get("event") == "push"
-    and item.get("head_branch") == "main"
-    and item.get("head_sha") == target
-    and item.get("status") == "completed"
-    and item.get("conclusion") == "success"
-    and (item.get("repository") or {}).get("full_name") == "yaojingang/TokEMS"
-    and (item.get("head_repository") or {}).get("full_name") == "yaojingang/TokEMS"
-    for item in runs
-):
-    raise SystemExit("target commit has no successful official main push workflow")
-if not any(
-    item.get("name") == "quality-and-flows"
-    and item.get("head_sha") == target
-    and item.get("status") == "completed"
-    and item.get("conclusion") == "success"
-    and (item.get("app") or {}).get("slug") == "github-actions"
-    and "/yaojingang/TokEMS/actions/runs/" in (item.get("details_url") or "")
-    for item in checks
-):
-    raise SystemExit("target commit has no successful official quality-and-flows job")
-PY
-
-sudo -u ecs-user git -C "$app_dir" \
-  show "${target_sha}:tooling/production-deploy.sh" >"$bootstrap_dir/deploy.sh"
-chmod 700 "$bootstrap_dir/deploy.sh"
-bash -n "$bootstrap_dir/deploy.sh"
-sudo install -o root -g root -m 0755 \
-  "$bootstrap_dir/deploy.sh" /usr/local/sbin/tokems-deploy
-sudo bash /usr/local/sbin/tokems-deploy "$deploy_action" --target-sha "$target_sha"
-```
+脚本会先通过 GitHub API 验证最新 `main` 对应的合并 PR、CI 和镜像发布工作流，再从 descriptor digest 读取目标源码与最新版部署脚本。服务器首次启用使用本节前面的 SCP 固定引导流程：本地只从已合并的 `origin/main` 导出脚本，核对 SHA-256 后安装到 `/usr/local/sbin/tokems-deploy`。这一步不要求生产机连接 `github.com` Git Smart HTTP；安装后的稳定入口负责完成其余外部证明和 Bundle 导入。
 
 默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。常规发布的 `SEED_DEMO_DATA` 始终为 `false`；规范同步阶段才会向一次性 `db-init` 进程临时传入 `SEED_DEMO_DATA=true`。
 
-当线上运行镜像已经包含目标规范快照，且运行提交到目标提交之间的差异仅限 `AGENTS.md`、`docs/`、生产部署脚本及其测试时，自动检测到的规范漂移或显式 `--sync-canonical` 会进入规范修复流程。该流程先复核合并 PR、CI、运行身份、数据库实例和规范目标，再创建两轮数据库备份与镜像回滚标签、Fast-forward 服务器源码、冻结 API/Worker 写入、运行幂等规范同步，并在恢复写入前后核对公开首页、完整后台规范快照、业务主键、计数和销量。当前镜像和数据库迁移身份保持不变，因此无需镜像构建资源。任一运行相关文件或规范快照发生变化时，脚本回到标准构建流程。
+当线上运行镜像已经包含目标规范快照，且运行提交到目标提交之间的差异仅限 `AGENTS.md`、`docs/`、生产部署脚本及其测试时，自动检测到的规范漂移或显式 `--sync-canonical` 会进入规范修复流程。该流程先复核合并 PR、CI、运行身份、数据库实例和规范目标，再创建两轮数据库备份与镜像回滚标签、Fast-forward 服务器源码、冻结 API/Worker 写入、运行幂等规范同步，并在恢复写入前后核对公开首页、完整后台规范快照、业务主键、计数和销量。当前镜像和数据库迁移身份保持不变，因此无需镜像构建资源。任一运行相关文件或规范快照发生变化时，脚本回到标准预构建镜像流程。
 
 指定目标提交时使用完整 SHA。低内存服务器先运行只读预检，再执行同步：
 
@@ -338,11 +264,11 @@ sudo /usr/local/sbin/tokems-deploy deploy \
   --sync-canonical
 ```
 
-生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。标准镜像构建要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。受保护的规范修复流程跳过这组三项构建资源门禁，备份与验收容量门禁保持启用。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一适用资源不足时会在备份、迁移和容器变更前停止。需要构建镜像的发布仍需先扩容，或采用外部构建并拉取固定镜像摘要。
+生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。标准发布从 GHCR 拉取固定镜像摘要。`--build-on-host` 应急构建要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。受保护的规范修复流程跳过构建资源门禁，备份与验收容量门禁保持启用。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一适用资源不足时会在备份、迁移和容器变更前停止。
 
 标准单命令发布拒绝 `docker-compose.yml` 变化。数据库、缓存、对象存储、卷、端口和服务拓扑变更进入单独评审的基础设施维护窗口。
 
-每次标准发布都有短暂写冻结窗口：六个镜像构建完成后停止 API 和 Worker，持久化恢复标记，在静止写入状态重新生成最终数据库备份与业务基线，再执行迁移和可选的规范同步。语义验收期间 API 仅允许数据库读取，Worker 暂停消费。只读验收阶段公开浏览恢复；报名、支付回调、后台保存及异步任务会在窗口内失败或重试。脚本在恢复正常 API/Worker、核对持久 ready 身份和数据复验后归档恢复标记并记录成功。选择业务低峰执行，并确认支付渠道具备回调重试。
+每次标准发布都有短暂写冻结窗口：六个候选镜像拉取并验证完成后停止 API 和 Worker，持久化恢复标记，在静止写入状态重新生成最终数据库备份与业务基线，再执行迁移和可选的规范同步。语义验收期间 API 仅允许数据库读取，Worker 暂停消费。只读验收阶段公开浏览恢复；报名、支付回调、后台保存及异步任务会在窗口内失败或重试。脚本在恢复正常 API/Worker、核对持久 ready 身份和数据复验后归档恢复标记并记录成功。选择业务低峰执行，并确认支付渠道具备回调重试。
 
 数据库实例证明、查询、dump 和迁移都设置了进程级超时；连接串指向不可达地址或数据库停止响应时，脚本会失败退出并进入受控恢复。脚本保留全部备份和回滚镜像，不会自动清理历史文件。运维侧应按已验证的恢复演练和容量预算另行制定保留周期，删除前确认目标发布已过观察期且仍有可用备份。
 
@@ -360,12 +286,17 @@ sudo -u ecs-user git remote -v
 
 docker --version
 docker compose version
+docker buildx version
+gh --version
+gh attestation verify --help >/dev/null
 docker compose config --quiet
 docker compose ps
 nginx -t
 docker info --format '{{.DockerRootDir}}'
 df -h / /www/backup "$(docker info --format '{{.DockerRootDir}}')"
 free -h
+uname -m
+sudo stat -c '%U:%G %a %n' /etc/tokems/ghcr-read-token
 ```
 
 允许继续发布的条件：
@@ -374,7 +305,10 @@ free -h
 - 当前分支为 `production`。
 - `origin` 指向官方仓库。
 - Compose 配置和 Nginx 配置通过。
-- 磁盘、内存和 Docker 状态满足构建需要。
+- 生产平台与仓库变量 `PRODUCTION_PLATFORM` 一致，值为 `linux/amd64` 或 `linux/arm64`。
+- 预构建模式的磁盘、备份容量、Docker、Buildx、GitHub CLI 和 GHCR 只读凭据满足要求。
+- `api.github.com` 与 `ghcr.io` 可访问；`github.com` Git Smart HTTP 不属于标准发布依赖。
+- `--build-on-host` 应急模式额外满足 10 GiB 内存与构建磁盘门禁。
 - 没有其他构建或发布进程。
 
 ### 7.2 创建备份和镜像回滚点
@@ -442,24 +376,30 @@ docker image inspect \
 
 如果发布涉及 MinIO 配置、模板图片或发票文件存储，增加 MinIO 卷快照或对象存储备份，并把备份标识写入本次发布记录。Redis 卷不随发布删除。
 
-### 7.3 同步官方主分支
+### 7.3 Fast-forward 到已验证源码
+
+标准入口已经通过 descriptor provenance 和源码 Bundle 更新 `origin/main`。手工等价操作只允许把 `production` Fast-forward 到同一个已批准 SHA；这一阶段不再访问远端 Git Smart HTTP。
 
 ```bash
 cd /www/wwwroot/TokEMS || exit 1
 
 test -z "$(sudo -u ecs-user git status --porcelain --untracked-files=all)"
 sudo -u ecs-user git switch production
-sudo -u ecs-user git fetch --prune origin main
-sudo -u ecs-user git pull --ff-only origin main
-
-target_sha=$(sudo -u ecs-user git rev-parse HEAD)
-origin_sha=$(sudo -u ecs-user git rev-parse origin/main)
-test "$target_sha" = "$origin_sha"
+approved_sha=<origin-main-full-sha>
+origin_sha="$(sudo -u ecs-user git rev-parse origin/main)"
+test "$approved_sha" = "$origin_sha"
+sudo -u ecs-user git merge-base --is-ancestor HEAD "$approved_sha"
+sudo -u ecs-user git merge --ff-only "$approved_sha"
+test "$(sudo -u ecs-user git rev-parse HEAD)" = "$approved_sha"
 ```
 
 禁止使用 `git reset --hard` 或删除服务器工作区来解决分支分歧。出现分歧时停止发布，查明服务器提交来源。
 
-### 7.4 生成并持久化构建身份
+### 7.4 验证并持久化构建身份
+
+标准发布从 `release-<SHA>` descriptor 读取 `BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION`、`BUILD_MIGRATION_HASH`。脚本验证 descriptor 与六个服务镜像的 source、revision、service、platform 和 GitHub provenance，并把迁移名称与目标提交中的迁移文件 SHA-256 对照。四项值随后写入 root-only 发布环境快照；生产机不会重新生成构建时间。
+
+以下手工生成方式只用于显式 `--build-on-host` 应急路径。
 
 生产服务器当前没有 Node.js 和 pnpm，不能直接运行 `pnpm docker:deploy`。手工 Compose 发布需要显式生成与持久化四项构建身份：
 
@@ -512,7 +452,11 @@ docker compose config --quiet
 
 构建变量要在镜像构建前写入 `.env`。同一文件也供后续 `docker compose up` 使用，避免新终端丢失 Shell 临时变量。
 
-### 7.5 构建镜像
+### 7.5 拉取预构建镜像
+
+标准发布按 descriptor 中的 digest 拉取 API、Worker、Web、Admin、Gateway 与 notification-sink。六个候选镜像全部完成本地标签与架构复核前，脚本不会改变任何 `tokems-*:local` 标签。候选集合完整后，脚本为当前镜像保留 `rollback-<时间戳>`，再更新 `:local` 和本次 `release-<时间戳>` 标签。拉取或验证失败会留下下载缓存与审计文件，运行容器和发布标签保持原状。
+
+`--build-on-host` 应急路径使用以下串行构建等价步骤：
 
 ```bash
 cd /www/wwwroot/TokEMS || exit 1
@@ -778,6 +722,7 @@ docker compose \
 - 发布日期、操作者、目标环境和目标域名
 - GitHub PR、CI、目标提交和最高迁移
 - 构建时间、迁移文件 SHA-256 和镜像摘要
+- Release descriptor digest、源码 Bundle SHA-256、verifier SHA-256、目标平台和六个服务 digest
 - 备份目录、数据库 dump SHA-256 和回滚标签
 - 是否执行规范模板同步
 - 发布前后的组织、大会、票种、报名、订单数据摘要
@@ -789,8 +734,8 @@ docker compose \
 
 ## 13. 当前环境待改进项
 
-- 服务器没有 Node.js 和 pnpm，仓库内 Bash 脚本已覆盖单命令 Docker Compose 发布。后续优先建设基于 GitHub Actions、受保护生产环境和固定镜像摘要的外部构建流程，消除生产主机 BuildKit OOM 风险。
+- GitHub Actions 已负责固定镜像摘要的外部构建。完成三个不同 SHA 的真实预构建生产发布后，再通过独立 PR 增加 `production` Environment 审批、专用受限 SSH Key、root-owned 强制命令入口和 `deploy-production.yml`。规范修复复用旧镜像的发布不计入三次验证。
 - 当前 `.env` 由服务器权限保护。后续应把生产密钥迁移到 Secret Manager 或等价的受控密钥系统。
 - 服务器操作系统安全更新需要独立维护窗口处理，不能与应用发布混在同一次变更中。
 - MinIO 资产恢复演练和定期备份仍需形成独立记录。
-- GitHub Actions 自动发布完成前，每次 GitHub 合并后都要人工执行服务器部署脚本，并按模板补充日期化发布记录。
+- 带批准的 GitHub Actions 自动部署完成前，每次镜像发布成功后都要人工执行服务器部署脚本，并按模板补充日期化发布记录。

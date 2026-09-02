@@ -9,6 +9,10 @@ import test from 'node:test';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const scriptPath = resolve(repositoryRoot, 'tooling/production-deploy.sh');
 const source = readFileSync(scriptPath, 'utf8');
+const descriptorVerifierSource = readFileSync(
+  resolve(repositoryRoot, 'tooling/release-descriptor.py'),
+  'utf8',
+);
 const workerSource = readFileSync(resolve(repositoryRoot, 'apps/worker/src/main.ts'), 'utf8');
 const dockerfileSource = readFileSync(resolve(repositoryRoot, 'Dockerfile'), 'utf8');
 
@@ -24,6 +28,7 @@ test('production deploy script has valid Bash syntax and a read-only help path',
   assert.match(help.stdout, /production-deploy\.sh recover-interrupted/);
   assert.match(help.stdout, /production-deploy\.sh resolve-recovery/);
   assert.match(help.stdout, /--resume-recovery/);
+  assert.match(help.stdout, /--build-on-host/);
   assert.match(help.stdout, /default canonical mode is automatic/);
 
   const modeHelp = spawnSync('bash', [scriptPath, 'check', '--help'], { encoding: 'utf8' });
@@ -46,6 +51,65 @@ test('production deploy script has valid Bash syntax and a read-only help path',
   }
 });
 
+test('prebuilt images are the default release path and host builds remain resource-gated', () => {
+  assert.match(source, /GHCR_TOKEN_FILE='\/etc\/tokems\/ghcr-read-token'/);
+  assert.match(source, /GHCR_PACKAGE='ghcr\.io\/yaojingang\/tokems'/);
+  assert.match(source, /verify_image_publish_gate/);
+  assert.match(source, /verify_release_descriptor/);
+  assert.match(source, /pull_prebuilt_images/);
+  assert.match(source, /activate_prebuilt_images/);
+  assert.match(source, /gh attestation verify/);
+  assert.match(source, /docker buildx imagetools inspect/);
+  assert.match(source, /GHCR network probe failed/);
+  assert.match(source, /GHCR read token file is missing/);
+  assert.match(source, /GHCR authentication failed; the read token may be expired or invalid/);
+  assert.match(source, /prepare_release_source_bundle/);
+  assert.match(source, /verify-source-bundle/);
+  assert.match(source, /import-source-bundle/);
+  assert.match(source, /refs\/heads\/tokems-release-source/);
+  assert.match(descriptorVerifierSource, /refs\/tokems-deploy\/source-candidate/);
+  assert.match(descriptorVerifierSource, /EXPECTED_UPSTREAM_REF/);
+  assert.match(descriptorVerifierSource, /"update-ref",\s+EXPECTED_UPSTREAM_REF/);
+  assert.doesNotMatch(source, /git -C "\$APP_DIR" fetch --prune origin main/);
+  assert.match(source, /source_bundle_sha256=%s/);
+  assert.match(source, /descriptor_verifier_sha256=%s/);
+  const prepareDescriptor = source.slice(
+    source.indexOf('prepare_release_source_bundle() {'),
+    source.indexOf('\ndescriptor_image_ref() {'),
+  );
+  assert.ok(
+    prepareDescriptor.indexOf('--format \'{{.Manifest.Digest}}\' "$release_ref"') <
+      prepareDescriptor.indexOf("--format '{{json .Image.Config.Labels}}'"),
+    'the release tag must resolve to a digest before descriptor labels are read',
+  );
+  assert.match(prepareDescriptor, /"\$descriptor_ref" >"\$labels_file"/);
+  assert.doesNotMatch(
+    prepareDescriptor,
+    /--format '\{\{json \.Image\.Config\.Labels\}\}'[\s\\]*\n\s+"\$release_ref"/,
+  );
+
+  const main = source.slice(source.indexOf('\nmain() {'));
+  assert.match(
+    main,
+    /if \[\[ "\$build_on_host" == 'true' \]\]; then[\s\S]*?write_build_identity[\s\S]*?build_images[\s\S]*?else[\s\S]*?pull_prebuilt_images[\s\S]*?write_prebuilt_build_identity[\s\S]*?activate_prebuilt_images/,
+  );
+  assert.match(source, /if \[\[ "\$build_on_host" == 'true' \]\]; then\n\s+assert_build_capacity/);
+
+  const pull = source.slice(
+    source.indexOf('pull_prebuilt_images() {'),
+    source.indexOf('\nactivate_prebuilt_images() {'),
+  );
+  assert.doesNotMatch(pull, /:local/);
+  assert.doesNotMatch(pull, /docker (compose )?build/);
+  assert.match(pull, /registry_docker pull --platform "\$descriptor_platform" "\$image_ref"/);
+  const activate = source.slice(
+    source.indexOf('activate_prebuilt_images() {'),
+    source.indexOf('\nread_only_database_url() {'),
+  );
+  assert.match(activate, /images_changed='true'/);
+  assert.match(activate, /:local/);
+});
+
 test('forced canonical sync reuses a compatible runtime without building images', () => {
   const help = spawnSync('bash', [scriptPath, 'deploy', '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0, help.stderr);
@@ -55,10 +119,14 @@ test('forced canonical sync reuses a compatible runtime without building images'
     source.indexOf('run_full_preflight() {'),
     source.indexOf('\ncapture_business_snapshot() {'),
   );
+  assert.doesNotMatch(
+    preflight,
+    /verify_github_release_gate|verify_image_publish_gate|verify_release_descriptor/,
+  );
   assert.match(preflight, /canonical_repair_scope_is_compatible/);
   assert.match(
     preflight,
-    /if \[\[ "\$canonical_sync_required" == 'true' \]\] && canonical_repair_scope_is_compatible; then[\s\S]*?canonical_repair_mode='true'[\s\S]*?else[\s\S]*?assert_build_capacity/,
+    /if \[\[ "\$canonical_sync_required" == 'true' \]\] && canonical_repair_scope_is_compatible; then[\s\S]*?canonical_repair_mode='true'[\s\S]*?elif \[\[ "\$build_on_host" == 'true' \]\]; then[\s\S]*?assert_build_capacity/,
   );
 
   const repair = source.slice(
@@ -100,6 +168,7 @@ test('production deploy script pins the documented topology and release gates', 
     "readonly EXPECTED_ORIGIN='https://github.com/yaojingang/TokEMS.git'",
     "readonly EXPECTED_BRANCH='production'",
     "readonly EXPECTED_UPSTREAM='origin/main'",
+    "readonly EXPECTED_UPSTREAM_REF='refs/remotes/origin/main'",
     "readonly CANONICAL_ORGANIZATION_SLUG='geo-conference'",
     "readonly CANONICAL_EVENT_SLUG='tokems26'",
     'MIN_BUILD_CAPACITY_KIB=10485760',
@@ -109,7 +178,7 @@ test('production deploy script pins the documented topology and release gates', 
     'GIT_CONFIG_GLOBAL=/dev/null',
     "PRODUCTION_ENV_FILE='/etc/tokems/production.env'",
     'GIT_TERMINAL_PROMPT=0',
-    'GIT_FETCH_TIMEOUT_SECONDS=180',
+    'GIT_BUNDLE_IMPORT_TIMEOUT_SECONDS=180',
     'BUILD_TIMEOUT_SECONDS=3600',
     "LOCAL_DOCKER_HOST='unix:///var/run/docker.sock'",
     '--project-name "$COMPOSE_PROJECT"',
@@ -215,6 +284,8 @@ test('production deploy workflow creates recovery evidence before mutation and v
   assert.match(source, /canonical-homepage\.public\.before\.json/);
   assert.match(source, /business-counts-post-thaw\.csv/);
   assert.match(source, /compare_production_data post-thaw/);
+  assert.match(source, /assert_runtime_image_tags\n\s+assert_api_uses_compose_database/);
+  assert.match(source, /containers-after\.json/);
   assert.match(source, /write_pending_recovery_marker 'release-pre-write-armed'/);
   assert.doesNotMatch(source, /return \{tuple\(row\) for row/);
   assert.match(
@@ -449,7 +520,10 @@ test('worker publishes a persistent release identity only after startup maintena
   const finalStartupMaintenance = workerSource.indexOf('await maintainFeishuDigests()');
   assert.ok(finalStartupMaintenance >= 0 && finalStartupMaintenance < firstConsumerStart);
   assert.equal(workerSource.match(/autorun: false/g)?.length, 2);
-  assert.match(workerSource, /Promise\.all\(\[worker\.waitUntilReady\(\), htmlImportWorker\.waitUntilReady\(\)\]\)/);
+  assert.match(
+    workerSource,
+    /Promise\.all\(\[worker\.waitUntilReady\(\), htmlImportWorker\.waitUntilReady\(\)\]\)/,
+  );
   assert.match(workerSource, /rename\(workerReadyTempFile, workerReadyFile\)/);
   assert.match(workerSource, /unlink\(workerReadyFile\)/);
   assert.match(source, /fs\.readFileSync\('\/tmp\/tokems-worker-ready\.json'/);
@@ -476,17 +550,25 @@ test('rollback keeps the immutable pre-release identity after target verificatio
 
 test('target pinning is shared by every mode and recovery verifies the public API', () => {
   assert.ok(
-    source.match(/assert_target_selection "\$target_sha"/g)?.length >= 3,
-    'target selection must be rechecked by deploy, repair, and recovery modes',
+    source.match(/assert_github_main_unchanged/g)?.length >= 4,
+    'GitHub main must be rechecked by deploy, source sync, repair, and recovery modes',
   );
+  assert.match(source, /latest_sha="\$\(github_main_sha\)"/);
+  assert.match(source, /assert_target_selection "\$latest_sha"/);
   assert.match(source, /public-health-recovery-resolve\.json/);
-  assert.match(source, /assert_health_json <"\$pending_recovery_backup_dir\/public-health-recovery-resolve\.json"/);
+  assert.match(
+    source,
+    /assert_health_json <"\$pending_recovery_backup_dir\/public-health-recovery-resolve\.json"/,
+  );
 });
 
 test('root deployment pins Docker Compose and trusts only protected recovery paths', () => {
   assert.match(source, /umask 077/);
   assert.match(source, /export DOCKER_HOST="\$LOCAL_DOCKER_HOST"/);
-  assert.match(source, /unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES/);
+  assert.match(
+    source,
+    /unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES/,
+  );
   assert.match(source, /--project-name "\$COMPOSE_PROJECT"/);
   assert.match(source, /--project-directory "\$APP_DIR"/);
   assert.match(source, /--env-file "\$active_env_file"/);
@@ -499,7 +581,10 @@ test('root deployment pins Docker Compose and trusts only protected recovery pat
   assert.match(source, /Recovery evidence must be owned by root with mode 600/);
   assert.match(source, /Git replacement references are forbidden/);
   assert.match(source, /readlink -f \/proc\/\$\$\/fd\/9/);
-  assert.doesNotMatch(source, /TOKEMS_DEPLOY_LOCK_HELD|TOKEMS_DEPLOY_BOOTSTRAPPED|TOKEMS_RECOVERY_BOOTSTRAPPED/);
+  assert.doesNotMatch(
+    source,
+    /TOKEMS_DEPLOY_LOCK_HELD|TOKEMS_DEPLOY_BOOTSTRAPPED|TOKEMS_RECOVERY_BOOTSTRAPPED/,
+  );
   assert.doesNotMatch(source, /"\$APP_DIR\/\.env"|"\$\{APP_DIR\}\/\.env"/);
   for (const key of [
     'PUBLIC_ORIGIN',
@@ -512,35 +597,33 @@ test('root deployment pins Docker Compose and trusts only protected recovery pat
     'VITE_SIMPLE_AUTH',
     'ENABLE_LOCAL_PAYMENT_SIMULATION',
   ]) {
-    assert.match(source, new RegExp(`env_value ${key}`), `missing fixed production gate for ${key}`);
+    assert.match(
+      source,
+      new RegExp(`env_value ${key}`),
+      `missing fixed production gate for ${key}`,
+    );
   }
 });
 
 test('public release verification proves the deployed web bundle and document', () => {
   assert.match(source, /public-web-version-after\.json/);
-  assert.match(source, /build_fingerprint_from_stdin web <"\$backup_dir\/public-web-version-after\.json"/);
+  assert.match(
+    source,
+    /build_fingerprint_from_stdin web <"\$backup_dir\/public-web-version-after\.json"/,
+  );
   assert.match(source, /public-homepage-document-after\.html/);
   assert.match(source, /Public web bundle does not match/);
 });
 
 test('target-schema protected tables may be absent only from the pre-migration baseline', () => {
   assert.match(source, /:'capture_role' <> 'baseline' and namespace\.oid is null/);
-  assert.match(
-    source,
-    /retention-managed-ids-after\.csv" retention comparison/,
-  );
+  assert.match(source, /retention-managed-ids-after\.csv" retention comparison/);
 });
 
 test('agent terminal states expand only for post-thaw growth evidence', () => {
   assert.match(source, /:'capture_role' = 'growth_comparison'/);
-  assert.match(
-    source,
-    /protected-business-ids-post-thaw\.csv" stable growth_comparison/,
-  );
-  assert.match(
-    source,
-    /protected-business-ids-after\.csv" stable comparison/,
-  );
+  assert.match(source, /protected-business-ids-post-thaw\.csv" stable growth_comparison/);
+  assert.match(source, /protected-business-ids-after\.csv" stable comparison/);
 });
 
 test('a resumed write-freeze release never downgrades its persistent recovery phase', () => {
@@ -548,7 +631,7 @@ test('a resumed write-freeze release never downgrades its persistent recovery ph
     source.indexOf('create_backup_and_rollback_point() {'),
     source.indexOf('\nrefresh_pre_mutation_database_backup() {'),
   );
-  const inherited = backup.indexOf("if [[ \"$recovery_in_progress\" == 'true' ]]");
+  const inherited = backup.indexOf('if [[ "$recovery_in_progress" == \'true\' ]]');
   const writeFreeze = backup.indexOf("release_phase='write-freeze'", inherited);
   const preWrite = backup.indexOf("release_phase='pre-write'", inherited);
   assert.ok(inherited >= 0 && writeFreeze > inherited && preWrite > writeFreeze);
@@ -557,7 +640,10 @@ test('a resumed write-freeze release never downgrades its persistent recovery ph
 });
 
 test('the thaw watchdog remains active until protected exit recovery finishes', () => {
-  const exitHandler = source.slice(source.indexOf('on_exit() {'), source.indexOf('\non_signal() {'));
+  const exitHandler = source.slice(
+    source.indexOf('on_exit() {'),
+    source.indexOf('\non_signal() {'),
+  );
   const rollback = exitHandler.indexOf('restore_application_rollback');
   const stopWatchdog = exitHandler.lastIndexOf('stop_thaw_watchdog');
   assert.ok(rollback >= 0 && stopWatchdog > rollback);
@@ -627,8 +713,8 @@ test('recovery is versioned, offline-capable, and waits for detached database wo
   );
   assert.doesNotMatch(recover, /git_fetch_origin_main|verify_github_release_gate/);
   const resume = source.slice(
-    source.indexOf("if [[ \"$mode\" == 'deploy' && \"$resume_recovery\" == 'true' ]]") ,
-    source.indexOf("if [[ \"$mode\" == 'resolve-recovery' ]]") ,
+    source.indexOf('if [[ "$mode" == \'deploy\' && "$resume_recovery" == \'true\' ]]'),
+    source.indexOf('if [[ "$mode" == \'resolve-recovery\' ]]'),
   );
   assert.match(resume, /wait_for_db_init_quiescence/);
   assert.match(resume, /pending_recovery_target_image_tag/);
@@ -642,7 +728,10 @@ test('release verifies public recovery projection and the full canonical backend
   assert.match(source, /canonical-homepage\.snapshot\.\$\{evidence_suffix\}\.json/);
   assert.match(source, /export-canonical-homepage\.js --stdout/);
   assert.match(source, /CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL=true/);
-  assert.match(source, /verify_canonical_full_snapshot \\\n\s+"\$resolved_full_snapshot" \\\n\s+recovery-resolve/);
+  assert.match(
+    source,
+    /verify_canonical_full_snapshot \\\n\s+"\$resolved_full_snapshot" \\\n\s+recovery-resolve/,
+  );
   assert.match(source, /homepage_projection=shared-by-previous-and-runtime/);
   assert.match(source, /alternate_full_snapshot/);
   assert.match(source, /backend settings differ from the verified target snapshot/);

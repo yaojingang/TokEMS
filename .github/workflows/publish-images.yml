@@ -1,0 +1,455 @@
+name: tokems-image-publish
+
+on:
+  workflow_run:
+    workflows: [tokems-ci]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: tokems-image-publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+env:
+  GHCR_PACKAGE: ghcr.io/yaojingang/tokems
+
+jobs:
+  guard:
+    name: Verify CI source and release identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      target_sha: ${{ steps.identity.outputs.target_sha }}
+      build_time: ${{ steps.identity.outputs.build_time }}
+      migration: ${{ steps.identity.outputs.migration }}
+      migration_hash: ${{ steps.identity.outputs.migration_hash }}
+      platform: ${{ steps.identity.outputs.platform }}
+      reuse: ${{ steps.existing.outputs.reuse }}
+    env:
+      PRODUCTION_PLATFORM: ${{ vars.PRODUCTION_PLATFORM }}
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+      WORKFLOW_SHA: ${{ github.sha }}
+    steps:
+      - name: Validate completed workflow provenance
+        id: verify
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_RUN_JSON: ${{ toJson(github.event.workflow_run) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from types import SimpleNamespace
+
+          workflow_run = json.loads(
+              os.environ['WORKFLOW_RUN_JSON'],
+              object_hook=lambda value: SimpleNamespace(**value),
+          )
+          expected_repository = os.environ['EXPECTED_REPOSITORY']
+          if workflow_run.event != 'push':
+              raise SystemExit('image publication accepts only a main push CI run')
+          if workflow_run.head_branch != 'main':
+              raise SystemExit('image publication accepts only the main branch')
+          if workflow_run.status != 'completed':
+              raise SystemExit('upstream CI has not completed')
+          if workflow_run.conclusion != 'success':
+              raise SystemExit('upstream CI did not succeed')
+          if workflow_run.repository.full_name != expected_repository:
+              raise SystemExit('workflow repository does not match the official repository')
+          if workflow_run.head_repository.full_name != expected_repository:
+              raise SystemExit('workflow head repository does not match the official repository')
+          if not re.fullmatch(r'[0-9a-f]{40}', workflow_run.head_sha):
+              raise SystemExit('upstream CI did not provide a full lowercase commit SHA')
+          if workflow_run.head_sha != os.environ['TARGET_SHA']:
+              raise SystemExit('workflow payload and target SHA differ')
+          if os.environ.get('WORKFLOW_SHA') != workflow_run.head_sha:
+              raise SystemExit('default branch advanced before image publication; only the latest SHA may publish')
+          platform = os.environ.get('PRODUCTION_PLATFORM', '')
+          if platform not in {'linux/amd64', 'linux/arm64'}:
+              raise SystemExit('repository variable PRODUCTION_PLATFORM must be linux/amd64 or linux/arm64')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+      - name: Derive one build identity
+        id: identity
+        run: |
+          set -Eeuo pipefail
+          migration="$(find packages/database/drizzle -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -print | sort | tail -n 1)"
+          test -n "$migration"
+          migration="$(basename "$migration")"
+          migration_hash="$(sha256sum "packages/database/drizzle/$migration" | awk '{print $1}')"
+          build_time="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          {
+            echo "target_sha=$TARGET_SHA"
+            echo "build_time=$build_time"
+            echo "migration=$migration"
+            echo "migration_hash=$migration_hash"
+            echo "platform=$PRODUCTION_PLATFORM"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Reuse a previously completed immutable release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_TIME: ${{ steps.identity.outputs.build_time }}
+          BUILD_MIGRATION: ${{ steps.identity.outputs.migration }}
+          BUILD_MIGRATION_HASH: ${{ steps.identity.outputs.migration_hash }}
+        run: |
+          set -Eeuo pipefail
+          package_error="$RUNNER_TEMP/package-visibility.err"
+          package_visibility=''
+          if ! package_visibility="$(gh api /users/yaojingang/packages/container/tokems --jq .visibility 2>"$package_error")"; then
+            if ! grep -Eq 'HTTP 404|Not Found' "$package_error"; then
+              cat "$package_error" >&2
+              echo 'Unable to establish TokEMS GHCR package visibility before publication.' >&2
+              exit 1
+            fi
+          fi
+          if [[ -n "$package_visibility" && "$package_visibility" != private ]]; then
+            echo 'The TokEMS GHCR package must remain private.' >&2
+            exit 1
+          fi
+          release_ref="${GHCR_PACKAGE}:release-${TARGET_SHA}"
+          labels_file="$RUNNER_TEMP/release-labels.json"
+          inspect_error="$RUNNER_TEMP/release-inspect.err"
+          set +e
+          descriptor_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$release_ref" 2> "$inspect_error")"
+          inspect_status=$?
+          set -e
+          if [[ $inspect_status -ne 0 ]]; then
+            if grep -Eiq 'manifest unknown|not found|no such manifest' "$inspect_error"; then
+              echo 'reuse=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat "$inspect_error" >&2
+            exit "$inspect_status"
+          fi
+          [[ "$package_visibility" == private ]] || {
+            echo 'Unable to confirm that the existing TokEMS GHCR package is private.' >&2
+            exit 1
+          }
+          [[ "$descriptor_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          descriptor_ref="${GHCR_PACKAGE}@${descriptor_digest}"
+          docker buildx imagetools inspect --format '{{json .Image.Config.Labels}}' "$descriptor_ref" > "$labels_file"
+
+          records_file="$RUNNER_TEMP/release-records.tsv"
+          python3 tooling/release-descriptor.py verify-descriptor \
+            --labels-file "$labels_file" \
+            --target-sha "$TARGET_SHA" \
+            --platform "$PRODUCTION_PLATFORM" \
+            --records-output "$records_file"
+          gh attestation verify "oci://${GHCR_PACKAGE}@${descriptor_digest}" \
+            --repo yaojingang/TokEMS \
+            --signer-workflow yaojingang/TokEMS/.github/workflows/publish-images.yml \
+            --source-digest "$TARGET_SHA" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners >/dev/null
+
+          source_bundle_hash="$(awk -F '\t' '$1 == "release" && $2 == "source-bundle-sha256" {print $3}' "$records_file")"
+          verifier_hash="$(awk -F '\t' '$1 == "release" && $2 == "verifier-sha256" {print $3}' "$records_file")"
+          payload_dir="$RUNNER_TEMP/reused-descriptor-payload"
+          mkdir -p "$payload_dir"
+          docker pull --platform "$PRODUCTION_PLATFORM" "$descriptor_ref" >/dev/null
+          descriptor_container="$(docker create "$descriptor_ref" /release/source.bundle)"
+          cleanup_descriptor_container() {
+            if [[ -n "${descriptor_container:-}" ]]; then
+              docker rm -f "$descriptor_container" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_descriptor_container EXIT
+          docker cp "${descriptor_container}:/release/source.bundle" "$payload_dir/source.bundle"
+          docker cp "${descriptor_container}:/release/release-descriptor.py" "$payload_dir/release-descriptor.py"
+          cleanup_descriptor_container
+          descriptor_container=''
+          [[ "$(sha256sum "$payload_dir/source.bundle" | awk '{print $1}')" == "$source_bundle_hash" ]]
+          [[ "$(sha256sum "$payload_dir/release-descriptor.py" | awk '{print $1}')" == "$verifier_hash" ]]
+          [[ "$(sha256sum tooling/release-descriptor.py | awk '{print $1}')" == "$verifier_hash" ]]
+          python3 tooling/release-descriptor.py verify-source-bundle \
+            --bundle-file "$payload_dir/source.bundle" \
+            --target-sha "$TARGET_SHA"
+          trap - EXIT
+
+          build_time="$(awk -F '\t' '$1 == "build" && $2 == "time" {print $3}' "$records_file")"
+          migration="$(awk -F '\t' '$1 == "build" && $2 == "migration" {print $3}' "$records_file")"
+          migration_hash="$(awk -F '\t' '$1 == "build" && $2 == "migration-hash" {print $3}' "$records_file")"
+          while IFS=$'\t' read -r record_type service image_ref; do
+            [[ "$record_type" == image ]] || continue
+            metadata_file="$RUNNER_TEMP/image-${service}.json"
+            docker buildx imagetools inspect --format '{{json .Image}}' "$image_ref" > "$metadata_file"
+            python3 tooling/release-descriptor.py verify-service \
+              --metadata-file "$metadata_file" \
+              --service "$service" \
+              --target-sha "$TARGET_SHA" \
+              --build-time "$build_time" \
+              --migration "$migration" \
+              --migration-hash "$migration_hash" \
+              --platform "$PRODUCTION_PLATFORM"
+            gh attestation verify "oci://${image_ref}" \
+              --repo yaojingang/TokEMS \
+              --signer-workflow yaojingang/TokEMS/.github/workflows/publish-images.yml \
+              --source-digest "$TARGET_SHA" \
+              --source-ref refs/heads/main \
+              --deny-self-hosted-runners >/dev/null
+          done < "$records_file"
+          echo 'reuse=true' >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.service }}
+    needs: guard
+    if: needs.guard.outputs.reuse == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api
+          - worker
+          - web
+          - admin
+          - gateway
+          - notification-sink
+    env:
+      TARGET_SHA: ${{ needs.guard.outputs.target_sha }}
+      BUILD_TIME: ${{ needs.guard.outputs.build_time }}
+      BUILD_MIGRATION: ${{ needs.guard.outputs.migration }}
+      BUILD_MIGRATION_HASH: ${{ needs.guard.outputs.migration_hash }}
+      PRODUCTION_PLATFORM: ${{ needs.guard.outputs.platform }}
+      SERVICE: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.target_sha }}
+          fetch-depth: 1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build and push immutable service image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.service }}
+          platforms: ${{ needs.guard.outputs.platform }}
+          push: true
+          provenance: false
+          tags: ${{ env.GHCR_PACKAGE }}:${{ matrix.service }}-${{ needs.guard.outputs.target_sha }}-${{ github.run_id }}
+          build-args: |
+            BUILD_SHA=${{ needs.guard.outputs.target_sha }}
+            BUILD_TIME=${{ needs.guard.outputs.build_time }}
+            BUILD_MIGRATION=${{ needs.guard.outputs.migration }}
+            BUILD_MIGRATION_HASH=${{ needs.guard.outputs.migration_hash }}
+            NUXT_PUBLIC_API_BASE=/api/v1
+            NUXT_PUBLIC_ORGANIZATION_SLUG=geo-conference
+            VITE_API_BASE=/api/v1
+            VITE_ADMIN_BASE=/admin/
+            VITE_SIMPLE_AUTH=false
+          cache-from: type=gha,scope=tokems-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=tokems-${{ matrix.service }}
+      - name: Attest service image provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.GHCR_PACKAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Save service digest
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/tokems-digest"
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > "$RUNNER_TEMP/tokems-digest/${SERVICE}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tokems-digest-${{ matrix.service }}
+          path: ${{ runner.temp }}/tokems-digest/${{ matrix.service }}
+          if-no-files-found: error
+          retention-days: 1
+
+  descriptor:
+    name: Publish atomic release descriptor
+    needs: [guard, build]
+    if: ${{ always() && needs.guard.result == 'success' && needs.guard.outputs.reuse == 'false' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_SHA: ${{ needs.guard.outputs.target_sha }}
+      BUILD_TIME: ${{ needs.guard.outputs.build_time }}
+      BUILD_MIGRATION: ${{ needs.guard.outputs.migration }}
+      BUILD_MIGRATION_HASH: ${{ needs.guard.outputs.migration_hash }}
+      PRODUCTION_PLATFORM: ${{ needs.guard.outputs.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.target_sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: tokems-digest-*
+          path: ${{ runner.temp }}/tokems-digests
+          merge-multiple: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Resolve the six digest-pinned image references
+        id: images
+        run: |
+          set -Eeuo pipefail
+          for service in api worker web admin gateway notification-sink; do
+            digest_file="$RUNNER_TEMP/tokems-digests/$service"
+            test -s "$digest_file"
+            digest="$(cat "$digest_file")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            output_name="${service//-/_}_image"
+            echo "${output_name}=${GHCR_PACKAGE}@${digest}" >> "$GITHUB_OUTPUT"
+          done
+      - name: Require a private GHCR package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          visibility="$(gh api /users/yaojingang/packages/container/tokems --jq .visibility)"
+          [[ "$visibility" == private ]] || {
+            echo 'The TokEMS GHCR package must remain private.' >&2
+            exit 1
+          }
+      - name: Build and verify the exact source bundle
+        id: source
+        run: |
+          set -Eeuo pipefail
+          source_ref='refs/heads/tokems-release-source'
+          source_dir="$RUNNER_TEMP/tokems-release-context"
+          bundle_file="$source_dir/source.bundle"
+          mkdir -p "$source_dir"
+          if git show-ref --verify --quiet "$source_ref"; then
+            echo "Temporary source bundle ref already exists: ${source_ref}" >&2
+            exit 1
+          fi
+          cleanup_source_ref() {
+            git update-ref -d "$source_ref" >/dev/null 2>&1 || true
+          }
+          trap cleanup_source_ref EXIT
+          git update-ref "$source_ref" "$TARGET_SHA"
+          git bundle create "$bundle_file" "$source_ref"
+          git bundle verify "$bundle_file"
+          [[ "$(git bundle list-heads "$bundle_file" "$source_ref")" == "$TARGET_SHA $source_ref" ]]
+          bundle_sha256="$(sha256sum "$bundle_file" | awk '{print $1}')"
+          verifier_sha256="$(sha256sum tooling/release-descriptor.py | awk '{print $1}')"
+          [[ "$bundle_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$verifier_sha256" =~ ^[0-9a-f]{64}$ ]]
+          {
+            echo "bundle_sha256=$bundle_sha256"
+            echo "verifier_sha256=$verifier_sha256"
+          } >> "$GITHUB_OUTPUT"
+          cleanup_source_ref
+          trap - EXIT
+      - name: Build the release descriptor candidate
+        id: descriptor
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          build-contexts: |
+            release=${{ runner.temp }}/tokems-release-context
+          file: tooling/release-descriptor.Dockerfile
+          platforms: ${{ needs.guard.outputs.platform }}
+          push: true
+          provenance: false
+          tags: ${{ env.GHCR_PACKAGE }}:descriptor-${{ needs.guard.outputs.target_sha }}-${{ github.run_id }}
+          build-args: |
+            BUILD_SHA=${{ needs.guard.outputs.target_sha }}
+            BUILD_TIME=${{ needs.guard.outputs.build_time }}
+            BUILD_MIGRATION=${{ needs.guard.outputs.migration }}
+            BUILD_MIGRATION_HASH=${{ needs.guard.outputs.migration_hash }}
+            RELEASE_PLATFORM=${{ needs.guard.outputs.platform }}
+            SOURCE_BUNDLE_SHA256=${{ steps.source.outputs.bundle_sha256 }}
+            VERIFIER_SHA256=${{ steps.source.outputs.verifier_sha256 }}
+            API_IMAGE=${{ steps.images.outputs.api_image }}
+            WORKER_IMAGE=${{ steps.images.outputs.worker_image }}
+            WEB_IMAGE=${{ steps.images.outputs.web_image }}
+            ADMIN_IMAGE=${{ steps.images.outputs.admin_image }}
+            GATEWAY_IMAGE=${{ steps.images.outputs.gateway_image }}
+            NOTIFICATION_SINK_IMAGE=${{ steps.images.outputs.notification_sink_image }}
+      - name: Attest release descriptor provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.GHCR_PACKAGE }}
+          subject-digest: ${{ steps.descriptor.outputs.digest }}
+          push-to-registry: true
+      - name: Verify the descriptor payload before publication
+        env:
+          SOURCE_BUNDLE_SHA256: ${{ steps.source.outputs.bundle_sha256 }}
+          VERIFIER_SHA256: ${{ steps.source.outputs.verifier_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          payload_dir="$RUNNER_TEMP/candidate-descriptor-payload"
+          mkdir -p "$payload_dir"
+          descriptor_ref="${GHCR_PACKAGE}@${{ steps.descriptor.outputs.digest }}"
+          docker pull --platform "$PRODUCTION_PLATFORM" "$descriptor_ref" >/dev/null
+          descriptor_container="$(docker create "$descriptor_ref" /release/source.bundle)"
+          cleanup_descriptor_container() {
+            if [[ -n "${descriptor_container:-}" ]]; then
+              docker rm -f "$descriptor_container" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_descriptor_container EXIT
+          docker cp "${descriptor_container}:/release/source.bundle" "$payload_dir/source.bundle"
+          docker cp "${descriptor_container}:/release/release-descriptor.py" "$payload_dir/release-descriptor.py"
+          cleanup_descriptor_container
+          descriptor_container=''
+          [[ "$(sha256sum "$payload_dir/source.bundle" | awk '{print $1}')" == "$SOURCE_BUNDLE_SHA256" ]]
+          [[ "$(sha256sum "$payload_dir/release-descriptor.py" | awk '{print $1}')" == "$VERIFIER_SHA256" ]]
+          [[ "$(sha256sum tooling/release-descriptor.py | awk '{print $1}')" == "$VERIFIER_SHA256" ]]
+          python3 tooling/release-descriptor.py verify-source-bundle \
+            --bundle-file "$payload_dir/source.bundle" \
+            --target-sha "$TARGET_SHA"
+          trap - EXIT
+      - name: Verify the descriptor proof before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify "oci://${GHCR_PACKAGE}@${{ steps.descriptor.outputs.digest }}" \
+            --repo yaojingang/TokEMS \
+            --signer-workflow yaojingang/TokEMS/.github/workflows/publish-images.yml \
+            --source-digest "$TARGET_SHA" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners >/dev/null
+      - name: Publish the immutable release descriptor last
+        run: |
+          set -Eeuo pipefail
+          release_ref="${GHCR_PACKAGE}:release-${TARGET_SHA}"
+          error_file="$RUNNER_TEMP/descriptor-final-check.err"
+          if docker buildx imagetools inspect "$release_ref" >/dev/null 2> "$error_file"; then
+            echo 'Refusing to overwrite the immutable release descriptor.' >&2
+            exit 1
+          fi
+          grep -Eiq 'manifest unknown|not found|no such manifest' "$error_file" || {
+            cat "$error_file" >&2
+            exit 1
+          }
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$release_ref" \
+            "${GHCR_PACKAGE}@${{ steps.descriptor.outputs.digest }}"
+          final_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$release_ref")"
+          [[ "$final_digest" == '${{ steps.descriptor.outputs.digest }}' ]] || {
+            echo 'Final descriptor digest differs from the verified candidate digest.' >&2
+            exit 1
+          }

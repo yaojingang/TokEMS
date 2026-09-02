@@ -16,15 +16,20 @@
 
 ## 2. GitHub 和构建身份
 
-| 项目         | 本次值        |
-| ------------ | ------------- |
-| PR           |               |
-| CI           |               |
-| 目标提交     |               |
-| 构建时间     |               |
-| 最高迁移     |               |
-| 迁移 SHA-256 |               |
-| 发布分支     | `origin/main` |
+| 项目                        | 本次值        |
+| --------------------------- | ------------- |
+| PR                          |               |
+| CI                          |               |
+| 镜像发布工作流              |               |
+| 目标提交                    |               |
+| 构建时间                    |               |
+| 最高迁移                    |               |
+| 迁移 SHA-256                |               |
+| 发布分支                    | `origin/main` |
+| Release descriptor digest   |               |
+| Source Bundle SHA-256       |               |
+| Descriptor verifier SHA-256 |               |
+| 目标平台                    |               |
 
 ## 3. 发布前检查
 
@@ -32,7 +37,7 @@
 - [ ] `production` 跟踪 `origin/main`
 - [ ] Compose 配置通过
 - [ ] Nginx 配置通过
-- [ ] 磁盘和内存满足构建需要
+- [ ] 预构建模式的磁盘与备份容量满足要求；主机构建时额外通过 10 GiB 内存门禁
 - [ ] 没有并行发布任务
 - [ ] GitHub 必需检查成功
 
@@ -74,6 +79,8 @@
 | Admin             |          |          |
 | Gateway           |          |          |
 | notification-sink |          |          |
+
+六个服务均填写 descriptor 固定的 GHCR digest；容器验收同时记录实际 image ID。
 
 ## 7. 验证结果
 
