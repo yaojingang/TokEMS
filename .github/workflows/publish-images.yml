@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GHCR_PACKAGE: ghcr.io/yaojingang/tokems
+  GHCR_PACKAGE: ghcr.io/yaojingang/tokems-production
 
 jobs:
   guard:
@@ -110,15 +110,20 @@ jobs:
         run: |
           set -Eeuo pipefail
           package_error="$RUNNER_TEMP/package-visibility.err"
+          package_name="${GHCR_PACKAGE##*/}"
           package_visibility=''
-          if ! package_visibility="$(gh api /users/yaojingang/packages/container/tokems --jq .visibility 2>"$package_error")"; then
+          if ! package_visibility="$(gh api "/users/yaojingang/packages/container/${package_name}" --jq .visibility 2>"$package_error")"; then
             if ! grep -Eq 'HTTP 404|Not Found' "$package_error"; then
               cat "$package_error" >&2
               echo 'Unable to establish TokEMS GHCR package visibility before publication.' >&2
               exit 1
             fi
           fi
-          if [[ -n "$package_visibility" && "$package_visibility" != private ]]; then
+          if [[ -z "$package_visibility" ]]; then
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$package_visibility" != private ]]; then
             echo 'The TokEMS GHCR package must remain private.' >&2
             exit 1
           fi
@@ -326,7 +331,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          visibility="$(gh api /users/yaojingang/packages/container/tokems --jq .visibility)"
+          package_name="${GHCR_PACKAGE##*/}"
+          visibility="$(gh api "/users/yaojingang/packages/container/${package_name}" --jq .visibility)"
           [[ "$visibility" == private ]] || {
             echo 'The TokEMS GHCR package must remain private.' >&2
             exit 1

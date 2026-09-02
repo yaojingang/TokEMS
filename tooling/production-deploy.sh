@@ -18,7 +18,7 @@ readonly GITHUB_REPOSITORY='yaojingang/TokEMS'
 readonly IMAGE_PUBLISH_WORKFLOW='.github/workflows/publish-images.yml'
 readonly GHCR_REGISTRY='ghcr.io'
 readonly GHCR_USERNAME='yaojingang'
-readonly GHCR_PACKAGE='ghcr.io/yaojingang/tokems'
+readonly GHCR_PACKAGE='ghcr.io/yaojingang/tokems-production'
 readonly GHCR_TOKEN_FILE='/etc/tokems/ghcr-read-token'
 readonly PUBLIC_ORIGIN='https://hui.ailingdaoli.com'
 readonly ADMIN_ORIGIN='https://admin.hui.ailingdaoli.com'
@@ -1474,8 +1474,9 @@ login_ghcr() {
     die 'GHCR authentication failed; the read token may be expired or invalid.'
   fi
   : >"$login_error"
-  local package_visibility
-  package_visibility="$(registry_gh api /users/yaojingang/packages/container/tokems --jq .visibility)" || {
+  local package_name package_visibility
+  package_name="${GHCR_PACKAGE##*/}"
+  package_visibility="$(registry_gh api "/users/yaojingang/packages/container/${package_name}" --jq .visibility)" || {
     die 'Unable to verify the TokEMS GHCR package visibility.'
   }
   [[ "$package_visibility" == 'private' ]] || die 'The TokEMS GHCR package must remain private.'
