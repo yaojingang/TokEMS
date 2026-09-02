@@ -12,7 +12,14 @@ readonly GIT_USER='ecs-user'
 readonly EXPECTED_ORIGIN='https://github.com/yaojingang/TokEMS.git'
 readonly EXPECTED_BRANCH='production'
 readonly EXPECTED_UPSTREAM='origin/main'
+readonly EXPECTED_UPSTREAM_REF='refs/remotes/origin/main'
+readonly SOURCE_BUNDLE_REF='refs/heads/tokems-release-source'
 readonly GITHUB_REPOSITORY='yaojingang/TokEMS'
+readonly IMAGE_PUBLISH_WORKFLOW='.github/workflows/publish-images.yml'
+readonly GHCR_REGISTRY='ghcr.io'
+readonly GHCR_USERNAME='yaojingang'
+readonly GHCR_PACKAGE='ghcr.io/yaojingang/tokems'
+readonly GHCR_TOKEN_FILE='/etc/tokems/ghcr-read-token'
 readonly PUBLIC_ORIGIN='https://hui.ailingdaoli.com'
 readonly ADMIN_ORIGIN='https://admin.hui.ailingdaoli.com'
 readonly PAYMENT_URL='https://www.ailingdaoli.com/pay/hui/'
@@ -34,7 +41,7 @@ readonly DB_QUERY_TIMEOUT_SECONDS=120
 readonly DB_DUMP_TIMEOUT_SECONDS=1800
 readonly DB_MIGRATION_TIMEOUT_SECONDS=1800
 readonly SERVICE_TRANSITION_TIMEOUT_SECONDS=360
-readonly GIT_FETCH_TIMEOUT_SECONDS=180
+readonly GIT_BUNDLE_IMPORT_TIMEOUT_SECONDS=180
 readonly BUILD_TIMEOUT_SECONDS=3600
 readonly DATA_COMPARE_TIMEOUT_SECONDS=300
 readonly DATA_COMPARE_MAX_VIRTUAL_KIB=262144
@@ -69,6 +76,7 @@ readonly -a CANONICAL_SNAPSHOT_PATHS=(
 
 mode=''
 canonical_mode='auto'
+build_on_host='false'
 requested_target_sha=''
 target_sha=''
 source_head_before=''
@@ -131,6 +139,24 @@ active_compose_file="$DEFAULT_COMPOSE_FILE_PATH"
 session_env_file=''
 release_source_dir=''
 build_compose_file=''
+registry_auth_dir=''
+descriptor_evidence_dir=''
+source_bundle_dir=''
+descriptor_container_id=''
+descriptor_digest=''
+descriptor_platform=''
+descriptor_build_sha=''
+descriptor_build_time=''
+descriptor_migration=''
+descriptor_migration_hash=''
+descriptor_source_bundle_sha256=''
+descriptor_verifier_sha256=''
+descriptor_api_ref=''
+descriptor_worker_ref=''
+descriptor_web_ref=''
+descriptor_admin_ref=''
+descriptor_gateway_ref=''
+descriptor_notification_sink_ref=''
 
 usage() {
   cat <<'USAGE'
@@ -156,11 +182,12 @@ Options:
                                 reuse the current images when the target changes only deployment controls.
   --skip-canonical              Allowed only when Git snapshots and production already match.
   --resume-recovery             Allow deploy to continue a verified read-only recovery state.
+  --build-on-host               Emergency path: build all images on this host after the 10 GiB gate.
   -h, --help                    Show this help.
 
 The default canonical mode is automatic. A Git snapshot change or production database
 drift enables the protected geo-conference/tokems26 synchronization while preserving
-production business data.
+production business data. Standard check and deploy modes use verified prebuilt images.
 USAGE
 }
 
@@ -182,18 +209,6 @@ git_as_owner() {
     GIT_CONFIG_NOSYSTEM=1 \
     GIT_CONFIG_GLOBAL=/dev/null \
     git -C "$APP_DIR" "$@"
-}
-
-git_fetch_origin_main() {
-  timeout --foreground --kill-after=10s "${GIT_FETCH_TIMEOUT_SECONDS}s" \
-    sudo -u "$GIT_USER" env -i \
-    "PATH=$SAFE_PATH" \
-    'HOME=/nonexistent' \
-    GIT_TERMINAL_PROMPT=0 \
-    GIT_NO_REPLACE_OBJECTS=1 \
-    GIT_CONFIG_NOSYSTEM=1 \
-    GIT_CONFIG_GLOBAL=/dev/null \
-    git -C "$APP_DIR" fetch --prune origin main
 }
 
 compose() {
@@ -291,8 +306,40 @@ cleanup_canonical_probe() {
   canonical_probe_actual_snapshot=''
 }
 
+cleanup_registry_state() {
+  if [[ -n "$descriptor_container_id" ]]; then
+    docker rm -f "$descriptor_container_id" >/dev/null 2>&1 || true
+    descriptor_container_id=''
+  fi
+  if [[ -n "$source_bundle_dir" && -d "$source_bundle_dir" ]]; then
+    case "$source_bundle_dir" in
+      /run/tokems-release-source.*)
+        find "$source_bundle_dir" -depth -delete 2>/dev/null || true
+        ;;
+    esac
+  fi
+  source_bundle_dir=''
+  if [[ -n "$registry_auth_dir" && -d "$registry_auth_dir" ]]; then
+    case "$registry_auth_dir" in
+      /run/lock/tokems-production-deploy/registry-auth.*)
+        find "$registry_auth_dir" -depth -delete 2>/dev/null || true
+        ;;
+    esac
+  fi
+  registry_auth_dir=''
+  if [[ -n "$descriptor_evidence_dir" && -d "$descriptor_evidence_dir" ]]; then
+    case "$descriptor_evidence_dir" in
+      /run/lock/tokems-production-deploy/release-descriptor.*)
+        find "$descriptor_evidence_dir" -depth -delete 2>/dev/null || true
+        ;;
+    esac
+  fi
+  descriptor_evidence_dir=''
+}
+
 cleanup_temp_script() {
   cleanup_canonical_probe
+  cleanup_registry_state
   if [[ -f "${BASH_SOURCE[0]}" ]]; then
     case "${BASH_SOURCE[0]}" in
       /run/lock/tokems-production-deploy/bootstrap.*) rm -f -- "${BASH_SOURCE[0]}" ;;
@@ -720,6 +767,10 @@ parse_arguments() {
         resume_recovery='true'
         shift
         ;;
+      --build-on-host)
+        build_on_host='true'
+        shift
+        ;;
       -h | --help)
         usage
         exit 0
@@ -736,6 +787,9 @@ parse_arguments() {
   fi
   if [[ "$resume_recovery" == 'true' && "$mode" != 'deploy' ]]; then
     die '--resume-recovery applies only to deploy mode.'
+  fi
+  if [[ "$build_on_host" == 'true' && "$mode" != 'check' && "$mode" != 'deploy' ]]; then
+    die '--build-on-host applies only to check and deploy modes.'
   fi
 }
 
@@ -755,13 +809,14 @@ pin_local_runtime_controls() {
   unset COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES COMPOSE_ENV_FILES
   unset COMPOSE_PATH_SEPARATOR COMPOSE_CONVERT_WINDOWS_PATHS COMPOSE_IGNORE_ORPHANS
   unset BUILD_SHA BUILD_TIME BUILD_MIGRATION BUILD_MIGRATION_HASH
+  unset GH_TOKEN GITHUB_TOKEN
   unset TOKEMS_READ_ONLY_DATABASE_URL SEED_DEMO_DATA COMPOSE_PARALLEL_LIMIT
 }
 
 require_root_and_base_commands() {
   [[ "$(id -u)" -eq 0 ]] || die 'Run this command with sudo or as root.'
   local command_name
-  for command_name in bash sudo env git flock curl python3 docker nginx awk grep sed sha256sum find sort tail tar install ps mkdir stat dirname df mktemp cp mv chmod chown rm basename date timeout sleep cat readlink systemd-run systemctl; do
+  for command_name in bash sudo env git flock curl python3 docker nginx awk grep sed sha256sum find sort tail tar install ps mkdir stat dirname df mktemp cp mv chmod chown rm basename date timeout sleep cat readlink systemd-run systemctl uname; do
     require_command "$command_name"
   done
   [[ "$(cd "$APP_DIR" && pwd -P)" == "$APP_DIR" ]] || die 'Production app path resolved unexpectedly.'
@@ -1095,16 +1150,21 @@ assert_minimal_git_state() {
 }
 
 bootstrap_latest_script() {
-  log 'Loading the deployment script from the latest origin/main commit'
-  git_fetch_origin_main
+  log 'Loading the deployment script from the latest verified main release'
   local latest_sha latest_script_sha current_script_sha temp_script
-  latest_sha="$(git_as_owner rev-parse origin/main)"
+  latest_sha="$(github_main_sha)"
   assert_target_selection "$latest_sha"
+  target_sha="$latest_sha"
+  verify_github_release_gate
+  verify_image_publish_gate
+  prepare_release_source_bundle
+  verify_release_descriptor
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'Verified release source did not update origin/main to the target commit.'
+  }
   git_as_owner merge-base --is-ancestor "$(git_as_owner rev-parse HEAD)" "$latest_sha" || {
     die 'Server production branch cannot fast-forward to origin/main.'
   }
-  target_sha="$latest_sha"
-  verify_github_release_gate
   latest_script_sha="$(git_as_owner show "${latest_sha}:tooling/production-deploy.sh" | sha256sum | awk '{ print $1 }')"
   current_script_sha="$(sha256sum "${BASH_SOURCE[0]}" | awk '{ print $1 }')"
   [[ "$current_script_sha" != "$latest_script_sha" ]] || return 0
@@ -1118,6 +1178,8 @@ bootstrap_latest_script() {
     rm -f -- "$temp_script"
     die 'The deployment script on origin/main failed shell syntax validation.'
   }
+
+  cleanup_registry_state
 
   exec env -i \
     "PATH=$SAFE_PATH" \
@@ -1233,6 +1295,27 @@ github_get() {
   curl "${CURL_ARGS[@]}" --location "${headers[@]}" "$url"
 }
 
+github_main_sha() {
+  github_get "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/main" \
+    | python3 -c '
+import json, re, sys
+payload = json.load(sys.stdin)
+sha = payload.get("sha", "")
+if not re.fullmatch(r"[0-9a-f]{40}", sha):
+    raise SystemExit("GitHub main did not resolve to a full lowercase commit SHA")
+print(sha)
+'
+}
+
+assert_github_main_unchanged() {
+  local latest_sha
+  latest_sha="$(github_main_sha)"
+  [[ "$latest_sha" == "$target_sha" ]] || {
+    die "GitHub main advanced to ${latest_sha}; approved target was ${target_sha}."
+  }
+  assert_target_selection "$latest_sha"
+}
+
 verify_github_release_gate() {
   log "Verifying merged PR and successful main CI for ${target_sha}"
   github_get "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${target_sha}/pulls?per_page=100" \
@@ -1291,6 +1374,346 @@ if not valid:
     raise SystemExit("official GitHub Actions quality-and-flows job has not completed successfully for origin/main")
 print("Official GitHub Actions quality-and-flows job verified")
 ' "$target_sha"
+}
+
+verify_image_publish_gate() {
+  log "Verifying successful immutable image publication for ${target_sha}"
+  github_get "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/publish-images.yml/runs?branch=main&event=workflow_run&per_page=100" \
+    | python3 -c '
+import json, sys
+target = sys.argv[1]
+payload = json.load(sys.stdin)
+valid = [
+    item for item in payload.get("workflow_runs", [])
+    if item.get("name") == "tokems-image-publish"
+    and item.get("path") == ".github/workflows/publish-images.yml"
+    and item.get("event") == "workflow_run"
+    and item.get("head_branch") == "main"
+    and item.get("head_sha") == target
+    and item.get("status") == "completed"
+    and item.get("conclusion") == "success"
+    and (item.get("repository") or {}).get("full_name") == "yaojingang/TokEMS"
+    and (item.get("head_repository") or {}).get("full_name") == "yaojingang/TokEMS"
+]
+if not valid:
+    raise SystemExit("official image publication workflow has not completed successfully for origin/main")
+print("Official image publication workflow verified: run {}".format(valid[0]["id"]))
+' "$target_sha"
+}
+
+expected_release_platform() {
+  case "$(uname -m)" in
+    x86_64) printf 'linux/amd64\n' ;;
+    aarch64 | arm64) printf 'linux/arm64\n' ;;
+    *) die "Unsupported production CPU architecture: $(uname -m)" ;;
+  esac
+}
+
+registry_docker() {
+  [[ -n "$registry_auth_dir" && -d "$registry_auth_dir" ]] || die 'Temporary GHCR authentication is unavailable.'
+  env -i \
+    "PATH=$SAFE_PATH" \
+    'HOME=/root' \
+    "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
+    "DOCKER_CONFIG=$registry_auth_dir" \
+    docker "$@"
+}
+
+registry_gh() {
+  [[ -n "$registry_auth_dir" && -d "$registry_auth_dir" ]] || die 'Temporary GHCR authentication is unavailable.'
+  local token
+  IFS= read -r token <"$GHCR_TOKEN_FILE"
+  [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
+  env -i \
+    "PATH=$SAFE_PATH" \
+    'HOME=/root' \
+    "XDG_CACHE_HOME=$registry_auth_dir/cache" \
+    "DOCKER_CONFIG=$registry_auth_dir" \
+    "GH_TOKEN=$token" \
+    gh "$@"
+}
+
+login_ghcr() {
+  require_command gh
+  docker buildx version >/dev/null || die 'Docker Buildx is required to inspect immutable release images.'
+  gh attestation verify --help >/dev/null || die 'GitHub CLI does not support attestation verification.'
+
+  local network_status
+  network_status="$({
+    env -i "PATH=$SAFE_PATH" 'HOME=/root' curl \
+      --silent \
+      --show-error \
+      --connect-timeout 10 \
+      --max-time 30 \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      "https://${GHCR_REGISTRY}/v2/"
+  } 2>/dev/null)" || die 'GHCR network probe failed before authentication.'
+  [[ "$network_status" == '200' || "$network_status" == '401' ]] || {
+    die "GHCR network probe returned unexpected HTTP status ${network_status}."
+  }
+  [[ -e "$GHCR_TOKEN_FILE" || -L "$GHCR_TOKEN_FILE" ]] || {
+    die "GHCR read token file is missing: ${GHCR_TOKEN_FILE}"
+  }
+  assert_trusted_recovery_file "$GHCR_TOKEN_FILE"
+
+  registry_auth_dir="$(mktemp -d "${LOCK_DIR}/registry-auth.XXXXXX")"
+  chmod 700 "$registry_auth_dir"
+  local token login_error
+  IFS= read -r token <"$GHCR_TOKEN_FILE"
+  [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
+  login_error="$registry_auth_dir/login.err"
+  if ! printf '%s' "$token" \
+    | env -i \
+      "PATH=$SAFE_PATH" \
+      'HOME=/root' \
+      "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
+      "DOCKER_CONFIG=$registry_auth_dir" \
+      docker login "$GHCR_REGISTRY" --username "$GHCR_USERNAME" --password-stdin \
+      >/dev/null 2>"$login_error"; then
+    die 'GHCR authentication failed; the read token may be expired or invalid.'
+  fi
+  : >"$login_error"
+  local package_visibility
+  package_visibility="$(registry_gh api /users/yaojingang/packages/container/tokems --jq .visibility)" || {
+    die 'Unable to verify the TokEMS GHCR package visibility.'
+  }
+  [[ "$package_visibility" == 'private' ]] || die 'The TokEMS GHCR package must remain private.'
+}
+
+prepare_release_source_bundle() {
+  [[ -z "$descriptor_evidence_dir" ]] || die 'Release descriptor preparation ran more than once.'
+  login_ghcr
+  descriptor_platform="$(expected_release_platform)"
+  descriptor_evidence_dir="$(mktemp -d "${LOCK_DIR}/release-descriptor.XXXXXX")"
+  chmod 700 "$descriptor_evidence_dir"
+
+  local release_ref descriptor_ref labels_file bootstrap_records_file
+  local source_bundle_file verifier git_group target_verifier_hash
+  release_ref="${GHCR_PACKAGE}:release-${target_sha}"
+  labels_file="$descriptor_evidence_dir/labels.json"
+  bootstrap_records_file="$descriptor_evidence_dir/bootstrap-records.tsv"
+  source_bundle_file="$descriptor_evidence_dir/source.bundle"
+  verifier="$descriptor_evidence_dir/release-descriptor.py"
+
+  descriptor_digest="$(registry_docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$release_ref")"
+  [[ "$descriptor_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Release descriptor has an invalid registry digest.'
+  descriptor_ref="${GHCR_PACKAGE}@${descriptor_digest}"
+  registry_docker buildx imagetools inspect \
+    --format '{{json .Image.Config.Labels}}' \
+    "$descriptor_ref" >"$labels_file" || {
+    die "Immutable release descriptor is missing or unreadable: release-${target_sha}"
+  }
+  printf '%s\n' "$descriptor_digest" >"$descriptor_evidence_dir/descriptor-digest.txt"
+  registry_gh attestation verify "oci://${GHCR_PACKAGE}@${descriptor_digest}" \
+    --repo "$GITHUB_REPOSITORY" \
+    --signer-workflow "${GITHUB_REPOSITORY}/${IMAGE_PUBLISH_WORKFLOW}" \
+    --source-digest "$target_sha" \
+    --source-ref refs/heads/main \
+    --deny-self-hosted-runners \
+    --format json >"$descriptor_evidence_dir/descriptor-attestation.json"
+
+  python3 - "$labels_file" "$target_sha" "$descriptor_platform" >"$bootstrap_records_file" <<'PY'
+import json
+import re
+import sys
+
+labels_file, target_sha, platform = sys.argv[1:]
+with open(labels_file, encoding="utf-8") as handle:
+    labels = json.load(handle)
+if not isinstance(labels, dict):
+    raise SystemExit("release descriptor labels must be a JSON object")
+
+expected = {
+    "org.opencontainers.image.source": "https://github.com/yaojingang/TokEMS",
+    "org.opencontainers.image.revision": target_sha,
+    "com.tokems.release.schema": "2",
+    "com.tokems.release.platform": platform,
+    "com.tokems.release.source-bundle.ref": "refs/heads/tokems-release-source",
+    "com.tokems.build.sha": target_sha,
+}
+for key, value in expected.items():
+    if labels.get(key) != value:
+        raise SystemExit(f"release descriptor bootstrap label mismatch: {key}")
+
+for record_name, key in (
+    ("source-bundle-sha256", "com.tokems.release.source-bundle.sha256"),
+    ("verifier-sha256", "com.tokems.release.verifier.sha256"),
+):
+    value = labels.get(key, "")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise SystemExit(f"release descriptor bootstrap hash is invalid: {key}")
+    print("release", record_name, value, sep="\t")
+PY
+
+  while IFS=$'\t' read -r record_type record_name record_value; do
+    case "${record_type}:${record_name}" in
+      release:source-bundle-sha256) descriptor_source_bundle_sha256="$record_value" ;;
+      release:verifier-sha256) descriptor_verifier_sha256="$record_value" ;;
+      *) die "Unexpected bootstrap descriptor record: ${record_type}:${record_name}" ;;
+    esac
+  done <"$bootstrap_records_file"
+
+  registry_docker pull --platform "$descriptor_platform" "$descriptor_ref" \
+    >"$descriptor_evidence_dir/descriptor-pull.log" 2>&1 || {
+    die 'Unable to pull the verified release descriptor payload.'
+  }
+  descriptor_container_id="$(registry_docker create "$descriptor_ref" /release/source.bundle)"
+  [[ -n "$descriptor_container_id" ]] || die 'Unable to create a temporary descriptor payload container.'
+  registry_docker cp "${descriptor_container_id}:/release/source.bundle" "$source_bundle_file"
+  registry_docker cp "${descriptor_container_id}:/release/release-descriptor.py" "$verifier"
+  registry_docker rm "$descriptor_container_id" >/dev/null
+  descriptor_container_id=''
+
+  [[ -f "$source_bundle_file" && ! -L "$source_bundle_file" ]] || die 'Descriptor source bundle is not a regular file.'
+  [[ -f "$verifier" && ! -L "$verifier" ]] || die 'Descriptor verifier is not a regular file.'
+  [[ "$(sha256sum "$source_bundle_file" | awk '{ print $1 }')" == "$descriptor_source_bundle_sha256" ]] || {
+    die 'Descriptor source bundle payload hash does not match its verified label.'
+  }
+  [[ "$(sha256sum "$verifier" | awk '{ print $1 }')" == "$descriptor_verifier_sha256" ]] || {
+    die 'Descriptor verifier payload hash does not match its verified label.'
+  }
+  chmod 600 "$source_bundle_file" "$verifier"
+
+  source_bundle_dir="$(mktemp -d /run/tokems-release-source.XXXXXX)"
+  [[ -d "$source_bundle_dir" && ! -L "$source_bundle_dir" ]] || die 'Unable to create a trusted source bundle transport directory.'
+  chmod 711 "$source_bundle_dir"
+  git_group="$(id -gn "$GIT_USER")"
+  install -o root -g "$git_group" -m 440 "$source_bundle_file" "$source_bundle_dir/source.bundle"
+  install -o root -g "$git_group" -m 440 "$verifier" "$source_bundle_dir/release-descriptor.py"
+  sudo -u "$GIT_USER" env -i \
+    "PATH=$SAFE_PATH" \
+    'HOME=/nonexistent' \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_NO_REPLACE_OBJECTS=1 \
+    GIT_TERMINAL_PROMPT=0 \
+    python3 "$source_bundle_dir/release-descriptor.py" import-source-bundle \
+      --bundle-file "$source_bundle_dir/source.bundle" \
+      --repository "$APP_DIR" \
+      --target-sha "$target_sha" \
+      --timeout-seconds "$GIT_BUNDLE_IMPORT_TIMEOUT_SECONDS" \
+      >"$descriptor_evidence_dir/source-import.log" || {
+    die 'Verified source bundle could not be imported into the production checkout.'
+  }
+  git_as_owner cat-file -e "${target_sha}^{commit}"
+
+  target_verifier_hash="$({
+    git_as_owner show "${target_sha}:tooling/release-descriptor.py" | sha256sum | awk '{ print $1 }'
+  })" || die 'Unable to read the release descriptor verifier from the imported target source.'
+  [[ "$target_verifier_hash" == "$descriptor_verifier_sha256" ]] || {
+    die 'Descriptor verifier payload differs from the verified target source.'
+  }
+
+  find "$source_bundle_dir" -depth -delete
+  source_bundle_dir=''
+  printf 'target_sha=%s\nsource_bundle_sha256=%s\nverifier_sha256=%s\n' \
+    "$target_sha" "$descriptor_source_bundle_sha256" "$descriptor_verifier_sha256" \
+    >"$descriptor_evidence_dir/source-import.txt"
+  chmod 600 "$descriptor_evidence_dir/source-import.txt"
+  log "Imported verified main source bundle for ${target_sha}."
+}
+
+descriptor_image_ref() {
+  case "$1" in
+    api) printf '%s\n' "$descriptor_api_ref" ;;
+    worker) printf '%s\n' "$descriptor_worker_ref" ;;
+    web) printf '%s\n' "$descriptor_web_ref" ;;
+    admin) printf '%s\n' "$descriptor_admin_ref" ;;
+    gateway) printf '%s\n' "$descriptor_gateway_ref" ;;
+    notification-sink) printf '%s\n' "$descriptor_notification_sink_ref" ;;
+    *) die "Unknown release service: $1" ;;
+  esac
+}
+
+local_image_for_service() {
+  case "$1" in
+    api) printf 'tokems-api\n' ;;
+    worker) printf 'tokems-worker\n' ;;
+    web) printf 'tokems-web\n' ;;
+    admin) printf 'tokems-admin\n' ;;
+    gateway) printf 'tokems-gateway\n' ;;
+    notification-sink) printf 'tokems-notification-sink\n' ;;
+    *) die "Unknown release service: $1" ;;
+  esac
+}
+
+verify_release_descriptor() {
+  [[ -n "$descriptor_evidence_dir" && -d "$descriptor_evidence_dir" ]] || {
+    die 'Release descriptor source evidence is unavailable.'
+  }
+  [[ "$descriptor_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Verified descriptor digest is unavailable.'
+  local verifier labels_file records_file source_migration source_migration_hash
+  verifier="$descriptor_evidence_dir/release-descriptor.py"
+  labels_file="$descriptor_evidence_dir/labels.json"
+  records_file="$descriptor_evidence_dir/records.tsv"
+  [[ -f "$verifier" && ! -L "$verifier" ]] || die 'Verified descriptor verifier is unavailable.'
+  [[ -f "$labels_file" && ! -L "$labels_file" ]] || die 'Verified descriptor labels are unavailable.'
+  python3 "$verifier" verify-descriptor \
+    --labels-file "$labels_file" \
+    --target-sha "$target_sha" \
+    --platform "$descriptor_platform" \
+    --records-output "$records_file"
+
+  while IFS=$'\t' read -r record_type record_name record_value; do
+    case "${record_type}:${record_name}" in
+      build:sha) descriptor_build_sha="$record_value" ;;
+      build:time) descriptor_build_time="$record_value" ;;
+      build:migration) descriptor_migration="$record_value" ;;
+      build:migration-hash) descriptor_migration_hash="$record_value" ;;
+      release:platform) [[ "$record_value" == "$descriptor_platform" ]] || die 'Descriptor platform record changed during verification.' ;;
+      release:source-bundle-ref) [[ "$record_value" == "$SOURCE_BUNDLE_REF" ]] || die 'Descriptor source bundle ref changed during verification.' ;;
+      release:source-bundle-sha256) [[ "$record_value" == "$descriptor_source_bundle_sha256" ]] || die 'Descriptor source bundle hash changed during verification.' ;;
+      release:verifier-sha256) [[ "$record_value" == "$descriptor_verifier_sha256" ]] || die 'Descriptor verifier hash changed during verification.' ;;
+      image:api) descriptor_api_ref="$record_value" ;;
+      image:worker) descriptor_worker_ref="$record_value" ;;
+      image:web) descriptor_web_ref="$record_value" ;;
+      image:admin) descriptor_admin_ref="$record_value" ;;
+      image:gateway) descriptor_gateway_ref="$record_value" ;;
+      image:notification-sink) descriptor_notification_sink_ref="$record_value" ;;
+      *) die "Unexpected release descriptor record: ${record_type}:${record_name}" ;;
+    esac
+  done <"$records_file"
+
+  [[ "$descriptor_build_sha" == "$target_sha" ]] || die 'Descriptor build SHA differs from the target commit.'
+  python3 "$verifier" verify-source-bundle \
+    --bundle-file "$descriptor_evidence_dir/source.bundle" \
+    --target-sha "$target_sha"
+  source_migration="$({
+    git_as_owner ls-tree -r --name-only "$target_sha" -- packages/database/drizzle \
+      | awk -F/ '$NF ~ /^[0-9][0-9][0-9][0-9]_.*[.]sql$/ { print $NF }' \
+      | sort \
+      | tail -n 1
+  })"
+  [[ "$source_migration" == "$descriptor_migration" ]] || die 'Descriptor migration differs from target source.'
+  source_migration_hash="$(git_as_owner show "${target_sha}:packages/database/drizzle/${source_migration}" | sha256sum | awk '{ print $1 }')"
+  [[ "$source_migration_hash" == "$descriptor_migration_hash" ]] || die 'Descriptor migration hash differs from target source.'
+
+  local service image_ref metadata_file attestation_file
+  for service in "${BUILD_SERVICES[@]}"; do
+    image_ref="$(descriptor_image_ref "$service")"
+    metadata_file="$descriptor_evidence_dir/image-${service}.json"
+    attestation_file="$descriptor_evidence_dir/attestation-${service}.json"
+    registry_docker buildx imagetools inspect --format '{{json .Image}}' "$image_ref" >"$metadata_file" || {
+      die "Release descriptor image is missing or unreadable: ${service}"
+    }
+    python3 "$verifier" verify-service \
+      --metadata-file "$metadata_file" \
+      --service "$service" \
+      --target-sha "$target_sha" \
+      --build-time "$descriptor_build_time" \
+      --migration "$descriptor_migration" \
+      --migration-hash "$descriptor_migration_hash" \
+      --platform "$descriptor_platform"
+    registry_gh attestation verify "oci://${image_ref}" \
+      --repo "$GITHUB_REPOSITORY" \
+      --signer-workflow "${GITHUB_REPOSITORY}/${IMAGE_PUBLISH_WORKFLOW}" \
+      --source-digest "$target_sha" \
+      --source-ref refs/heads/main \
+      --deny-self-hosted-runners \
+      --format json >"$attestation_file"
+  done
+  log "Verified release descriptor ${descriptor_digest} for ${descriptor_platform}."
 }
 
 combined_build_capacity_kib() {
@@ -1471,7 +1894,7 @@ assert_final_backup_capacity() {
   required_bytes=$(( database_bytes + 6 * stable_bytes + 4 * retention_bytes ))
   required_kib=$(( (required_bytes + 1023) / 1024 + MIN_BACKUP_RESERVE_KIB ))
   (( available_kib >= required_kib )) || {
-    die "Final backup and measured production-ID evidence need $((required_kib / 1048576)) GiB free after the image build."
+    die "Final backup and measured production-ID evidence need $((required_kib / 1048576)) GiB free after image preparation."
   }
 }
 
@@ -1830,12 +2253,12 @@ assert_standard_release_scope() {
 canonical_repair_scope_is_compatible() {
   local changed_path changed_paths
   if ! git_as_owner diff --quiet "$release_baseline_sha" "$target_sha" -- "${CANONICAL_SNAPSHOT_PATHS[@]}"; then
-    log 'Canonical snapshots changed since the running release; target images must be built.'
+    log 'Canonical snapshots changed since the running release; verified target images are required.'
     return 1
   fi
 
   changed_paths="$(git_as_owner diff --name-only "$release_baseline_sha" "$target_sha" --)" || {
-    log 'Unable to inspect the target change scope; target images must be built.'
+    log 'Unable to inspect the target change scope; verified target images are required.'
     return 1
   }
   while IFS= read -r changed_path; do
@@ -1843,7 +2266,7 @@ canonical_repair_scope_is_compatible() {
     case "$changed_path" in
       AGENTS.md | docs/* | tooling/production-deploy.sh | tooling/lib/production-deploy.test.mjs) ;;
       *)
-        log "Runtime-affecting target change requires an image build: ${changed_path}"
+        log "Runtime-affecting target change requires the verified target images: ${changed_path}"
         return 1
         ;;
     esac
@@ -1858,9 +2281,10 @@ run_full_preflight() {
   assert_no_parallel_release
   assert_pending_recovery_policy
 
-  git_fetch_origin_main
-  target_sha="$(git_as_owner rev-parse origin/main)"
-  assert_target_selection "$target_sha"
+  assert_github_main_unchanged
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'origin/main differs from the verified release source bundle.'
+  }
   if [[ "$recovery_in_progress" == 'true' ]]; then
     git_as_owner cat-file -e "${pending_recovery_target_sha}^{commit}"
     git_as_owner merge-base --is-ancestor "$pending_recovery_target_sha" "$target_sha" || {
@@ -1901,14 +2325,19 @@ run_full_preflight() {
   }
   curl "${CURL_ARGS[@]}" "${PUBLIC_ORIGIN}/api/v1/health" | assert_health_json
 
-  verify_github_release_gate
   assert_standard_release_scope
   determine_canonical_sync
   if [[ "$canonical_sync_required" == 'true' ]] && canonical_repair_scope_is_compatible; then
     canonical_repair_mode='true'
-    log 'Canonical repair can reuse the verified running images; image-build capacity is not required.'
-  else
+    log 'Canonical repair can reuse the verified running images; host-build capacity is not required.'
+  elif [[ "$build_on_host" == 'true' ]]; then
     assert_build_capacity
+    log 'Emergency host-build preflight passed.'
+  else
+    [[ "$descriptor_build_sha" == "$target_sha" ]] || {
+      die 'Prebuilt release descriptor evidence changed after bootstrap verification.'
+    }
+    log "Prebuilt descriptor remains verified: ${descriptor_digest}"
   fi
   assert_backup_capacity
 
@@ -2152,6 +2581,12 @@ create_backup_and_rollback_point() {
   [[ "$(stat -c '%d' "$backup_dir")" == "$backup_device_id" ]] || {
     die 'The created release backup directory is on a different filesystem from the preflight capacity check.'
   }
+  if [[ -n "$descriptor_evidence_dir" && -d "$descriptor_evidence_dir" ]]; then
+    cp -a -- "$descriptor_evidence_dir" "$backup_dir/release-descriptor"
+    chown -R root:root "$backup_dir/release-descriptor"
+    chmod 700 "$backup_dir/release-descriptor"
+    find "$backup_dir/release-descriptor" -type f -exec chmod 600 {} +
+  fi
   cp -- "${BASH_SOURCE[0]}" "$backup_dir/production-deploy.recovery.sh"
   chown root:root "$backup_dir/production-deploy.recovery.sh"
   chmod 600 "$backup_dir/production-deploy.recovery.sh"
@@ -2300,9 +2735,9 @@ refresh_pre_mutation_database_backup() {
 
 sync_source() {
   log 'Fast-forwarding production to the verified origin/main commit'
-  git_fetch_origin_main
-  [[ "$(git_as_owner rev-parse origin/main)" == "$target_sha" ]] || {
-    die 'origin/main changed after preflight; run the deployment again with the new target.'
+  assert_github_main_unchanged
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'origin/main changed after verified bundle import; run the deployment again.'
   }
   git_as_owner merge --ff-only "$target_sha"
   [[ "$(git_as_owner rev-parse HEAD)" == "$target_sha" ]] || die 'Server HEAD does not equal target commit.'
@@ -2422,6 +2857,88 @@ build_images() {
     "tokems-gateway:${target_image_tag}" \
     "tokems-notification-sink:${target_image_tag}" \
     >"$backup_dir/images-target.json"
+}
+
+pull_prebuilt_images() {
+  [[ -n "$descriptor_evidence_dir" && -d "$descriptor_evidence_dir" ]] || {
+    die 'Verified release descriptor evidence is unavailable.'
+  }
+  local verifier service image_ref image_name metadata_file pull_log
+  verifier="$descriptor_evidence_dir/release-descriptor.py"
+  log "Pulling six digest-pinned images for ${target_sha}"
+  for service in "${BUILD_SERVICES[@]}"; do
+    image_ref="$(descriptor_image_ref "$service")"
+    image_name="$(local_image_for_service "$service")"
+    pull_log="$backup_dir/pull-${service}.log"
+    if ! registry_docker pull --platform "$descriptor_platform" "$image_ref" >"$pull_log" 2>&1; then
+      tail -n 80 "$pull_log" >&2 || true
+      die "Prebuilt image pull failed for ${service}; running containers and release tags are unchanged."
+    fi
+    metadata_file="$backup_dir/pulled-image-${service}.json"
+    docker image inspect --format '{{json .}}' "$image_ref" >"$metadata_file"
+    python3 "$verifier" verify-service \
+      --metadata-file "$metadata_file" \
+      --service "$service" \
+      --target-sha "$target_sha" \
+      --build-time "$descriptor_build_time" \
+      --migration "$descriptor_migration" \
+      --migration-hash "$descriptor_migration_hash" \
+      --platform "$descriptor_platform"
+    printf 'service=%s\nimage=%s\nsource=%s\n' "$service" "$image_name" "$image_ref" \
+      >"$backup_dir/pulled-image-${service}.txt"
+  done
+
+  for service in "${BUILD_SERVICES[@]}"; do
+    image_ref="$(descriptor_image_ref "$service")"
+    image_name="$(local_image_for_service "$service")"
+    docker tag "$image_ref" "${image_name}:candidate-${release_stamp}"
+  done
+  log 'All candidate images were pulled and verified without changing release tags.'
+}
+
+write_prebuilt_build_identity() {
+  [[ "$descriptor_build_sha" == "$target_sha" ]] || die 'Verified descriptor SHA is unavailable.'
+  [[ -n "$descriptor_build_time" && -n "$descriptor_migration" && -n "$descriptor_migration_hash" ]] || {
+    die 'Verified descriptor build identity is incomplete.'
+  }
+  environment_changed='true'
+  clear_compatibility_release_metadata
+  set_env_value BUILD_SHA "$descriptor_build_sha"
+  set_env_value BUILD_TIME "$descriptor_build_time"
+  set_env_value BUILD_MIGRATION "$descriptor_migration"
+  set_env_value BUILD_MIGRATION_HASH "$descriptor_migration_hash"
+  chown root:root "$active_env_file"
+  chmod 600 "$active_env_file"
+
+  BUILD_SHA="$descriptor_build_sha"
+  BUILD_TIME="$descriptor_build_time"
+  BUILD_MIGRATION="$descriptor_migration"
+  BUILD_MIGRATION_HASH="$descriptor_migration_hash"
+  export BUILD_SHA BUILD_TIME BUILD_MIGRATION BUILD_MIGRATION_HASH
+  compose config --quiet
+  printf 'BUILD_SHA=%s\nBUILD_TIME=%s\nBUILD_MIGRATION=%s\nBUILD_MIGRATION_HASH=%s\n' \
+    "$BUILD_SHA" "$BUILD_TIME" "$BUILD_MIGRATION" "$BUILD_MIGRATION_HASH" \
+    >"$backup_dir/build-identity.txt"
+}
+
+activate_prebuilt_images() {
+  local service image_name
+  images_changed='true'
+  for service in "${BUILD_SERVICES[@]}"; do
+    image_name="$(local_image_for_service "$service")"
+    docker image inspect "${image_name}:candidate-${release_stamp}" >/dev/null
+    docker tag "${image_name}:candidate-${release_stamp}" "${image_name}:local"
+    docker tag "${image_name}:local" "${image_name}:${target_image_tag}"
+  done
+  docker image inspect \
+    "tokems-api:${target_image_tag}" \
+    "tokems-admin:${target_image_tag}" \
+    "tokems-web:${target_image_tag}" \
+    "tokems-worker:${target_image_tag}" \
+    "tokems-gateway:${target_image_tag}" \
+    "tokems-notification-sink:${target_image_tag}" \
+    >"$backup_dir/images-target.json"
+  log 'Activated the complete verified image set for the Compose release.'
 }
 
 read_only_database_url() {
@@ -2972,11 +3489,20 @@ verify_release() {
   local expected_migration="${2:-${BUILD_MIGRATION:-}}"
   local expected_migration_hash="${3:-${BUILD_MIGRATION_HASH:-}}"
   log 'Verifying containers, build identity, HTTP, canonical homepage, and production data'
-  local service worker_container
+  local service worker_container container_id
+  local -a release_container_ids=()
   for service in "${LONG_RUNNING_SERVICES[@]}"; do
     assert_service_healthy "$service"
   done
+  assert_runtime_image_tags
   assert_api_uses_compose_database
+
+  for service in notification-sink api worker web payment-web admin gateway; do
+    container_id="$(compose ps -q "$service")"
+    [[ -n "$container_id" ]] || die "Release container is missing during image evidence capture: ${service}"
+    release_container_ids+=("$container_id")
+  done
+  docker inspect "${release_container_ids[@]}" >"$backup_dir/containers-after.json"
 
   compose ps >"$backup_dir/compose-ps-after.txt"
   compose logs --no-color --tail=200 api worker db-init gateway >"$backup_dir/runtime-logs-after.txt" 2>&1
@@ -3057,9 +3583,10 @@ repair_runtime_identity() {
   wait_for_worker_ready
 
   source_sha="$(git_as_owner rev-parse HEAD)"
-  git_fetch_origin_main
-  target_sha="$(git_as_owner rev-parse origin/main)"
-  assert_target_selection "$target_sha"
+  assert_github_main_unchanged
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'origin/main differs from the verified release source bundle.'
+  }
   git_as_owner cat-file -e "${runtime_sha}^{commit}"
   git_as_owner merge-base --is-ancestor "$runtime_sha" "$target_sha" || {
     die 'The running release is not an ancestor of origin/main.'
@@ -3210,9 +3737,10 @@ resolve_pending_recovery() {
   wait_for_worker_ready
   curl "${CURL_ARGS[@]}" 'http://127.0.0.1:8088/api/v1/health' | assert_health_json
 
-  git_fetch_origin_main
-  target_sha="$(git_as_owner rev-parse origin/main)"
-  assert_target_selection "$target_sha"
+  assert_github_main_unchanged
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'origin/main differs from the verified release source bundle.'
+  }
   git_as_owner cat-file -e "${runtime_sha}^{commit}"
   git_as_owner merge-base --is-ancestor "$runtime_sha" "$target_sha" || {
     die 'Resolved runtime is not an ancestor of origin/main.'
@@ -3319,20 +3847,27 @@ run_canonical_repair_release() {
 
 write_success_summary() {
   install_active_production_environment
-  local result_status='deployed'
+  local result_status='deployed' release_strategy='prebuilt-images'
   local runtime_after_sha="$target_sha"
   if [[ "$canonical_repair_mode" == 'true' ]]; then
     result_status='canonical-synchronized'
+    release_strategy='verified-runtime-reuse'
     runtime_after_sha="$release_baseline_sha"
+  elif [[ "$build_on_host" == 'true' ]]; then
+    release_strategy='emergency-host-build'
   fi
-  printf 'status=%s\nruntime_before=%s\nruntime_after=%s\ntarget_sha=%s\ncanonical_sync=%s\nbackup_dir=%s\nrollback_tag=%s\n' \
+  printf 'status=%s\nrelease_strategy=%s\nruntime_before=%s\nruntime_after=%s\ntarget_sha=%s\ncanonical_sync=%s\nbackup_dir=%s\nrollback_tag=%s\nrelease_descriptor_digest=%s\nsource_bundle_sha256=%s\ndescriptor_verifier_sha256=%s\n' \
     "$result_status" \
+    "$release_strategy" \
     "$release_baseline_sha" \
     "$runtime_after_sha" \
     "$target_sha" \
     "$canonical_sync_performed" \
     "$backup_dir" \
     "$rollback_tag" \
+    "$descriptor_digest" \
+    "$descriptor_source_bundle_sha256" \
+    "$descriptor_verifier_sha256" \
     >"$backup_dir/deployment-result.txt"
   chmod 600 "$backup_dir/deployment-result.txt"
   clear_pending_recovery_marker
@@ -3379,8 +3914,10 @@ main() {
   if [[ "$mode" == 'check' ]]; then
     if [[ "$canonical_repair_mode" == 'true' ]]; then
       log 'Canonical repair preflight passed; the current images are compatible and the build-memory gate is not required.'
+    elif [[ "$build_on_host" == 'true' ]]; then
+      log 'Emergency host-build preflight passed; no production state was changed.'
     else
-      log 'Production preflight passed; source checkout, environment, database, images, and containers were unchanged.'
+      log "Prebuilt image preflight passed for descriptor ${descriptor_digest}; production state was unchanged."
     fi
     return 0
   fi
@@ -3392,8 +3929,14 @@ main() {
 
   create_backup_and_rollback_point
   sync_source
-  write_build_identity
-  build_images
+  if [[ "$build_on_host" == 'true' ]]; then
+    write_build_identity
+    build_images
+  else
+    pull_prebuilt_images
+    write_prebuilt_build_identity
+    activate_prebuilt_images
+  fi
   enter_release_write_freeze
   refresh_pre_mutation_database_backup
   run_database_updates

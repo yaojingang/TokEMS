@@ -62,6 +62,20 @@ RUN --mount=type=cache,id=tokems-pnpm-store,target=/pnpm/store \
 
 FROM ${NODE_IMAGE} AS api
 
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="api" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
+
 ENV NODE_ENV=production
 ENV API_PORT=4100
 
@@ -77,6 +91,20 @@ CMD ["node", "dist/main.js"]
 
 FROM ${NODE_IMAGE} AS worker
 
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="worker" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
+
 ENV NODE_ENV=production
 LABEL com.tokems.worker-ready-protocol="1"
 
@@ -89,6 +117,20 @@ USER node
 CMD ["node", "dist/main.js"]
 
 FROM ${NODE_IMAGE} AS web
+
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="web" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -106,6 +148,20 @@ CMD ["node", "server/index.mjs"]
 
 FROM nginx:1.31-alpine AS admin
 
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="admin" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
+
 COPY docker/admin.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /workspace/apps/admin/dist/ /usr/share/nginx/html/
 COPY --from=workspace /workspace/.build-info/admin/version.json /usr/share/nginx/html/version.json
@@ -116,6 +172,20 @@ CMD ["nginx", "-g", "daemon off;"]
 
 FROM nginx:1.31-alpine AS gateway
 
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="gateway" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
+
 COPY docker/gateway.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /workspace/.build-info/gateway/version.json /usr/share/nginx/html/version.json
 
@@ -124,6 +194,20 @@ EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
 
 FROM ${NODE_IMAGE} AS notification-sink
+
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+ARG BUILD_MIGRATION=unknown
+ARG BUILD_MIGRATION_HASH=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/yaojingang/TokEMS" \
+      org.opencontainers.image.revision="${BUILD_SHA}" \
+      org.opencontainers.image.created="${BUILD_TIME}" \
+      com.tokems.service="notification-sink" \
+      com.tokems.build.sha="${BUILD_SHA}" \
+      com.tokems.build.time="${BUILD_TIME}" \
+      com.tokems.build.migration="${BUILD_MIGRATION}" \
+      com.tokems.build.migration-hash="${BUILD_MIGRATION_HASH}"
 
 ENV NODE_ENV=production
 ENV NOTIFICATION_SINK_PORT=4080
