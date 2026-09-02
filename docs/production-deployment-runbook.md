@@ -42,7 +42,7 @@ TokEMS 使用根目录多阶段 `Dockerfile` 构建以下应用镜像：
 
 长期基础服务包括 PostgreSQL、Redis、MinIO 和 Mailpit。一次性任务 `db-init`、`minio-init` 正常结束状态为 `Exited (0)`。
 
-标准生产镜像由 `.github/workflows/publish-images.yml` 在官方 `main push` 的 `tokems-ci` 成功完成后构建，统一写入私有包 `ghcr.io/yaojingang/tokems-production`。历史公开包 `ghcr.io/yaojingang/tokems` 不得用于生产发布。六个服务镜像全部完成并生成 GitHub provenance 后，工作流最后发布 `release-<SHA>` descriptor。schema 2 descriptor 固定四项构建身份、生产平台、六个 digest，以及目标提交的完整 Git Bundle 和 verifier SHA-256，是完整可部署版本的唯一标志。生产机通过 GitHub API 核对 `main`、PR 和 CI，通过 GHCR 获取并证明源码与镜像；标准路径不要求生产机直连 `github.com` Git Smart HTTP。
+标准生产镜像由 `.github/workflows/publish-images.yml` 在官方 `main push` 的 `tokems-ci` 成功完成后构建，统一写入私有包 `ghcr.io/yaojingang/tokems-production-private`。历史包 `ghcr.io/yaojingang/tokems` 与 `ghcr.io/yaojingang/tokems-production` 不得用于生产发布。六个服务镜像全部完成并生成 GitHub provenance 后，工作流最后发布 `release-<SHA>` descriptor。schema 2 descriptor 固定四项构建身份、生产平台、六个 digest，以及目标提交的完整 Git Bundle 和 verifier SHA-256，是完整可部署版本的唯一标志。生产机通过 GitHub API 核对 `main`、PR 和 CI，通过 GHCR 获取并证明源码与镜像；标准路径不要求生产机直连 `github.com` Git Smart HTTP。
 
 持久数据卷为：
 

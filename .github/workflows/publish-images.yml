@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GHCR_PACKAGE: ghcr.io/yaojingang/tokems-production
+  GHCR_PACKAGE: ghcr.io/yaojingang/tokems-production-private
 
 jobs:
   guard:

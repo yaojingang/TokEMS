@@ -87,7 +87,8 @@ test('workflow source guard rejects untrusted workflow_run payloads', () => {
 });
 
 test('image publication uses an explicit production platform and immutable release identity', () => {
-  assert.match(source, /GHCR_PACKAGE: ghcr\.io\/yaojingang\/tokems-production/);
+  assert.match(source, /GHCR_PACKAGE: ghcr\.io\/yaojingang\/tokems-production-private/);
+  assert.doesNotMatch(source, /GHCR_PACKAGE: ghcr\.io\/yaojingang\/tokems-production$/m);
   assert.doesNotMatch(source, /ghcr\.io\/yaojingang\/tokems(?=$|\s|["'@:])/m);
   assert.match(source, /package_name="\$\{GHCR_PACKAGE##\*\/\}"/);
   assert.match(source, /packages\/container\/\$\{package_name\}/);

@@ -16,7 +16,7 @@ from typing import Any
 
 
 EXPECTED_SOURCE = "https://github.com/yaojingang/TokEMS"
-EXPECTED_PACKAGE = "ghcr.io/yaojingang/tokems-production"
+EXPECTED_PACKAGE = "ghcr.io/yaojingang/tokems-production-private"
 SERVICES = ("api", "worker", "web", "admin", "gateway", "notification-sink")
 SOURCE_BUNDLE_REF = "refs/heads/tokems-release-source"
 SOURCE_CANDIDATE_REF = "refs/tokems-deploy/source-candidate"

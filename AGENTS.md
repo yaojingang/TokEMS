@@ -9,7 +9,7 @@
 - 服务器分支 `production` 跟踪 `origin/main`。发布前确认工作区干净，并确认服务器 `HEAD` 与 `origin/main` 完全一致。
 - 每次生产变更都要先创建数据库备份、记录当前提交和容器状态，并为当前应用镜像添加 `rollback-<时间戳>` 标签。
 - Docker 构建和运行必须使用同一组 `BUILD_SHA`、`BUILD_TIME`、`BUILD_MIGRATION`、`BUILD_MIGRATION_HASH`。任何值为 `unknown` 时禁止切换生产流量。
-- 标准生产发布只使用 `.github/workflows/publish-images.yml` 写入私有包 `ghcr.io/yaojingang/tokems-production` 的预构建镜像。历史公开包 `ghcr.io/yaojingang/tokems` 禁止进入生产发布。`release-<SHA>` descriptor 必须最后发布，并固定目标平台、四项 `BUILD_*` 和六个服务 digest；生产机验证 GitHub provenance 后才能更新 `tokems-*:local`。
+- 标准生产发布只使用 `.github/workflows/publish-images.yml` 写入私有包 `ghcr.io/yaojingang/tokems-production-private` 的预构建镜像。历史包 `ghcr.io/yaojingang/tokems` 与 `ghcr.io/yaojingang/tokems-production` 禁止进入生产发布。`release-<SHA>` descriptor 必须最后发布，并固定目标平台、四项 `BUILD_*` 和六个服务 digest；生产机验证 GitHub provenance 后才能更新 `tokems-*:local`。
 - Release descriptor schema 2 同时携带目标提交的完整 Git Bundle 和 descriptor verifier，并固定两者 SHA-256。生产机只允许在 descriptor provenance、Bundle 目标 ref、目标 SHA 和 Fast-forward 历史全部通过后更新 `refs/remotes/origin/main`；标准发布不得依赖生产机直连 `github.com` Git Smart HTTP。
 - `/etc/tokems/ghcr-read-token` 仅保存 `read:packages` PAT classic，权限固定为 `root:root 0600`。临时 Docker 登录目录只允许位于 `/run/lock/tokems-production-deploy`，发布日志和证据不得包含 Token。
 - `--build-on-host` 只作为人工应急入口，继续执行 10 GiB 构建内存门禁。自动化受限入口不得传入该参数。
