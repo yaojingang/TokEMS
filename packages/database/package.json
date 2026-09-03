@@ -40,10 +40,10 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "@types/node": "26.2.0",
+    "@types/node": "26.4.0",
     "@types/pg": "8.23.1",
     "drizzle-kit": "0.31.10",
-    "tsx": "4.23.12",
+    "tsx": "4.23.13",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
   }
