@@ -266,7 +266,9 @@ sudo /usr/local/sbin/tokems-deploy deploy \
 
 生产主机曾在 Docker BuildKit 构建期间发生 OOM 并导致同机服务中断。标准发布从 GHCR 拉取固定镜像摘要。`--build-on-host` 应急构建要求 `MemAvailable + SwapFree` 至少 10 GiB，并要求源码文件系统和 Docker 实际 `DockerRootDir` 各有至少 12 GiB 可用空间。受保护的规范修复流程跳过构建资源门禁，备份与验收容量门禁保持启用。备份文件系统的初始门禁按四倍当前数据库体积加至少 4 GiB 计算；构建开始的稳定主键与保留期主键证据生成后，后续门禁使用这些文件的实测大小预算最终 dump、只读验收和 post-thaw 证据。预检从 `/www/backup/TokEMS` 的最深现存父目录读取设备号，创建发布目录后再次核对同一设备，每个大文件阶段前直接检查该发布目录。任一适用资源不足时会在备份、迁移和容器变更前停止。
 
-2026-09-03 的现场诊断还确认：在这台 4 核 8G 主机上，`docker system df` 会触发 `dockerd` 常驻内存快速增长，并可把守护进程推入 OOM。生产巡检、发布和故障诊断禁止执行该命令及其 `-v` 变体。磁盘门禁使用 `docker info --format '{{.DockerRootDir}}'` 定位 Docker 数据目录，再以 `df -Pk` 或 `df -h` 读取文件系统可用空间；单个镜像证据使用有界的 `docker image inspect`。出现 Docker 异常时先保存 `journalctl -u docker`、内核 OOM 日志、容器状态和进程内存证据，避免运行全局对象盘点命令。
+2026-09-03 的现场诊断还确认：在这台 4 核 8G 主机上，`docker system df` 会触发 `dockerd` 常驻内存快速增长，并可把守护进程推入 OOM。调用源最终定位到宝塔面板 `/www/server/panel/class/btdockerModel/statusModel.py` 的 Docker 总览接口；页面轮询曾留下两条并发、持续二十分钟以上的 `docker system df --format json` 进程。服务器已把该接口改为读取有界的 Docker info 数量字段，原文件备份为同目录下的 `statusModel.py.pre-tokems-20260903-1210`。宝塔升级后必须复核该修补仍在，发现源码重新出现此命令时先关闭 Docker 总览访问并恢复修补。
+
+生产巡检、发布、宝塔面板和故障诊断禁止执行 `docker system df` 及其 `-v` 变体。磁盘门禁使用 `docker info --format '{{.DockerRootDir}}'` 定位 Docker 数据目录，再以 `df -Pk` 或 `df -h` 读取文件系统可用空间；单个镜像证据使用有界的 `docker image inspect`。出现 Docker 异常时先保存 `journalctl -u docker`、内核 OOM 日志、容器状态、进程树和 Docker socket 客户端证据，避免运行全局对象盘点命令。每次发布前同时确认 `pgrep -af 'docker system df'` 没有真实匹配项，并观察 `dockerd` RSS 保持稳定。
 
 标准单命令发布拒绝 `docker-compose.yml` 变化。数据库、缓存、对象存储、卷、端口和服务拓扑变更进入单独评审的基础设施维护窗口。
 
