@@ -71,6 +71,21 @@ test('prebuilt images are the default release path and host builds remain resour
   assert.match(source, /GHCR network probe failed/);
   assert.match(source, /GHCR read token file is missing/);
   assert.match(source, /GHCR authentication failed; the read token may be expired or invalid/);
+  assert.match(source, /GHCR_LOGIN_TIMEOUT_SECONDS=45/);
+  assert.match(source, /GHCR_LOGIN_ATTEMPTS=3/);
+  assert.match(source, /GHCR authentication timed out after bounded retries/);
+  assert.match(source, /GHCR authentication transport failed after bounded retries/);
+  assert.match(
+    source,
+    /timeout --foreground --kill-after=10s "\$\{GHCR_LOGIN_TIMEOUT_SECONDS\}s"/,
+  );
+  assert.match(source, /sys\.version_info >= \(3, 6\)/);
+  assert.match(source, /Python 3\.6 or newer is required for release verification/);
+  assert.match(source, /MIN_BUILDX_VERSION='0\.36\.1'/);
+  assert.match(
+    source,
+    /Docker Buildx \$\{MIN_BUILDX_VERSION\} or newer is required for release verification/,
+  );
   assert.match(source, /prepare_release_source_bundle/);
   assert.match(source, /verify-source-bundle/);
   assert.match(source, /import-source-bundle/);
@@ -116,6 +131,20 @@ test('prebuilt images are the default release path and host builds remain resour
   );
   assert.match(activate, /images_changed='true'/);
   assert.match(activate, /:local/);
+});
+
+test('production runtime gate accepts supported Buildx versions and rejects older clients', () => {
+  const match = source.match(
+    /assert_buildx_runtime\(\) \{[\s\S]*?python3 -c '\n([\s\S]*?)\n' "\$buildx_version" "\$MIN_BUILDX_VERSION"/,
+  );
+  assert.ok(match, 'Buildx runtime version parser was not found');
+  const runGate = (versionOutput) =>
+    spawnSync('python3', ['-c', match[1], versionOutput, '0.36.1'], { encoding: 'utf8' });
+
+  assert.equal(runGate('github.com/docker/buildx v0.36.1 abc123').status, 0);
+  assert.equal(runGate('github.com/docker/buildx v0.40.0-rc1 abc123').status, 0);
+  assert.notEqual(runGate('github.com/docker/buildx v0.14.0 abc123').status, 0);
+  assert.notEqual(runGate('unexpected output').status, 0);
 });
 
 test('forced canonical sync reuses a compatible runtime without building images', () => {
@@ -715,6 +744,14 @@ test('recovery is versioned, offline-capable, and waits for detached database wo
   assert.match(source, /production-deploy\.recovery\.sh/);
   assert.match(source, /recovery_script_sha256/);
   assert.match(source, /bootstrap_recovery_script "\$@"/);
+  const baseRequirements = source.slice(
+    source.indexOf('require_root_and_base_commands() {'),
+    source.indexOf('\nassert_trusted_root_directory() {'),
+  );
+  assert.match(
+    baseRequirements,
+    /if \[\[ "\$mode" != 'recover-interrupted' \]\]; then\n\s+assert_buildx_runtime\n\s+fi/,
+  );
   const recover = source.slice(
     source.indexOf('recover_interrupted_release() {'),
     source.indexOf('\nresolve_pending_recovery() {'),

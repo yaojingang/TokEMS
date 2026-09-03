@@ -33,6 +33,10 @@ readonly SAFE_PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 readonly LOCK_DIR='/run/lock/tokems-production-deploy'
 readonly LOCK_FILE="${LOCK_DIR}/deploy.lock"
 readonly RECOVERY_MARKER="${BACKUP_ROOT}/RECOVERY_REQUIRED"
+readonly MIN_BUILDX_VERSION='0.36.1'
+readonly GHCR_LOGIN_TIMEOUT_SECONDS=45
+readonly GHCR_LOGIN_ATTEMPTS=3
+readonly GHCR_LOGIN_RETRY_SECONDS=3
 readonly MIN_BUILD_CAPACITY_KIB=10485760
 readonly MIN_BUILD_DISK_KIB=12582912
 readonly MIN_BACKUP_RESERVE_KIB=4194304
@@ -813,12 +817,35 @@ pin_local_runtime_controls() {
   unset TOKEMS_READ_ONLY_DATABASE_URL SEED_DEMO_DATA COMPOSE_PARALLEL_LIMIT
 }
 
+assert_python_runtime() {
+  python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 6) else 1)' || {
+    die 'Python 3.6 or newer is required for release verification.'
+  }
+}
+
+assert_buildx_runtime() {
+  local buildx_version
+  buildx_version="$(docker buildx version)" || die 'Docker Buildx is unavailable.'
+  python3 -c '
+import re
+import sys
+
+match = re.search(r"(?:^|\s)v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-\s]|$)", sys.argv[1])
+current = tuple(int(part) for part in match.groups()) if match else ()
+minimum = tuple(int(part) for part in sys.argv[2].split("."))
+raise SystemExit(0 if current and current >= minimum else 1)
+' "$buildx_version" "$MIN_BUILDX_VERSION" || {
+    die "Docker Buildx ${MIN_BUILDX_VERSION} or newer is required for release verification."
+  }
+}
+
 require_root_and_base_commands() {
   [[ "$(id -u)" -eq 0 ]] || die 'Run this command with sudo or as root.'
   local command_name
   for command_name in bash sudo env git flock curl python3 docker nginx awk grep sed sha256sum find sort tail tar install ps mkdir stat dirname df mktemp cp mv chmod chown rm basename date timeout sleep cat readlink systemd-run systemctl uname; do
     require_command "$command_name"
   done
+  assert_python_runtime
   [[ "$(cd "$APP_DIR" && pwd -P)" == "$APP_DIR" ]] || die 'Production app path resolved unexpectedly.'
   if [[ ! -e "$ENV_DIR" && ! -L "$ENV_DIR" ]]; then
     install -d -o root -g root -m 700 "$ENV_DIR"
@@ -830,6 +857,9 @@ require_root_and_base_commands() {
     assert_trusted_recovery_file "$PRODUCTION_ENV_FILE"
   fi
   [[ -S /var/run/docker.sock ]] || die 'The local Docker Unix socket is unavailable.'
+  if [[ "$mode" != 'recover-interrupted' ]]; then
+    assert_buildx_runtime
+  fi
   ensure_trusted_backup_root
 }
 
@@ -1459,19 +1489,37 @@ login_ghcr() {
 
   registry_auth_dir="$(mktemp -d "${LOCK_DIR}/registry-auth.XXXXXX")"
   chmod 700 "$registry_auth_dir"
-  local token login_error
+  local token login_error login_status attempt
   IFS= read -r token <"$GHCR_TOKEN_FILE"
   [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
   login_error="$registry_auth_dir/login.err"
-  if ! printf '%s' "$token" \
-    | env -i \
-      "PATH=$SAFE_PATH" \
-      'HOME=/root' \
-      "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
-      "DOCKER_CONFIG=$registry_auth_dir" \
-      docker login "$GHCR_REGISTRY" --username "$GHCR_USERNAME" --password-stdin \
-      >/dev/null 2>"$login_error"; then
-    die 'GHCR authentication failed; the read token may be expired or invalid.'
+  login_status=1
+  for ((attempt = 1; attempt <= GHCR_LOGIN_ATTEMPTS; attempt += 1)); do
+    : >"$login_error"
+    if printf '%s' "$token" \
+      | timeout --foreground --kill-after=10s "${GHCR_LOGIN_TIMEOUT_SECONDS}s" \
+        env -i \
+          "PATH=$SAFE_PATH" \
+          'HOME=/root' \
+          "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
+          "DOCKER_CONFIG=$registry_auth_dir" \
+          docker login "$GHCR_REGISTRY" --username "$GHCR_USERNAME" --password-stdin \
+          >/dev/null 2>"$login_error"; then
+      login_status=0
+      break
+    else
+      login_status=$?
+    fi
+    [[ "$attempt" -eq "$GHCR_LOGIN_ATTEMPTS" ]] || sleep "$GHCR_LOGIN_RETRY_SECONDS"
+  done
+  if [[ "$login_status" -ne 0 ]]; then
+    if [[ "$login_status" -eq 124 || "$login_status" -eq 137 ]]; then
+      die 'GHCR authentication timed out after bounded retries.'
+    fi
+    if grep -Eqi 'unauthorized|denied|forbidden|authentication required' "$login_error"; then
+      die 'GHCR authentication failed; the read token may be expired or invalid.'
+    fi
+    die 'GHCR authentication transport failed after bounded retries.'
   fi
   : >"$login_error"
   local package_name package_visibility

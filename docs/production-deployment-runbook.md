@@ -184,7 +184,7 @@ sudo install -o root -g root -m 0755 \
 sudo /usr/local/sbin/tokems-deploy --help
 ```
 
-`/usr/local/sbin/tokems-deploy` 每次启动都会从 GitHub API 解析最新 `main`，复核合并 PR、官方 main push CI、`quality-and-flows` 与镜像发布工作流，再从经过证明的 GHCR descriptor 导入目标 Git Bundle 并读取目标脚本。日常发布也使用这个 root 所有的入口，避免 root 直接执行由 `ecs-user` 管理的工作区文件。首次基线依次执行以下命令，每一步成功后再继续：
+`/usr/local/sbin/tokems-deploy` 每次启动都会从 GitHub API 解析最新 `main`，复核合并 PR、官方 main push CI、`quality-and-flows` 与镜像发布工作流，再从经过证明的 GHCR descriptor 导入目标 Git Bundle 并读取目标脚本。生产机需要 Python 3.6 或更高版本及 Docker Buildx 0.36.1 或更高版本；`tokems-ci` 使用固定的 Python 3.6.15 容器验证 descriptor CLI，保证 verifier 可在当前生产系统上运行。日常发布也使用这个 root 所有的入口，避免 root 直接执行由 `ecs-user` 管理的工作区文件。首次基线依次执行以下命令，每一步成功后再继续：
 
 ```bash
 sudo install -d -o root -g root -m 0700 /etc/tokems
@@ -198,7 +198,7 @@ sudo /usr/local/sbin/tokems-deploy check --target-sha <origin-main-full-sha>
 sudo /usr/local/sbin/tokems-deploy deploy --target-sha <origin-main-full-sha>
 ```
 
-`/etc/tokems` 必须保持 `root:root 0700`，`production.env` 与 `ghcr-read-token` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。GHCR 登录通过 `password-stdin` 完成，临时 Docker 配置在退出路径清除。不要把生产环境文件或 Token 上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
+`/etc/tokems` 必须保持 `root:root 0700`，`production.env` 与 `ghcr-read-token` 必须保持 `root:root 0600`。脚本取得发布锁后立即创建 root-only 会话快照，后续 Compose 只读取受保护快照；发布成功或身份修复成功后再原子写回 `/etc/tokems/production.env`。GHCR 登录通过 `password-stdin` 完成，每次最多等待 45 秒并执行三次有限重试；超时、Token 无效和传输失败返回不同错误。临时 Docker 配置在退出路径清除。不要把生产环境文件或 Token 上传到 GitHub，也不要在终端输出其内容。确认新入口连续完成 `repair-identity`、`check` 和一次正式 `deploy` 后，可按既有凭据销毁流程处理工作区旧 `.env`。
 
 4 核 8G 生产主机的标准 `check` 和 `deploy` 使用预构建镜像，不执行 Docker 构建，也不应用 10 GiB 构建内存门禁。Docker 磁盘、备份容量、数据库和数据保护门禁保持启用。人工应急构建使用 `--build-on-host`，资源不足时会在备份、迁移和容器切换前停止。目标规范快照与当前运行提交完全一致，且目标差异仅包含部署控制与文档时，可显式执行 `check --sync-canonical` 和 `deploy --sync-canonical`；脚本复用当前已验证镜像，并继续执行备份、写冻结、规范同步、生产数据保护和完整验收。
 
@@ -306,7 +306,7 @@ sudo stat -c '%U:%G %a %n' /etc/tokems/ghcr-read-token
 - `origin` 指向官方仓库。
 - Compose 配置和 Nginx 配置通过。
 - 生产平台与仓库变量 `PRODUCTION_PLATFORM` 一致，值为 `linux/amd64` 或 `linux/arm64`。
-- 预构建模式的磁盘、备份容量、Docker、Buildx、GitHub CLI 和 GHCR 只读凭据满足要求。
+- 预构建模式的磁盘、备份容量、Python 3.6 或更高版本、Docker、Buildx 0.36.1 或更高版本、GitHub CLI 和 GHCR 只读凭据满足要求。
 - `api.github.com` 与 `ghcr.io` 可访问；`github.com` Git Smart HTTP 不属于标准发布依赖。
 - `--build-on-host` 应急模式额外满足 10 GiB 内存与构建磁盘门禁。
 - 没有其他构建或发布进程。
