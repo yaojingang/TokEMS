@@ -2238,7 +2238,7 @@ YAML
     -e CANONICAL_API_BASE_URL=http://api:4100/api/v1 \
     -e CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL=true \
     api \
-    node node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
+    node --preserve-symlinks-main node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
     >"$canonical_probe_actual_snapshot" 2>/dev/null || export_status=$?
   read_only_compose_file="$previous_read_only_compose_file"
   unset TOKEMS_READ_ONLY_DATABASE_URL
@@ -3522,7 +3522,7 @@ verify_canonical_full_snapshot() {
     -e CANONICAL_API_BASE_URL=http://api:4100/api/v1 \
     -e CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL=true \
     api \
-    node node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
+    node --preserve-symlinks-main node_modules/@conference/database/dist/export-canonical-homepage.js --stdout \
     >"$actual_snapshot"
   chmod 600 "$actual_snapshot"
   local -a expected_snapshots=("$expected_snapshot")
