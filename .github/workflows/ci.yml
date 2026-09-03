@@ -21,6 +21,7 @@ jobs:
           image='python:3.6.15-alpine3.15@sha256:579978dec4602646fe1262f02b96371779bfb0294e92c91392707fa999c0c989'
           runtime_args=(
             --rm
+            --user "$(id -u):$(id -g)"
             --network none
             --read-only
             --security-opt no-new-privileges:true
@@ -28,7 +29,7 @@ jobs:
             --pids-limit 64
             --memory 128m
             --cpus 1
-            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
             --volume "$GITHUB_WORKSPACE:/workspace:ro"
             --workdir /workspace
           )
