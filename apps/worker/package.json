@@ -20,9 +20,9 @@
     "@conference/html-template": "workspace:*",
     "@conference/integrations": "workspace:*",
     "@conference/security": "workspace:*",
-    "bullmq": "6.1.2",
+    "bullmq": "6.3.2",
     "drizzle-orm": "0.45.2",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "undici": "8.10.0"
   },
   "devDependencies": {
