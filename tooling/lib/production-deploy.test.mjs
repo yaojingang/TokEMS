@@ -779,6 +779,16 @@ test('release verifies public recovery projection and the full canonical backend
   assert.match(source, /canonical-homepage\.snapshot\.\$\{evidence_suffix\}\.json/);
   assert.match(source, /export-canonical-homepage\.js --stdout/);
   assert.match(source, /CANONICAL_EXPORT_TRUSTED_COMPOSE_INTERNAL=true/);
+  assert.equal(
+    source.match(
+      /node --preserve-symlinks-main node_modules\/@conference\/database\/dist\/export-canonical-homepage\.js --stdout/g,
+    )?.length,
+    2,
+  );
+  assert.doesNotMatch(
+    source,
+    /\snode node_modules\/@conference\/database\/dist\/export-canonical-homepage\.js --stdout/,
+  );
   assert.match(
     source,
     /verify_canonical_full_snapshot \\\n\s+"\$resolved_full_snapshot" \\\n\s+recovery-resolve/,
@@ -793,12 +803,20 @@ test('automatic canonical sync repairs pre-existing production drift', () => {
     source.indexOf('determine_canonical_sync() {'),
     source.indexOf('\nassert_standard_release_scope() {'),
   );
+  const productionProbe = source.slice(
+    source.indexOf('production_canonical_snapshot_matches_target() {'),
+    source.indexOf('\ndetermine_canonical_sync() {'),
+  );
 
   assert.match(source, /production_canonical_snapshot_matches_target/);
   assert.match(source, /canonical-probe\.compose/);
   assert.match(source, /default_transaction_read_only=on/);
   assert.match(source, /read_only_compose_file="\$previous_read_only_compose_file"/);
   assert.match(source, /unset TOKEMS_READ_ONLY_DATABASE_URL/);
+  assert.match(
+    productionProbe,
+    /node --preserve-symlinks-main node_modules\/@conference\/database\/dist\/export-canonical-homepage\.js --stdout/,
+  );
   assert.match(decision, /production_canonical_snapshot_matches_target/);
   assert.match(decision, /canonical_sync_required='true'/);
   assert.match(decision, /Production canonical snapshot drift detected/);
