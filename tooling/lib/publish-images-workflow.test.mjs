@@ -18,6 +18,17 @@ test('image publication starts only after the official main CI workflow succeeds
   assert.match(source, /workflow_run:/);
   assert.match(source, /workflows: \[tokems-ci\]/);
   assert.match(source, /types: \[completed\]/);
+  for (const eventFilter of [
+    "github.event.workflow_run.event == 'push'",
+    "github.event.workflow_run.head_branch == 'main'",
+    "github.event.workflow_run.status == 'completed'",
+    "github.event.workflow_run.conclusion == 'success'",
+    'github.event.workflow_run.repository.full_name == github.repository',
+    'github.event.workflow_run.head_repository.full_name == github.repository',
+    'github.sha == github.event.workflow_run.head_sha',
+  ]) {
+    assert.ok(source.includes(eventFilter), `missing workflow_run job filter: ${eventFilter}`);
+  }
   for (const gate of [
     "workflow_run.event != 'push'",
     "workflow_run.head_branch != 'main'",
