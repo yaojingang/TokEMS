@@ -75,6 +75,12 @@ test('prebuilt images are the default release path and host builds remain resour
   assert.match(source, /GHCR_LOGIN_ATTEMPTS=3/);
   assert.match(source, /GHCR authentication timed out after bounded retries/);
   assert.match(source, /GHCR authentication transport failed after bounded retries/);
+  assert.equal(
+    source.match(/token="\$\(<"\$GHCR_TOKEN_FILE"\)"/g)?.length,
+    2,
+    'both GHCR consumers must accept a token file without a trailing newline',
+  );
+  assert.doesNotMatch(source, /IFS= read -r token <"\$GHCR_TOKEN_FILE"/);
   assert.match(
     source,
     /timeout --foreground --kill-after=10s "\$\{GHCR_LOGIN_TIMEOUT_SECONDS\}s"/,

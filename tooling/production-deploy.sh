@@ -1452,7 +1452,7 @@ registry_docker() {
 registry_gh() {
   [[ -n "$registry_auth_dir" && -d "$registry_auth_dir" ]] || die 'Temporary GHCR authentication is unavailable.'
   local token
-  IFS= read -r token <"$GHCR_TOKEN_FILE"
+  token="$(<"$GHCR_TOKEN_FILE")"
   [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
   env -i \
     "PATH=$SAFE_PATH" \
@@ -1490,7 +1490,7 @@ login_ghcr() {
   registry_auth_dir="$(mktemp -d "${LOCK_DIR}/registry-auth.XXXXXX")"
   chmod 700 "$registry_auth_dir"
   local token login_error login_status attempt
-  IFS= read -r token <"$GHCR_TOKEN_FILE"
+  token="$(<"$GHCR_TOKEN_FILE")"
   [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
   login_error="$registry_auth_dir/login.err"
   login_status=1
