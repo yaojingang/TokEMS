@@ -11,6 +11,46 @@ permissions:
   pull-requests: read
 
 jobs:
+  release-descriptor-python36:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify the production Python 3.6 descriptor interface
+        run: |
+          image='python:3.6.15-alpine3.15@sha256:579978dec4602646fe1262f02b96371779bfb0294e92c91392707fa999c0c989'
+          runtime_args=(
+            --rm
+            --user "$(id -u):$(id -g)"
+            --network none
+            --read-only
+            --security-opt no-new-privileges:true
+            --cap-drop ALL
+            --pids-limit 64
+            --memory 128m
+            --cpus 1
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+            --volume "$GITHUB_WORKSPACE:/workspace:ro"
+            --workdir /workspace
+          )
+          docker run "${runtime_args[@]}" "$image" \
+            python tooling/release-descriptor.py --help >/dev/null
+
+          evidence_dir="$(mktemp -d "$RUNNER_TEMP/python36-descriptor.XXXXXX")"
+          : >"$evidence_dir/invalid-source.bundle"
+          set +e
+          docker run "${runtime_args[@]}" \
+            --volume "$evidence_dir:/evidence" \
+            "$image" \
+            sh -c 'PATH=/missing /usr/local/bin/python tooling/release-descriptor.py verify-source-bundle \
+              --bundle-file /evidence/invalid-source.bundle \
+              --target-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+              2>/evidence/python36-verifier.err'
+          verifier_status=$?
+          set -e
+          [[ "$verifier_status" -eq 1 ]]
+          grep -Fq 'source bundle Git validation failed' "$evidence_dir/python36-verifier.err"
+
   quality-and-flows:
     runs-on: ubuntu-latest
     timeout-minutes: 45

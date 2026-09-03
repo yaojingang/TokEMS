@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Validate TokEMS immutable release descriptors and service image metadata."""
 
-from __future__ import annotations
-
 import argparse
 import json
 import os
@@ -12,7 +10,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Set, Tuple
 
 
 EXPECTED_SOURCE = "https://github.com/yaojingang/TokEMS"
@@ -57,7 +55,7 @@ def validate_build_values(
         raise DescriptorError("build migration hash must be a lowercase SHA-256")
 
 
-def load_object(path: str, description: str) -> dict[str, Any]:
+def load_object(path: str, description: str) -> Dict[str, Any]:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -67,7 +65,7 @@ def load_object(path: str, description: str) -> dict[str, Any]:
     return value
 
 
-def require_text(mapping: dict[str, Any], key: str, description: str) -> str:
+def require_text(mapping: Dict[str, Any], key: str, description: str) -> str:
     value = mapping.get(key)
     if not isinstance(value, str) or not value:
         raise DescriptorError(f"missing required {description}: {key}")
@@ -82,8 +80,8 @@ def expect_equal(actual: str, expected: str, description: str) -> None:
 
 
 def validate_build_identity(
-    labels: dict[str, Any], target_sha: str
-) -> tuple[str, str, str, str]:
+    labels: Dict[str, Any], target_sha: str
+) -> Tuple[str, str, str, str]:
     build_sha = require_text(labels, "com.tokems.build.sha", "build label")
     build_time = require_text(labels, "com.tokems.build.time", "build label")
     migration = require_text(labels, "com.tokems.build.migration", "build label")
@@ -95,7 +93,7 @@ def validate_build_identity(
     return build_sha, build_time, migration, migration_hash
 
 
-def validate_common_labels(labels: dict[str, Any], target_sha: str) -> str:
+def validate_common_labels(labels: Dict[str, Any], target_sha: str) -> str:
     expect_equal(
         require_text(labels, "org.opencontainers.image.source", "OCI label"),
         EXPECTED_SOURCE,
@@ -158,8 +156,8 @@ def verify_descriptor(args: argparse.Namespace) -> None:
     if release_image_keys != expected_image_keys:
         raise DescriptorError("descriptor must contain exactly the six supported service images")
 
-    image_refs: dict[str, str] = {}
-    digests: set[str] = set()
+    image_refs: Dict[str, str] = {}
+    digests: Set[str] = set()
     for service in SERVICES:
         key = f"com.tokems.release.image.{service}"
         image_ref = require_text(labels, key, "descriptor label")
@@ -209,15 +207,16 @@ def verify_source_bundle(args: argparse.Namespace) -> None:
             "GIT_TERMINAL_PROMPT": "0",
         }
 
-        def run_git(*command: str) -> subprocess.CompletedProcess[str]:
+        def run_git(*command: str) -> subprocess.CompletedProcess:
             try:
                 return subprocess.run(
                     ["git", *command],
                     cwd=directory,
                     env=environment,
                     check=True,
-                    capture_output=True,
-                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
                     timeout=120,
                 )
             except (OSError, subprocess.SubprocessError) as error:
@@ -266,15 +265,16 @@ def import_source_bundle(args: argparse.Namespace) -> None:
         "GIT_TERMINAL_PROMPT": "0",
     }
 
-    def run_git(*command: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def run_git(*command: str, check: bool = True) -> subprocess.CompletedProcess:
         try:
             return subprocess.run(
                 ["git", *command],
                 cwd=repository,
                 env=environment,
                 check=check,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=args.timeout_seconds,
             )
         except (OSError, subprocess.SubprocessError) as error:
@@ -333,7 +333,7 @@ def import_source_bundle(args: argparse.Namespace) -> None:
     print(f"Imported verified source bundle: {current_origin_sha} -> {args.target_sha}")
 
 
-def image_labels(metadata: dict[str, Any]) -> dict[str, Any]:
+def image_labels(metadata: Dict[str, Any]) -> Dict[str, Any]:
     config = metadata.get("config")
     if not isinstance(config, dict):
         config = metadata.get("Config")
@@ -383,7 +383,8 @@ def verify_service(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.required = True
 
     descriptor = subparsers.add_parser("verify-descriptor")
     descriptor.add_argument("--labels-file", required=True)
