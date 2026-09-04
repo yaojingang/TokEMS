@@ -81,10 +81,7 @@ test('prebuilt images are the default release path and host builds remain resour
     'both GHCR consumers must accept a token file without a trailing newline',
   );
   assert.doesNotMatch(source, /IFS= read -r token <"\$GHCR_TOKEN_FILE"/);
-  assert.match(
-    source,
-    /timeout --foreground --kill-after=10s "\$\{GHCR_LOGIN_TIMEOUT_SECONDS\}s"/,
-  );
+  assert.match(source, /timeout --foreground --kill-after=10s "\$\{GHCR_LOGIN_TIMEOUT_SECONDS\}s"/);
   assert.match(source, /sys\.version_info >= \(3, 6\)/);
   assert.match(source, /Python 3\.6 or newer is required for release verification/);
   assert.match(source, /MIN_BUILDX_VERSION='0\.36\.1'/);
@@ -883,6 +880,52 @@ test('public homepage verifier treats an omitted binding revision as sanitized m
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+for (const verifier of ['canonical_snapshot_files_match', 'verify_homepage_file']) {
+  test(`${verifier} accepts environment publication time and rejects registration content drift`, () => {
+    const match = source.match(
+      new RegExp(`${verifier}\\(\\) \\{[\\s\\S]*?<<'PY'\\n([\\s\\S]*?)\\nPY`),
+    );
+    assert.ok(match, `${verifier} Python program was not found`);
+    const directory = mkdtempSync(resolve(tmpdir(), 'tokems-form-publication-'));
+    const actualPath = resolve(directory, 'actual.json');
+    const expectedPath = resolve(directory, 'expected.json');
+    const expected = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, 'packages/contracts/src/canonical-homepage.snapshot.json'),
+        'utf8',
+      ),
+    );
+    const actual = structuredClone(expected);
+    actual.publicEvent.registrationForm.publishedAt = '2026-09-04T13:49:07.481Z';
+    expected.publicEvent.registrationForm.publishedAt = '2026-09-04T06:46:07.380Z';
+    const run = () => {
+      writeFileSync(
+        actualPath,
+        JSON.stringify(verifier === 'verify_homepage_file' ? actual.publicEvent : actual),
+      );
+      const args = ['-', actualPath, expectedPath];
+      if (verifier === 'verify_homepage_file') args.push('tokems26');
+      return spawnSync('python3', args, {
+        encoding: 'utf8',
+        input: match[1],
+      });
+    };
+    try {
+      writeFileSync(expectedPath, JSON.stringify(expected));
+      const result = run();
+      assert.equal(result.status, 0, result.stderr);
+      for (const field of ['version', 'termsVersion', 'termsContent', 'fields']) {
+        const original = actual.publicEvent.registrationForm[field];
+        actual.publicEvent.registrationForm[field] = field === 'fields' ? [] : 'unexpected';
+        assert.equal(run().status, 1, `${verifier} must reject ${field} drift`);
+        actual.publicEvent.registrationForm[field] = original;
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('production network calls are bounded and infrastructure reconciliation is isolated', () => {
   assert.doesNotMatch(source, /curl\s+-f/);
