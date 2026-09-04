@@ -29,6 +29,13 @@ describe('speaker profile contracts', () => {
       '大尤',
       '任强',
       '岳琦',
+      '玉伯',
+      '杨攀',
+      'AJ',
+      'Berryxia（神的孩子在跳舞）',
+      '岚叔',
+      '彭超',
+      '余一',
     ]);
 
     for (const speaker of DEMO_EVENT.speakers) {
