@@ -31,6 +31,15 @@ const registrationKey = `persistent-registration-${runId}`;
 const paymentExternalId = `persistent-payment-${runId}`;
 const paymentKey = `payment:test-provider:${paymentExternalId}`;
 const attendeeName = `持久化测试-${runId.slice(0, 8)}`;
+const publicEvent = await request(`/events/${DEMO_EVENT.slug}`, {
+  headers: { 'X-Organization-Slug': process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference' },
+});
+assert(
+  Number.isInteger(publicEvent.registrationForm?.version) &&
+    publicEvent.registrationForm.version > 0 &&
+    publicEvent.registrationForm.termsVersion,
+  '公开大会未返回可提交的报名表和条款版本',
+);
 const registrationBody = {
   eventId: DEMO_EVENT.id,
   ticketTypeId: DEMO_EVENT.tickets[0].id,
@@ -47,6 +56,8 @@ const registrationBody = {
   termsAccepted: true,
   purchaseFor: 'self',
   purchaseIntentId: runId,
+  formVersion: publicEvent.registrationForm.version,
+  termsVersion: publicEvent.registrationForm.termsVersion,
 };
 
 const health = await request('/health');
