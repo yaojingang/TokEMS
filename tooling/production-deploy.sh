@@ -2176,7 +2176,14 @@ import sys
 
 def load_snapshot(file_name):
     with open(file_name, encoding="utf-8") as handle:
-        return json.load(handle)
+        snapshot = json.load(handle)
+    if isinstance(snapshot, dict):
+        event = snapshot.get("publicEvent")
+        form = event.get("registrationForm") if isinstance(event, dict) else None
+        if isinstance(form, dict):
+            # Seeding records the form publication time in each environment.
+            form.pop("publishedAt", None)
+    return snapshot
 
 
 try:
@@ -3487,6 +3494,11 @@ if actual.get("slug") != sys.argv[3]:
 
 normalized = deepcopy(actual)
 normalized["publicMetrics"] = deepcopy(expected.get("publicMetrics"))
+for event in (normalized, expected):
+    form = event.get("registrationForm")
+    if isinstance(form, dict):
+        # Publication time is runtime metadata; form content remains fully compared.
+        form.pop("publishedAt", None)
 expected_experience = expected.get("experience") or {}
 actual_experience = normalized.get("experience") or {}
 if expected_experience.get("overrideRevisions") is None and actual_experience.get("overrideRevisions") == {}:
