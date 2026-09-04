@@ -31,6 +31,7 @@
     "test:security-config": "node tooling/production-config-smoke.mjs",
     "test:checkin-load": "node tooling/checkin-load.mjs",
     "test:visual": "node tooling/visual-smoke.mjs",
+    "test:registration-experience": "node --test tooling/registration-experience-smoke.mjs",
     "test:tokems-admin-skill": "node --test skills/tokems-admin/scripts/lib/*.test.mjs",
     "skill:tokems-contracts": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts",
     "skill:tokems-contracts:check": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts --check",
