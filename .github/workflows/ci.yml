@@ -188,6 +188,7 @@ jobs:
           pnpm test:security-config
           pnpm test:checkin-load
           pnpm test:tooling
+          pnpm test:registration-experience
           pnpm test:visual
       - name: Dependency audit
         id: dependency_audit

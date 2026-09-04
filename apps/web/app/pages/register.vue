@@ -324,7 +324,9 @@ function restoreRegistrationDraftForCurrentIdentity() {
     registrationFields.value,
   );
   for (const [key, value] of Object.entries(restored.answers)) {
-    if (preserveCurrentAnswers && (editedAnswerKeys.has(key) || answers[key])) continue;
+    // The form can be edited before the first account/draft lookup finishes.
+    if ((!previous || preserveCurrentAnswers) && editedAnswerKeys.has(key)) continue;
+    if (preserveCurrentAnswers && answers[key]) continue;
     answers[key] = value;
     if (restored.editedKeys.includes(key)) editedAnswerKeys.add(key);
   }
