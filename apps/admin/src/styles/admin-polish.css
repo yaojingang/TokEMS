@@ -438,7 +438,7 @@
 .field-builder-row {
   grid-template-columns:
     minmax(105px, 0.8fr) minmax(120px, 1fr) 88px minmax(120px, 1fr) minmax(120px, 1fr)
-    58px 40px;
+    58px 64px;
 }
 
 .field-builder-header {
@@ -496,6 +496,12 @@
 .field-builder-action {
   display: grid;
   place-items: center;
+  gap: 4px;
+}
+
+.field-builder-action .row-action:first-child {
+  width: 64px;
+  white-space: nowrap;
 }
 
 .field-error {
