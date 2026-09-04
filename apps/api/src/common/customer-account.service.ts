@@ -1,3 +1,4 @@
+import { guardRefundWrite } from './refund-write-guard.js';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import type {
@@ -1349,6 +1350,7 @@ export class CustomerAccountService {
             .where(and(eq(orders.id, orderId), eq(orders.organizationId, session.organizationId)))
             .for('update')
             .limit(1);
+          if (order) await guardRefundWrite(tx, order.id, true);
           const [registration] = order
             ? await tx
                 .select()
@@ -1375,6 +1377,7 @@ export class CustomerAccountService {
           ) {
             throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
           }
+          await guardRefundWrite(tx, order.id);
           const scope = { order, registration };
           const [ticket] = await tx
             .select()

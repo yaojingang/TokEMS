@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RefundModule } from './modules/refund.module.js';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -63,6 +64,7 @@ if (
     OperationsModule,
     TemplateInvoiceModule,
     CustomerModule,
+    RefundModule,
     AgentModule,
     HealthModule,
   ],

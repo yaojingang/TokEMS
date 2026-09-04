@@ -1,4 +1,6 @@
 import { Global, Module } from '@nestjs/common';
+import { RefundWorkflowService } from './refund-workflow.service.js';
+import { WeChatRefundService } from './wechat-refund.service.js';
 import { AuthGuard } from './auth.guard.js';
 import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
@@ -33,6 +35,8 @@ import { AttendeeServiceHubService } from './attendee-service-hub.service.js';
 @Global()
 @Module({
   providers: [
+    RefundWorkflowService,
+    WeChatRefundService,
     DatabaseService,
     ConferenceRepository,
     EventReleaseActivationService,
@@ -65,6 +69,7 @@ import { AttendeeServiceHubService } from './attendee-service-hub.service.js';
     AttendeeServiceHubService,
   ],
   exports: [
+    RefundWorkflowService,
     DatabaseService,
     ConferenceRepository,
     EventReleaseActivationService,

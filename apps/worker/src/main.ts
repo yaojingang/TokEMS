@@ -49,6 +49,9 @@ import {
   payments,
   readDatabaseMigrationStatus,
   refunds,
+  refundRequests,
+  memberships,
+  users,
   registrations,
   tickets,
   ticketTypes,
@@ -120,6 +123,7 @@ import {
   consumeRegistrationReviewNotification,
   consumeRefundSucceededNotification,
   consumeTicketIssuedNotification,
+  shouldDeliverRefundWorkflowNotification,
   type LifecycleNotificationDependencies,
 } from './registration-lifecycle-notification.worker.js';
 
@@ -2791,6 +2795,8 @@ function lifecycleNotificationDependencies(
         registrationId: scope.registration.id,
         orderNo: scope.order.orderNo,
         amount: scope.refund.amount,
+        payerRefund: scope.refund.payerRefund,
+        discountRefund: scope.refund.discountRefund,
         currency: scope.refund.currency,
         purchaserName:
           scope.order.purchaserSnapshot?.name ||
@@ -2811,6 +2817,145 @@ function lifecycleNotificationDependencies(
     deliver: async (input) =>
       deliverNotification(db, input.deliveryId, jobId, input.body, input.smsContext),
   };
+}
+
+async function deliverRefundQuarantineNotice(
+  db: ConferenceDatabase,
+  payload: Record<string, unknown>,
+  correlationId: string,
+  jobId: string | undefined,
+) {
+  const organizationId = String(payload.organizationId);
+  const recipients = await db
+    .select({ email: users.email })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.status, 'active'),
+        inArray(memberships.role, ['organization_admin', 'finance']),
+      ),
+    );
+  for (const { email } of recipients) {
+    const id = deterministicUuid(`refund-quarantine:${correlationId}:${email}`);
+    await db
+      .insert(notificationDeliveries)
+      .values({
+        id,
+        organizationId,
+        channel: 'email',
+        recipient: email,
+        subject: '退款通知需要核验',
+        body: '请进入后台支付设置查看待核验的退款通知。',
+      })
+      .onConflictDoNothing();
+    if (!process.env.NOTIFICATION_WEBHOOK_URL) {
+      await markNotificationDeliveryFailed(
+        db,
+        id,
+        '财务提醒尚未配置实际通知通道，请查看支付设置中的退款通知',
+      );
+      continue;
+    }
+    await deliverNotification(
+      db,
+      id,
+      jobId,
+      `退款单 ${String(payload.outRefundNo)} 的通知尚未完成核验，请进入后台支付设置查看详情。`,
+    );
+  }
+}
+
+async function deliverRefundWorkflowNotification(
+  db: ConferenceDatabase,
+  eventType: string,
+  payload: Record<string, unknown>,
+  correlationId: string,
+  jobId: string | undefined,
+) {
+  const [scope] = await db
+    .select({ request: refundRequests, order: orders, registration: registrations, event: events })
+    .from(orders)
+    .leftJoin(refundRequests, eq(refundRequests.orderId, orders.id))
+    .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+    .innerJoin(events, eq(events.id, orders.eventId))
+    .where(
+      payload.requestId
+        ? eq(refundRequests.id, String(payload.requestId))
+        : eq(orders.id, String(payload.orderId)),
+    )
+    .limit(1);
+  if (!scope) return;
+  if (
+    !shouldDeliverRefundWorkflowNotification(
+      eventType,
+      payload,
+      scope.request,
+      scope.order.refundExecutionMode,
+    )
+  ) {
+    return;
+  }
+  const operations = eventType === 'RefundAttentionRequired';
+  const result =
+    payload.approved === true ? '审核通过，等待原路退款' : '申请未通过，请在个人中心查看原因';
+  const amount = `¥${((scope.request?.amount ?? Number(payload.amount ?? 0)) / 100).toFixed(2)}`;
+  const body = operations
+    ? `订单 ${scope.order.orderNo} 的 ${amount} 退款需要处理（${String(payload.kind ?? '待核验')}），请进入后台报名管理的退款申请查看详情。`
+    : `订单 ${scope.order.orderNo} 的 ${amount} 退款${result}。详情：${conferenceSiteUrl()}/account/refunds/${scope.order.id}`;
+  const admins = operations
+    ? await db
+        .select({ recipient: users.email })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          and(
+            eq(memberships.organizationId, scope.order.organizationId),
+            eq(memberships.status, 'active'),
+            inArray(memberships.role, ['organization_admin', 'finance']),
+          ),
+        )
+    : [];
+  const purchaser = financialNotificationRecipient(scope.order, {
+    email: scope.registration.attendee.email,
+    mobile: scope.registration.attendeeMobileE164 || scope.registration.attendee.mobile,
+  });
+  const recipients = operations ? admins.map((row) => row.recipient) : [purchaser];
+  for (const recipient of [...new Set(recipients.filter(Boolean))]) {
+    const id = deterministicUuid(
+      `refund-workflow:${correlationId}:${eventType}:${String(payload.kind ?? 'review')}:${recipient}`,
+    );
+    await db
+      .insert(notificationDeliveries)
+      .values({
+        id,
+        organizationId: scope.order.organizationId,
+        eventId: scope.order.eventId,
+        registrationId: scope.registration.id,
+        channel: recipient.includes('@') ? 'email' : 'sms',
+        recipient,
+        subject: operations ? `${scope.event.name} 退款待办` : `${scope.event.name} 退款审核结果`,
+        body: '退款状态请通过已登录的账户查看。',
+      })
+      .onConflictDoNothing();
+    if (operations && !process.env.NOTIFICATION_WEBHOOK_URL) {
+      await markNotificationDeliveryFailed(db, id, '财务提醒尚未配置实际通知通道，请查看退款待办');
+      continue;
+    }
+    await deliverNotification(
+      db,
+      id,
+      jobId,
+      body,
+      operations
+        ? undefined
+        : {
+            templateKey: 'refundReviewed',
+            parameters: { eventName: scope.event.name, orderNo: scope.order.orderNo, result },
+          },
+    );
+  }
 }
 
 async function deliverRegistrationReviewNotification(
@@ -3051,6 +3196,22 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
       break;
     case 'InventoryReservationExpired':
       await handleReleasedInventory(db, eventPayload, false);
+      break;
+    case 'RefundNotificationQuarantined':
+      await deliverRefundQuarantineNotice(db, eventPayload, String(correlationId), job.id);
+      break;
+    case 'RefundFulfillmentRepaired':
+      await handleReleasedInventory(db, eventPayload, true);
+      break;
+    case 'RefundReviewed':
+    case 'RefundAttentionRequired':
+      await deliverRefundWorkflowNotification(
+        db,
+        String(eventType),
+        eventPayload,
+        String(correlationId),
+        job.id,
+      );
       break;
     case 'RefundSucceeded':
       await handleReleasedInventory(db, eventPayload, true);

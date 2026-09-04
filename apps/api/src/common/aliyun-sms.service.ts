@@ -52,6 +52,11 @@ const TEST_PARAMETERS: Record<AliyunSmsTemplateKey, Record<string, string>> = {
     eventName: '短信连接测试',
     url: 'https://example.com/ticket/test',
   },
+  refundReviewed: {
+    eventName: '短信连接测试',
+    orderNo: 'TEST20260729',
+    result: '审核通过，等待退款',
+  },
   refundSucceeded: {
     eventName: '短信连接测试',
     orderNo: 'TEST20260729',
@@ -175,9 +180,9 @@ export class AliyunSmsService {
     const identityChanged =
       credentialsChanged || (Boolean(existing) && previousConfig.signName !== input.signName);
     const templates = Object.fromEntries(
-      Object.entries(input.templates).map(([key, next]) => {
+      Object.entries(previousConfig.templates).map(([key, previous]) => {
         const templateKey = key as AliyunSmsTemplateKey;
-        const previous = previousConfig.templates[templateKey];
+        const next = input.templates[templateKey] ?? previous;
         const unchanged =
           !identityChanged &&
           previous.enabled === next.enabled &&

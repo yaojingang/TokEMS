@@ -1,3 +1,4 @@
+import { guardRefundWrite } from './refund-write-guard.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
@@ -1286,6 +1287,17 @@ export class InvoiceOperationsService {
   ) {
     const db = this.db();
     await db.transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId, true);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -1315,6 +1327,7 @@ export class InvoiceOperationsService {
           },
         );
       }
+      if (next === 'issuing' || next === 'issued') await guardRefundWrite(tx, current.orderId);
       if (!canTransitionInvoice(current.status, next)) {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -1462,6 +1475,17 @@ export class InvoiceOperationsService {
     await this.assertStoredDocument(organizationId, invoiceId, input, eventId);
     const db = this.db();
     await db.transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId, true);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -1480,6 +1504,7 @@ export class InvoiceOperationsService {
           HttpStatus.NOT_FOUND,
         );
       }
+      await guardRefundWrite(tx, invoice.orderId);
       if (invoice.status !== 'issuing') {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -1618,6 +1643,17 @@ export class InvoiceOperationsService {
   ) {
     const db = this.db();
     await db.transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId, true);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -1714,6 +1750,17 @@ export class InvoiceOperationsService {
     await this.assertStoredDocument(organizationId, invoiceId, input, eventId);
     const db = this.db();
     await db.transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -1767,6 +1814,30 @@ export class InvoiceOperationsService {
         throw new DomainError(
           API_ERROR_CODES.INVALID_STATE_TRANSITION,
           '当前发票文件不可重新上传，请刷新详情后重试',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const [paidScope] = await tx
+        .select({ amount: orders.amount })
+        .from(orders)
+        .where(eq(orders.id, invoice.orderId))
+        .limit(1);
+      const [refundedScope] = await tx
+        .select({ amount: sql<number>`coalesce(sum(${refunds.amount}), 0)::int` })
+        .from(refunds)
+        .where(and(eq(refunds.orderId, invoice.orderId), eq(refunds.status, 'succeeded')));
+      const totalRefunded = refundedScope?.amount ?? 0;
+      const liveNet = Math.max(0, (paidScope?.amount ?? 0) - totalRefunded);
+      if (
+        invoice.amount <= 0 ||
+        liveNet <= 0 ||
+        invoice.amount > liveNet ||
+        invoice.netPaidAmount !== liveNet ||
+        (restoringDeletedDocument && totalRefunded > 0)
+      ) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '订单退款后请按当前净额重新开具发票，无法恢复原文件',
           HttpStatus.CONFLICT,
         );
       }
@@ -1853,6 +1924,17 @@ export class InvoiceOperationsService {
 
   async send(organizationId: string, invoiceId: string, actorId: string, eventId?: EventId) {
     await this.db().transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId, true);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -1929,6 +2011,17 @@ export class InvoiceOperationsService {
     eventId?: EventId,
   ) {
     const queued = await this.db().transaction(async (tx) => {
+      const [refundScope] = await tx
+        .select({ orderId: invoiceRequests.orderId })
+        .from(invoiceRequests)
+        .where(
+          and(
+            eq(invoiceRequests.id, invoiceId),
+            eq(invoiceRequests.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (refundScope) await guardRefundWrite(tx, refundScope.orderId, true);
       const conditions = [
         eq(invoiceRequests.id, invoiceId),
         eq(invoiceRequests.organizationId, organizationId),
@@ -2365,6 +2458,21 @@ export class InvoiceOperationsService {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`customer-invoice:${orderId}`}, 0))`,
       );
+      const [authorized] = await tx
+        .select({ id: orders.id })
+        .from(orders)
+        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+        .where(
+          and(
+            eq(orders.id, orderId),
+            eq(orders.organizationId, organizationId),
+            this.customerPurchaserScope(customerUserId),
+          ),
+        )
+        .limit(1);
+      if (!authorized)
+        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
+      await guardRefundWrite(tx, orderId);
       const [scope] = await tx
         .select({ order: orders, registration: registrations })
         .from(orders)
@@ -2388,8 +2496,7 @@ export class InvoiceOperationsService {
               title: input.companyName,
               taxId: input.taxId.toUpperCase(),
               email: input.email,
-              mobile:
-                scope.order.purchaserSnapshot?.mobile || scope.registration.attendee.mobile,
+              mobile: scope.order.purchaserSnapshot?.mobile || scope.registration.attendee.mobile,
               content: '会务费',
             }
           : {
@@ -2524,6 +2631,21 @@ export class InvoiceOperationsService {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`customer-invoice-send:${orderId}`}, 0))`,
       );
+      const [authorized] = await tx
+        .select({ id: orders.id })
+        .from(orders)
+        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+        .where(
+          and(
+            eq(orders.id, orderId),
+            eq(orders.organizationId, organizationId),
+            this.customerPurchaserScope(customerUserId),
+          ),
+        )
+        .limit(1);
+      if (!authorized)
+        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '发票申请不存在', HttpStatus.NOT_FOUND);
+      await guardRefundWrite(tx, orderId, true);
       const [scope] = await tx
         .select({ invoice: invoiceRequests })
         .from(invoiceRequests)
@@ -2536,7 +2658,7 @@ export class InvoiceOperationsService {
             this.customerPurchaserScope(customerUserId),
           ),
         )
-        .for('update')
+        .for('update', { of: invoiceRequests })
         .limit(1);
       if (!scope) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '发票申请不存在', HttpStatus.NOT_FOUND);
@@ -2713,6 +2835,7 @@ export class InvoiceOperationsService {
           HttpStatus.UNAUTHORIZED,
         );
       }
+      await guardRefundWrite(tx, token.orderId);
       const [scope] = await tx
         .select({ invoice: invoiceRequests, order: orders })
         .from(invoiceRequests)

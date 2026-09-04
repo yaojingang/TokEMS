@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { EventRefundPolicySchema } from './refunds.js';
+export * from './refunds.js';
 import {
   CURRENT_ANALYTICS_ACTIVATION_VERSION,
   DEFAULT_ANALYTICS_SETTINGS,
@@ -226,6 +228,7 @@ export const EventRegistrationSettingsSchema = z.object({
 });
 
 export const EventSettingsSchema = z.object({
+  refunds: EventRefundPolicySchema.optional(),
   locale: z.string().min(2).max(20).default('zh-CN'),
   templateKey: z.string().min(1).max(80).optional(),
   currentReleaseId: z.string().optional(),
@@ -1486,6 +1489,7 @@ export const TicketSchema = z.object({
   attendeeName: z.string(),
   ticketTypeName: z.string(),
   qrPayload: z.string(),
+  refundPending: z.boolean().optional(),
   status: z.enum(['valid', 'used', 'cancelled']),
   issuedAt: z.string(),
 });
@@ -3247,6 +3251,8 @@ export const IntegrationStatusSchema = z.object({
 });
 
 export const WeChatPayConfigurationSchema = z.object({
+  refundFunding: z.enum(['default', 'available']).nullable().optional(),
+  refundNotifyUrl: z.string().optional(),
   enabled: z.boolean(),
   appId: z.string(),
   mchId: z.string(),
@@ -3275,6 +3281,7 @@ export const WeChatPayConfigurationSchema = z.object({
 
 export const UpdateWeChatPayConfigurationSchema = z
   .object({
+    refundFunding: z.enum(['default', 'available']).nullable().optional(),
     enabled: z.boolean().default(true),
     appId: z.string().trim().min(6).max(64),
     mchId: z
@@ -3373,6 +3380,9 @@ export const AliyunSmsTemplateKeySchema = z.enum([
   'registrationApproved',
   'registrationRejected',
   'paymentSucceeded',
+  'ticketIssued',
+  'refundSucceeded',
+  'refundReviewed',
   'waitlistAvailable',
   'invoiceDetailsRequested',
   'invoiceReady',
@@ -3393,6 +3403,27 @@ const AliyunSmsTemplatesSchema = z.object({
   registrationApproved: AliyunSmsTemplateConfigurationSchema,
   registrationRejected: AliyunSmsTemplateConfigurationSchema,
   paymentSucceeded: AliyunSmsTemplateConfigurationSchema,
+  ticketIssued: AliyunSmsTemplateConfigurationSchema.default({
+    enabled: false,
+    templateCode: '',
+    status: 'unverified',
+    lastVerifiedAt: null,
+    lastError: null,
+  }),
+  refundSucceeded: AliyunSmsTemplateConfigurationSchema.default({
+    enabled: false,
+    templateCode: '',
+    status: 'unverified',
+    lastVerifiedAt: null,
+    lastError: null,
+  }),
+  refundReviewed: AliyunSmsTemplateConfigurationSchema.default({
+    enabled: false,
+    templateCode: '',
+    status: 'unverified',
+    lastVerifiedAt: null,
+    lastError: null,
+  }),
   waitlistAvailable: AliyunSmsTemplateConfigurationSchema,
   invoiceDetailsRequested: AliyunSmsTemplateConfigurationSchema,
   invoiceReady: AliyunSmsTemplateConfigurationSchema,
@@ -3437,6 +3468,9 @@ export const UpdateAliyunSmsConfigurationSchema = z
       registrationApproved: UpdateAliyunSmsTemplateConfigurationSchema,
       registrationRejected: UpdateAliyunSmsTemplateConfigurationSchema,
       paymentSucceeded: UpdateAliyunSmsTemplateConfigurationSchema,
+      ticketIssued: UpdateAliyunSmsTemplateConfigurationSchema.optional(),
+      refundSucceeded: UpdateAliyunSmsTemplateConfigurationSchema.optional(),
+      refundReviewed: UpdateAliyunSmsTemplateConfigurationSchema.optional(),
       waitlistAvailable: UpdateAliyunSmsTemplateConfigurationSchema,
       invoiceDetailsRequested: UpdateAliyunSmsTemplateConfigurationSchema,
       invoiceReady: UpdateAliyunSmsTemplateConfigurationSchema,
@@ -3446,7 +3480,7 @@ export const UpdateAliyunSmsConfigurationSchema = z
   .strict()
   .superRefine((input, context) => {
     for (const [key, template] of Object.entries(input.templates)) {
-      if (template.enabled && !template.templateCode) {
+      if (template?.enabled && !template.templateCode) {
         context.addIssue({
           code: 'custom',
           path: ['templates', key, 'templateCode'],
@@ -3454,7 +3488,7 @@ export const UpdateAliyunSmsConfigurationSchema = z
         });
       }
     }
-    if (input.enabled && !Object.values(input.templates).some((template) => template.enabled)) {
+    if (input.enabled && !Object.values(input.templates).some((template) => template?.enabled)) {
       context.addIssue({
         code: 'custom',
         path: ['templates'],
@@ -3592,6 +3626,7 @@ export const UpdateEventSchema = z
     settings: z
       .object({
         registration: EventRegistrationSettingsSchema.partial().optional(),
+        refunds: EventRefundPolicySchema.optional(),
       })
       .strict()
       .optional(),
@@ -3603,6 +3638,7 @@ export const UpdateEventSchema = z
         ([key, item]) =>
           item !== undefined &&
           (key !== 'settings' ||
+            value.settings?.refunds !== undefined ||
             (value.settings?.registration !== undefined &&
               Object.values(value.settings.registration).some(
                 (registrationItem) => registrationItem !== undefined,

@@ -50,8 +50,19 @@ const canOpenInvoice = computed(() => {
     ['paid', 'partially_refunded'].includes(value.orderStatus),
   );
 });
+const canOpenRefund = computed(() =>
+  Boolean(
+    detail.value?.canManageOrder &&
+    ['paid', 'partially_refunded', 'refunded'].includes(detail.value.orderStatus),
+  ),
+);
 const hasDetailActions = computed(
-  () => canOpenShowcase.value || canEditNeeds.value || canOpenTicket.value || canOpenInvoice.value,
+  () =>
+    canOpenShowcase.value ||
+    canEditNeeds.value ||
+    canOpenTicket.value ||
+    canOpenInvoice.value ||
+    canOpenRefund.value,
 );
 
 const money = (amount: number) =>
@@ -171,6 +182,13 @@ useHead({ title: '报名详情' });
             :to="`/account/invoices/${detail.orderId}`"
           >
             {{ detail.invoiceId ? '查看发票' : '申请发票' }}
+          </NuxtLink>
+          <NuxtLink
+            v-if="canOpenRefund"
+            class="detail-secondary"
+            :to="`/account/refunds/${detail.orderId}`"
+          >
+            退款申请与进度
           </NuxtLink>
         </footer>
       </article>

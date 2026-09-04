@@ -421,6 +421,27 @@
       "when": 1788068973836,
       "tag": "0059_green_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788528475516,
+      "tag": "0060_customer_refund_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1788530528266,
+      "tag": "0061_refund_scope_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1788535073606,
+      "tag": "0062_refund_cash_breakdown",
+      "breakpoints": true
     }
   ]
 }

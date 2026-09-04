@@ -1318,6 +1318,11 @@ export const orders = pgTable(
     amount: integer('amount').notNull(),
     currency: varchar('currency', { length: 3 }).notNull(),
     pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>().notNull(),
+    refundExecutionMode: varchar('refund_execution_mode', { length: 24 })
+      .notNull()
+      .default('automatic'),
+    refundExecutionReason: text('refund_execution_reason'),
+    refundExecutionUpdatedBy: uuid('refund_execution_updated_by').references(() => users.id),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ...timestamps,
   },
@@ -1332,6 +1337,7 @@ export const orders = pgTable(
       foreignColumns: [customerUsers.id, customerUsers.organizationId],
       name: 'orders_purchaser_customer_org_fk',
     }).onDelete('no action'),
+    uniqueIndex('orders_refund_scope_unique').on(table.id, table.organizationId, table.eventId),
     uniqueIndex('orders_no_unique').on(table.orderNo),
     uniqueIndex('orders_registration_unique').on(table.registrationId),
     uniqueIndex('orders_business_tuple_unique').on(
@@ -1475,6 +1481,7 @@ export const payments = pgTable(
     currency: varchar('currency', { length: 3 }).notNull(),
     wechatTradeState: varchar('wechat_trade_state', { length: 32 }),
     credentialVersion: integer('credential_version').notNull().default(1),
+    merchantId: varchar('merchant_id', { length: 32 }),
     preparedAt: timestamp('prepared_at', { withTimezone: true }),
     succeededAt: timestamp('succeeded_at', { withTimezone: true }),
     prepayExpiresAt: timestamp('prepay_expires_at', { withTimezone: true }),
@@ -1485,6 +1492,7 @@ export const payments = pgTable(
     ...timestamps,
   },
   (table) => [
+    uniqueIndex('payments_refund_scope_unique').on(table.id, table.orderId),
     uniqueIndex('payments_provider_external_unique').on(table.provider, table.externalId),
     uniqueIndex('payments_out_trade_no_unique').on(table.outTradeNo),
     index('payments_order_status_channel_idx').on(table.orderId, table.status, table.channel),
@@ -1800,6 +1808,89 @@ export const paymentNotificationInbox = pgTable(
   ],
 );
 
+export const refundRequests = pgTable(
+  'refund_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id),
+    source: varchar('source', { length: 24 }).notNull(),
+    customerUserId: uuid('customer_user_id').references(() => customerUsers.id, {
+      onDelete: 'set null',
+    }),
+    requestedBy: uuid('requested_by').references(() => users.id),
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    amount: integer('amount').notNull(),
+    currency: varchar('currency', { length: 3 }).notNull(),
+    reservedAmount: integer('reserved_amount').notNull(),
+    completedAmount: integer('completed_amount').notNull().default(0),
+    reviewStatus: varchar('review_status', { length: 24 }).notNull().default('pending_review'),
+    fulfillmentStatus: varchar('fulfillment_status', { length: 24 }),
+    reason: text('reason').notNull().default(''),
+    reviewReason: text('review_reason'),
+    policySnapshot: jsonb('policy_snapshot').$type<Record<string, unknown>>().notNull(),
+    businessSnapshot: jsonb('business_snapshot').$type<Record<string, unknown>>().notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 64 }).notNull(),
+    requestHash: varchar('request_hash', { length: 64 }).notNull(),
+    version: integer('version').notNull().default(1),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    terminatedAt: timestamp('terminated_at', { withTimezone: true }),
+    attentionReason: text('attention_reason'),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex('refund_requests_scope_unique').on(
+      table.id,
+      table.orderId,
+      table.paymentId,
+      table.organizationId,
+      table.eventId,
+    ),
+    foreignKey({
+      columns: [table.orderId, table.organizationId, table.eventId],
+      foreignColumns: [orders.id, orders.organizationId, orders.eventId],
+      name: 'refund_requests_order_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.paymentId, table.orderId],
+      foreignColumns: [payments.id, payments.orderId],
+      name: 'refund_requests_payment_scope_fk',
+    }),
+    check(
+      'refund_requests_review_status_check',
+      sql`${table.reviewStatus} in ('pending_review', 'approved', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      'refund_requests_fulfillment_status_check',
+      sql`${table.fulfillmentStatus} is null or ${table.fulfillmentStatus} in ('open', 'completed', 'manual_required')`,
+    ),
+    uniqueIndex('refund_requests_active_order_unique')
+      .on(table.orderId)
+      .where(isNull(table.terminatedAt)),
+    uniqueIndex('refund_requests_idempotency_unique').on(table.idempotencyKey),
+    index('refund_requests_event_review_idx').on(
+      table.organizationId,
+      table.eventId,
+      table.reviewStatus,
+      table.createdAt,
+    ),
+    check(
+      'refund_requests_amount_check',
+      sql`${table.amount} > 0 and ${table.reservedAmount} >= 0 and ${table.completedAmount} >= 0 and ${table.reservedAmount} + ${table.completedAmount} <= ${table.amount}`,
+    ),
+  ],
+);
+
 export const refunds = pgTable(
   'refunds',
   {
@@ -1817,7 +1908,29 @@ export const refunds = pgTable(
     refundNo: varchar('refund_no', { length: 48 }).notNull(),
     amount: integer('amount').notNull(),
     currency: varchar('currency', { length: 3 }).notNull(),
-    status: varchar('status', { length: 32 }).notNull().default('succeeded'),
+    status: varchar('status', { length: 32 }).notNull(),
+    requestId: uuid('request_id').references(() => refundRequests.id),
+    source: varchar('source', { length: 24 }).notNull().default('legacy'),
+    merchantId: varchar('merchant_id', { length: 32 }),
+    outRefundNo: varchar('out_refund_no', { length: 64 }),
+    providerRefundId: varchar('provider_refund_id', { length: 64 }),
+    channelStatus: varchar('channel_status', { length: 24 }),
+    recipientKind: varchar('recipient_kind', { length: 24 }),
+    payerTotal: integer('payer_total'),
+    payerRefund: integer('payer_refund'),
+    discountRefund: integer('discount_refund'),
+    requestSnapshot: jsonb('request_snapshot').$type<Record<string, unknown>>(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    succeededAt: timestamp('succeeded_at', { withTimezone: true }),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    lastSubmittedAt: timestamp('last_submitted_at', { withTimezone: true }),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    leaseVersion: integer('lease_version').notNull().default(0),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 80 }),
+    lastError: text('last_error'),
+    currentAttempt: boolean('current_attempt').notNull().default(false),
+    fulfillmentAttention: text('fulfillment_attention'),
     reason: varchar('reason', { length: 240 }).notNull(),
     idempotencyKey: varchar('idempotency_key', { length: 160 }).notNull(),
     providerPayload: jsonb('provider_payload')
@@ -1828,11 +1941,75 @@ export const refunds = pgTable(
     ...timestamps,
   },
   (table) => [
+    foreignKey({
+      columns: [
+        table.requestId,
+        table.orderId,
+        table.paymentId,
+        table.organizationId,
+        table.eventId,
+      ],
+      foreignColumns: [
+        refundRequests.id,
+        refundRequests.orderId,
+        refundRequests.paymentId,
+        refundRequests.organizationId,
+        refundRequests.eventId,
+      ],
+      name: 'refunds_request_scope_fk',
+    }),
+    check(
+      'refunds_execution_shape_check',
+      sql`${table.source} not in ('wechat_api', 'external') or (${table.paymentId} is not null and ${table.merchantId} is not null and ${table.outRefundNo} is not null and ${table.amount} > 0 and ${table.currency} = 'CNY')`,
+    ),
     uniqueIndex('refunds_no_unique').on(table.refundNo),
+    uniqueIndex('refunds_merchant_out_refund_unique').on(table.merchantId, table.outRefundNo),
+    uniqueIndex('refunds_merchant_provider_refund_unique').on(
+      table.merchantId,
+      table.providerRefundId,
+    ),
+    uniqueIndex('refunds_current_request_unique')
+      .on(table.requestId)
+      .where(sql`${table.currentAttempt} = true`),
+    index('refunds_due_idx')
+      .on(table.nextAttemptAt)
+      .where(sql`${table.requestId} is not null`),
     uniqueIndex('refunds_idempotency_unique').on(table.idempotencyKey),
     index('refunds_order_idx').on(table.orderId),
   ],
 );
+
+export const refundNotificationInbox = pgTable(
+  'refund_notification_inbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    merchantId: varchar('merchant_id', { length: 32 }).notNull(),
+    notificationId: varchar('notification_id', { length: 128 }).notNull(),
+    outRefundNo: varchar('out_refund_no', { length: 64 }).notNull(),
+    status: varchar('status', { length: 24 }).notNull().default('received'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    lastError: text('last_error'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex('refund_inbox_notification_unique').on(
+      table.organizationId,
+      table.merchantId,
+      table.notificationId,
+    ),
+    index('refund_inbox_due_idx').on(table.status, table.nextAttemptAt),
+  ],
+);
+
+export const refundMerchantSchedules = pgTable('refund_merchant_schedules', {
+  merchantId: varchar('merchant_id', { length: 32 }).primaryKey(),
+  nextSubmitAt: timestamp('next_submit_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const invoiceRequests = pgTable(
   'invoice_requests',
@@ -2024,6 +2201,7 @@ export const tickets = pgTable(
       .references(() => ticketTypes.id),
     code: varchar('code', { length: 80 }).notNull(),
     status: ticketStatus('status').notNull().default('valid'),
+    refundPausedBy: uuid('refund_paused_by').references(() => refundRequests.id),
     issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
     ...timestamps,
   },

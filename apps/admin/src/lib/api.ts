@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue';
+import type { AdminRefundApplicationView } from '@conference/contracts';
 import {
   type AccountProfile,
   type AcceptOrganizationInvitation,
@@ -590,6 +591,62 @@ const adminPreferenceWriter = createLatestPreferenceWriter(async (lastEventId) =
 });
 
 export const conferenceApi = {
+  refundExceptions(eventId: number) {
+    return request<
+      Array<{ orderId: string; registrationId: string; orderNo: string; reason: string | null }>
+    >(`/admin/events/${eventId}/refund-exceptions`);
+  },
+  unmatchedRefundNotifications() {
+    return request<
+      Array<{ id: string; outRefundNo: string; lastError: string | null; createdAt: string }>
+    >('/admin/integrations/wechat-pay/refund-notifications');
+  },
+  getRefundPolicy(eventId?: EventId) {
+    return request<import('@conference/contracts').EventRefundPolicy>(
+      `/admin/events/${eventScope(eventId)}/refund-policy`,
+    );
+  },
+  refundApplications(
+    eventId: number,
+    query: { orderId?: string; status?: string; offset?: number } = {},
+  ) {
+    const params = new URLSearchParams(
+      Object.entries(query).map(([key, value]) => [key, String(value)]),
+    );
+    return request<AdminRefundApplicationView[]>(
+      `/admin/events/${eventId}/refund-requests?${params}`,
+    );
+  },
+  refundApplicationAction(
+    eventId: number,
+    requestId: string,
+    action: 'approve' | 'reject' | 'retry' | 'reconcile' | 'continue',
+    version: number,
+    reason?: string,
+  ) {
+    return request(`/admin/events/${eventId}/refund-requests/${requestId}/${action}`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ version, ...(reason ? { reason } : {}) }),
+    });
+  },
+  refundExecutionMode(orderId: string, mode: 'automatic' | 'external_hold', reason: string) {
+    return request<{ mode: string; externalReady: boolean }>(
+      `/admin/orders/${orderId}/refund-execution-mode`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({ mode, reason }),
+      },
+    );
+  },
+  verifyExternalRefund(orderId: string, outRefundNo: string) {
+    return request(`/admin/orders/${orderId}/external-refunds/verify`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ outRefundNo }),
+    });
+  },
   getAgentAuthorization(authorizationId: string) {
     return request<AgentAuthorizationDetail>(
       `/admin/agent-authorizations/${encodeURIComponent(authorizationId)}`,
