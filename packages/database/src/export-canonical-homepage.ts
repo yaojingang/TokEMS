@@ -651,7 +651,10 @@ function validatePublicProjection(snapshot: JsonRecord) {
   }
 }
 
-export function validateCanonicalHomepageSnapshot(value: unknown) {
+export function validateCanonicalHomepageSnapshot(
+  value: unknown,
+  purpose: 'snapshot' | 'observation' = 'snapshot',
+) {
   const snapshot = record(value, 'canonical snapshot');
   if (snapshot.schemaVersion !== 1) throw new Error('canonical snapshot schemaVersion must be 1');
   const source = record(snapshot.source, 'canonical snapshot source');
@@ -694,12 +697,23 @@ export function validateCanonicalHomepageSnapshot(value: unknown) {
   if (speakerRouteIds.size !== backendSpeakerIds.size) {
     throw new Error('Every canonical backend speaker must have one public route');
   }
-  record(backend.registrationForm, 'canonical backend registration form');
+  const backendForm = record(backend.registrationForm, 'canonical backend registration form');
   if (!array(releaseSnapshot.tickets, 'canonical release tickets').length) {
     throw new Error('canonical release requires at least one ticket');
   }
   array(releaseSnapshot.speakers, 'canonical release speakers');
-  record(releaseSnapshot.registrationForm, 'canonical release registration form');
+  const activeForm = record(
+    releaseSnapshot.registrationForm,
+    'canonical release registration form',
+  );
+  if (purpose === 'snapshot') {
+    const formKeys = ['id', 'version', 'name', 'fields', 'termsVersion', 'termsContent'];
+    assertCanonicalMatch(
+      'Canonical registration form must match the active form',
+      pick(backendForm, formKeys),
+      pick(activeForm, formKeys),
+    );
+  }
   const template = record(snapshot.template, 'canonical template');
   const templateRoot = record(template.root, 'canonical template root');
   const templateVersion = record(template.version, 'canonical bound template version');
@@ -1588,7 +1602,8 @@ async function buildSnapshot() {
       aiPrompts: promptResult.rows,
       assets,
     };
-    validateCanonicalHomepageSnapshot(canonicalSnapshot);
+    // Read-only production observations must describe drift so deployment can repair it.
+    validateCanonicalHomepageSnapshot(canonicalSnapshot, 'observation');
     await client.query('commit');
     transactionOpen = false;
     return canonicalSnapshot;
@@ -1645,6 +1660,7 @@ async function main() {
     process.stdout.write(generated);
     return;
   }
+  validateCanonicalHomepageSnapshot(snapshot);
   if (mode === '--write') {
     await writeAtomically(snapshotPath, generated);
     await writeAtomically(publicSnapshotPath, generatedPublic);

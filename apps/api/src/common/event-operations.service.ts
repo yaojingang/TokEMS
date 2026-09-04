@@ -157,6 +157,7 @@ function normalizeFields(fields: RegistrationField[]) {
     label: field.label,
     type: field.type,
     required: field.required,
+    ...(field.enabled !== undefined ? { enabled: field.enabled } : {}),
     ...(field.placeholder ? { placeholder: field.placeholder } : {}),
     ...(field.options ? { options: field.options } : {}),
   }));
@@ -2064,7 +2065,17 @@ export class EventOperationsService {
   }
 
   async listForms(organizationId: string, eventId: EventId): Promise<RegistrationForm[]> {
-    await this.scopedEvent(organizationId, eventId);
+    const event = await this.scopedEvent(organizationId, eventId);
+    const releaseId = event.settings.currentReleaseId;
+    const [release] =
+      typeof releaseId === 'string'
+        ? await this.db()
+            .select({ snapshot: eventReleases.snapshot })
+            .from(eventReleases)
+            .where(and(eq(eventReleases.eventId, eventId), eq(eventReleases.id, releaseId)))
+            .limit(1)
+        : [];
+    const activeForm = release?.snapshot.registrationForm as { version?: number } | undefined;
     return (
       await this.db()
         .select()
@@ -2077,6 +2088,7 @@ export class EventOperationsService {
       name: row.name,
       version: row.version,
       status: row.status as 'draft' | 'published' | 'archived',
+      active: row.version === activeForm?.version,
       fields: row.fields,
       termsVersion: row.termsVersion,
       termsContent: row.termsContent,

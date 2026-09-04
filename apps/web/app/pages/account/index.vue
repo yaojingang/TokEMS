@@ -15,7 +15,6 @@ import { useCustomerSession } from '~/composables/useCustomerSession';
 import {
   canRestartSelfOrder,
   canResumePendingOrder,
-  createRegistrationIntent,
   shouldRefreshPurchasedOrder,
 } from '~/utils/purchase-journey';
 import { resolveAttendeeNeedsAccountState } from '~/utils/attendee-needs';
@@ -613,8 +612,8 @@ function additionalPurchase(order: CustomerPurchasedOrder) {
     path: '/register',
     query: {
       event: order.eventSlug,
-      intent: createRegistrationIntent(),
       purchaseFor: 'other',
+      restart: '1',
     },
   });
 }
@@ -624,8 +623,8 @@ function restartClosedSelfOrder(order: CustomerPurchasedOrder) {
     path: '/register',
     query: {
       event: order.eventSlug,
-      intent: createRegistrationIntent(),
       purchaseFor: 'self',
+      restart: '1',
     },
   });
 }
@@ -1556,7 +1555,7 @@ useHead({ title: '个人中心' });
                   >
                     <label>
                       <span>参会人姓名</span>
-                      <input v-model="attendeeEdit.name" maxlength="120" required />
+                      <input v-model="attendeeEdit.name" maxlength="120" />
                     </label>
                     <label>
                       <span>参会手机号</span>

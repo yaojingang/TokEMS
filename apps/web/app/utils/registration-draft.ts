@@ -22,6 +22,7 @@ export interface RegistrationDraftScope {
 
 export interface RegistrationDraftField {
   key: string;
+  enabled?: boolean;
   type: 'text' | 'email' | 'tel' | 'select';
   options?: readonly string[];
 }
@@ -95,6 +96,7 @@ export function sanitizeRegistrationDraftAnswers(
   const source = answers as Record<string, unknown>;
   return Object.fromEntries(
     fields.flatMap((field) => {
+      if (field.enabled === false) return [];
       const value = source[field.key];
       if (typeof value !== 'string') return [];
       if (field.type === 'select' && value && !field.options?.includes(value)) return [];

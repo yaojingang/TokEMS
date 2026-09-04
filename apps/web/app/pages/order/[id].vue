@@ -11,10 +11,7 @@ import {
 } from '~/composables/useEventExperience';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { useOrderPayment } from '~/composables/useOrderPayment';
-import {
-  createRegistrationIntent,
-  resolveCheckoutSuccessDestination,
-} from '~/utils/purchase-journey';
+import { resolveCheckoutSuccessDestination } from '~/utils/purchase-journey';
 
 const route = useRoute();
 const api = useConferenceApi();
@@ -221,7 +218,7 @@ const attendeeMaterialHref = computed(() =>
 );
 
 const registerHref = computed(() => {
-  const path = publicEventScopedPath('/register', event.value.slug);
+  const path = publicEventScopedPath('/register', event.value.slug, { restart: '1' });
   return api.resolveConferenceUrl(path);
 });
 
@@ -236,8 +233,8 @@ const accountClaimHref = computed(() => {
 
 async function continueForOther() {
   const path = publicEventScopedPath('/register', event.value.slug, {
-    intent: createRegistrationIntent(),
     purchaseFor: 'other',
+    restart: '1',
   });
   const destination = api.resolveConferenceUrl(path);
   await navigateTo(destination, { external: /^https?:\/\//i.test(destination) });

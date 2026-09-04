@@ -1,5 +1,6 @@
 import {
   CORE_REGISTRATION_FIELDS,
+  SYSTEM_REGISTRATION_FIELDS,
   RegistrationFormPublishSchema,
   type RegistrationField,
   type RegistrationFormPublish,
@@ -13,11 +14,14 @@ export interface RegistrationFormEditorDraft {
 }
 
 type PreparedRegistrationForm =
-  | { ok: true; value: RegistrationFormPublish }
-  | { ok: false; message: string };
+  { ok: true; value: RegistrationFormPublish } | { ok: false; message: string };
 
 export function isCoreRegistrationField(key: string) {
   return CORE_REGISTRATION_FIELDS.some((field) => field.key === key);
+}
+
+export function isSystemRegistrationField(key: string) {
+  return SYSTEM_REGISTRATION_FIELDS.some((field) => field.key === key);
 }
 
 export function nextCustomFieldKey(fields: RegistrationField[]) {
@@ -42,6 +46,7 @@ export function prepareRegistrationForm(
         label: source.label.trim(),
         type: source.type,
         required: source.required,
+        ...(source.enabled !== undefined ? { enabled: source.enabled } : {}),
         ...(placeholder ? { placeholder } : {}),
         ...(source.type === 'select' && options?.length ? { options } : {}),
       };

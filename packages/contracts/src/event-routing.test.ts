@@ -17,7 +17,7 @@ describe('public event routing contracts', () => {
         ticket: 'ticket 1',
         offer: 'secret/token',
       }),
-    ).toBe('/register?event=geo-ai-2027&ticket=ticket+1&offer=secret%2Ftoken');
+    ).toBe('/register/geo-ai-2027?ticket=ticket+1&offer=secret%2Ftoken');
   });
 
   it('safely rejects malformed encoded path segments', () => {

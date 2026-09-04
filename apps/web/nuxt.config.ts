@@ -55,6 +55,7 @@ export default defineNuxtConfig({
   },
   routeRules: {
     '/register': { ssr: true },
+    '/register/**': { ssr: true },
     '/order/**': {
       ssr: false,
       headers: { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },

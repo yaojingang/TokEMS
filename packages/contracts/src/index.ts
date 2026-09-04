@@ -130,11 +130,14 @@ export function publicEventScopedPath(
   if (!pathname.startsWith('/') || pathname.includes('?') || pathname.includes('#')) {
     throw new Error('公开大会业务路径必须是以 / 开头且不含查询参数或片段的站内路径');
   }
-  const query = new URLSearchParams({ event: EventSlugSchema.parse(slug) });
+  const eventSlug = EventSlugSchema.parse(slug);
+  const registrationPath = pathname === '/register';
+  const query = new URLSearchParams(registrationPath ? {} : { event: eventSlug });
   Object.entries(parameters).forEach(([key, value]) => {
     if (value !== undefined && value !== null) query.set(key, String(value));
   });
-  return `${pathname}?${query.toString()}`;
+  const path = registrationPath ? `/register/${encodeURIComponent(eventSlug)}` : pathname;
+  return `${path}${query.size ? `?${query.toString()}` : ''}`;
 }
 
 export const RegistrationStatusSchema = z.enum([
@@ -1190,6 +1193,8 @@ export const SessionSchema = z.object({
   kind: z.enum(['talk', 'break', 'workshop']),
 });
 
+export { DEFAULT_REGISTRATION_TERMS } from './registration-terms.js';
+
 export const RegistrationFieldSchema = z.object({
   key: z
     .string()
@@ -1199,15 +1204,20 @@ export const RegistrationFieldSchema = z.object({
   label: z.string().min(1, '需要填写显示名称').max(120, '显示名称不能超过 120 个字符'),
   type: z.enum(['text', 'email', 'tel', 'select']),
   required: z.boolean(),
+  enabled: z.boolean().optional(),
   placeholder: z.string().max(160, '占位提示不能超过 160 个字符').optional(),
   options: z.array(z.string().max(120, '单个可选值不能超过 120 个字符')).optional(),
 });
 
-export const CORE_REGISTRATION_FIELDS = [
+export const SYSTEM_REGISTRATION_FIELDS = [
   { key: 'name', label: '姓名', type: 'text' },
   { key: 'mobile', label: '手机号码', type: 'tel' },
   { key: 'email', label: '电子邮箱', type: 'email' },
 ] as const;
+
+export const CORE_REGISTRATION_FIELDS = SYSTEM_REGISTRATION_FIELDS.filter(
+  (field) => field.key === 'mobile',
+);
 
 export const RegistrationFormPublishSchema = z
   .object({
@@ -1250,11 +1260,21 @@ export const RegistrationFormPublishSchema = z
     });
     for (const coreField of CORE_REGISTRATION_FIELDS) {
       const field = input.fields.find((item) => item.key === coreField.key);
-      if (!field || field.type !== coreField.type || !field.required) {
+      if (!field || field.type !== coreField.type || !field.required || field.enabled === false) {
         context.addIssue({
           code: 'custom',
           path: ['fields'],
-          message: `${coreField.label}是系统核心字段，需保留键名 ${coreField.key}、${coreField.type} 类型并设为必填`,
+          message: `${coreField.label}是系统核心字段，需保留键名 ${coreField.key}、${coreField.type} 类型，保持开启并设为必填`,
+        });
+      }
+    }
+    for (const systemField of SYSTEM_REGISTRATION_FIELDS) {
+      const field = input.fields.find((item) => item.key === systemField.key);
+      if (field && field.type !== systemField.type) {
+        context.addIssue({
+          code: 'custom',
+          path: ['fields'],
+          message: `${systemField.label}需保留 ${systemField.type} 类型`,
         });
       }
     }
@@ -1270,6 +1290,7 @@ export const RegistrationFormSchema = z.object({
   termsVersion: z.string(),
   termsContent: z.string(),
   publishedAt: z.string().nullable(),
+  active: z.boolean().optional(),
 });
 
 export const PublicEventMetricsSchema = z.object({
@@ -2663,7 +2684,7 @@ export const AttendeeClaimInputSchema = z.object({
 
 export const UpdatePurchasedOrderAttendeeSchema = z
   .object({
-    name: z.string().trim().min(1).max(120).optional(),
+    name: z.string().trim().max(120).optional(),
     mobile: MainlandMobileSchema.optional(),
     email: z.union([z.email(), z.literal('')]).optional(),
     company: z.string().trim().max(160).optional(),
@@ -4120,7 +4141,7 @@ export const UpdateAdminRegistrationAttendeeSchema = z
   .object({
     attendee: z
       .object({
-        name: z.string().trim().min(1).max(80),
+        name: z.string().trim().max(80),
         mobile: z.string().trim().min(7).max(24),
         email: z.union([z.email(), z.literal('')]),
         company: z.string().trim().max(120),

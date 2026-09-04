@@ -4,9 +4,9 @@ import {
   type CreateRegistration,
   type EventPurchaseContext,
   type PublicEvent,
-  type PublicSiteConfiguration,
 } from '@conference/contracts';
 import { watch } from 'vue';
+import { definePageMeta } from '#imports';
 import {
   activeFlowStep,
   enabledFlowSteps,
@@ -18,7 +18,11 @@ import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import {
   createRegistrationIntent,
   resolveCheckoutSuccessDestination,
-  resolveRegistrationIntent,
+  storedRegistrationIntent,
+  adoptRegistrationIntent,
+  registrationIntentStorageKey,
+  clearRegistrationIntent,
+  compactRegistrationPath,
   resolveSelfRegistrationState,
 } from '~/utils/purchase-journey';
 import {
@@ -33,6 +37,11 @@ import {
   type RegistrationDraftStorage,
   writeRegistrationDraft,
 } from '~/utils/registration-draft';
+
+definePageMeta({
+  path: '/register/:eventSlug?',
+  key: (route) => String(route.params.eventSlug || route.query.event || ''),
+});
 
 const api = useConferenceApi();
 const customer = useCustomerSession();
@@ -49,13 +58,12 @@ const successMessage = ref('');
 const offerToken = ref('');
 const purchaseFor = ref<'self' | 'other'>('self');
 const purchaseIntentId = ref('');
-const proxyAuthorizationAccepted = ref(false);
-const termsAccepted = ref(false);
-const invoiceRequired = ref(false);
-const marketingConsent = ref(false);
+const termsAccepted = ref(true);
+const termsOpen = ref(false);
+const intentReady = ref(false);
+let activeIntentKey = '';
 const purchaseContext = ref<EventPurchaseContext | null>(null);
 const purchaseContextReady = ref(false);
-const siteConfiguration = ref<PublicSiteConfiguration | null>(null);
 const answers = reactive<Record<string, string>>({
   name: '',
   mobile: '',
@@ -64,7 +72,9 @@ const answers = reactive<Record<string, string>>({
   title: '',
   city: '',
 });
-const registrationFields = computed(() => event.value?.registrationForm?.fields ?? []);
+const registrationFields = computed(() =>
+  (event.value?.registrationForm?.fields ?? []).filter((field) => field.enabled !== false),
+);
 const experience = computed(() =>
   event.value ? resolveEventExperience(event.value) : resolveEventExperience(DEMO_EVENT),
 );
@@ -110,7 +120,7 @@ const flowSteps = computed(() =>
   event.value
     ? enabledFlowSteps(event.value, {
         paymentRequired: !isFreeTicket.value,
-        invoiceRequired: invoiceRequired.value,
+        invoiceRequired: false,
       })
     : [],
 );
@@ -120,7 +130,10 @@ const registrationHelp = computed(
     flowSteps.value.find((step) => step.type === 'attendee-form')?.helpText ||
     '选择参会票种并填写真实信息。提交后将进入下一步。',
 );
-const answer = (key: string) => String(answers[key] ?? '').trim();
+const answer = (key: string) =>
+  registrationFields.value.some((field) => field.key === key)
+    ? String(answers[key] ?? '').trim()
+    : '';
 const accountRequired = computed(
   () => event.value?.registration.accountMode === 'mobile_otp_required',
 );
@@ -136,13 +149,8 @@ const pendingOrderHref = computed(() => {
   }
   return `/account?event=${encodeURIComponent(event.value.slug)}&order=${encodeURIComponent(orderId)}#purchases`;
 });
-const termsUrl = computed(() => siteConfiguration.value?.customerAccounts.termsUrl ?? '');
-const termsVersion = computed(
-  () =>
-    event.value?.registrationForm?.termsVersion ||
-    siteConfiguration.value?.customerAccounts.termsVersion ||
-    '2026-07-16',
-);
+const termsVersion = computed(() => event.value?.registrationForm?.termsVersion ?? '');
+const termsContent = computed(() => event.value?.registrationForm?.termsContent ?? '');
 const inputAutocomplete = (key: string) =>
   ({
     name: 'name',
@@ -183,7 +191,7 @@ function clearRegistrationDraftSaveTimer() {
 }
 
 function resetRegistrationAnswers(loaded: PublicEvent, preserveCurrentAnswers: boolean) {
-  const fields = loaded.registrationForm?.fields ?? [];
+  const fields = (loaded.registrationForm?.fields ?? []).filter((field) => field.enabled !== false);
   const preserved = preserveCurrentAnswers ? sanitizeRegistrationDraftAnswers(answers, fields) : {};
   for (const key of Object.keys(answers)) delete answers[key];
   for (const field of fields) answers[field.key] = preserved[field.key] ?? '';
@@ -199,7 +207,7 @@ function browserRegistrationDraftStorage(kind: 'local' | 'session') {
 }
 
 function currentRegistrationDraftContext(): ActiveRegistrationDraftContext | null {
-  if (!import.meta.client || !event.value) return null;
+  if (!import.meta.client || !event.value || !purchaseIntentId.value) return null;
 
   const session = customer.session.value;
   const scope: RegistrationDraftScope = {
@@ -223,11 +231,17 @@ function currentRegistrationDraftContext(): ActiveRegistrationDraftContext | nul
 function prefillFromCustomerSession(session: typeof customer.session.value) {
   if (!session || purchaseFor.value !== 'self') return;
   answers.mobile = session.customer.mobile;
-  answers.name ||= session.customer.profile.realName || session.customer.profile.nickname || '';
-  answers.email ||= session.customer.profile.email || '';
-  answers.company ||= session.customer.profile.company || '';
-  answers.title ||= session.customer.profile.title || '';
-  answers.city ||= session.customer.profile.city || '';
+  const profile = session.customer.profile;
+  const values = {
+    name: profile.realName || profile.nickname,
+    email: profile.email,
+    company: profile.company,
+    title: profile.title,
+    city: profile.city,
+  };
+  for (const field of registrationFields.value) {
+    if (field.key in values) answers[field.key] ||= values[field.key as keyof typeof values] || '';
+  }
 }
 
 function sameRegistrationDraftForm(
@@ -323,6 +337,7 @@ function restoreRegistrationDraftForCurrentIdentity() {
 
 function completeRegistrationDraft() {
   registrationDraftCompleted = true;
+  clearRegistrationIntent(browserRegistrationDraftStorage('session'), activeIntentKey);
   clearRegistrationDraftSaveTimer();
   if (activeRegistrationDraftContext) {
     removeRegistrationDraftVersions(
@@ -407,6 +422,52 @@ watch(api.eventState, (loaded) => {
   applyLoadedEvent(loaded, selectedTicketId.value);
 });
 
+function syncPurchaseIntent(preferred?: string, adoptingAnonymous = false) {
+  if (!event.value) return;
+  const previousKey = activeIntentKey;
+  activeIntentKey = registrationIntentStorageKey(
+    event.value.organizationId,
+    event.value.id,
+    customer.session.value ? `customer:${customer.session.value.customer.id}` : 'anonymous',
+    purchaseFor.value,
+  );
+  const storage = browserRegistrationDraftStorage('session');
+  purchaseIntentId.value = adoptingAnonymous
+    ? adoptRegistrationIntent(storage, previousKey, activeIntentKey, purchaseIntentId.value)
+    : storedRegistrationIntent(storage, activeIntentKey, preferred);
+}
+
+function updateRegistrationUrl() {
+  if (!import.meta.client || !event.value || !intentReady.value) return;
+  const query = new URLSearchParams(window.location.search);
+  if (purchaseFor.value === 'other') query.set('purchaseFor', 'other');
+  else query.delete('purchaseFor');
+  if (event.value.tickets.length > 1) query.set('ticket', selectedTicketId.value);
+  const path = compactRegistrationPath(
+    event.value.slug,
+    query,
+    event.value.tickets.length === 1 ? event.value.tickets[0]?.id : undefined,
+  );
+  if (
+    `${path}${window.location.hash}` !==
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+  ) {
+    void router.replace(`${path}${window.location.hash}`);
+  }
+}
+
+watch(
+  () => [event.value?.id, customer.session.value?.customer.id, purchaseFor.value] as const,
+  (next, previous) => {
+    if (!intentReady.value || registrationDraftCompleted) return;
+    const loggingIn = next[0] === previous[0] && !previous[1] && next[1] && next[2] === previous[2];
+    syncPurchaseIntent(undefined, Boolean(loggingIn));
+    updateRegistrationUrl();
+  },
+  { flush: 'sync' },
+);
+watch(selectedTicketId, updateRegistrationUrl);
+
 watch(
   () => [
     event.value?.id,
@@ -428,8 +489,6 @@ watch(
 );
 
 watch(purchaseFor, (next) => {
-  proxyAuthorizationAccepted.value = false;
-  if (next === 'other') marketingConsent.value = false;
   if (next === 'self') prefillFromCustomerSession(customer.session.value);
 });
 
@@ -450,13 +509,11 @@ async function loadPurchaseContext() {
 }
 
 function beginAdditionalPurchase() {
+  registrationDraftCompleted = false;
   purchaseFor.value = 'other';
-  purchaseIntentId.value = createRegistrationIntent();
-  termsAccepted.value = false;
-  proxyAuthorizationAccepted.value = false;
-  void router.replace({
-    query: { ...route.query, intent: purchaseIntentId.value, purchaseFor: 'other' },
-  });
+  syncPurchaseIntent(createRegistrationIntent());
+  termsAccepted.value = true;
+  updateRegistrationUrl();
 }
 
 function errorStatus(error: unknown) {
@@ -484,24 +541,13 @@ onMounted(async () => {
   if (sessionDraftStorage) pruneRegistrationDrafts(sessionDraftStorage);
   window.addEventListener('pagehide', persistRegistrationDraft);
   const query = new URL(window.location.href).searchParams;
-  const slug = query.get('event');
+  const slug =
+    (typeof route.params.eventSlug === 'string' && route.params.eventSlug) || query.get('event');
   const ticketFromQuery = query.get('ticket') ?? '';
   offerToken.value = query.get('offer') ?? '';
   const intentFromQuery = query.get('intent');
   const requestedPurchaseFor = query.get('purchaseFor') === 'other' ? 'other' : 'self';
   purchaseFor.value = requestedPurchaseFor;
-  const resolvedIntent = resolveRegistrationIntent(intentFromQuery);
-  purchaseIntentId.value = resolvedIntent.purchaseIntentId;
-  if (resolvedIntent.shouldReplace) {
-    window.history.replaceState(
-      window.history.state,
-      '',
-      `${window.location.pathname}?${new URLSearchParams({
-        ...Object.fromEntries(query.entries()),
-        intent: purchaseIntentId.value,
-      }).toString()}${window.location.hash}`,
-    );
-  }
   if (offerToken.value) purchaseFor.value = 'self';
 
   // Prefer a cache hit for the same slug; never paint DEMO_EVENT ticket prices.
@@ -519,11 +565,7 @@ onMounted(async () => {
   }
 
   try {
-    const [loaded, site] = await Promise.all([
-      slug ? api.getEvent(slug) : api.getHomepageEvent(),
-      api.getSiteConfiguration().catch(() => null),
-    ]);
-    siteConfiguration.value = site;
+    const loaded = await (slug ? api.getEvent(slug) : api.getHomepageEvent());
     applyLoadedEvent(loaded, ticketFromQuery);
     if (
       requestedPurchaseFor === 'other' &&
@@ -533,14 +575,17 @@ onMounted(async () => {
       purchaseFor.value = 'other';
     }
     await customer.refresh().catch(() => null);
+    syncPurchaseIntent(
+      query.get('restart') === '1' ? createRegistrationIntent() : (intentFromQuery ?? undefined),
+    );
+    intentReady.value = true;
+    updateRegistrationUrl();
     await loadPurchaseContext();
     if (accountRequired.value && !customer.session.value) {
       customer.openLogin();
     }
   } catch (error) {
-    if (!event.value) {
-      loadError.value = error instanceof Error ? error.message : '报名信息加载失败，请刷新重试。';
-    }
+    loadError.value = error instanceof Error ? error.message : '报名信息加载失败，请刷新重试。';
   } finally {
     pageLoading.value = false;
   }
@@ -555,8 +600,8 @@ onBeforeUnmount(() => {
 async function submit() {
   errorMessage.value = '';
   successMessage.value = '';
-  if (!event.value) {
-    errorMessage.value = '报名信息仍在加载，请稍后再试。';
+  if (!event.value || !intentReady.value) {
+    errorMessage.value = loadError.value || '报名信息仍在加载，请稍后再试。';
     return;
   }
   if (!customer.session.value) {
@@ -570,10 +615,6 @@ async function submit() {
   }
   if (!termsAccepted.value) {
     errorMessage.value = '请阅读并同意报名条款后继续。';
-    return;
-  }
-  if (purchaseFor.value === 'other' && !proxyAuthorizationAccepted.value) {
-    errorMessage.value = '请确认已获得参会人授权后继续。';
     return;
   }
   if (purchaseFor.value === 'other' && selectedTicket.value.remaining < 1) {
@@ -620,12 +661,12 @@ async function submit() {
       title: answer('title'),
       city: answer('city'),
     },
-    invoiceRequired: invoiceRequired.value,
-    marketingConsent: purchaseFor.value === 'other' ? false : marketingConsent.value,
+    invoiceRequired: false,
+    marketingConsent: false,
     termsAccepted: true,
     purchaseFor: purchaseFor.value,
     purchaseIntentId: purchaseIntentId.value,
-    proxyAuthorizationAccepted: purchaseFor.value === 'other' && proxyAuthorizationAccepted.value,
+    proxyAuthorizationAccepted: purchaseFor.value === 'other' && termsAccepted.value,
     formVersion: event.value.registrationForm?.version ?? 1,
     termsVersion: termsVersion.value,
     formAnswers: Object.fromEntries(
@@ -697,8 +738,9 @@ async function submit() {
         <p class="flow-eyebrow">REGISTRATION</p>
         <h1 class="flow-title">锁定你的大会席位</h1>
         <p class="flow-lead">{{ registrationHelp }}</p>
+        <p v-if="loadError" class="form-error" role="alert">{{ loadError }} 请刷新后重试。</p>
         <p v-if="offerToken" class="waitlist-offer-banner" role="status">
-          候补名额已为你保留，请使用收到邀请的邮箱，并在有效期内完成报名。
+          候补名额已为你保留，请使用收到邀请的账号，并在有效期内完成报名。
         </p>
         <p v-if="!registrationAvailable" class="waitlist-offer-banner" role="status">
           当前大会已暂停报名。页面内容仍可查看，报名重新开放后可继续提交。
@@ -853,27 +895,22 @@ async function submit() {
               </div>
 
               <div class="registration-consents">
-                <label v-if="purchaseFor === 'other'">
-                  <input v-model="proxyAuthorizationAccepted" type="checkbox" required />
-                  <span>我已获得参会人授权，可代为提交其报名信息并接收订单通知。</span>
-                </label>
-                <label>
-                  <input v-model="invoiceRequired" type="checkbox" />
-                  <span>支付完成后需要申请发票</span>
-                </label>
-                <label v-if="purchaseFor === 'self'">
-                  <input v-model="marketingConsent" type="checkbox" />
-                  <span>接收本场大会及后续相关活动通知</span>
-                </label>
-                <label>
-                  <input v-model="termsAccepted" type="checkbox" required />
-                  <span>
-                    我已阅读并同意
-                    <a v-if="termsUrl" :href="termsUrl" target="_blank" rel="noopener noreferrer">报名条款</a>
-                    <span v-else>报名条款</span>
-                    （版本 {{ termsVersion }}）
-                  </span>
-                </label>
+                <div class="registration-agreement">
+                  <input
+                    id="registration-terms-accepted"
+                    v-model="termsAccepted"
+                    type="checkbox"
+                    required
+                  />
+                  <div>
+                    <label for="registration-terms-accepted">我已阅读并同意</label>
+                    <a href="#registration-terms" @click.prevent="termsOpen = true">报名条款</a>
+                    <span>（版本 {{ termsVersion }}）</span>
+                    <p v-if="purchaseFor === 'other'" class="registration-proxy-notice">
+                      同意条款并提交，即确认已获得参会人授权，可代为提交报名信息并接收订单通知。
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
@@ -883,6 +920,7 @@ async function submit() {
                 type="submit"
                 :disabled="
                   pending ||
+                    !intentReady ||
                     !registrationAvailable ||
                     (purchaseFor === 'other' && selectedTicket.remaining < 1)
                 "
@@ -940,6 +978,13 @@ async function submit() {
             </div>
           </aside>
         </div>
+        <RegistrationTermsDialog
+          :open="termsOpen"
+          :version="termsVersion"
+          :content="termsContent"
+          :event-name="event?.name ?? '大会'"
+          @close="termsOpen = false"
+        />
       </template>
     </main>
   </div>
@@ -1030,7 +1075,7 @@ async function submit() {
   padding-top: 18px;
   border-top: 1px solid #e3e7ef;
 }
-.registration-consents label {
+.registration-agreement {
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -1113,5 +1158,18 @@ async function submit() {
     grid-column: 2;
     justify-self: start;
   }
+}
+.registration-agreement label {
+  display: inline;
+  cursor: pointer;
+}
+.registration-agreement a {
+  margin-left: 4px;
+}
+.registration-proxy-notice {
+  margin: 8px 0 0;
+  color: var(--conference-text-muted, #66738a);
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>

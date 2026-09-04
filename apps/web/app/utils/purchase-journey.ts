@@ -63,7 +63,10 @@ export function resolveHomeRegistrationCta(input: {
   const register = {
     kind: 'register' as const,
     label: `立即报名 ${input.priceLabel}`,
-    href: publicEventScopedPath('/register', input.eventSlug, { ticket: input.ticketId }),
+    href: publicEventScopedPath('/register', input.eventSlug, {
+      ticket: input.ticketId,
+      ...(input.context?.selfRegistrationState === 'closed' ? { restart: '1' } : {}),
+    }),
   };
   if (input.state === 'loading') {
     return { kind: 'loading', label: '正在确认报名状态', href: '#' };
@@ -127,6 +130,100 @@ export function resolveRegistrationIntent(value: string | null | undefined) {
     return { purchaseIntentId: value, shouldReplace: false } as const;
   }
   return { purchaseIntentId: createRegistrationIntent(), shouldReplace: true } as const;
+}
+
+type IntentStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+const INTENT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function readStoredRegistrationIntent(storage: IntentStorage | null, key: string, now: number) {
+  try {
+    const saved = JSON.parse(storage?.getItem(key) ?? 'null');
+    if (
+      saved &&
+      typeof saved.id === 'string' &&
+      PURCHASE_INTENT_UUID_PATTERN.test(saved.id) &&
+      typeof saved.savedAt === 'number' &&
+      saved.savedAt <= now &&
+      now - saved.savedAt <= INTENT_MAX_AGE_MS
+    )
+      return { id: saved.id as string, replaceOnLogin: saved.replaceOnLogin === true };
+  } catch {
+    /* Restricted storage falls back to the current page state. */
+  }
+  return undefined;
+}
+
+export function registrationIntentStorageKey(
+  organizationId: string,
+  eventId: number | string,
+  ownerId: string,
+  purchaseFor: 'self' | 'other',
+) {
+  return `conference.registrationIntent.${[organizationId, eventId, ownerId, purchaseFor].map((part) => encodeURIComponent(String(part))).join('.')}`;
+}
+
+export function storedRegistrationIntent(
+  storage: IntentStorage | null,
+  key: string,
+  preferred?: string,
+  now = Date.now(),
+) {
+  const saved = readStoredRegistrationIntent(storage, key, now);
+  const value = preferred || saved?.id;
+  const id = resolveRegistrationIntent(value).purchaseIntentId;
+  try {
+    storage?.setItem(
+      key,
+      JSON.stringify({
+        id,
+        savedAt: now,
+        // An explicit new attempt or legacy URL stays authoritative through the next login.
+        replaceOnLogin: Boolean(preferred) || saved?.replaceOnLogin === true,
+      }),
+    );
+  } catch {
+    /* Keep registration usable without storage. */
+  }
+  return id;
+}
+
+export function adoptRegistrationIntent(
+  storage: IntentStorage | null,
+  anonymousKey: string,
+  customerKey: string,
+  currentIntent: string,
+  now = Date.now(),
+) {
+  const anonymous = readStoredRegistrationIntent(storage, anonymousKey, now);
+  const preferred =
+    anonymous?.id === currentIntent && anonymous.replaceOnLogin
+      ? currentIntent
+      : (readStoredRegistrationIntent(storage, customerKey, now)?.id ?? currentIntent);
+  const id = storedRegistrationIntent(storage, customerKey, preferred, now);
+  if (anonymousKey !== customerKey) clearRegistrationIntent(storage, anonymousKey);
+  return id;
+}
+
+export function clearRegistrationIntent(storage: IntentStorage | null, key: string) {
+  try {
+    storage?.removeItem(key);
+  } catch {
+    /* A completed checkout remains protected by server idempotency. */
+  }
+}
+
+export function compactRegistrationPath(
+  eventSlug: string,
+  query: URLSearchParams,
+  singleTicketId?: string,
+) {
+  const parameters = new URLSearchParams(query);
+  parameters.delete('event');
+  parameters.delete('intent');
+  parameters.delete('restart');
+  if (singleTicketId && parameters.get('ticket') === singleTicketId) parameters.delete('ticket');
+  if (parameters.get('purchaseFor') === 'self') parameters.delete('purchaseFor');
+  return publicEventScopedPath('/register', eventSlug, Object.fromEntries(parameters));
 }
 
 export function registrationIdempotencyKey(purchaseIntentId: string) {

@@ -441,7 +441,7 @@ export class ConferenceRepository {
       );
     }
     const normalized: Record<string, string> = {};
-    for (const field of fields) {
+    for (const field of fields.filter((field) => field.enabled !== false)) {
       const value = String(submitted[field.key] ?? '').trim();
       if (field.required && !value) {
         throw new DomainError(
@@ -486,6 +486,20 @@ export class ConferenceRepository {
       normalized[field.key] = value;
     }
     return normalized;
+  }
+
+  private attendeeForRegistrationForm(
+    fields: RegistrationField[],
+    attendee: CreateRegistration['attendee'],
+  ) {
+    const visible = new Set(
+      fields.filter((field) => field.enabled !== false).map((field) => field.key),
+    );
+    const result = { ...attendee };
+    for (const key of ['name', 'email', 'company', 'title', 'city'] as const) {
+      if (!visible.has(key)) result[key] = '';
+    }
+    return result;
   }
 
   private waitlistFromRow(
@@ -1429,14 +1443,25 @@ export class ConferenceRepository {
           HttpStatus.CONFLICT,
         );
       }
+      const attendee = this.attendeeForRegistrationForm(
+        this.demoEvent.registrationForm?.fields ?? [],
+        {
+          name: input.name,
+          email: input.email,
+          mobile: customer?.mobile ?? input.mobile,
+          company: '',
+          title: '',
+          city: '',
+        },
+      );
       return {
         id: crypto.randomUUID(),
         eventId: input.eventId,
         ticketTypeId: input.ticketTypeId,
         ticketTypeName: ticket.name,
-        name: input.name || customer?.profile.realName || customer?.profile.nickname || '参会人',
-        email: input.email || customer?.profile.email || '',
-        mobile: customer?.mobile ?? input.mobile,
+        name: attendee.name,
+        email: attendee.email,
+        mobile: attendee.mobile,
         status: 'waiting',
         position: 1,
         invitedAt: null,
@@ -1446,7 +1471,7 @@ export class ConferenceRepository {
     }
 
     return db.transaction(async (tx) => {
-      const normalizedEmail = (input.email || customer?.profile.email || '').trim().toLowerCase();
+      let normalizedEmail = input.email.trim().toLowerCase();
       let normalizedMobile = customer?.mobile ?? '';
       if (!normalizedMobile && input.mobile) {
         try {
@@ -1529,6 +1554,25 @@ export class ConferenceRepository {
           API_ERROR_CODES.FORBIDDEN,
           '当前登录账号不属于本场大会',
           HttpStatus.FORBIDDEN,
+        );
+      }
+      const attendee = this.attendeeForRegistrationForm(
+        releaseSnapshot?.registrationForm?.fields ?? [],
+        {
+          name: input.name,
+          email: normalizedEmail,
+          mobile: normalizedMobile,
+          company: '',
+          title: '',
+          city: '',
+        },
+      );
+      normalizedEmail = attendee.email;
+      if (!normalizedEmail && !normalizedMobile) {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '候补需要提供有效的手机号',
+          HttpStatus.BAD_REQUEST,
         );
       }
       const releasedTicket = releaseSnapshot?.tickets?.find((item) => item.id === ticket.id);
@@ -1638,8 +1682,7 @@ export class ConferenceRepository {
         ? await tx
             .update(waitlistEntries)
             .set({
-              name:
-                input.name || customer?.profile.realName || customer?.profile.nickname || '参会人',
+              name: attendee.name,
               customerUserId: customer?.customerUserId,
               email: normalizedEmail,
               mobileE164: normalizedMobile,
@@ -1664,8 +1707,7 @@ export class ConferenceRepository {
               customerUserId: customer?.customerUserId,
               email: normalizedEmail,
               mobileE164: normalizedMobile,
-              name:
-                input.name || customer?.profile.realName || customer?.profile.nickname || '参会人',
+              name: attendee.name,
               notificationChannel: normalizedEmail ? 'email' : 'sms',
               position,
             })
@@ -1795,6 +1837,10 @@ export class ConferenceRepository {
           HttpStatus.BAD_REQUEST,
         );
       }
+      const attendee = this.attendeeForRegistrationForm(
+        this.demoEvent.registrationForm?.fields ?? [],
+        { ...input.attendee, mobile: attendeeMobile },
+      );
       const purchaseRequestHash = this.hash({ input, customerUserId: customer.customerUserId });
       const intentMatch = [...this.memoryOrderPurchasers.entries()].find(
         ([, purchaser]) =>
@@ -1993,31 +2039,11 @@ export class ConferenceRepository {
           const resumedRegistration: Registration = {
             ...existingRegistration,
             status: amount === 0 ? 'confirmed' : 'pending_payment',
-            attendee: {
-              name:
-                input.attendee.name ||
-                (input.purchaseFor === 'self'
-                  ? customer.profile.realName || customer.profile.nickname
-                  : null) ||
-                '参会人',
-              mobile: attendeeMobile,
-              email:
-                input.attendee.email ||
-                (input.purchaseFor === 'self' ? customer.profile.email : '') ||
-                '',
-              company:
-                input.attendee.company ||
-                (input.purchaseFor === 'self' ? customer.profile.company : '') ||
-                '',
-              title:
-                input.attendee.title ||
-                (input.purchaseFor === 'self' ? customer.profile.title : '') ||
-                '',
-              city:
-                input.attendee.city ||
-                (input.purchaseFor === 'self' ? customer.profile.city : '') ||
-                '',
-            },
+            attendee,
+            formAnswers: this.normalizeRegistrationAnswers(
+              this.demoEvent.registrationForm?.fields ?? [],
+              { ...input, attendee },
+            ),
           };
           const resumedOrder: Order = {
             ...existingOrder,
@@ -2123,29 +2149,6 @@ export class ConferenceRepository {
         );
       }
       const now = new Date();
-      const attendee = {
-        name:
-          input.attendee.name ||
-          (input.purchaseFor === 'self'
-            ? customer.profile.realName || customer.profile.nickname
-            : null) ||
-          '参会人',
-        mobile: attendeeMobile,
-        email:
-          input.attendee.email ||
-          (input.purchaseFor === 'self' ? customer.profile.email : '') ||
-          '',
-        company:
-          input.attendee.company ||
-          (input.purchaseFor === 'self' ? customer.profile.company : '') ||
-          '',
-        title:
-          input.attendee.title ||
-          (input.purchaseFor === 'self' ? customer.profile.title : '') ||
-          '',
-        city:
-          input.attendee.city || (input.purchaseFor === 'self' ? customer.profile.city : '') || '',
-      };
       const checkoutInput = { ...input, attendee };
       const formAnswers = this.normalizeRegistrationAnswers(
         this.demoEvent.registrationForm?.fields ?? [],
@@ -2746,31 +2749,7 @@ export class ConferenceRepository {
         const checkoutInput: CreateRegistration = {
           ...input,
           marketingConsent: input.purchaseFor === 'other' ? false : input.marketingConsent,
-          attendee: {
-            name:
-              input.attendee.name ||
-              (input.purchaseFor === 'self'
-                ? customer.profile.realName || customer.profile.nickname
-                : null) ||
-              '参会人',
-            mobile: normalizedTargetMobile,
-            email:
-              input.attendee.email ||
-              (input.purchaseFor === 'self' ? customer.profile.email : '') ||
-              '',
-            company:
-              input.attendee.company ||
-              (input.purchaseFor === 'self' ? customer.profile.company : '') ||
-              '',
-            title:
-              input.attendee.title ||
-              (input.purchaseFor === 'self' ? customer.profile.title : '') ||
-              '',
-            city:
-              input.attendee.city ||
-              (input.purchaseFor === 'self' ? customer.profile.city : '') ||
-              '',
-          },
+          attendee: { ...input.attendee, mobile: normalizedTargetMobile },
         };
         const releasedTicket = releaseSnapshot?.tickets?.find(
           (ticket) => ticket.id === input.ticketTypeId,
@@ -2790,6 +2769,10 @@ export class ConferenceRepository {
         }
         const releasedFormVersion = releasedForm.version;
         const releasedFormFields = releasedForm.fields;
+        checkoutInput.attendee = this.attendeeForRegistrationForm(
+          releasedFormFields,
+          checkoutInput.attendee,
+        );
         if (!releasedRegistration.registrationOpen) {
           throw new DomainError(
             API_ERROR_CODES.INVALID_STATE_TRANSITION,

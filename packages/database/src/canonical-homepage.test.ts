@@ -17,6 +17,17 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it('rejects a saved form that differs from the active public form', async () => {
+    const value = await snapshot();
+    const backend = value.backend as Record<string, unknown>;
+    const release = value.release as { snapshot: { registrationForm: Record<string, unknown> } };
+    backend.registrationForm = structuredClone(release.snapshot.registrationForm);
+    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+    (backend.registrationForm as Record<string, unknown>).termsContent =
+      '后台已保存但前台未生效的条款。';
+    expect(() => validateCanonicalHomepageSnapshot(value, 'observation')).not.toThrow();
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/registration form.*active/iu);
+  });
   it('limits the trusted production exporter to the read-only Compose topology', () => {
     const trusted = {
       databaseUrl:

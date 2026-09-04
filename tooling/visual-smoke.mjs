@@ -824,7 +824,7 @@ async function runVisualSmoke() {
     await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
     const registrationSubmitButton = page.locator('form.flow-card button[type="submit"]');
     if (
-      (await page.locator('#registration-name').count()) &&
+      (await page.locator('#registration-mobile').count()) &&
       (await registrationSubmitButton.count())
     ) {
       const visualRunId = Date.now().toString();
@@ -834,18 +834,23 @@ async function runVisualSmoke() {
         await loginCustomer(page, visualCustomerMobile);
         await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
       }
-      await page.locator('#registration-name').fill('视觉测试员');
       const verifiedMobile = await page.locator('#registration-mobile').inputValue();
       if (await page.locator('#registration-mobile').isEditable()) {
         await page.locator('#registration-mobile').fill(visualCustomerMobile);
       } else if (!verifiedMobile.endsWith(visualCustomerMobile)) {
         throw new Error(`报名页登录手机号未正确回填，实际为 ${verifiedMobile || '空'}`);
       }
-      await page.locator('#registration-email').fill(`visual-${visualRunId}@example.com`);
-      await page.locator('#registration-city').fill('深圳');
-      await page.locator('#registration-company').fill('大会视觉实验室');
-      await page.locator('#registration-title').fill('质量负责人');
-      await page.getByText('我已阅读并同意').click();
+      for (const [field, value] of Object.entries({
+        name: '视觉测试员',
+        email: `visual-${visualRunId}@example.com`,
+        city: '深圳',
+        company: '大会视觉实验室',
+        title: '质量负责人',
+      })) {
+        const input = page.locator(`#registration-${field}`);
+        if (await input.isVisible()) await input.fill(value);
+      }
+      await page.locator('#registration-terms-accepted').check();
       await page.locator('form.flow-card button[type="submit"]').click();
       await page.waitForURL(/\/(order|ticket)\//);
       visualCustomerStorageState = await desktop.storageState();

@@ -552,10 +552,11 @@
           "type": "tel"
         },
         {
+          "enabled": false,
           "key": "email",
           "label": "电子邮箱",
           "placeholder": "name@company.com",
-          "required": true,
+          "required": false,
           "type": "email"
         },
         {
@@ -567,23 +568,23 @@
         {
           "key": "title",
           "label": "职位",
-          "required": true,
+          "required": false,
           "type": "text"
         },
         {
           "key": "city",
           "label": "所在城市",
-          "required": true,
+          "required": false,
           "type": "text"
         }
       ],
-      "id": "99999999-9999-4999-8999-999999999999",
+      "id": "dab28246-a3e7-4bec-b57f-c008cddb8dd2",
       "name": "标准参会报名表",
-      "publishedAt": "2026-07-16T00:00:00.000Z",
+      "publishedAt": "2026-09-04T06:46:07.380Z",
       "status": "published",
-      "termsContent": "提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。",
-      "termsVersion": "2026-07-16",
-      "version": 1
+      "termsContent": "1. 报名信息\n请提供真实、准确的参会信息和有效联系方式。代他人报名时，请事先取得参会人授权，并向其说明本条款。\n\n2. 报名确认与参会\n付费票种完成支付后，以系统显示的报名状态和电子票为准。参会权益以所购票种说明为准，请按大会通知完成入场核验。\n\n3. 退款、转让与活动变更\n退款及名额转让按购票时公示的规则办理。如大会取消、延期或发生重大调整，主办方将及时通知并提供相应处理方案。\n\n4. 发票服务\n符合开票条件的订单，可在个人中心申请发票。请准确填写开票资料和接收邮箱。\n\n5. 信息使用\n报名信息用于订单处理、入场核验、发票及本场大会必要服务通知。后续活动推广按用户另行选择的订阅设置处理。\n\n6. 现场秩序与联系\n请遵守会场秩序，尊重他人及内容知识产权。如需修改资料或处理报名问题，请通过大会页面公示的方式联系主办方。",
+      "termsVersion": "2026-09-04",
+      "version": 8
     },
     "sessions": [
       {
