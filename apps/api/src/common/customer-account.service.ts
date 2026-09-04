@@ -76,6 +76,7 @@ import {
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
 import { attendeeShowcasePublicEligibilitySql } from './attendee-showcase-policy.js';
 import { attendeeUpdateDiff } from './attendee-update-policy.js';
+import { validateRegistrationAttendeeName } from './registration-attendee-validation.js';
 import {
   resolvePublishedRegistrationSettings,
   type RegistrationReleaseSnapshot,
@@ -1415,6 +1416,7 @@ export class CustomerAccountService {
             mobile: scope.registration.attendeeMobileE164,
             email: scope.registration.attendeeEmailNormalized,
           };
+          await validateRegistrationAttendeeName(tx, scope.registration, input.name);
           const normalizedEmail = input.email?.trim().toLowerCase();
           const {
             attendee: normalizedAttendee,

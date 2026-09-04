@@ -15,6 +15,7 @@ import {
 } from '~/composables/useEventExperience';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
+import { browserLocalStorage, browserSessionStorage } from '~/utils/browser-storage';
 import {
   createRegistrationIntent,
   resolveCheckoutSuccessDestination,
@@ -27,7 +28,7 @@ import {
 } from '~/utils/purchase-journey';
 import {
   pruneRegistrationDrafts,
-  readRegistrationDraft,
+  readRegistrationDraftState,
   registrationDraftIdentityTransition,
   registrationDraftStorageKey,
   removeRegistrationDraft,
@@ -62,6 +63,8 @@ const termsAccepted = ref(true);
 const termsOpen = ref(false);
 const intentReady = ref(false);
 let activeIntentKey = '';
+let pageDisposed = false;
+const editedAnswerKeys = new Set<string>();
 const purchaseContext = ref<EventPurchaseContext | null>(null);
 const purchaseContextReady = ref(false);
 const answers = reactive<Record<string, string>>({
@@ -193,17 +196,16 @@ function clearRegistrationDraftSaveTimer() {
 function resetRegistrationAnswers(loaded: PublicEvent, preserveCurrentAnswers: boolean) {
   const fields = (loaded.registrationForm?.fields ?? []).filter((field) => field.enabled !== false);
   const preserved = preserveCurrentAnswers ? sanitizeRegistrationDraftAnswers(answers, fields) : {};
+  for (const key of editedAnswerKeys) {
+    if (!preserveCurrentAnswers || !(key in preserved)) editedAnswerKeys.delete(key);
+  }
   for (const key of Object.keys(answers)) delete answers[key];
   for (const field of fields) answers[field.key] = preserved[field.key] ?? '';
 }
 
 function browserRegistrationDraftStorage(kind: 'local' | 'session') {
   if (!import.meta.client) return null;
-  try {
-    return kind === 'local' ? window.localStorage : window.sessionStorage;
-  } catch {
-    return null;
-  }
+  return kind === 'local' ? browserLocalStorage : browserSessionStorage;
 }
 
 function currentRegistrationDraftContext(): ActiveRegistrationDraftContext | null {
@@ -240,7 +242,9 @@ function prefillFromCustomerSession(session: typeof customer.session.value) {
     city: profile.city,
   };
   for (const field of registrationFields.value) {
-    if (field.key in values) answers[field.key] ||= values[field.key as keyof typeof values] || '';
+    if (field.key in values && !editedAnswerKeys.has(field.key)) {
+      answers[field.key] ||= values[field.key as keyof typeof values] || '';
+    }
   }
 }
 
@@ -262,6 +266,8 @@ function persistRegistrationDraftToContext(context: ActiveRegistrationDraftConte
     context.formVersion,
     answers,
     registrationFields.value,
+    Date.now(),
+    [...editedAnswerKeys],
   );
   if (
     written &&
@@ -311,16 +317,16 @@ function restoreRegistrationDraftForCurrentIdentity() {
     return;
   }
 
-  const restored = readRegistrationDraft(
+  const restored = readRegistrationDraftState(
     next.storage,
     next.scope,
     next.formVersion,
     registrationFields.value,
   );
-  if (preserveCurrentAnswers) {
-    for (const [key, value] of Object.entries(restored)) answers[key] ||= value;
-  } else {
-    Object.assign(answers, restored);
+  for (const [key, value] of Object.entries(restored.answers)) {
+    if (preserveCurrentAnswers && (editedAnswerKeys.has(key) || answers[key])) continue;
+    answers[key] = value;
+    if (restored.editedKeys.includes(key)) editedAnswerKeys.add(key);
   }
   prefillFromCustomerSession(customer.session.value);
 
@@ -431,6 +437,7 @@ function syncPurchaseIntent(preferred?: string, adoptingAnonymous = false) {
     customer.session.value ? `customer:${customer.session.value.customer.id}` : 'anonymous',
     purchaseFor.value,
   );
+  if (activeIntentKey === previousKey && purchaseIntentId.value && !preferred) return;
   const storage = browserRegistrationDraftStorage('session');
   purchaseIntentId.value = adoptingAnonymous
     ? adoptRegistrationIntent(storage, previousKey, activeIntentKey, purchaseIntentId.value)
@@ -438,7 +445,14 @@ function syncPurchaseIntent(preferred?: string, adoptingAnonymous = false) {
 }
 
 function updateRegistrationUrl() {
-  if (!import.meta.client || !event.value || !intentReady.value) return;
+  if (
+    !import.meta.client ||
+    pageDisposed ||
+    !event.value ||
+    !intentReady.value ||
+    !/^\/register(?:\/|$)/.test(window.location.pathname)
+  )
+    return;
   const query = new URLSearchParams(window.location.search);
   if (purchaseFor.value === 'other') query.set('purchaseFor', 'other');
   else query.delete('purchaseFor');
@@ -566,6 +580,7 @@ onMounted(async () => {
 
   try {
     const loaded = await (slug ? api.getEvent(slug) : api.getHomepageEvent());
+    if (pageDisposed) return;
     applyLoadedEvent(loaded, ticketFromQuery);
     if (
       requestedPurchaseFor === 'other' &&
@@ -575,12 +590,14 @@ onMounted(async () => {
       purchaseFor.value = 'other';
     }
     await customer.refresh().catch(() => null);
+    if (pageDisposed) return;
     syncPurchaseIntent(
       query.get('restart') === '1' ? createRegistrationIntent() : (intentFromQuery ?? undefined),
     );
     intentReady.value = true;
     updateRegistrationUrl();
     await loadPurchaseContext();
+    if (pageDisposed) return;
     if (accountRequired.value && !customer.session.value) {
       customer.openLogin();
     }
@@ -592,6 +609,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  pageDisposed = true;
   window.removeEventListener('pagehide', persistRegistrationDraft);
   clearRegistrationDraftSaveTimer();
   persistRegistrationDraft();
@@ -874,6 +892,7 @@ async function submit() {
                     v-model="answers[field.key]"
                     class="form-input"
                     :required="field.required"
+                    @change="editedAnswerKeys.add(field.key)"
                   >
                     <option value="">{{ field.placeholder ?? `请选择${field.label}` }}</option>
                     <option v-for="option in field.options" :key="option" :value="option">
@@ -890,6 +909,7 @@ async function submit() {
                     :autocomplete="inputAutocomplete(field.key)"
                     :placeholder="field.placeholder ?? `请填写${field.label}`"
                     :readonly="field.key === 'mobile' && purchaseFor === 'self'"
+                    @input="editedAnswerKeys.add(field.key)"
                   />
                 </div>
               </div>
