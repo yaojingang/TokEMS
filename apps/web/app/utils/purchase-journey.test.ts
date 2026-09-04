@@ -75,7 +75,7 @@ describe('purchase journey helpers', () => {
     ).toEqual({
       kind: 'register',
       label: '立即报名 ¥399',
-      href: '/register?event=geo-2026&ticket=ticket-1',
+      href: '/register/geo-2026?ticket=ticket-1',
     });
   });
 
@@ -178,7 +178,7 @@ describe('purchase journey helpers', () => {
     ).toEqual({
       kind: 'register',
       label: '立即报名 ¥399',
-      href: '/register?event=geo-2026&ticket=ticket-1',
+      href: '/register/geo-2026?ticket=ticket-1&restart=1',
     });
   });
 
@@ -329,7 +329,7 @@ describe('purchase journey helpers', () => {
     ).toEqual({
       kind: 'register',
       label: '立即报名 ¥399',
-      href: '/register?event=geo-2026&ticket=ticket-1',
+      href: '/register/geo-2026?ticket=ticket-1&restart=1',
     });
   });
 

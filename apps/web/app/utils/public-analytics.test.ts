@@ -36,6 +36,8 @@ describe('public analytics route scope', () => {
 
   it.each([
     '/register',
+    '/register/tokems26',
+    '/register/tokems26?ticket=one',
     '/account/profile',
     '/order/123',
     '/invoice/123',
@@ -55,6 +57,12 @@ describe('public analytics route scope', () => {
 
   it('uses a new document whenever navigation crosses the sensitive-page boundary', () => {
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/register')).toBe(true);
+    expect(
+      requiresAnalyticsDocumentBoundary(googleSettings, '/tokems26', '/register/tokems26'),
+    ).toBe(true);
+    expect(
+      requiresAnalyticsDocumentBoundary(googleSettings, '/register/tokems26', '/tokems26'),
+    ).toBe(true);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/account', '/tokems26')).toBe(true);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/account', '/order/123')).toBe(false);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/speakers/123')).toBe(false);

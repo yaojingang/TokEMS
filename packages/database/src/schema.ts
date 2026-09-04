@@ -1192,6 +1192,7 @@ export const registrationForms = pgTable(
           label: string;
           type: 'text' | 'email' | 'tel' | 'select';
           required: boolean;
+          enabled?: boolean;
           placeholder?: string;
           options?: string[];
         }>

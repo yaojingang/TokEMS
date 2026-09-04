@@ -29,6 +29,7 @@ import {
 import { createLocalTicketIdentity } from '../utils/ticket-code';
 import { MEMBER_DIRECTORY_REQUEST_TIMEOUT_MS } from '../utils/member-directory-refresh';
 import { registrationIdempotencyKey } from '../utils/purchase-journey';
+import { browserSessionStorage, readBrowserSessionValue } from '../utils/browser-storage';
 
 type WebRegistrationCheckout = RegistrationCheckout & { ticket?: Ticket };
 export interface WebInvoiceAccess {
@@ -629,53 +630,52 @@ export function useConferenceApi() {
 
   function readCheckout(): WebRegistrationCheckout | undefined {
     if (!import.meta.client) return undefined;
-    const value = sessionStorage.getItem('conference.checkout');
-    return value ? (JSON.parse(value) as WebRegistrationCheckout) : undefined;
+    return readBrowserSessionValue<WebRegistrationCheckout>('conference.checkout');
   }
 
   function saveCheckout(checkout: WebRegistrationCheckout) {
-    if (import.meta.client) sessionStorage.setItem('conference.checkout', JSON.stringify(checkout));
+    if (import.meta.client)
+      browserSessionStorage.setItem('conference.checkout', JSON.stringify(checkout));
   }
 
   function readEvent(): PublicEvent | undefined {
     if (!import.meta.client) return eventState.value;
-    const value = sessionStorage.getItem('conference.event');
-    return value ? (JSON.parse(value) as PublicEvent) : eventState.value;
+    return readBrowserSessionValue<PublicEvent>('conference.event') ?? eventState.value;
   }
 
   function saveEvent(event: PublicEvent) {
     eventState.value = event;
-    if (import.meta.client) sessionStorage.setItem('conference.event', JSON.stringify(event));
+    if (import.meta.client)
+      browserSessionStorage.setItem('conference.event', JSON.stringify(event));
   }
 
   function readTicket(identifier: string): Ticket | undefined {
     if (!import.meta.client) return undefined;
-    const value = sessionStorage.getItem('conference.ticket');
-    if (!value) return undefined;
-    const ticket = JSON.parse(value) as Ticket;
+    const ticket = readBrowserSessionValue<Ticket>('conference.ticket');
+    if (!ticket) return undefined;
     return ticket.code === identifier || ticket.registrationId === identifier ? ticket : undefined;
   }
 
   function saveTicket(ticket: Ticket) {
-    if (import.meta.client) sessionStorage.setItem('conference.ticket', JSON.stringify(ticket));
+    if (import.meta.client)
+      browserSessionStorage.setItem('conference.ticket', JSON.stringify(ticket));
   }
 
   function readInvoiceAccess(invoiceId?: string): WebInvoiceAccess | undefined {
     if (!import.meta.client) return undefined;
-    const value = sessionStorage.getItem('conference.invoiceAccess');
-    if (!value) return undefined;
-    const access = JSON.parse(value) as WebInvoiceAccess;
+    const access = readBrowserSessionValue<WebInvoiceAccess>('conference.invoiceAccess');
+    if (!access) return undefined;
     return !invoiceId || access.id === invoiceId ? access : undefined;
   }
 
   function saveInvoiceAccess(access: WebInvoiceAccess) {
     if (import.meta.client) {
-      sessionStorage.setItem('conference.invoiceAccess', JSON.stringify(access));
+      browserSessionStorage.setItem('conference.invoiceAccess', JSON.stringify(access));
     }
   }
 
   function clearInvoiceAccess() {
-    if (import.meta.client) sessionStorage.removeItem('conference.invoiceAccess');
+    if (import.meta.client) browserSessionStorage.removeItem('conference.invoiceAccess');
   }
 
   function invoiceDownloadUrl(path: string) {

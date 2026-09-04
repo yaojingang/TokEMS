@@ -3,6 +3,7 @@ import {
   pruneRegistrationDrafts,
   registrationDraftIdentityTransition,
   readRegistrationDraft,
+  readRegistrationDraftState,
   REGISTRATION_DRAFT_MAX_AGE_MS,
   registrationDraftStorageKey,
   removeRegistrationDraft,
@@ -41,6 +42,32 @@ function createStorage() {
 }
 
 describe('registration draft storage', () => {
+  it('distinguishes untouched blanks from explicit edits, including an entirely cleared draft', () => {
+    const { storage } = createStorage();
+    const anonymous = { ...scope, ownerId: 'anonymous' };
+    writeRegistrationDraft(
+      storage,
+      anonymous,
+      1,
+      { name: '', mobile: '', city: '' },
+      fields,
+      1_000,
+      ['name', 'removed'],
+    );
+    expect(readRegistrationDraftState(storage, anonymous, 1, fields, 2_000)).toEqual({
+      answers: { name: '', mobile: '', city: '' },
+      editedKeys: ['name'],
+    });
+    expect(
+      readRegistrationDraftState(
+        storage,
+        anonymous,
+        1,
+        fields.filter((field) => field.key !== 'name'),
+        2_000,
+      ).editedKeys,
+    ).toEqual([]);
+  });
   it('clears customer answers synchronously before entering an anonymous draft context', () => {
     expect(registrationDraftIdentityTransition('customer:201', 'anonymous')).toEqual({
       kind: 'customer_to_anonymous',

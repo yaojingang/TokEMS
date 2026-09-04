@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_REGISTRATION_FIELDS, type RegistrationField } from '@conference/contracts';
+import { SYSTEM_REGISTRATION_FIELDS, type RegistrationField } from '@conference/contracts';
 import { nextCustomFieldKey, prepareRegistrationForm } from './registration-form-editor.js';
 
 function standardFields(): RegistrationField[] {
   return [
-    ...CORE_REGISTRATION_FIELDS.map((field) => ({ ...field, required: true })),
+    ...SYSTEM_REGISTRATION_FIELDS.map((field) => ({ ...field, required: true })),
     { key: 'company', label: '公司/机构', type: 'text', required: true },
     { key: 'title', label: '职位', type: 'text', required: true },
     { key: 'city', label: '所在城市', type: 'text', required: true },
@@ -23,20 +23,18 @@ function draft(fields = standardFields()) {
 describe('registration form editor', () => {
   it('keeps contact fields compatible with the registration and payment flow', () => {
     const fields = standardFields();
-    fields[0] = { ...fields[0]!, required: false };
+    fields[1] = { ...fields[1]!, required: false };
 
     expect(prepareRegistrationForm(draft(fields))).toEqual({
       ok: false,
-      message: '姓名是系统核心字段，需保留键名 name、text 类型并设为必填',
+      message: '手机号码是系统核心字段，需保留键名 mobile、tel 类型，保持开启并设为必填',
     });
   });
 
   it('allows profile fields to become optional or be removed', () => {
     const fields = standardFields()
       .filter((field) => field.key !== 'title' && field.key !== 'city')
-      .map((field) =>
-        field.key === 'company' ? { ...field, required: false } : field,
-      );
+      .map((field) => (field.key === 'company' ? { ...field, required: false } : field));
 
     expect(prepareRegistrationForm(draft(fields))).toMatchObject({
       ok: true,

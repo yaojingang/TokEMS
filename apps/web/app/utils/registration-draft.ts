@@ -22,6 +22,7 @@ export interface RegistrationDraftScope {
 
 export interface RegistrationDraftField {
   key: string;
+  enabled?: boolean;
   type: 'text' | 'email' | 'tel' | 'select';
   options?: readonly string[];
 }
@@ -72,6 +73,7 @@ interface StoredRegistrationDraft {
   formVersion: number;
   savedAt: number;
   answers: Record<string, string>;
+  editedKeys?: string[];
 }
 
 function registrationDraftStoragePrefix(scope: RegistrationDraftScope) {
@@ -95,6 +97,7 @@ export function sanitizeRegistrationDraftAnswers(
   const source = answers as Record<string, unknown>;
   return Object.fromEntries(
     fields.flatMap((field) => {
+      if (field.enabled === false) return [];
       const value = source[field.key];
       if (typeof value !== 'string') return [];
       if (field.type === 'select' && value && !field.options?.includes(value)) return [];
@@ -132,11 +135,22 @@ export function readRegistrationDraft(
   fields: readonly RegistrationDraftField[],
   now = Date.now(),
 ): Record<string, string> {
+  return readRegistrationDraftState(storage, scope, formVersion, fields, now).answers;
+}
+
+export function readRegistrationDraftState(
+  storage: RegistrationDraftStorage,
+  scope: RegistrationDraftScope,
+  formVersion: number,
+  fields: readonly RegistrationDraftField[],
+  now = Date.now(),
+): { answers: Record<string, string>; editedKeys: string[] } {
   const key = registrationDraftStorageKey(scope, formVersion);
+  const empty = { answers: {}, editedKeys: [] };
 
   try {
     const raw = storage.getItem(key);
-    if (!raw) return {};
+    if (!raw) return empty;
 
     const draft = JSON.parse(raw) as Partial<StoredRegistrationDraft>;
     if (
@@ -145,13 +159,20 @@ export function readRegistrationDraft(
       !hasValidTimestamp(draft, now)
     ) {
       removeStoredDraft(storage, key);
-      return {};
+      return empty;
     }
 
-    return sanitizeRegistrationDraftAnswers(draft.answers, fields);
+    const answers = sanitizeRegistrationDraftAnswers(draft.answers, fields);
+    // Legacy customer drafts preserve saved blanks; anonymous drafts predate edit tracking.
+    const editedKeys = Array.isArray(draft.editedKeys)
+      ? draft.editedKeys.filter((key) => typeof key === 'string' && Object.hasOwn(answers, key))
+      : Object.keys(answers).filter(
+          (key) => String(scope.ownerId).startsWith('customer:') || answers[key],
+        );
+    return { answers, editedKeys: [...new Set(editedKeys)] };
   } catch {
     removeStoredDraft(storage, key);
-    return {};
+    return empty;
   }
 }
 
@@ -165,11 +186,13 @@ export function writeRegistrationDraft(
   answers: Record<string, string>,
   fields: readonly RegistrationDraftField[],
   now = Date.now(),
+  editedKeys?: readonly string[],
 ) {
   const key = registrationDraftStorageKey(scope, formVersion);
   const sanitized = sanitizeRegistrationDraftAnswers(answers, fields);
+  const edits = editedKeys?.filter((key) => Object.hasOwn(sanitized, key));
 
-  if (!Object.values(sanitized).some((value) => value.length > 0)) {
+  if (!Object.values(sanitized).some((value) => value.length > 0) && !edits?.length) {
     return removeStoredDraft(storage, key);
   }
 
@@ -178,6 +201,7 @@ export function writeRegistrationDraft(
     formVersion,
     savedAt: now,
     answers: sanitized,
+    ...(edits ? { editedKeys: [...new Set(edits)] } : {}),
   };
 
   try {

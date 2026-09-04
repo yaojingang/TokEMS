@@ -27,6 +27,7 @@ import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { InvoiceOperationsService } from './invoice-operations.service.js';
+import { validateRegistrationAttendeeName } from './registration-attendee-validation.js';
 
 @Injectable()
 export class AdminRegistrationOperationsService {
@@ -283,12 +284,6 @@ export class AdminRegistrationOperationsService {
     if (!db) {
       throw new Error('报名资料修改需要数据库连接');
     }
-    const current = await this.registrations.getRegistrationDetail(
-      eventId,
-      registrationId,
-      organizationId,
-      false,
-    );
     let normalizedMobile: string;
     try {
       normalizedMobile = normalizeMainlandMobile(input.attendee.mobile);
@@ -309,6 +304,23 @@ export class AdminRegistrationOperationsService {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${eventId}:${attendee.mobile}`}, 0))`,
       );
+      const [current] = await tx
+        .select()
+        .from(registrations)
+        .where(
+          and(
+            eq(registrations.id, registrationId),
+            eq(registrations.eventId, eventId),
+            eq(registrations.organizationId, organizationId),
+            isNull(registrations.supersededAt),
+          ),
+        )
+        .for('update')
+        .limit(1);
+      if (!current) {
+        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '报名不存在', HttpStatus.NOT_FOUND);
+      }
+      await validateRegistrationAttendeeName(tx, current, attendee.name);
       const [duplicate] = await tx
         .select({ id: registrations.id })
         .from(registrations)

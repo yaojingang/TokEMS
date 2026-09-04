@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import type { EventStatus, RegistrationField, RegistrationForm } from '@conference/contracts';
+import {
+  DEFAULT_REGISTRATION_TERMS,
+  type EventStatus,
+  type RegistrationField,
+  type RegistrationForm,
+} from '@conference/contracts';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, session } from '../lib/api';
 import {
   isCoreRegistrationField,
+  isSystemRegistrationField,
   nextCustomFieldKey,
   prepareRegistrationForm,
 } from '../lib/registration-form-editor';
@@ -17,14 +23,17 @@ const message = ref('');
 const errorMessage = ref('');
 const showImportantChangeConfirm = ref(false);
 const eventStatus = ref<EventStatus>('configuring');
+const eventSlug = ref('');
+const currentForm = computed(() => versions.value.find((form) => form.active) ?? versions.value[0]);
+const savedFormDiffers = computed(() => versions.value[0]?.version !== currentForm.value?.version);
 const editor = reactive({
   name: '标准参会报名表',
   termsVersion: new Date().toISOString().slice(0, 10),
-  termsContent: '提交报名即表示参会人同意大会报名服务条款与个人信息处理说明。',
+  termsContent: DEFAULT_REGISTRATION_TERMS,
   fields: [] as RegistrationField[],
 });
 const importantChanges = computed(() => {
-  const current = versions.value[0];
+  const current = currentForm.value;
   if (!current) return [];
   const details: Array<{ label: string; value: string }> = [];
   if (
@@ -37,14 +46,22 @@ const importantChanges = computed(() => {
     });
   }
   const nextFields = new Map(editor.fields.map((field) => [field.key, field]));
-  const removed = current.fields.filter((field) => !nextFields.has(field.key));
+  const removed = current.fields.filter(
+    (field) =>
+      !nextFields.has(field.key) ||
+      (field.enabled !== false && nextFields.get(field.key)?.enabled === false),
+  );
   const changedTypes = current.fields.filter((field) => {
     const next = nextFields.get(field.key);
     return next && next.type !== field.type;
   });
   const newRequired = editor.fields.filter((field) => {
     const prior = current.fields.find((item) => item.key === field.key);
-    return field.required && prior?.required !== true;
+    return (
+      field.enabled !== false &&
+      field.required &&
+      (prior?.required !== true || prior.enabled === false)
+    );
   });
   if (removed.length) {
     details.push({ label: '移除字段', value: removed.map((field) => field.label).join('、') });
@@ -68,7 +85,7 @@ function standardFields(): RegistrationField[] {
   return [
     { key: 'name', label: '姓名', type: 'text', required: true },
     { key: 'mobile', label: '手机号码', type: 'tel', required: true },
-    { key: 'email', label: '电子邮箱', type: 'email', required: true },
+    { key: 'email', label: '电子邮箱', type: 'email', required: false },
     { key: 'company', label: '公司/机构', type: 'text', required: true },
     { key: 'title', label: '职位', type: 'text', required: true },
     { key: 'city', label: '所在城市', type: 'text', required: true },
@@ -85,19 +102,10 @@ async function load() {
     ]);
     versions.value = loadedVersions;
     eventStatus.value = event.status;
-    const current = versions.value[0];
+    eventSlug.value = event.slug;
+    const current = currentForm.value;
     if (current) {
-      editor.name = current.name;
-      editor.termsVersion = current.termsVersion;
-      editor.termsContent = current.termsContent;
-      editor.fields = current.fields.map((field) => ({
-        key: field.key,
-        label: field.label,
-        type: field.type,
-        required: field.required,
-        ...(field.placeholder ? { placeholder: field.placeholder } : {}),
-        ...(field.options ? { options: [...field.options] } : {}),
-      }));
+      editForm(current);
     } else {
       editor.fields = standardFields();
     }
@@ -107,6 +115,16 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function editForm(form: RegistrationForm) {
+  editor.name = form.name;
+  editor.termsVersion = form.termsVersion;
+  editor.termsContent = form.termsContent;
+  editor.fields = form.fields.map((field) => ({
+    ...field,
+    ...(field.options ? { options: [...field.options] } : {}),
+  }));
 }
 
 function addField() {
@@ -151,11 +169,24 @@ async function save() {
   }
   pending.value = true;
   try {
-    await conferenceApi.publishForm(prepared.value);
-    message.value = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
+    const published = await conferenceApi.publishForm(prepared.value);
+    const publicEvent = ['prepublished', 'registration_open', 'in_progress', 'ended'].includes(
       eventStatus.value,
     )
-      ? '已保存，新的报名已使用最新表单与条款'
+      ? await conferenceApi.getEvent(eventSlug.value)
+      : null;
+    if (
+      publicEvent &&
+      (publicEvent.registrationForm?.version !== published.version ||
+        publicEvent.registrationForm.termsVersion !== published.termsVersion ||
+        publicEvent.registrationForm.termsContent !== published.termsContent ||
+        JSON.stringify(prepareRegistrationForm(publicEvent.registrationForm)) !==
+          JSON.stringify(prepareRegistrationForm(published)))
+    ) {
+      throw new Error('表单已保存，但前台生效版本核对失败，请重新保存并检查发布状态。');
+    }
+    message.value = publicEvent
+      ? '已核对前台，新的报名已使用最新表单与条款'
       : '已保存，大会上线时生效';
     await load();
   } catch (error) {
@@ -185,8 +216,15 @@ onMounted(() => void load());
       <header class="admin-panel-header">
         <div>
           <h2>表单编辑器</h2>
+          <p v-if="currentForm">当前生效表单：第 {{ currentForm.version }} 版</p>
           <p>历史报名继续保留当时确认的字段、条款和同意时间</p>
-          <p>姓名、手机号码和电子邮箱为核心字段；公司、职位、城市及自定义字段可调整必填状态或删除。</p>
+          <p>手机号码保持开启并必填。其他字段可设为选填、关闭或删除；关闭后保留字段配置。</p>
+          <p v-if="savedFormDiffers" role="status">
+            另有第 {{ versions[0]?.version }} 版保存内容尚未用于当前报名。
+            <button type="button" class="row-action" @click="editForm(versions[0]!)">
+              载入该版内容
+            </button>
+          </p>
         </div>
       </header>
       <form class="event-form" @submit.prevent="requestSave">
@@ -221,8 +259,10 @@ onMounted(() => void load());
               <input
                 v-model="field.key"
                 :aria-label="`字段 ${index + 1} 的字段键`"
-                :disabled="isCoreRegistrationField(field.key)"
-                :title="isCoreRegistrationField(field.key) ? '系统核心字段的键名保持固定' : undefined"
+                :disabled="isSystemRegistrationField(field.key)"
+                :title="
+                  isCoreRegistrationField(field.key) ? '系统核心字段的键名保持固定' : undefined
+                "
                 required
                 placeholder="field_key"
               />
@@ -241,8 +281,10 @@ onMounted(() => void load());
               <select
                 v-model="field.type"
                 :aria-label="`字段 ${index + 1} 的类型`"
-                :disabled="isCoreRegistrationField(field.key)"
-                :title="isCoreRegistrationField(field.key) ? '系统核心字段的类型保持固定' : undefined"
+                :disabled="isSystemRegistrationField(field.key)"
+                :title="
+                  isCoreRegistrationField(field.key) ? '系统核心字段的类型保持固定' : undefined
+                "
               >
                 <option value="text">文本</option>
                 <option value="email">邮箱</option>
@@ -282,7 +324,21 @@ onMounted(() => void load());
               <button
                 class="row-action"
                 type="button"
-                :aria-label="isCoreRegistrationField(field.key) ? `系统核心字段 ${index + 1} 不可删除` : `删除字段 ${index + 1}`"
+                :disabled="isCoreRegistrationField(field.key)"
+                :aria-label="`${field.enabled === false ? '开启' : '关闭'}字段 ${field.label}`"
+                :aria-pressed="field.enabled !== false"
+                @click="field.enabled = field.enabled === false"
+              >
+                {{ field.enabled === false ? '已关闭' : '已开启' }}
+              </button>
+              <button
+                class="row-action"
+                type="button"
+                :aria-label="
+                  isCoreRegistrationField(field.key)
+                    ? `系统核心字段 ${index + 1} 不可删除`
+                    : `删除字段 ${index + 1}`
+                "
                 :disabled="isCoreRegistrationField(field.key)"
                 :title="isCoreRegistrationField(field.key) ? '系统核心字段不可删除' : '删除字段'"
                 @click="editor.fields.splice(index, 1)"

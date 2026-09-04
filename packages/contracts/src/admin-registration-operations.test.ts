@@ -150,7 +150,7 @@ describe('AdminRegistrationOperationsDetailSchema', () => {
         attendee: { ...registration.attendee, name: '' },
         reason: '资料更新',
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       CreateRegistrationNoteSchema.safeParse({ body: '会前一天电话确认发票抬头' }).success,
     ).toBe(true);

@@ -15,6 +15,7 @@ import {
   payments,
   registrations,
   ticketTypes,
+  waitlistEntries,
 } from '@conference/database';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { ConferenceRepository } from './conference.repository.js';
@@ -664,6 +665,37 @@ describePersistent('live event settings activation', () => {
     );
   });
 
+  it('identifies the active form and repairs drift when the saved form is submitted again', async () => {
+    const forms = await operations.listForms(DEMO_IDS.organization, eventId);
+    const saved = forms[0]!;
+    const active = (await operations.listReleases(DEMO_IDS.organization, eventId)).find(
+      (release) => release.active,
+    )!;
+    const oldForm = forms[1]!;
+    await database
+      .db!.update(eventReleases)
+      .set({
+        snapshot: sql`jsonb_set(${eventReleases.snapshot}, '{registrationForm}', ${JSON.stringify(oldForm)}::jsonb)`,
+      })
+      .where(and(eq(eventReleases.eventId, eventId), eq(eventReleases.id, active.id)));
+    const before = await operations.listForms(DEMO_IDS.organization, eventId);
+    expect(before.find((form) => form.active)?.version).toBe(oldForm.version);
+    const repaired = await operations.publishForm(
+      DEMO_IDS.organization,
+      eventId,
+      DEMO_IDS.adminUser,
+      saved,
+    );
+    expect(repaired.version).toBe(saved.version);
+    expect(
+      (await repository.getPublicEvent(slug, organizationSlug)).registrationForm?.version,
+    ).toBe(saved.version);
+    expect(
+      (await operations.listForms(DEMO_IDS.organization, eventId)).find((form) => form.active)
+        ?.version,
+    ).toBe(saved.version);
+  });
+
   it('protects registration ownership and resumes a closed order with the same intent and business IDs', async () => {
     const currentEvent = await repository.getAdminEvent(eventId, DEMO_IDS.organization);
     if (currentEvent.status === 'configuring') {
@@ -1185,6 +1217,118 @@ describePersistent('live event settings activation', () => {
       await db
         .delete(customerUsers)
         .where(sql`${customerUsers.id} in (${purchaserId}, ${attendeeId})`);
+    }
+  });
+  it('keeps cleared optional fields empty and uses SMS for waitlist when email is disabled', async () => {
+    const db = database.db!;
+    const customerId = randomUUID();
+    const mobile = `+86135${String(Date.now()).slice(-8)}`;
+    let orderId: string | undefined;
+    let registrationId: string | undefined;
+    await db
+      .insert(customerUsers)
+      .values({
+        id: customerId,
+        organizationId: DEMO_IDS.organization,
+        mobileE164: mobile,
+        verifiedAt: new Date(),
+      });
+    const actor = {
+      customerUserId: customerId,
+      organizationId: DEMO_IDS.organization,
+      mobile,
+      profile: {
+        realName: '已有姓名',
+        nickname: '已有昵称',
+        email: 'profile@example.com',
+        company: '已有公司',
+        title: '已有职位',
+        city: '已有城市',
+      },
+    };
+    try {
+      await repository.updateEvent(
+        eventId,
+        { status: 'registration_open' },
+        DEMO_IDS.adminUser,
+        DEMO_IDS.organization,
+      );
+      const [saved] = await operations.listForms(DEMO_IDS.organization, eventId);
+      const optionalForm = await operations.publishForm(
+        DEMO_IDS.organization,
+        eventId,
+        DEMO_IDS.adminUser,
+        {
+          name: saved!.name,
+          termsVersion: saved!.termsVersion,
+          termsContent: saved!.termsContent,
+          fields: saved!.fields.map((field) => ({
+            ...field,
+            enabled: true,
+            required: field.key === 'mobile',
+          })),
+        },
+      );
+      const event = await repository.getPublicEvent(slug, organizationSlug);
+      const ticket = event.tickets[0]!;
+      const checkout = await repository.createCheckout(
+        {
+          eventId,
+          ticketTypeId: ticket.id,
+          attendee: { name: '', mobile, email: '', company: '', title: '', city: '' },
+          invoiceRequired: false,
+          marketingConsent: false,
+          termsAccepted: true,
+          purchaseFor: 'self',
+          purchaseIntentId: randomUUID(),
+          proxyAuthorizationAccepted: false,
+          formVersion: optionalForm.version,
+          termsVersion: optionalForm.termsVersion,
+        },
+        randomUUID(),
+        actor,
+      );
+      orderId = checkout.order.id;
+      registrationId = checkout.registration.id;
+      expect(checkout.registration.attendee).toEqual({
+        name: '',
+        mobile,
+        email: '',
+        company: '',
+        title: '',
+        city: '',
+      });
+      await operations.publishForm(DEMO_IDS.organization, eventId, DEMO_IDS.adminUser, {
+        name: saved!.name,
+        termsVersion: saved!.termsVersion,
+        termsContent: saved!.termsContent,
+        fields: [
+          { key: 'mobile', label: '手机号', type: 'tel', required: true },
+          { key: 'email', label: '邮箱', type: 'email', required: false, enabled: false },
+        ],
+      });
+      // Fill this disposable event's capacity so the contact policy runs through the waitlist path.
+      await db
+        .update(ticketTypes)
+        .set({ sold: ticket.remaining })
+        .where(eq(ticketTypes.id, ticket.id));
+      const entry = await repository.joinWaitlist(
+        { eventId, ticketTypeId: ticket.id, name: '隐藏姓名', email: 'hidden@example.com', mobile },
+        randomUUID(),
+        actor,
+      );
+      expect(entry).toMatchObject({ name: '', email: '', mobile });
+      const [stored] = await db
+        .select()
+        .from(waitlistEntries)
+        .where(eq(waitlistEntries.id, entry.id));
+      expect(stored).toMatchObject({ email: '', notificationChannel: 'sms', mobileE164: mobile });
+    } finally {
+      await db.delete(waitlistEntries).where(eq(waitlistEntries.customerUserId, customerId));
+      if (orderId) await db.delete(orders).where(eq(orders.id, orderId));
+      if (registrationId)
+        await db.delete(registrations).where(eq(registrations.id, registrationId));
+      await db.delete(customerUsers).where(eq(customerUsers.id, customerId));
     }
   });
 });

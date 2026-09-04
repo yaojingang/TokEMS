@@ -20,6 +20,7 @@ import {
   outboxEvents,
   payments,
   publicUserIds,
+  registrationForms,
   refunds,
   registrations,
   tickets,
@@ -34,6 +35,7 @@ import { CustomerAuthService } from './customer-auth.service.js';
 import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
 import { InvoiceOperationsService } from './invoice-operations.service.js';
+import { AdminRegistrationOperationsService } from './admin-registration-operations.service.js';
 import type { FastifyRequest } from 'fastify';
 
 const describePersistent = process.env.DATABASE_URL ? describe : describe.skip;
@@ -1568,6 +1570,69 @@ describePersistent('customer invoice center', () => {
           claimToken: rawClaimToken,
         }),
       ).rejects.toMatchObject({ status: 403 });
+
+      // Editing a purchased seat follows the form that applied when it was registered.
+      const requiredName = { key: 'name', label: '姓名', type: 'text' as const, required: true };
+      const optionalName = { ...requiredName, required: false };
+      const reviewActorId = randomUUID();
+      const adminOperations = new AdminRegistrationOperationsService(
+        database,
+        new ConferenceRepository(database),
+        invoices,
+      );
+      const originalAttendee = {
+        name: '原参会人',
+        mobile: '+8613980000066',
+        email: 'original-attendee@example.com',
+        company: '',
+        title: '',
+        city: '深圳',
+      };
+      const adminEdit = (name: string) =>
+        adminOperations.updateAttendee(
+          proxyEvent!.id,
+          proxyRegistrationId,
+          organizationId,
+          reviewActorId,
+          { attendee: { ...originalAttendee, name }, reason: '报名姓名约束回归验证' },
+        );
+      await db.insert(registrationForms).values({
+        eventId: proxyEvent!.id,
+        name: '历史必填表单',
+        version: 1,
+        status: 'archived',
+        fields: [requiredName],
+        termsVersion: '1',
+        termsContent: '验收条款',
+      });
+      for (const consentSnapshot of [{ fieldDefinitions: [requiredName] }, {}]) {
+        await db
+          .update(registrations)
+          .set({ consentSnapshot })
+          .where(eq(registrations.id, proxyRegistrationId));
+        await expect(
+          account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, { name: '' }),
+        ).rejects.toMatchObject({ status: 400 });
+        await expect(adminEdit('')).rejects.toMatchObject({ status: 400 });
+      }
+      for (const fields of [[optionalName], [{ ...requiredName, enabled: false }], []]) {
+        await db
+          .update(registrations)
+          .set({ consentSnapshot: { fieldDefinitions: fields } })
+          .where(eq(registrations.id, proxyRegistrationId));
+        await expect(
+          account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, { name: '' }),
+        ).resolves.toMatchObject({ id: proxyOrderId });
+        await adminEdit('原参会人');
+        await expect(adminEdit('')).resolves.toMatchObject({ attendee: { name: '' } });
+        await account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
+          name: '原参会人',
+        });
+      }
+      await db
+        .update(registrations)
+        .set({ consentSnapshot: { fieldDefinitions: [requiredName] } })
+        .where(eq(registrations.id, proxyRegistrationId));
 
       await account.updatePurchasedOrderAttendee(purchaserSession, proxyOrderId, {
         name: '原参会人',
