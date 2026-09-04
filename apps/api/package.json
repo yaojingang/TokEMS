@@ -38,8 +38,8 @@
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
-    "undici": "8.10.0",
-    "zod": "4.4.3"
+    "undici": "8.10.1",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@nestjs/testing": "11.2.1",
