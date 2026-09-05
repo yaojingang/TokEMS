@@ -7,6 +7,9 @@ import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
 
 const configuration = ref<WeChatPayConfiguration>();
+const unmatchedRefunds = ref<
+  Awaited<ReturnType<typeof conferenceApi.unmatchedRefundNotifications>>
+>([]);
 const loading = ref(true);
 const loaded = ref(false);
 const pending = ref(false);
@@ -16,6 +19,7 @@ const message = ref('');
 const errorMessage = ref('');
 const form = reactive({
   enabled: true,
+  refundFunding: '' as '' | 'default' | 'available',
   appId: '',
   mchId: '',
   merchantCertificateSerial: '',
@@ -61,6 +65,7 @@ function applyConfiguration(value: WeChatPayConfiguration) {
   configuration.value = value;
   Object.assign(form, {
     enabled: value.enabled,
+    refundFunding: value.refundFunding ?? '',
     appId: value.appId,
     mchId: value.mchId,
     merchantCertificateSerial: value.merchantCertificateSerial,
@@ -99,6 +104,8 @@ async function load() {
   errorMessage.value = '';
   try {
     applyConfiguration(await conferenceApi.getWeChatPayConfiguration());
+    if (canManage.value)
+      unmatchedRefunds.value = await conferenceApi.unmatchedRefundNotifications();
     loaded.value = true;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '微信支付配置读取失败';
@@ -147,6 +154,7 @@ async function save() {
   try {
     const result = await conferenceApi.updateWeChatPayConfiguration({
       enabled: form.enabled,
+      ...(form.refundFunding ? { refundFunding: form.refundFunding } : {}),
       appId: form.appId.trim(),
       mchId: form.mchId.trim(),
       merchantCertificateSerial: form.merchantCertificateSerial.trim(),
@@ -343,6 +351,32 @@ onMounted(load);
         </div>
       </section>
 
+      <section class="settings-form-section" aria-labelledby="payment-refund-heading">
+        <div v-if="unmatchedRefunds.length" class="settings-inline-error" role="alert">
+          <strong>{{ unmatchedRefunds.length }} 条退款通知需要核验</strong>
+          <p v-for="item in unmatchedRefunds" :key="item.id">
+            {{ item.outRefundNo }} · {{ item.lastError }}。请在关联订单中使用外部退款核验入口。
+          </p>
+        </div>
+
+        <div class="settings-form-section-head">
+          <h3 id="payment-refund-heading">原路退款</h3>
+          <p>
+            请由财务确认商户账户类型。余额不足时，系统每 5 分钟重试；到账时间以微信及银行结果为准。
+          </p>
+        </div>
+        <div class="form-field full">
+          <label for="wechat-refund-funding">退款出资账户</label>
+          <select id="wechat-refund-funding" v-model="form.refundFunding" :disabled="!canManage">
+            <option value="" disabled>待财务确认</option>
+            <option value="default">默认退款账户（按微信商户配置）</option>
+            <option value="available">可用余额（已确认使用旧资金账户）</option>
+          </select>
+        </div>
+        <p v-if="configuration?.refundNotifyUrl">
+          退款结果通知地址：{{ configuration.refundNotifyUrl }}
+        </p>
+      </section>
       <section class="settings-form-section" aria-labelledby="payment-credentials-heading">
         <div class="settings-form-section-head">
           <div>

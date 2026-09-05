@@ -46,6 +46,7 @@ const confirmation = shallowRef<{
   action: () => Promise<void>;
 }>();
 const settingsForm = reactive({
+  refundEnabled: false,
   paymentMode: 'ticketed' as EventPaymentMode,
   registrationOpen: true,
   accountMode: 'mobile_otp_required' as CustomerAccountMode,
@@ -79,6 +80,9 @@ const canManageRegistration = computed(() =>
 const canReadInventory = computed(() =>
   session.canAny(['event.inventory.read', 'event.inventory.manage']),
 );
+const canManageRefundPolicy = computed(() =>
+  session.canAny(['event.manage', 'event.order.refund']),
+);
 const canManageTickets = computed(() => session.can('event.inventory.manage'));
 const canReadFlow = computed(() => session.can('event.site.read'));
 const canManageFlow = computed(() => session.can('event.content.manage'));
@@ -98,24 +102,26 @@ function hydrateFlow(value: EventExperience) {
 async function load(preserveSettings = false, preserveFlow = false) {
   errorMessage.value = '';
   try {
-    const [loaded, loadedInventory, loadedArchivedTickets, loadedExperience] = await Promise.all([
-      conferenceApi.getEvent(),
-      canReadInventory.value ? conferenceApi.getInventory() : Promise.resolve([]),
-      canManageTickets.value ? conferenceApi.getArchivedTicketTypes() : Promise.resolve([]),
-      canReadFlow.value && (!preserveFlow || !experience.value)
-        ? conferenceApi.getEventExperience()
-        : Promise.resolve(experience.value),
-    ]);
+    const [loaded, loadedInventory, loadedArchivedTickets, loadedExperience, loadedRefundPolicy] =
+      await Promise.all([
+        conferenceApi.getEvent(),
+        canReadInventory.value ? conferenceApi.getInventory() : Promise.resolve([]),
+        canManageTickets.value ? conferenceApi.getArchivedTicketTypes() : Promise.resolve([]),
+        canReadFlow.value && (!preserveFlow || !experience.value)
+          ? conferenceApi.getEventExperience()
+          : Promise.resolve(experience.value),
+        conferenceApi.getRefundPolicy(),
+      ]);
     event.value = loaded;
     inventory.value = loadedInventory;
     archivedTickets.value = loadedArchivedTickets;
     if (!preserveSettings) {
+      settingsForm.refundEnabled = loadedRefundPolicy.enabled;
       settingsForm.paymentMode = loaded.registration.paymentMode;
       settingsForm.registrationOpen = loaded.registration.registrationOpen;
       settingsForm.accountMode = loaded.registration.accountMode;
       settingsForm.additionalPurchaseEnabled = loaded.registration.additionalPurchaseEnabled;
-      settingsForm.maxActiveSeatsPerPurchaser =
-        loaded.registration.maxActiveSeatsPerPurchaser;
+      settingsForm.maxActiveSeatsPerPurchaser = loaded.registration.maxActiveSeatsPerPurchaser;
     }
     if (loadedExperience && (!preserveFlow || !experience.value)) hydrateFlow(loadedExperience);
   } catch (error) {
@@ -190,6 +196,15 @@ async function saveSettings() {
   try {
     event.value = await conferenceApi.updateEvent({
       settings: {
+        ...(canManageRefundPolicy.value
+          ? {
+              refunds: {
+                enabled: settingsForm.refundEnabled,
+                version: 'seven-day-v1',
+                windowDays: 7 as const,
+              },
+            }
+          : {}),
         registration: {
           paymentMode: settingsForm.paymentMode,
           currency: 'CNY',
@@ -420,6 +435,14 @@ async function saveFlow() {
           </span>
         </label>
       </div>
+      <label class="settings-toggle"><input
+        v-model="settingsForm.refundEnabled"
+        type="checkbox"
+        :disabled="!canManageRefundPolicy"
+      /><span>开放购票后 7 天自助退款（后台审核后原路退回）</span></label>
+      <p class="field-hint">
+        请先完成微信退款账户配置。已提交的申请持续处理；关闭入口不会中止已批准退款。
+      </p>
       <label class="setting-toggle">
         <span>
           <strong>开放前台报名</strong>
@@ -428,10 +451,7 @@ async function saveFlow() {
         <input v-model="settingsForm.registrationOpen" type="checkbox" />
       </label>
       <div class="choice-card-grid registration-account-mode">
-        <label
-          class="choice-card"
-          :class="{ selected: true }"
-        >
+        <label class="choice-card" :class="{ selected: true }">
           <input
             v-model="settingsForm.accountMode"
             type="radio"

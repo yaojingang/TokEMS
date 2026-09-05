@@ -1619,6 +1619,12 @@ useHead({ title: '个人中心' });
                     >
                       {{ orderItem.invoiceId ? '查看发票' : '申请发票' }}
                     </NuxtLink>
+                    <NuxtLink
+                      v-if="['paid', 'partially_refunded', 'refunded'].includes(orderItem.status)"
+                      :to="`/account/refunds/${orderItem.id}`"
+                    >
+                      退款申请与进度
+                    </NuxtLink>
                     <button
                       v-if="orderItem.canEditAttendee"
                       type="button"

@@ -18,6 +18,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { WeChatPayService } from '../common/wechat-pay.service.js';
 import {
   API_ERROR_CODES,
   AdminCooperationRequestListQuerySchema,
@@ -91,6 +92,7 @@ export const ADMIN_EVENT_READ_GRANTS = [
 class AdminController {
   constructor(
     @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
+    @Inject(WeChatPayService) private readonly wechat: WeChatPayService,
     @Inject(AdminRegistrationOperationsService)
     private readonly registrationOperations: AdminRegistrationOperationsService,
     @Inject(CooperationRequestService)
@@ -453,7 +455,7 @@ class AdminController {
 
   @Patch('events/:eventId')
   @RequireGrant('event.manage', 'event.registration.manage')
-  updateEvent(
+  async updateEvent(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Body() patch: Record<string, unknown>,
     @Req() request: FastifyRequest & { user?: AuthenticatedUser },
@@ -472,6 +474,15 @@ class AdminController {
       Object.keys(parsed.data).some((key) => key !== 'settings')
     ) {
       throw new ForbiddenException('报名运营只能修改大会报名方式');
+    }
+    if (parsed.data.settings?.refunds) {
+      if (
+        !grantAllows(request.user!.grants, 'event.manage') &&
+        !grantAllows(request.user!.grants, 'event.order.refund')
+      )
+        throw new ForbiddenException('退款规则需要大会管理或财务退款权限');
+      if (parsed.data.settings.refunds.enabled)
+        await this.wechat.refundConfiguration(request.user!.organizationId);
     }
     return this.repository.updateEvent(
       eventId,

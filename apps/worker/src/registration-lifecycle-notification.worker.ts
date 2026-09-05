@@ -25,6 +25,8 @@ interface RefundScope {
   registrationId: string;
   orderNo: string;
   amount: number;
+  payerRefund?: number | null;
+  discountRefund?: number | null;
   currency: string;
   purchaserName: string;
   purchaserRecipient: string;
@@ -75,6 +77,30 @@ function requireRecipientRole(payload: Record<string, unknown>, role: 'attendee'
 
 function channel(recipient: string): 'email' | 'sms' {
   return recipient.includes('@') ? 'email' : 'sms';
+}
+
+export function shouldDeliverRefundWorkflowNotification(
+  eventType: string,
+  payload: Record<string, unknown>,
+  request: {
+    reviewStatus: string;
+    terminatedAt: Date | null;
+    attentionReason: string | null;
+  } | null,
+  executionMode: string,
+) {
+  if (eventType === 'RefundReviewed') {
+    if (!request) return false;
+    return payload.approved === true
+      ? request.reviewStatus === 'approved' && request.terminatedAt === null
+      : request.reviewStatus === 'rejected';
+  }
+  if (eventType === 'RefundAttentionRequired') {
+    // Successful cash settlement can leave ticket or invoice reconciliation unresolved.
+    if (request?.attentionReason || executionMode === 'external_hold') return true;
+    return request !== null && request.terminatedAt === null;
+  }
+  return false;
 }
 
 export async function consumeRegistrationReviewNotification(
@@ -165,6 +191,7 @@ export async function consumeRefundSucceededNotification(
   event: { correlationId: string; payload: Record<string, unknown> },
   dependencies: LifecycleNotificationDependencies,
 ) {
+  if (event.payload.suppressNotification === true) return { status: 'stale' as const };
   requireRecipientRole(event.payload, 'purchaser');
   const refundId = String(event.payload.refundId ?? '');
   const orderId = String(event.payload.orderId ?? '');
@@ -172,11 +199,20 @@ export async function consumeRefundSucceededNotification(
   const scope = await dependencies.findRefundScope(refundId, orderId);
   if (!scope?.purchaserRecipient) return { status: 'stale' as const };
 
-  const amount = new Intl.NumberFormat('zh-CN', {
+  const currency = new Intl.NumberFormat('zh-CN', {
     style: 'currency',
     currency: scope.currency,
-  }).format(scope.amount / 100);
-  const body = `${scope.purchaserName}，订单 ${scope.orderNo} 已成功退款 ${amount}。`;
+  });
+  const cash =
+    scope.payerRefund == null
+      ? '现金金额未核验'
+      : `现金 ${currency.format(scope.payerRefund / 100)}`;
+  const discount =
+    scope.discountRefund == null
+      ? '优惠金额未核验'
+      : `优惠 ${currency.format(scope.discountRefund / 100)}`;
+  const amount = `订单退款总额 ${currency.format(scope.amount / 100)}，${cash}，${discount}`;
+  const body = `${scope.purchaserName}，订单 ${scope.orderNo} 退款成功。${amount}。`;
   const deliveryId = deterministicUuid(`refund-succeeded-purchaser:${event.correlationId}`);
   const storedDeliveryId = await dependencies.ensureDelivery({
     id: deliveryId,
@@ -193,7 +229,11 @@ export async function consumeRefundSucceededNotification(
     body,
     smsContext: {
       templateKey: 'refundSucceeded',
-      parameters: { eventName: scope.eventName, orderNo: scope.orderNo, amount },
+      parameters: {
+        eventName: scope.eventName,
+        orderNo: scope.orderNo,
+        amount: currency.format(scope.amount / 100),
+      },
     },
   });
   return { status: 'delivered' as const, deliveryId: storedDeliveryId };

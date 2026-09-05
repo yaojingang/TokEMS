@@ -1,3 +1,4 @@
+import { refundPolicy } from './refund-policy.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
@@ -3192,6 +3193,7 @@ export class ConferenceRepository {
                 amount,
                 currency: releasedRegistration.currency,
                 pricingSnapshot: {
+                  refundPolicy: refundPolicy(eventRow.settings),
                   ticketTypeId: ticketRow.id,
                   name: releasedTicket.name ?? ticketRow.name,
                   amount,
@@ -3434,6 +3436,7 @@ export class ConferenceRepository {
             amount: orderAmount,
             currency: releasedRegistration.currency,
             pricingSnapshot: {
+              refundPolicy: refundPolicy(eventRow.settings),
               ticketTypeId: ticketRow.id,
               name: releasedTicket.name ?? ticketRow.name,
               amount: orderAmount,
@@ -4900,6 +4903,7 @@ export class ConferenceRepository {
       ticketTypeName: ticketTypeRow[0]!.name,
       qrPayload: `conference:${row.eventId}:${row.code}`,
       status: row.status,
+      refundPending: Boolean(row.refundPausedBy),
       issuedAt: row.issuedAt.toISOString(),
     };
   }
@@ -5756,13 +5760,55 @@ export class ConferenceRepository {
           HttpStatus.NOT_FOUND,
         );
       }
+      // Refund settlement and check-in share the order → ticket lock order.
+      const [ticketIdentity] = await tx
+        .select({ registrationId: tickets.registrationId })
+        .from(tickets)
+        .where(and(eq(tickets.eventId, input.eventId), eq(tickets.code, ticketCode)))
+        .limit(1);
+      const [ticketOrder] = ticketIdentity
+        ? await tx
+            .select()
+            .from(orders)
+            .where(
+              and(
+                eq(orders.registrationId, ticketIdentity.registrationId),
+                eq(orders.organizationId, organizationId),
+                eq(orders.eventId, input.eventId),
+              ),
+            )
+            .for('update')
+            .limit(1)
+        : [];
+      const [pendingRepair] = ticketOrder
+        ? await tx
+            .select({ id: refunds.id })
+            .from(refunds)
+            .where(
+              and(
+                eq(refunds.orderId, ticketOrder.id),
+                sql`${refunds.fulfillmentAttention} is not null`,
+              ),
+            )
+            .limit(1)
+        : [];
+      if (
+        ticketOrder?.status === 'refunded' ||
+        ticketOrder?.refundExecutionMode === 'external_hold' ||
+        pendingRepair
+      )
+        return {
+          result: 'invalid' as const,
+          checkedInAt: new Date().toISOString(),
+          message: '订单正在退款或权益核验，暂不能核销，请联系工作人员',
+        };
       const [ticketRow] = await tx
         .select()
         .from(tickets)
         .where(and(eq(tickets.eventId, input.eventId), eq(tickets.code, ticketCode)))
         .for('update')
         .limit(1);
-      if (!ticketRow || ticketRow.status === 'cancelled') {
+      if (!ticketRow || ticketRow.status === 'cancelled' || ticketRow.refundPausedBy) {
         return {
           result: 'invalid' as const,
           checkedInAt: new Date().toISOString(),
@@ -6045,12 +6091,15 @@ export class ConferenceRepository {
             ? '更新大会状态与基本信息'
             : '更新大会基本信息与报名方式';
         }
-        const nextSettings = registrationChanged
-          ? {
-              ...current.settings,
-              registration: nextRegistration,
-            }
-          : current.settings;
+        const refundSettingsChanged = patch.settings?.refunds !== undefined;
+        const nextSettings =
+          registrationChanged || refundSettingsChanged
+            ? {
+                ...current.settings,
+                registration: nextRegistration,
+                ...(patch.settings?.refunds ? { refunds: patch.settings.refunds } : {}),
+              }
+            : current.settings;
         const updateFields = Object.fromEntries(
           Object.entries(patch).filter(
             ([key, value]) =>
@@ -6065,7 +6114,7 @@ export class ConferenceRepository {
             ...updateFields,
             ...(patch.startsAt ? { startsAt } : {}),
             ...(patch.endsAt ? { endsAt } : {}),
-            ...(registrationChanged ? { settings: nextSettings } : {}),
+            ...(registrationChanged || refundSettingsChanged ? { settings: nextSettings } : {}),
             updatedAt: changedAt,
           })
           .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))

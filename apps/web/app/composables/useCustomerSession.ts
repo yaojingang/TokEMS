@@ -1,4 +1,7 @@
 import type {
+  CustomerRefundApplication,
+  RefundApplicationView,
+  RefundContext,
   AttendeeClaimInput,
   AttendeeClaimResult,
   AttendeeShowcaseProfile,
@@ -437,7 +440,42 @@ export function useCustomerSession() {
     authDialogOpen.value = true;
   }
 
+  function refundContext(orderId: string) {
+    return $fetch<RefundContext>(`/customer/orders/${encodeURIComponent(orderId)}/refund-context`, {
+      baseURL,
+      credentials: 'include',
+      headers: headers(),
+    });
+  }
+  function applyRefund(orderId: string, input: CustomerRefundApplication, key: string) {
+    return $fetch<RefundApplicationView>(
+      `/customer/orders/${encodeURIComponent(orderId)}/refund-requests`,
+      {
+        baseURL,
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...headers(true), 'Idempotency-Key': key },
+        body: input,
+      },
+    );
+  }
+  function withdrawRefund(requestId: string, version: number, key: string) {
+    return $fetch<RefundApplicationView>(
+      `/customer/refund-requests/${encodeURIComponent(requestId)}/withdraw`,
+      {
+        baseURL,
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...headers(true), 'Idempotency-Key': key },
+        body: { version },
+      },
+    );
+  }
+
   return {
+    refundContext,
+    applyRefund,
+    withdrawRefund,
     session: readonly(session),
     loaded: readonly(loaded),
     authDialogOpen,

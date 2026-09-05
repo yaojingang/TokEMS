@@ -1,3 +1,4 @@
+import { guardRefundWrite } from './refund-write-guard.js';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { AdminRegistrationOperationsInvoiceRequestSchema } from '@conference/contracts';
@@ -15,6 +16,8 @@ import {
   checkinLists,
   checkinRecords,
   invoiceRequests,
+  orders,
+  refundRequests,
   payments,
   registrations,
   refunds,
@@ -162,7 +165,9 @@ export class AdminRegistrationOperationsService {
           createdAt: payment.createdAt.toISOString(),
           updatedAt: payment.updatedAt.toISOString(),
         }));
-        const successfulPayment = paymentAttempts.find((payment) => payment.status === 'succeeded');
+        const successfulPayment = paymentAttempts.find((payment) =>
+          ['succeeded', 'refunded'].includes(payment.status),
+        );
         const mappedRefunds = refundRows.map((refund) => ({
           id: refund.id,
           refundNo: refund.refundNo,
@@ -177,9 +182,19 @@ export class AdminRegistrationOperationsService {
         const succeededRefundAmount = mappedRefunds
           .filter((refund) => refund.status === 'succeeded')
           .reduce((sum, refund) => sum + refund.amount, 0);
-        const processingRefundAmount = mappedRefunds
-          .filter((refund) => refund.status === 'processing')
-          .reduce((sum, refund) => sum + refund.amount, 0);
+        const [reserved] = await db
+          .select({ amount: sql<number>`coalesce(sum(${refundRequests.reservedAmount}), 0)::int` })
+          .from(refundRequests)
+          .where(and(eq(refundRequests.orderId, order.id), isNull(refundRequests.terminatedAt)));
+        const processingRefundAmount =
+          Number(reserved?.amount ?? 0) +
+          refundRows
+            .filter(
+              (refund) =>
+                !refund.requestId &&
+                ['processing', 'query_pending', 'abnormal'].includes(refund.status),
+            )
+            .reduce((sum, refund) => sum + refund.amount, 0);
         const persistedPaidAmount = successfulPayment?.amount ?? 0;
         commerce = {
           access: 'included',
@@ -304,6 +319,14 @@ export class AdminRegistrationOperationsService {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${eventId}:${attendee.mobile}`}, 0))`,
       );
+      const [refundOrder] = await tx
+        .select({ id: orders.id })
+        .from(orders)
+        .where(
+          and(eq(orders.registrationId, registrationId), eq(orders.organizationId, organizationId)),
+        )
+        .limit(1);
+      if (refundOrder) await guardRefundWrite(tx, refundOrder.id);
       const [current] = await tx
         .select()
         .from(registrations)
@@ -428,9 +451,6 @@ export class AdminRegistrationOperationsService {
     }
     if (commerce.totals.refundableAmount <= 0) {
       return { allowed: false, reasonCode: 'no_refundable_balance' };
-    }
-    if (commerce.successfulPayment?.provider === 'wechatpay') {
-      return { allowed: false, reasonCode: 'wechat_refund_unavailable' };
     }
     return { allowed: true };
   }

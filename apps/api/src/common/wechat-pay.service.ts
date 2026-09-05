@@ -38,6 +38,9 @@ import {
   organizationIntegrations,
   paymentNotificationInbox,
   payments,
+  refundRequests,
+  refunds,
+  refundNotificationInbox,
 } from '@conference/database';
 import { resolvePaymentPublicUrl } from '@conference/security';
 import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
@@ -50,6 +53,14 @@ import {
   integrationEncryptionKeyVersion,
 } from './integration-credentials.js';
 import { RedisService } from './redis.service.js';
+import { RefundGatewayError, WeChatRefundOutcomeSchema } from './refund-policy.js';
+import {
+  lockWeChatConfiguration,
+  type WeChatConfigurationTransaction,
+} from './wechat-configuration-lock.js';
+
+type RefundConfigurationReader =
+  NonNullable<DatabaseService['db']> | WeChatConfigurationTransaction;
 
 const PROVIDER = 'wechatpay';
 const WECHAT_PAY_API = 'https://api.mch.weixin.qq.com';
@@ -76,6 +87,7 @@ type ChannelFlags = {
 };
 
 type PublicConfig = {
+  refundFunding?: 'default' | 'available' | null;
   enabled: boolean;
   appId: string;
   mchId: string;
@@ -86,6 +98,7 @@ type PublicConfig = {
 };
 
 type Credentials = {
+  refundPublicKeys?: string;
   merchantPrivateKey: string;
   apiV3Key: string;
   platformPublicKey: string;
@@ -213,6 +226,10 @@ function safeConfig(value: Record<string, unknown>): PublicConfig {
       : undefined;
   return {
     enabled: value.enabled === true,
+    refundFunding:
+      value.refundFunding === 'default' || value.refundFunding === 'available'
+        ? value.refundFunding
+        : null,
     appId: typeof value.appId === 'string' ? value.appId : '',
     mchId: typeof value.mchId === 'string' ? value.mchId : '',
     merchantCertificateSerial:
@@ -481,8 +498,8 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * @param organizationId - Tenant organization UUID.
    * @returns Integration row or undefined.
    */
-  private async integration(organizationId: string) {
-    const [row] = await this.db()
+  private async integration(organizationId: string, reader: RefundConfigurationReader = this.db()) {
+    const [row] = await reader
       .select()
       .from(organizationIntegrations)
       .where(
@@ -512,6 +529,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       return undefined;
     }
     return {
+      ...(value.refundPublicKeys ? { refundPublicKeys: value.refundPublicKeys } : {}),
       merchantPrivateKey: value.merchantPrivateKey,
       apiV3Key: value.apiV3Key,
       platformPublicKey: value.platformPublicKey,
@@ -540,6 +558,10 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     return {
       ...config,
       notifyUrl: this.notifyUrl(organizationId),
+      refundNotifyUrl: this.notifyUrl(organizationId).replace(
+        '/wechat/notify/',
+        '/wechat/refund-notify/',
+      ),
       oauthRedirectUri: oauthRedirect,
       status:
         row?.status === 'verified' || row?.status === 'error' || row?.status === 'configured'
@@ -569,70 +591,146 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     actorId: string,
     input: UpdateWeChatPayConfiguration,
   ): Promise<WeChatPayConfiguration> {
-    const existing = await this.integration(organizationId);
-    const previousCredentials = this.credentials(
-      organizationId,
-      existing?.encryptedCredentials ?? null,
-    );
-    const appSecret = input.appSecret?.trim() ?? previousCredentials?.appSecret;
-    const credentials: Credentials = {
-      merchantPrivateKey:
-        input.merchantPrivateKey?.trim() ?? previousCredentials?.merchantPrivateKey ?? '',
-      apiV3Key: input.apiV3Key ?? previousCredentials?.apiV3Key ?? '',
-      platformPublicKey:
-        input.platformPublicKey?.trim() ?? previousCredentials?.platformPublicKey ?? '',
-      ...(appSecret ? { appSecret } : {}),
-    };
-    if (
-      !credentials.merchantPrivateKey ||
-      !credentials.apiV3Key ||
-      !credentials.platformPublicKey
-    ) {
-      throw new DomainError(
-        API_ERROR_CODES.VALIDATION_ERROR,
-        '首次配置需要完整填写商户私钥、APIv3 密钥和微信支付公钥',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-    try {
-      createPrivateKey(credentials.merchantPrivateKey);
-      createPublicKey(credentials.platformPublicKey);
-    } catch {
-      throw new DomainError(
-        API_ERROR_CODES.VALIDATION_ERROR,
-        '商户私钥或微信支付公钥格式无效',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-    const previousConfig = safeConfig(existing?.config ?? {});
-    const config: PublicConfig = {
-      enabled: input.enabled,
-      appId: input.appId,
-      mchId: input.mchId,
-      merchantCertificateSerial: input.merchantCertificateSerial,
-      platformPublicKeyId: input.platformPublicKeyId,
-      oauthEnabled: input.oauthEnabled ?? previousConfig.oauthEnabled,
-      channels: {
-        native: input.channels?.native ?? previousConfig.channels.native,
-        jsapi: input.channels?.jsapi ?? previousConfig.channels.jsapi,
-        h5: input.channels?.h5 ?? previousConfig.channels.h5,
-      },
-    };
-    const encryptedPayload: Record<string, string> = {
-      merchantPrivateKey: credentials.merchantPrivateKey,
-      apiV3Key: credentials.apiV3Key,
-      platformPublicKey: credentials.platformPublicKey,
-    };
-    if (credentials.appSecret) {
-      encryptedPayload.appSecret = credentials.appSecret;
-    }
-    const encryptedCredentials = encryptIntegrationCredentials(
-      organizationId,
-      PROVIDER,
-      encryptedPayload,
-    );
-    const now = new Date();
     await this.db().transaction(async (tx) => {
+      await lockWeChatConfiguration(tx, organizationId);
+      const existing = await this.integration(organizationId, tx);
+      const previousCredentials = this.credentials(
+        organizationId,
+        existing?.encryptedCredentials ?? null,
+      );
+      const appSecret = input.appSecret?.trim() ?? previousCredentials?.appSecret;
+      const credentials: Credentials = {
+        merchantPrivateKey:
+          input.merchantPrivateKey?.trim() ?? previousCredentials?.merchantPrivateKey ?? '',
+        apiV3Key: input.apiV3Key ?? previousCredentials?.apiV3Key ?? '',
+        platformPublicKey:
+          input.platformPublicKey?.trim() ?? previousCredentials?.platformPublicKey ?? '',
+        ...(appSecret ? { appSecret } : {}),
+      };
+      if (
+        !credentials.merchantPrivateKey ||
+        !credentials.apiV3Key ||
+        !credentials.platformPublicKey
+      ) {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '首次配置需要完整填写商户私钥、APIv3 密钥和微信支付公钥',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      try {
+        createPrivateKey(credentials.merchantPrivateKey);
+        createPublicKey(credentials.platformPublicKey);
+      } catch {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '商户私钥或微信支付公钥格式无效',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const previousConfig = safeConfig(existing?.config ?? {});
+      if (
+        existing &&
+        (input.mchId !== previousConfig.mchId ||
+          (input.apiV3Key && input.apiV3Key !== previousCredentials?.apiV3Key))
+      ) {
+        const [unfinished] = await tx
+          .select({ id: refundRequests.id })
+          .from(refundRequests)
+          .where(
+            and(
+              eq(refundRequests.organizationId, organizationId),
+              isNull(refundRequests.terminatedAt),
+            ),
+          )
+          .limit(1);
+        const [unfinishedExecution] = await tx
+          .select({ id: refunds.id })
+          .from(refunds)
+          .where(
+            and(
+              eq(refunds.organizationId, organizationId),
+              inArray(refunds.status, [
+                'queued',
+                'submitting',
+                'query_pending',
+                'waiting_funds',
+                'processing',
+                'abnormal',
+              ]),
+            ),
+          )
+          .limit(1);
+        const [pendingNotification] = await tx
+          .select({ id: refundNotificationInbox.id })
+          .from(refundNotificationInbox)
+          .where(
+            and(
+              eq(refundNotificationInbox.organizationId, organizationId),
+              inArray(refundNotificationInbox.status, ['received', 'quarantined']),
+            ),
+          )
+          .limit(1);
+        if (unfinished || unfinishedExecution || pendingNotification)
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '存在未结清退款，需先完成退款或交接原商户解密配置',
+            HttpStatus.CONFLICT,
+          );
+      }
+      const config: PublicConfig = {
+        refundFunding:
+          input.refundFunding === undefined
+            ? (previousConfig.refundFunding ?? null)
+            : input.refundFunding,
+        enabled: input.enabled,
+        appId: input.appId,
+        mchId: input.mchId,
+        merchantCertificateSerial: input.merchantCertificateSerial,
+        platformPublicKeyId: input.platformPublicKeyId,
+        oauthEnabled: input.oauthEnabled ?? previousConfig.oauthEnabled,
+        channels: {
+          native: input.channels?.native ?? previousConfig.channels.native,
+          jsapi: input.channels?.jsapi ?? previousConfig.channels.jsapi,
+          h5: input.channels?.h5 ?? previousConfig.channels.h5,
+        },
+      };
+      const encryptedPayload: Record<string, string> = {
+        merchantPrivateKey: credentials.merchantPrivateKey,
+        apiV3Key: credentials.apiV3Key,
+        platformPublicKey: credentials.platformPublicKey,
+      };
+      const notificationKeys: Array<{ serial: string; key: string }> = JSON.parse(
+        previousCredentials?.refundPublicKeys ?? '[]',
+      );
+      if (
+        previousCredentials?.platformPublicKey &&
+        previousConfig.platformPublicKeyId &&
+        previousConfig.platformPublicKeyId !== config.platformPublicKeyId
+      ) {
+        notificationKeys.unshift({
+          serial: previousConfig.platformPublicKeyId,
+          key: previousCredentials.platformPublicKey,
+        });
+      }
+      encryptedPayload.refundPublicKeys = JSON.stringify(
+        notificationKeys
+          .filter(
+            (item, index, list) =>
+              item.serial !== config.platformPublicKeyId &&
+              list.findIndex((other) => other.serial === item.serial) === index,
+          )
+          .slice(0, 3),
+      );
+      if (credentials.appSecret) {
+        encryptedPayload.appSecret = credentials.appSecret;
+      }
+      const encryptedCredentials = encryptIntegrationCredentials(
+        organizationId,
+        PROVIDER,
+        encryptedPayload,
+      );
+      const now = new Date();
       await tx
         .insert(organizationIntegrations)
         .values({
@@ -762,6 +860,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     body: Record<string, unknown> | undefined,
     config: PublicConfig,
     credentials: Credentials,
+    refundRequest = false,
   ) {
     const serialized = body ? JSON.stringify(body) : '';
     let response: Response;
@@ -779,6 +878,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         signal: AbortSignal.timeout(10_000),
       });
     } catch {
+      if (refundRequest) throw new RefundGatewayError('NETWORK_ERROR', false);
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
         '暂时无法连接微信支付，请稍后重试',
@@ -791,6 +891,30 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       this.verifyResponse(response, responseBody, config, credentials);
     }
     if (!response.ok) {
+      if (refundRequest) {
+        let code = 'UNKNOWN_ERROR';
+        try {
+          const parsed = JSON.parse(responseBody) as { code?: unknown };
+          if (typeof parsed.code === 'string' && /^[A-Z_]{1,80}$/u.test(parsed.code))
+            code = parsed.code;
+        } catch {
+          /* A non-JSON response leaves the acceptance outcome unknown. */
+        }
+        throw new RefundGatewayError(
+          code,
+          hasResponseSignature &&
+            [
+              'NOT_ENOUGH',
+              'NO_AUTH',
+              'SIGN_ERROR',
+              'PARAM_ERROR',
+              'INVALID_REQUEST',
+              'USER_ACCOUNT_ABNORMAL',
+            ].includes(code),
+          response.status,
+          hasResponseSignature,
+        );
+      }
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
         readErrorMessage(responseBody),
@@ -798,6 +922,249 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       );
     }
     return responseBody ? (JSON.parse(responseBody) as Record<string, unknown>) : {};
+  }
+
+  /** Refund reconciliation remains available when new payments are disabled. */
+  private async refundIntegration(
+    organizationId: string,
+    merchantId?: string,
+    requireReady = false,
+    reader: RefundConfigurationReader = this.db(),
+  ) {
+    const row = await this.integration(organizationId, reader);
+    const config = safeConfig(row?.config ?? {});
+    const credentials = this.credentials(organizationId, row?.encryptedCredentials ?? null);
+    if (
+      !row ||
+      !credentials ||
+      !config.mchId ||
+      !config.merchantCertificateSerial ||
+      (requireReady && (row.status !== 'verified' || !config.refundFunding))
+    ) {
+      throw new RefundGatewayError('REFUND_NOT_CONFIGURED', true);
+    }
+    if (merchantId && merchantId !== config.mchId)
+      throw new RefundGatewayError('MERCHANT_MISMATCH', true);
+    return { row, config, credentials };
+  }
+
+  async refundMerchantId(organizationId: string, reader: RefundConfigurationReader = this.db()) {
+    const { config } = await this.refundIntegration(organizationId, undefined, false, reader);
+    return config.mchId;
+  }
+
+  async refundConfiguration(organizationId: string, reader: RefundConfigurationReader = this.db()) {
+    const { config } = await this.refundIntegration(organizationId, undefined, true, reader);
+    const notifyUrl = this.notifyUrl(organizationId).replace(
+      '/wechat/notify/',
+      '/wechat/refund-notify/',
+    );
+    if (process.env.NODE_ENV === 'production' && !notifyUrl.startsWith('https://')) {
+      throw new RefundGatewayError('REFUND_NOT_CONFIGURED', true);
+    }
+    return { merchantId: config.mchId, funding: config.refundFunding!, notifyUrl };
+  }
+
+  /** Verify legacy payment provenance without altering the order/payment lifecycle. */
+  async verifyRefundPayment(organizationId: string, paymentId: string) {
+    const [row] = await this.db()
+      .select({ payment: payments, order: orders })
+      .from(payments)
+      .innerJoin(orders, eq(orders.id, payments.orderId))
+      .where(and(eq(payments.id, paymentId), eq(orders.organizationId, organizationId)))
+      .limit(1);
+    if (!row || row.payment.provider !== PROVIDER || !row.payment.externalId) {
+      throw new RefundGatewayError('PAYMENT_NOT_VERIFIED', true);
+    }
+    const { config, credentials } = await this.refundIntegration(
+      organizationId,
+      row.payment.merchantId ?? undefined,
+    );
+    const outTradeNo = row.payment.outTradeNo ?? row.order.orderNo;
+    const result = (await this.request(
+      'GET',
+      `/v3/pay/transactions/out-trade-no/${encodeURIComponent(outTradeNo)}?mchid=${encodeURIComponent(config.mchId)}`,
+      undefined,
+      config,
+      credentials,
+      true,
+    )) as unknown as WeChatTransaction;
+    if (
+      result.mchid !== config.mchId ||
+      result.out_trade_no !== outTradeNo ||
+      result.transaction_id !== row.payment.externalId ||
+      !['SUCCESS', 'REFUND'].includes(result.trade_state) ||
+      result.amount?.total !== row.payment.amount ||
+      result.amount?.currency !== row.payment.currency ||
+      !result.success_time ||
+      !Number.isFinite(Date.parse(result.success_time))
+    ) {
+      throw new RefundGatewayError('PAYMENT_NOT_VERIFIED', true);
+    }
+    await this.db()
+      .update(payments)
+      .set({
+        merchantId: config.mchId,
+        outTradeNo,
+        succeededAt: new Date(result.success_time),
+        updatedAt: new Date(),
+      })
+      .where(eq(payments.id, paymentId));
+    return { merchantId: config.mchId, paidAt: new Date(result.success_time) };
+  }
+
+  async submitRefund(organizationId: string, merchantId: string, body: Record<string, unknown>) {
+    const { config, credentials } = await this.refundIntegration(organizationId, merchantId);
+    const result = await this.request(
+      'POST',
+      '/v3/refund/domestic/refunds',
+      body,
+      config,
+      credentials,
+      true,
+    );
+    const parsed = WeChatRefundOutcomeSchema.safeParse(result);
+    if (!parsed.success) throw new RefundGatewayError('INVALID_RESPONSE', false);
+    return parsed.data;
+  }
+
+  async queryRefund(organizationId: string, merchantId: string, outRefundNo: string) {
+    const { config, credentials } = await this.refundIntegration(organizationId, merchantId);
+    const result = await this.request(
+      'GET',
+      `/v3/refund/domestic/refunds/${encodeURIComponent(outRefundNo)}`,
+      undefined,
+      config,
+      credentials,
+      true,
+    );
+    const parsed = WeChatRefundOutcomeSchema.safeParse(result);
+    if (!parsed.success || parsed.data.out_refund_no !== outRefundNo)
+      throw new RefundGatewayError('INVALID_RESPONSE', false);
+    return parsed.data;
+  }
+
+  /** Persist authenticated refund notifications before acknowledging WeChat. */
+  async receiveRefundNotification(
+    organizationId: string,
+    rawBody: Buffer,
+    headers: {
+      timestamp?: string;
+      nonce?: string;
+      signature?: string;
+      serial?: string;
+    },
+  ) {
+    if (
+      !headers.timestamp ||
+      !headers.nonce ||
+      !headers.signature ||
+      !headers.serial ||
+      !Number.isFinite(Number(headers.timestamp)) ||
+      Math.abs(Date.now() / 1000 - Number(headers.timestamp)) > 300
+    ) {
+      throw new DomainError(
+        API_ERROR_CODES.UNAUTHORIZED,
+        '退款通知签名信息无效',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    const signature = headers.signature;
+    await this.db().transaction(async (tx) => {
+      await lockWeChatConfiguration(tx, organizationId);
+      const { config, credentials } = await this.refundIntegration(
+        organizationId,
+        undefined,
+        false,
+        tx,
+      );
+      const previousKeys: Array<{ serial: string; key: string }> = JSON.parse(
+        credentials.refundPublicKeys ?? '[]',
+      );
+      const verificationKey =
+        headers.serial === config.platformPublicKeyId
+          ? credentials.platformPublicKey
+          : previousKeys.find((item) => item.serial === headers.serial)?.key;
+      if (!verificationKey) {
+        throw new DomainError(
+          API_ERROR_CODES.UNAUTHORIZED,
+          '退款通知签名信息无效',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      const verifier = createVerify('RSA-SHA256');
+      verifier.update(`${headers.timestamp}\n${headers.nonce}\n${rawBody.toString('utf8')}\n`);
+      verifier.end();
+      if (!verifier.verify(verificationKey!, signature, 'base64')) {
+        throw new DomainError(
+          API_ERROR_CODES.UNAUTHORIZED,
+          '退款通知签名无效',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      let notification: WeChatNotification;
+      let resource: Record<string, unknown>;
+      try {
+        notification = JSON.parse(rawBody.toString('utf8')) as WeChatNotification;
+        if (
+          !['REFUND.SUCCESS', 'REFUND.CLOSED', 'REFUND.ABNORMAL'].includes(
+            notification.event_type,
+          ) ||
+          typeof notification.id !== 'string' ||
+          !notification.id ||
+          notification.id.length > 128 ||
+          notification.resource.algorithm !== 'AEAD_AES_256_GCM'
+        )
+          throw new Error('invalid');
+        const ciphertext = Buffer.from(notification.resource.ciphertext, 'base64');
+        const decipher = createDecipheriv(
+          'aes-256-gcm',
+          Buffer.from(credentials.apiV3Key, 'utf8'),
+          Buffer.from(notification.resource.nonce, 'utf8'),
+        );
+        decipher.setAAD(Buffer.from(notification.resource.associated_data ?? '', 'utf8'));
+        decipher.setAuthTag(ciphertext.subarray(-16));
+        resource = JSON.parse(
+          Buffer.concat([decipher.update(ciphertext.subarray(0, -16)), decipher.final()]).toString(
+            'utf8',
+          ),
+        );
+        if (
+          resource.mchid !== config.mchId ||
+          typeof resource.out_refund_no !== 'string' ||
+          !/^[A-Za-z0-9_\-|@]{1,64}$/u.test(resource.out_refund_no)
+        )
+          throw new Error('invalid');
+      } catch {
+        throw new DomainError(
+          API_ERROR_CODES.VALIDATION_ERROR,
+          '退款通知内容或商户归属无效',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      // Only persist reconciliation identifiers. Cash settlement always uses a signed query result.
+      await tx
+        .insert(refundNotificationInbox)
+        .values({
+          organizationId,
+          merchantId: config.mchId,
+          notificationId: notification.id,
+          outRefundNo: String(resource.out_refund_no),
+          payload: {
+            eventType: notification.event_type,
+            refundId: resource.refund_id,
+            transactionId: resource.transaction_id,
+            amount: resource.amount,
+          },
+        })
+        .onConflictDoNothing({
+          target: [
+            refundNotificationInbox.organizationId,
+            refundNotificationInbox.merchantId,
+            refundNotificationInbox.notificationId,
+          ],
+        });
+    });
   }
 
   /**
@@ -1062,6 +1429,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     order: AuthorizedOrder['order'],
     accessTokenHash: string,
     credentialVersion: number,
+    merchantId: string,
   ): Promise<{ attempt: PaymentAttempt; reusedCredential: boolean }> {
     return this.db().transaction(async (tx) => {
       await tx.execute(
@@ -1183,6 +1551,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           amount: order.amount,
           currency: order.currency,
           credentialVersion,
+          merchantId,
           payload: { preparingAt: new Date().toISOString() },
         })
         .returning();
@@ -1298,6 +1667,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       authorized.order,
       authorized.accessTokenHash,
       row.keyVersion,
+      config.mchId,
     );
     if (reusedCredential) {
       const payload = attempt.payload as Record<string, unknown>;
@@ -1404,6 +1774,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       authorized.order,
       authorized.accessTokenHash,
       row.keyVersion,
+      config.mchId,
     );
     if (reusedCredential) {
       const payload = attempt.payload as Record<string, unknown>;
@@ -1516,6 +1887,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       authorized.order,
       authorized.accessTokenHash,
       row.keyVersion,
+      config.mchId,
     );
     if (reusedCredential) {
       const payload = attempt.payload as Record<string, unknown>;

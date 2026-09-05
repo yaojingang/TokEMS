@@ -15,8 +15,10 @@ const event = api.eventState;
 const loading = ref(true);
 const errorMessage = ref('');
 const invoiceAccess = ref(api.readInvoiceAccess());
-const ticketStatus = computed(
-  () => ({ valid: '有效票', used: '已核销', cancelled: '已取消' })[ticket.value?.status ?? 'valid'],
+const ticketStatus = computed(() =>
+  ticket.value?.refundPending
+    ? '退款处理中，暂停使用'
+    : { valid: '有效票', used: '已核销', cancelled: '已取消' }[ticket.value?.status ?? 'valid'],
 );
 const dateRange = computed(() => {
   const format = new Intl.DateTimeFormat('zh-CN', {
@@ -160,8 +162,20 @@ function printTicket() {
         </section>
         <aside class="ticket-paper__aside">
           <div>
-            <QrcodeVue class="ticket-qr" :value="ticket.qrPayload" :size="184" level="H" />
-            <strong>现场扫码签到</strong>
+            <QrcodeVue
+              v-if="!ticket.refundPending && ticket.status !== 'cancelled'"
+              class="ticket-qr"
+              :value="ticket.qrPayload"
+              :size="184"
+              level="H"
+            />
+            <strong>{{
+              ticket.refundPending
+                ? '退款处理中，票券暂停使用'
+                : ticket.status === 'cancelled'
+                  ? '票券已取消'
+                  : '现场扫码签到'
+            }}</strong>
             <small style="color: var(--conference-ink-muted)">一人一码 · 仅限使用一次</small>
           </div>
         </aside>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RegistrationRefundPanel from '../components/registration/RegistrationRefundPanel.vue';
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import type { AdminRegistrationOperationsDetail, EventId } from '@conference/contracts';
 import { useRoute } from 'vue-router';
@@ -89,17 +90,10 @@ const canManageInvoice = computed(
 );
 const refundAmount = computed(() => Math.round(Number(refundForm.amountYuan || 0) * 100));
 const fullRefundGuardReason = computed(() =>
-  fullRefundBlockedReason(
-    registration.value?.status,
-    detail.value?.fulfillment.ticket?.status,
-  ),
+  fullRefundBlockedReason(registration.value?.status, detail.value?.fulfillment.ticket?.status),
 );
 const blockedFullRefund = computed(() =>
-  isBlockedFullRefund(
-    fullRefundGuardReason.value,
-    refundAmount.value,
-    refundableAmount.value,
-  ),
+  isBlockedFullRefund(fullRefundGuardReason.value, refundAmount.value, refundableAmount.value),
 );
 const refundInvoiceImpact = computed(() => {
   if (!invoiceRequest.value || refundAmount.value <= 0) return '本次退款不涉及已存在的发票申请。';
@@ -123,7 +117,7 @@ const refundDisabledReason = computed(() => {
       order_unavailable: '订单不可用或没有订单查看权限',
       order_state_not_refundable: '当前订单状态不可退款',
       no_refundable_balance: '订单已无可退余额',
-      wechat_refund_unavailable: '微信支付退款通道暂未启用，请通过线下流程处理',
+      wechat_refund_unavailable: '请在支付设置中完成退款配置，再启用活动退款',
     }[code ?? ''] ?? '当前订单暂不可退款'
   );
 });
@@ -707,7 +701,10 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
               </div>
               <div>
                 <dt>购票人</dt>
-                <dd>{{ registration.purchaserName || '未填写姓名' }} · {{ registration.purchaserMobile }}</dd>
+                <dd>
+                  {{ registration.purchaserName || '未填写姓名' }} ·
+                  {{ registration.purchaserMobile }}
+                </dd>
               </div>
               <div>
                 <dt>购买关系</dt>
@@ -872,6 +869,13 @@ watch([registrationId, eventId], () => void load(), { immediate: true });
               </section>
             </template>
           </section>
+
+          <RegistrationRefundPanel
+            v-if="order && commerce && eventId"
+            :event-id="eventId"
+            :order-id="order.id"
+            @changed="load({ quiet: true })"
+          />
 
           <RegistrationInvoicePanel
             :context="detail.invoice"

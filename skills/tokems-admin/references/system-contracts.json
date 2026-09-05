@@ -2176,6 +2176,39 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/refund-exceptions",
+      "handler": "AdminRefundController.exceptions",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/refund-policy",
+      "handler": "AdminRefundController.policy",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/refund-requests",
+      "handler": "AdminRefundController.list",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/registration-forms",
       "handler": "ContentFormsController.forms",
       "actionId": "content.registration-forms.get",
@@ -2348,6 +2381,17 @@
       "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
       "requiredAnyGrants": [
         "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/wechat-pay/refund-notifications",
+      "handler": "AdminRefundController.unmatched",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "org.settings.manage"
       ],
       "requiredAllGrants": []
     },
@@ -3171,6 +3215,61 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/refund-requests/:requestId/approve",
+      "handler": "AdminRefundController.approve",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/refund-requests/:requestId/continue",
+      "handler": "AdminRefundController.continueRefund",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/refund-requests/:requestId/reconcile",
+      "handler": "AdminRefundController.reconcile",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/refund-requests/:requestId/reject",
+      "handler": "AdminRefundController.reject",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/refund-requests/:requestId/retry",
+      "handler": "AdminRefundController.retry",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/admin/events/:eventId/registration-forms/publish",
       "handler": "ContentFormsController.publishForm",
       "actionId": "content.registration-forms.publish",
@@ -3366,6 +3465,28 @@
       "exclusion": null,
       "requiredAnyGrants": [
         "event.notification.send"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/orders/:orderId/external-refunds/verify",
+      "handler": "AdminRefundController.verify",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/orders/:orderId/refund-execution-mode",
+      "handler": "AdminRefundController.mode",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
       ],
       "requiredAllGrants": []
     },

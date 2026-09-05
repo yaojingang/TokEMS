@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RegistrationRefundPanel from '../components/registration/RegistrationRefundPanel.vue';
 import { computed, ref, watch } from 'vue';
 import type {
   RegistrationBusinessStatus,
@@ -11,6 +12,8 @@ import { conferenceApi, publicEventUrl, session, type AdminRegistrationRow } fro
 import RegistrationOperationsTabs from '../components/RegistrationOperationsTabs.vue';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
 
+const showRefunds = ref(false);
+const refundEventId = computed(() => Number(route.params.eventId));
 const rows = ref<AdminRegistrationRow[]>([]);
 const waitlist = ref<WaitlistEntry[]>([]);
 const q = ref('');
@@ -153,6 +156,15 @@ watch(
         <p>统一查看参会人资料、报名进度与关联订单。</p>
       </div>
       <div class="admin-head-actions registration-page-actions" aria-label="报名数据操作">
+        <button
+          v-if="session.can('event.order.read')"
+          class="button secondary"
+          type="button"
+          :aria-expanded="showRefunds"
+          @click="showRefunds = !showRefunds"
+        >
+          {{ showRefunds ? '收起退款申请' : '退款申请' }}
+        </button>
         <button class="button secondary" type="button" @click="load()">刷新数据</button>
         <button
           v-if="canExport"
@@ -173,6 +185,11 @@ watch(
         </a>
       </div>
     </div>
+    <RegistrationRefundPanel
+      v-if="showRefunds && refundEventId"
+      :event-id="refundEventId"
+      @changed="load()"
+    />
     <form class="registration-toolbar" role="search" @submit.prevent="load(true)">
       <div class="registration-toolbar-filters">
         <label class="admin-search">
