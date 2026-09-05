@@ -13,6 +13,7 @@ import {
   orders,
   organizations,
   organizationIntegrations,
+  paymentNotificationInbox,
   payments,
   refundNotificationInbox,
   refundRequests,
@@ -226,6 +227,116 @@ persistent('WeChat configuration changes and refund creation serialize in Postgr
       policy,
     };
   }
+
+  it('preserves verified credentials when disabling new payments and rejects an unverified key change', async () => {
+    const f = await fixture();
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      enabled: false,
+    });
+    const [disabled] = await db
+      .select()
+      .from(organizationIntegrations)
+      .where(eq(organizationIntegrations.organizationId, f.organizationId));
+    expect(disabled?.status).toBe('verified');
+    const required = Reflect.get(f.gateway, 'requiredIntegration').bind(f.gateway);
+    await expect(required(f.organizationId, { requireVerified: true })).rejects.toThrow();
+    await expect(
+      required(f.organizationId, { reconcileExisting: true, merchantId: f.config.mchId }),
+    ).resolves.toBeDefined();
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      enabled: false,
+      apiV3Key: randomBytes(16).toString('hex'),
+    });
+    const [changed] = await db
+      .select()
+      .from(organizationIntegrations)
+      .where(eq(organizationIntegrations.organizationId, f.organizationId));
+    expect(changed?.status).toBe('configured');
+    await expect(
+      required(f.organizationId, { reconcileExisting: true, merchantId: f.config.mchId }),
+    ).rejects.toThrow('微信支付连接尚未验证通过');
+    await expect(
+      f.gateway.parseNotification(f.organizationId, Buffer.from('{}'), {
+        timestamp: undefined,
+        nonce: undefined,
+        signature: undefined,
+        serial: undefined,
+      }),
+    ).rejects.toThrow('微信支付连接尚未验证通过');
+  });
+
+  it('rejects a forged payment callback signed with newly configured, unverified credentials', async () => {
+    const f = await fixture();
+    const injectedKey = randomBytes(16).toString('hex');
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      apiV3Key: injectedKey,
+    });
+    const nonce = randomBytes(6).toString('hex');
+    const cipher = createCipheriv('aes-256-gcm', Buffer.from(injectedKey), Buffer.from(nonce));
+    const associated = 'transaction';
+    cipher.setAAD(Buffer.from(associated));
+    const ciphertext = Buffer.concat([
+      cipher.update(
+        JSON.stringify({
+          appid: f.config.appId,
+          mchid: f.config.mchId,
+          out_trade_no: f.payment.outTradeNo,
+          transaction_id: randomUUID(),
+          trade_state: 'SUCCESS',
+          success_time: new Date().toISOString(),
+          amount: { total: f.payment.amount, currency: f.payment.currency },
+        }),
+      ),
+      cipher.final(),
+      cipher.getAuthTag(),
+    ]);
+    const notificationId = randomUUID();
+    const body = JSON.stringify({
+      id: notificationId,
+      event_type: 'TRANSACTION.SUCCESS',
+      resource: {
+        algorithm: 'AEAD_AES_256_GCM',
+        nonce,
+        associated_data: associated,
+        ciphertext: ciphertext.toString('base64'),
+      },
+    });
+    await expect(
+      f.gateway.parseNotification(f.organizationId, Buffer.from(body), signed(body, f)),
+    ).rejects.toThrow('微信支付连接尚未验证通过');
+    expect(
+      await db
+        .select()
+        .from(paymentNotificationInbox)
+        .where(eq(paymentNotificationInbox.notificationId, notificationId)),
+    ).toHaveLength(0);
+  });
+
+  it('can verify changed credentials while collection remains disabled', async () => {
+    const f = await fixture();
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      enabled: false,
+      apiV3Key: randomBytes(16).toString('hex'),
+    });
+    Reflect.set(
+      f.gateway,
+      'request',
+      async (_method: string, _url: string, body: { echo_message: string }) => ({
+        echo_message: body.echo_message,
+      }),
+    );
+    await expect(f.gateway.testConnection(f.organizationId, f.actorId)).resolves.toMatchObject({
+      ok: true,
+      status: 'verified',
+    });
+    const required = Reflect.get(f.gateway, 'requiredIntegration').bind(f.gateway);
+    await expect(required(f.organizationId, { requireVerified: true })).rejects.toThrow();
+    await expect(required(f.organizationId, { reconcileExisting: true })).resolves.toBeDefined();
+  });
 
   async function waitForBlockedConfigurationTransactions(organizationId: string, count: number) {
     await expect

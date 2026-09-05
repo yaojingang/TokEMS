@@ -1,9 +1,4 @@
-import {
-  createCipheriv,
-  createSign,
-  generateKeyPairSync,
-  randomBytes,
-} from 'node:crypto';
+import { createCipheriv, createSign, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseService } from './database.service.js';
 import { RedisService } from './redis.service.js';
@@ -46,12 +41,8 @@ function createRsaFixtures() {
   const platformKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   return {
     platformPublicKeyId: 'PUB_KEY_ID_TEST_2026',
-    merchantPrivateKey: merchantKeys.privateKey
-      .export({ type: 'pkcs8', format: 'pem' })
-      .toString(),
-    platformPrivateKey: platformKeys.privateKey
-      .export({ type: 'pkcs8', format: 'pem' })
-      .toString(),
+    merchantPrivateKey: merchantKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    platformPrivateKey: platformKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     platformPublicKey: platformKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
   };
 }
@@ -153,7 +144,61 @@ describe('WeChatPayService signed requests', () => {
     expect(requestHeaders?.get('Authorization')).toContain('WECHATPAY2-SHA256-RSA2048');
   });
 
-  it('requires a verified integration before accepting payment notifications', async () => {
+  it.each(['signed', 'unsigned', 'tampered'])(
+    'only trusts a valid signed absence response (%s)',
+    async (kind) => {
+      const fixtures = createRsaFixtures();
+      const body = JSON.stringify({ code: 'ORDER_NOT_EXIST', message: 'absent' });
+      const headers = signWeChatResponse(
+        body,
+        fixtures.platformPrivateKey,
+        fixtures.platformPublicKeyId,
+      );
+      if (kind === 'tampered') headers['wechatpay-signature'] = 'invalid';
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(body, { status: 404, headers: kind === 'unsigned' ? {} : headers }),
+        ),
+      );
+      const database = new DatabaseService();
+      try {
+        const service = new WeChatPayService(database);
+        const request = (service as unknown as { request: RequestMethod }).request.bind(service);
+        const result = request(
+          'GET',
+          '/v3/pay/transactions/out-trade-no/test?mchid=1234567890',
+          undefined,
+          {
+            enabled: true,
+            appId: 'test',
+            mchId: '1234567890',
+            merchantCertificateSerial: 'test',
+            platformPublicKeyId: fixtures.platformPublicKeyId,
+            oauthEnabled: false,
+            channels: { native: true, jsapi: false, h5: false },
+          },
+          {
+            merchantPrivateKey: fixtures.merchantPrivateKey,
+            apiV3Key: '12345678901234567890123456789012',
+            platformPublicKey: fixtures.platformPublicKey,
+          },
+        );
+        if (kind === 'tampered') await expect(result).rejects.toThrow('微信支付响应签名校验失败');
+        else
+          await expect(result).rejects.toMatchObject({
+            providerCode: 'ORDER_NOT_EXIST',
+            verified: kind === 'signed',
+            providerStatus: 404,
+          });
+      } finally {
+        await database.onModuleDestroy();
+      }
+    },
+  );
+
+  it('loads recovery credentials and still rejects invalid payment notification signatures', async () => {
     const service = new WeChatPayService(new DatabaseService(), new RedisService());
     const requiredIntegration = vi.fn(async () => ({
       row: { status: 'configured' },
@@ -183,7 +228,7 @@ describe('WeChatPayService signed requests', () => {
       }),
     ).rejects.toBeDefined();
     expect(requiredIntegration).toHaveBeenCalledWith('organization-test', {
-      requireVerified: true,
+      reconcileExisting: true,
     });
   });
 
@@ -212,12 +257,7 @@ describe('WeChatPayService signed requests', () => {
   });
 
   it('builds JSAPI RSA paySign message in WeChat canonical order', () => {
-    const message = buildJsapiSignMessage(
-      'wx-app',
-      '1710000000',
-      'nonce-abc',
-      'prepay_id=wx123',
-    );
+    const message = buildJsapiSignMessage('wx-app', '1710000000', 'nonce-abc', 'prepay_id=wx123');
     expect(message).toBe('wx-app\n1710000000\nnonce-abc\nprepay_id=wx123\n');
   });
 

@@ -13,6 +13,7 @@
 - Release descriptor schema 2 同时携带目标提交的完整 Git Bundle 和 descriptor verifier，并固定两者 SHA-256。生产机只允许在 descriptor provenance、Bundle 目标 ref、目标 SHA 和 Fast-forward 历史全部通过后更新 `refs/remotes/origin/main`；标准发布不得依赖生产机直连 `github.com` Git Smart HTTP。
 - `/etc/tokems/ghcr-read-token` 仅保存 `read:packages` PAT classic，权限固定为 `root:root 0600`。临时 Docker 登录目录只允许位于 `/run/lock/tokems-production-deploy`，发布日志和证据不得包含 Token。
 - `--build-on-host` 只作为人工应急入口，继续执行 10 GiB 构建内存门禁。自动化受限入口不得传入该参数。
+- 普通发布必须在预检、停服前和停服后核验支付结清；存在进行中交易、待确认通知或已付款缺票时不得继续迁移。停服后发现竞态，只能在数据库尚未变更且原版本身份核验通过时恢复原容器并取消发布；不得借用 `--resume-recovery` 绕过普通发布门禁。
 - 常规发布固定使用 `SEED_DEMO_DATA=false`。只有已确认需要同步仓库规范模板时，才允许按 Runbook 的“规范模板同步”流程临时运行 `SEED_DEMO_DATA=true`。
 - 自动检测到规范漂移或显式执行 `deploy --sync-canonical` 时，目标规范快照与当前运行提交完全一致，且目标差异仅包含部署脚本、部署测试、协作文档或运维文档，脚本允许复用当前已验证镜像完成规范同步。该流程仍要执行数据库备份、写冻结、生产数据保护和完整验收；其余目标使用通过证明的预构建镜像。
 - 自动发布预检必须以只读数据库连接导出生产完整规范快照并与目标提交比较；Git 快照变化或生产状态漂移时都要启用规范同步，`--skip-canonical` 不得跳过漂移修复。
