@@ -42,7 +42,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@nestjs/testing": "11.2.1",
+    "@nestjs/testing": "12.0.1",
     "@types/node": "26.4.1",
     "@types/pg": "8.23.1",
     "@types/supertest": "7.2.1",
