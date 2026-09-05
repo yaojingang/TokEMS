@@ -457,7 +457,9 @@ textarea {
 }
 summary {
   cursor: pointer;
-  min-height: 32px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
   font-weight: 600;
 }
 button:active {

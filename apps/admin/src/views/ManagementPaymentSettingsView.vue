@@ -365,14 +365,14 @@ onMounted(load);
             请由财务确认商户账户类型。余额不足时，系统每 5 分钟重试；到账时间以微信及银行结果为准。
           </p>
         </div>
-        <label>
-          <span>退款出资账户</span>
-          <select v-model="form.refundFunding" :disabled="!canManage">
+        <div class="form-field full">
+          <label for="wechat-refund-funding">退款出资账户</label>
+          <select id="wechat-refund-funding" v-model="form.refundFunding" :disabled="!canManage">
             <option value="" disabled>待财务确认</option>
             <option value="default">默认退款账户（按微信商户配置）</option>
             <option value="available">可用余额（已确认使用旧资金账户）</option>
           </select>
-        </label>
+        </div>
         <p v-if="configuration?.refundNotifyUrl">
           退款结果通知地址：{{ configuration.refundNotifyUrl }}
         </p>
