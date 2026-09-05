@@ -17,6 +17,21 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it.each([null, ''])('accepts omitted optional session text stored as %j', async (empty) => {
+    const value = await snapshot();
+    const release = value.release as { snapshot: { sessions: Array<Record<string, unknown>> } };
+    const publicEvent = value.publicEvent as { sessions: Array<Record<string, unknown>> };
+    const session = release.snapshot.sessions[0]!;
+    const publicSession = publicEvent.sessions.find((item) => item.id === session.id)!;
+    session.summary = empty;
+    session.speaker = empty;
+    delete publicSession.summary;
+    delete publicSession.speaker;
+    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+
+    session.summary = 'This published session description must remain visible.';
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/public session.*content/u);
+  });
   it('rejects a saved form that differs from the active public form', async () => {
     const value = await snapshot();
     const backend = value.backend as Record<string, unknown>;

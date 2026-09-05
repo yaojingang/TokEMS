@@ -43,11 +43,14 @@ async function fixture(options = {}) {
   const errors = [];
   let signedIn = options.signedIn !== false;
   let eventRequests = 0;
+  let sessionGate;
   page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith('/customer-auth/session'))
+    if (path.endsWith('/customer-auth/session')) {
+      if (sessionGate) await sessionGate;
       return route.fulfill({ json: signedIn ? session : { authenticated: false } });
+    }
     if (path.endsWith('/customer-auth/otp'))
       return route.fulfill({
         json: {
@@ -145,8 +148,53 @@ async function fixture(options = {}) {
     refreshEvent,
     submit,
     eventRequests: () => eventRequests,
+    setSessionGate: (gate) => {
+      sessionGate = gate;
+    },
   };
 }
+
+test('edits made while the account loads take precedence over an older saved draft', async () => {
+  const f = await fixture();
+  let release;
+  try {
+    await f.open();
+    await f.page.locator('#registration-name').fill('旧草稿姓名');
+    await f.page.locator('#registration-title').fill('旧草稿职位');
+    await f.page.locator('#registration-company').fill('旧草稿公司');
+    await f.page.waitForFunction(() =>
+      Object.entries(localStorage).some(([key, value]) => {
+        if (!key.startsWith('conference.registrationDraft.')) return false;
+        return JSON.parse(value).answers.company === '旧草稿公司';
+      }),
+    );
+    f.setSessionGate(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    await f.page.reload({ waitUntil: 'domcontentloaded' });
+    await f.page.locator('#registration-name').fill('当前输入姓名');
+    await f.page.locator('#registration-title').fill('临时职位');
+    await f.page.locator('#registration-title').fill('');
+    assert.equal(await f.page.locator('form.flow-card button[type="submit"]').isDisabled(), true);
+    assert.equal(await f.page.locator('#registration-name').inputValue(), '当前输入姓名');
+    release();
+    await f.page.waitForFunction(
+      () => !document.querySelector('form.flow-card button[type="submit"]')?.disabled,
+    );
+    assert.equal(await f.page.locator('#registration-name').inputValue(), '当前输入姓名');
+    assert.equal(await f.page.locator('#registration-title').inputValue(), '');
+    assert.equal(await f.page.locator('#registration-company').inputValue(), '旧草稿公司');
+    await f.submit();
+    assert.equal(f.submissions[0].attendee.name, '当前输入姓名');
+    assert.equal(f.submissions[0].attendee.title, '');
+    assert.deepEqual(f.errors, []);
+  } finally {
+    release?.();
+    await f.context.close();
+  }
+});
 
 test('cleared optional profile fields survive reload and a published form update', async () => {
   const f = await fixture();

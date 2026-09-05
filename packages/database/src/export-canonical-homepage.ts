@@ -578,7 +578,11 @@ function validatePublicProjection(snapshot: JsonRecord) {
     assertCanonicalMatch(
       `Canonical public session ${String(session.id)} content`,
       pick(session, ['day', 'title', 'summary', 'speaker', 'kind']),
-      pick(expected, ['day', 'title', 'summary', 'speaker', 'kind']),
+      {
+        ...pick(expected, ['day', 'title', 'kind']),
+        ...(expected.summary ? { summary: expected.summary } : {}),
+        ...(expected.speaker ? { speaker: expected.speaker } : {}),
+      },
     );
   });
   const releaseExperience = releaseSnapshot.experience
