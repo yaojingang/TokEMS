@@ -52,6 +52,7 @@ const navigation = computed(() => [
       'event.manage',
       'event.site.read',
       'event.registration.manage',
+      'event.order.refund',
       'event.inventory.read',
       'event.inventory.manage',
     ],
@@ -252,6 +253,7 @@ onMounted(() => {
                 'event.manage',
                 'event.site.read',
                 'event.registration.manage',
+                'event.order.refund',
                 'event.inventory.read',
                 'event.inventory.manage',
               ])

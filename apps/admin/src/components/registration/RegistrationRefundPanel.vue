@@ -194,9 +194,27 @@ onBeforeUnmount(() => {
         <p class="eyebrow">退款服务</p>
         <h2>退款申请与审核</h2>
       </div>
-      <button class="button secondary" type="button" :disabled="loading || pending" @click="load">
-        刷新
-      </button>
+      <div class="refund-panel-actions">
+        <RouterLink
+          v-if="session.canAny(['event.manage', 'event.order.refund'])"
+          class="button secondary"
+          :to="{
+            name: 'event-settings-registration',
+            params: { eventId },
+            hash: '#refund-settings',
+          }"
+        >
+          退款设置
+        </RouterLink>
+        <button
+          class="button secondary"
+          type="button"
+          :disabled="loading || pending"
+          @click="load"
+        >
+          刷新
+        </button>
+      </div>
     </header>
     <div
       v-for="exception in exceptions"
@@ -413,6 +431,11 @@ small,
   flex-wrap: wrap;
   margin: 14px 0;
 }
+.refund-panel-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .execution {
   padding: 12px 16px;
   background: #f4f6f9;
@@ -477,6 +500,12 @@ button:active {
   }
   .actions .button {
     flex: 1 1 auto;
+  }
+  .refund-panel-actions {
+    width: 100%;
+  }
+  .refund-panel-actions .button {
+    flex: 1 1 0;
   }
 }
 </style>
