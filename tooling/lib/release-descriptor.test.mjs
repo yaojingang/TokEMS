@@ -42,6 +42,38 @@ function runVerifier(args) {
   return spawnSync('python3', [verifierPath, ...args], { encoding: 'utf8' });
 }
 
+function runVerifierWithGitTrace(args, traceFile) {
+  const script = `
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("release_descriptor", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+trace_file = sys.argv[2]
+original_run = module.subprocess.run
+def traced_run(*args, **kwargs):
+    environment = dict(kwargs.get("env", os.environ))
+    environment["GIT_TRACE2_EVENT"] = trace_file
+    kwargs["env"] = environment
+    return original_run(*args, **kwargs)
+module.subprocess.run = traced_run
+sys.argv = [sys.argv[1]] + sys.argv[3:]
+raise SystemExit(module.main())
+`;
+  return spawnSync('python3', ['-B', '-c', script, verifierPath, traceFile, ...args], {
+    encoding: 'utf8',
+  });
+}
+
+function automaticMaintenance(traceFile) {
+  const events = readFileSync(traceFile, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(events.some((event) => event.event === 'cmd_name' && event.name === 'fetch'));
+  return events.filter(
+    (event) =>
+      event.event === 'child_start' &&
+      event.argv?.some((argument) => argument === 'maintenance' || argument === 'gc'),
+  );
+}
+
 test('release descriptor verifier emits a complete immutable image set', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'tokems-release-descriptor-'));
   const labelsFile = resolve(directory, 'labels.json');
@@ -201,14 +233,28 @@ test('source bundle verifier accepts the exact release ref and rejects wrong or 
     const created = runGit(['bundle', 'create', bundle, 'refs/heads/tokems-release-source']);
     assert.equal(created.status, 0, created.stderr);
 
-    const accepted = runVerifier([
-      'verify-source-bundle',
-      '--bundle-file',
-      bundle,
-      '--target-sha',
-      targetSha,
-    ]);
+    const controlTrace = resolve(directory, 'control-trace.jsonl');
+    const control = spawnSync(
+      'git',
+      ['-C', repository, 'fetch', bundle, 'refs/heads/tokems-release-source'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, GIT_TRACE2_EVENT: controlTrace },
+      },
+    );
+    assert.equal(control.status, 0, control.stderr);
+    assert.ok(automaticMaintenance(controlTrace).length > 0);
+    const verifyTrace = resolve(directory, 'verify-trace.jsonl');
+    const accepted = runVerifierWithGitTrace(
+      ['verify-source-bundle', '--bundle-file', bundle, '--target-sha', targetSha],
+      verifyTrace,
+    );
     assert.equal(accepted.status, 0, accepted.stderr);
+    assert.deepEqual(
+      automaticMaintenance(verifyTrace),
+      [],
+      'temporary bundle verification must finish without background maintenance',
+    );
 
     const wrongSha = runVerifier([
       'verify-source-bundle',
@@ -285,18 +331,27 @@ test('source bundle importer fast-forwards only origin/main and leaves productio
     ]);
     assert.equal(created.status, 0, created.stderr);
 
-    const imported = runVerifier([
-      'import-source-bundle',
-      '--bundle-file',
-      bundle,
-      '--repository',
-      productionRepository,
-      '--target-sha',
-      targetSha,
-      '--timeout-seconds',
-      '30',
-    ]);
+    const importTrace = resolve(directory, 'import-trace.jsonl');
+    const imported = runVerifierWithGitTrace(
+      [
+        'import-source-bundle',
+        '--bundle-file',
+        bundle,
+        '--repository',
+        productionRepository,
+        '--target-sha',
+        targetSha,
+        '--timeout-seconds',
+        '30',
+      ],
+      importTrace,
+    );
     assert.equal(imported.status, 0, imported.stderr);
+    assert.deepEqual(
+      automaticMaintenance(importTrace),
+      [],
+      'bundle import must finish without background maintenance',
+    );
     assert.equal(
       runGit(productionRepository, ['rev-parse', 'refs/remotes/origin/main']).stdout.trim(),
       targetSha,
