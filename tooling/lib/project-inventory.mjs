@@ -41,7 +41,10 @@ export async function collectProjectInventory(root, suppliedFiles) {
   const schemaPath = files.find((path) => path === 'packages/database/src/schema.ts');
   const schema = schemaPath ? await readFile(join(root, schemaPath), 'utf8') : '';
   const apiFiles = files.filter(
-    (path) => within(path, 'apps/api/src') && /\.(?:ts|tsx)$/u.test(path),
+    (path) =>
+      within(path, 'apps/api/src') &&
+      /\.(?:ts|tsx)$/u.test(path) &&
+      !/\.(?:test|spec)\.(?:ts|tsx)$/u.test(path),
   );
   const apiSource = (
     await Promise.all(apiFiles.map((path) => readFile(join(root, path), 'utf8')))
