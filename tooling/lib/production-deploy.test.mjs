@@ -975,3 +975,162 @@ test('production deploy script excludes destructive recovery shortcuts', () => {
     assert.doesNotMatch(source, forbidden);
   }
 });
+
+test('payment activity gate refuses unsettled payments and unreadable evidence', () => {
+  const start = source.indexOf('payment_activity_is_clear() {');
+  const end = source.indexOf('\nassert_payment_quiet_window() {', start);
+  assert.ok(start >= 0 && end > start, 'payment activity gate must exist');
+  const gate = source.slice(start, end);
+  const run = (result, status = 0) =>
+    spawnSync(
+      'bash',
+      [
+        '-c',
+        `
+    read_payment_activity() { printf '%s\\n' "$ACTIVITY"; return "$QUERY_STATUS"; }
+    log() { printf '%s\\n' "$*"; }
+    ${gate}
+    payment_activity_is_clear
+  `,
+      ],
+      { encoding: 'utf8', env: { ...process.env, ACTIVITY: result, QUERY_STATUS: String(status) } },
+    );
+  assert.equal(run('0,0,0').status, 0);
+  for (const activity of ['1,0,0', '0,1,0', '0,0,1']) {
+    const rejected = run(activity);
+    assert.equal(rejected.status, 1);
+    assert.match(rejected.stdout, /Payment activity/);
+  }
+  for (const activity of ['', 'garbled', '0,0', '0,0,0\n1,0,0']) {
+    assert.equal(run(activity).status, 2);
+  }
+  assert.equal(run('0,0,0', 1).status, 2);
+});
+
+test('every payment state holding inventory blocks the release and queries remain read-only', () => {
+  const query = source.slice(
+    source.indexOf('read_payment_activity() {'),
+    source.indexOf('\npayment_activity_is_clear() {'),
+  );
+  assert.match(query, /begin read only;/);
+  const schema = readFileSync(resolve(repositoryRoot, 'packages/database/src/schema.ts'), 'utf8');
+  const states = schema
+    .match(/ACTIVE_WECHAT_PAYMENT_STATUSES = \[([\s\S]*?)\] as const/)[1]
+    .match(/'[a-z_]+'/g);
+  for (const state of states) assert.ok(query.includes(state), `missing payment state ${state}`);
+  assert.match(query, /payment_notification_inbox/);
+  assert.match(query, /status <> 'processed'/);
+  assert.match(query, /not exists[\s\S]*tickets/);
+});
+
+test('release checks payments before stopping and resumes original services on a post-stop race', () => {
+  const freeze = source.slice(
+    source.indexOf('enter_release_write_freeze() {'),
+    source.indexOf('\nthaw_release_write_freeze() {'),
+  );
+  assert.ok(freeze.indexOf('assert_payment_quiet_window') >= 0);
+  assert.ok(
+    freeze.indexOf('assert_payment_quiet_window') < freeze.indexOf('stop --timeout 30 api worker'),
+  );
+  assert.ok(
+    freeze.indexOf('payment_activity_is_clear') > freeze.indexOf('assert_write_services_stopped'),
+  );
+  assert.match(freeze, /resume_original_services_before_database/);
+  const recovery = source.slice(
+    source.indexOf('resume_original_services_before_database() {'),
+    source.indexOf('\nenter_release_write_freeze() {'),
+  );
+  assert.match(recovery, /database_update_started.*false/);
+  assert.match(recovery, /target_writes_enabled.*false/);
+  assert.match(recovery, /start --wait --wait-timeout 300 api worker/);
+  assert.doesNotMatch(
+    recovery,
+    /--force-recreate|run_database_updates|run_canonical_database_sync/,
+  );
+  assert.ok(
+    recovery.indexOf('assert_operational_write_state normal') <
+      recovery.indexOf('clear_pending_recovery_marker'),
+  );
+});
+
+test('payment race cancellation executes original-container restart and preserves protection on failure', () => {
+  const start = source.indexOf('resume_original_services_before_database() {');
+  const end = source.indexOf('\nenter_release_write_freeze() {', start);
+  const resume = source.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-payment-race-'));
+  try {
+    const run = (databaseStarted, verificationStatus) =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `
+      set -Eeuo pipefail
+      database_update_started="$DATABASE_STARTED"
+      canonical_update_started=false
+      target_writes_enabled=false
+      recovery_in_progress=false
+      release_baseline_migration_hash=baseline
+      release_baseline_sha=original
+      images_changed=true
+      rollback_tag=rollback-test
+      ROLLBACK_IMAGES=(tokems-api tokems-worker)
+      backup_dir="$EVIDENCE_DIR"
+      SERVICE_TRANSITION_TIMEOUT_SECONDS=360
+      CURL_ARGS=(--silent)
+      PUBLIC_ORIGIN=https://example.test
+      die() { printf '%s\\n' "$*"; exit 1; }
+      assert_write_services_stopped() { :; }
+      read_database_migration_hash() { printf baseline; }
+      docker() { printf 'docker %s\\n' "$*"; }
+      assert_thaw_watchdog_active() { printf 'watchdog active\\n'; }
+      compose_bounded() { printf 'compose %s\\n' "$*"; }
+      assert_runtime_image_tags() { :; }
+      assert_current_runtime_identity() { runtime_sha=original; }
+      assert_api_uses_compose_database() { :; }
+      assert_operational_write_state() { return "$VERIFICATION_STATUS"; }
+      wait_for_worker_ready() { printf 'worker ready\\n'; }
+      curl() { printf 'healthy\\n'; }
+      assert_health_json() { cat >/dev/null; }
+      set_write_service_restart_policy() { printf 'restart %s\\n' "$*"; }
+      clear_pending_recovery_marker() { printf 'marker cleared\\n'; }
+      stop_thaw_watchdog() { printf 'watchdog stopped\\n'; }
+      ${resume}
+      resume_original_services_before_database
+      printf 'final backup_ready=%s freeze=%s\\n' "$backup_ready" "$release_write_freeze"
+    `,
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            DATABASE_STARTED: databaseStarted,
+            VERIFICATION_STATUS: String(verificationStatus),
+            EVIDENCE_DIR: directory,
+          },
+        },
+      );
+    const ok = run('false', 0);
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.match(ok.stdout, /docker tag tokems-api:rollback-test tokems-api:local/);
+    assert.match(
+      readFileSync(resolve(directory, 'payment-race-resume.log'), 'utf8'),
+      /start --wait --wait-timeout 300 api worker/,
+    );
+    assert.ok(ok.stdout.indexOf('worker ready') < ok.stdout.indexOf('marker cleared'));
+    assert.match(ok.stdout, /final backup_ready=false freeze=false/);
+    assert.match(
+      readFileSync(resolve(directory, 'deployment-result.txt'), 'utf8'),
+      /cancelled-payment-activity/,
+    );
+    const unsafe = run('true', 0);
+    assert.equal(unsafe.status, 1);
+    assert.doesNotMatch(unsafe.stdout, /docker tag|marker cleared/);
+    const failed = run('false', 2);
+    assert.equal(failed.status, 2);
+    assert.doesNotMatch(failed.stdout, /marker cleared|watchdog stopped/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

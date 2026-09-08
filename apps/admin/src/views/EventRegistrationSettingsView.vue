@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, shallowRef } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, shallowRef } from 'vue';
+import { useRoute } from 'vue-router';
 import type {
   CustomerAccountMode,
   EventExperience,
   EventPaymentMode,
   PublicEvent,
+  WeChatPayConfiguration,
 } from '@conference/contracts';
 import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
 import { isPublicEventStatus } from '@conference/contracts';
@@ -25,18 +27,22 @@ interface InventoryRow {
 }
 
 const event = ref<PublicEvent>();
+const route = useRoute();
 const experience = ref<EventExperience>();
 const inventory = ref<InventoryRow[]>([]);
 const archivedTickets = ref<
   Array<{ id: string; code: string; name: string; price: number; capacity: number }>
 >([]);
 const settingsPending = ref(false);
+const refundPending = ref(false);
 const ticketPending = ref(false);
 const flowPending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
 const showTicketEditor = ref(false);
 const editingTicketId = ref('');
+const savedRefundEnabled = ref(false);
+const paymentConfiguration = ref<WeChatPayConfiguration>();
 const confirmation = shallowRef<{
   title: string;
   description: string;
@@ -83,6 +89,28 @@ const canReadInventory = computed(() =>
 const canManageRefundPolicy = computed(() =>
   session.canAny(['event.manage', 'event.order.refund']),
 );
+const canReadPaymentSettings = computed(() => session.can('org.settings.read'));
+const refundPolicyDirty = computed(
+  () => settingsForm.refundEnabled !== savedRefundEnabled.value,
+);
+const refundPaymentReadiness = computed<'ready' | 'incomplete' | 'unknown'>(() => {
+  if (!canReadPaymentSettings.value || !paymentConfiguration.value) return 'unknown';
+  return paymentConfiguration.value.status === 'verified' &&
+    Boolean(paymentConfiguration.value.refundFunding)
+    ? 'ready'
+    : 'incomplete';
+});
+const refundPaymentStatus = computed(() => {
+  if (refundPaymentReadiness.value === 'ready') return '微信退款配置可用';
+  if (refundPaymentReadiness.value === 'incomplete') return '微信退款配置待完善';
+  return '启用时将校验微信退款配置';
+});
+const refundPaymentDescription = computed(() => {
+  if (refundPaymentReadiness.value === 'ready') return '审核通过后，系统会自动提交微信原路退款。';
+  if (refundPaymentReadiness.value === 'incomplete')
+    return '请先完成商户凭据验证，并选择退款出资账户。';
+  return '需要微信商户凭据验证通过，并选择退款出资账户。';
+});
 const canManageTickets = computed(() => session.can('event.inventory.manage'));
 const canReadFlow = computed(() => session.can('event.site.read'));
 const canManageFlow = computed(() => session.can('event.content.manage'));
@@ -102,21 +130,36 @@ function hydrateFlow(value: EventExperience) {
 async function load(preserveSettings = false, preserveFlow = false) {
   errorMessage.value = '';
   try {
-    const [loaded, loadedInventory, loadedArchivedTickets, loadedExperience, loadedRefundPolicy] =
-      await Promise.all([
+    const [
+      loaded,
+      loadedInventory,
+      loadedArchivedTickets,
+      loadedExperience,
+      loadedRefundPolicy,
+      loadedPaymentConfiguration,
+    ] = await Promise.all([
         conferenceApi.getEvent(),
         canReadInventory.value ? conferenceApi.getInventory() : Promise.resolve([]),
         canManageTickets.value ? conferenceApi.getArchivedTicketTypes() : Promise.resolve([]),
         canReadFlow.value && (!preserveFlow || !experience.value)
           ? conferenceApi.getEventExperience()
           : Promise.resolve(experience.value),
-        conferenceApi.getRefundPolicy(),
+        canManageRefundPolicy.value
+          ? conferenceApi.getRefundPolicy()
+          : Promise.resolve(undefined),
+        canReadPaymentSettings.value
+          ? conferenceApi.getWeChatPayConfiguration().catch(() => undefined)
+          : Promise.resolve(undefined),
       ]);
     event.value = loaded;
     inventory.value = loadedInventory;
     archivedTickets.value = loadedArchivedTickets;
+    paymentConfiguration.value = loadedPaymentConfiguration;
     if (!preserveSettings) {
-      settingsForm.refundEnabled = loadedRefundPolicy.enabled;
+      if (loadedRefundPolicy) {
+        settingsForm.refundEnabled = loadedRefundPolicy.enabled;
+        savedRefundEnabled.value = loadedRefundPolicy.enabled;
+      }
       settingsForm.paymentMode = loaded.registration.paymentMode;
       settingsForm.registrationOpen = loaded.registration.registrationOpen;
       settingsForm.accountMode = loaded.registration.accountMode;
@@ -129,7 +172,14 @@ async function load(preserveSettings = false, preserveFlow = false) {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  if (route.hash !== '#refund-settings') return;
+  await nextTick();
+  const refundSettings = document.querySelector<HTMLElement>(route.hash);
+  refundSettings?.scrollIntoView({ block: 'start' });
+  refundSettings?.focus({ preventScroll: true });
+});
 
 function savedMessage(subject = '已保存') {
   return event.value && isPublicEventStatus(event.value.status)
@@ -196,15 +246,6 @@ async function saveSettings() {
   try {
     event.value = await conferenceApi.updateEvent({
       settings: {
-        ...(canManageRefundPolicy.value
-          ? {
-              refunds: {
-                enabled: settingsForm.refundEnabled,
-                version: 'seven-day-v1',
-                windowDays: 7 as const,
-              },
-            }
-          : {}),
         registration: {
           paymentMode: settingsForm.paymentMode,
           currency: 'CNY',
@@ -220,6 +261,35 @@ async function saveSettings() {
     errorMessage.value = error instanceof Error ? error.message : '报名方式保存失败';
   } finally {
     settingsPending.value = false;
+  }
+}
+
+async function saveRefundPolicy() {
+  if (refundPending.value || !canManageRefundPolicy.value || !refundPolicyDirty.value) return;
+  if (settingsForm.refundEnabled && refundPaymentReadiness.value === 'incomplete') {
+    errorMessage.value = '请先完成微信退款配置，再开放用户自助退款。';
+    return;
+  }
+  const submittedRefundEnabled = settingsForm.refundEnabled;
+  refundPending.value = true;
+  message.value = '';
+  errorMessage.value = '';
+  try {
+    event.value = await conferenceApi.updateEvent({
+      settings: {
+        refunds: {
+          enabled: submittedRefundEnabled,
+          version: 'seven-day-v1',
+          windowDays: 7,
+        },
+      },
+    });
+    savedRefundEnabled.value = submittedRefundEnabled;
+    message.value = savedMessage('退款设置已保存');
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '退款设置保存失败';
+  } finally {
+    refundPending.value = false;
   }
 }
 
@@ -402,7 +472,7 @@ async function saveFlow() {
     <div>
       <p class="eyebrow">EVENT SETTINGS / REGISTRATION</p>
       <h1>报名设置</h1>
-      <p>统一维护报名方式、票种容量和前台报名流程。{{ settingsEffectDescription }}</p>
+      <p>统一维护报名、退款、票种容量和前台流程。{{ settingsEffectDescription }}</p>
     </div>
     <span class="status-badge" :class="isFree ? 'paid' : 'draft'">
       {{ isFree ? 'FREE' : 'TICKETED' }}
@@ -435,14 +505,6 @@ async function saveFlow() {
           </span>
         </label>
       </div>
-      <label class="settings-toggle"><input
-        v-model="settingsForm.refundEnabled"
-        type="checkbox"
-        :disabled="!canManageRefundPolicy"
-      /><span>开放购票后 7 天自助退款（后台审核后原路退回）</span></label>
-      <p class="field-hint">
-        请先完成微信退款账户配置。已提交的申请持续处理；关闭入口不会中止已批准退款。
-      </p>
       <label class="setting-toggle">
         <span>
           <strong>开放前台报名</strong>
@@ -487,6 +549,75 @@ async function saveFlow() {
       <div class="event-form-actions">
         <button class="button" type="submit" :disabled="settingsPending">
           {{ settingsPending ? '保存中…' : '保存报名设置' }}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section
+    v-if="canManageRefundPolicy"
+    id="refund-settings"
+    class="admin-panel refund-settings-panel"
+    tabindex="-1"
+    aria-labelledby="refund-settings-heading"
+  >
+    <header class="admin-panel-header refund-settings-header">
+      <div>
+        <p class="eyebrow">REFUND SETTINGS</p>
+        <h2 id="refund-settings-heading">退款设置</h2>
+        <p>用户在个人中心提交申请，管理员审核通过后由微信支付原路处理。</p>
+      </div>
+      <span
+        class="status-badge"
+        :class="{
+          pending: refundPolicyDirty,
+          draft: !refundPolicyDirty && !savedRefundEnabled,
+        }"
+      >
+        {{ refundPolicyDirty ? '待保存' : savedRefundEnabled ? '已开放' : '未开放' }}
+      </span>
+    </header>
+
+    <form class="event-form refund-settings-form" @submit.prevent="saveRefundPolicy">
+      <label class="setting-toggle refund-policy-toggle">
+        <span>
+          <strong>开放购票后 7 天自助退款</strong>
+          <small>开放后，符合条件的已支付订单会在个人中心显示退款入口</small>
+        </span>
+        <input v-model="settingsForm.refundEnabled" type="checkbox" :disabled="refundPending" />
+      </label>
+
+      <div class="refund-readiness" :class="`is-${refundPaymentReadiness}`">
+        <div>
+          <span class="refund-readiness-title">
+            <span class="refund-readiness-dot" aria-hidden="true"></span>
+            <strong>{{ refundPaymentStatus }}</strong>
+          </span>
+          <p>{{ refundPaymentDescription }}</p>
+        </div>
+        <RouterLink
+          v-if="canReadPaymentSettings"
+          class="button secondary compact"
+          :to="{ name: 'manage-settings-payment' }"
+        >
+          前往支付设置
+        </RouterLink>
+      </div>
+
+      <p class="refund-settings-note">
+        已提交的申请会继续处理；关闭入口不会中止已批准退款。
+      </p>
+      <div class="event-form-actions">
+        <button
+          class="button"
+          type="submit"
+          :disabled="
+            refundPending ||
+              !refundPolicyDirty ||
+              (settingsForm.refundEnabled && refundPaymentReadiness === 'incomplete')
+          "
+        >
+          {{ refundPending ? '保存中…' : '保存退款设置' }}
         </button>
       </div>
     </form>
@@ -723,9 +854,105 @@ async function saveFlow() {
     :confirm-label="confirmation?.confirmLabel ?? '确认并生效'"
     :tone="confirmation?.tone ?? 'primary'"
     :details="confirmation?.details ?? []"
-    :busy="settingsPending || ticketPending || flowPending"
+    :busy="settingsPending || refundPending || ticketPending || flowPending"
     :error="errorMessage"
     @cancel="confirmation = undefined"
     @confirm="confirmImportantChange"
   />
 </template>
+
+<style scoped>
+.refund-settings-panel {
+  scroll-margin-top: 104px;
+}
+
+.refund-settings-panel:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+
+.refund-settings-header .eyebrow {
+  margin-bottom: 8px;
+}
+
+.refund-settings-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.refund-policy-toggle {
+  margin-top: 0;
+  min-height: 80px;
+  background: var(--paper);
+}
+
+.refund-policy-toggle strong {
+  font-size: var(--admin-font-body);
+}
+
+.refund-readiness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--paper);
+}
+
+.refund-readiness > div {
+  min-width: 0;
+}
+
+.refund-readiness-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refund-readiness-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.refund-readiness.is-ready .refund-readiness-dot {
+  background: var(--green);
+}
+
+.refund-readiness.is-incomplete .refund-readiness-dot {
+  background: var(--gold);
+}
+
+.refund-readiness p,
+.refund-settings-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--admin-font-caption);
+  line-height: 1.6;
+}
+
+.refund-settings-note {
+  margin: 0;
+}
+
+.refund-settings-form .event-form-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .refund-readiness {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .refund-readiness .button,
+  .refund-settings-form .event-form-actions .button {
+    width: 100%;
+  }
+}
+</style>

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, w
 import {
   ConferenceTemplateDefinitionSchema,
   normalizeConferenceTemplateDefinition,
+  type TemplateLogoWall,
   type ConferenceTemplateDefinition,
   type ConferenceTemplateVersion,
 } from '@conference/contracts';
@@ -10,6 +11,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { conferenceApi, session, type TemplateAsset } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { applyTemplateFlowPreset } from '../lib/template-flow-presets';
+import PartnerLogoEditor from '../components/PartnerLogoEditor.vue';
 
 type EditorSection =
   'overview' | 'home' | 'faq' | 'registration' | 'initialization' | 'assets' | 'versions';
@@ -38,6 +40,20 @@ const structuredHome = computed(() =>
 const versions = ref<ConferenceTemplateVersion[]>([]);
 const usages = ref<Array<Record<string, unknown>>>([]);
 const assets = ref<TemplateAsset[]>([]);
+const logoUploadPending = ref(false);
+const selectedLogoWall = computed<TemplateLogoWall>({
+  get() {
+    return (
+      (selectedHomeBlock.value?.content.logoWall as TemplateLogoWall | undefined) ?? {
+        enabled: false,
+        items: [],
+      }
+    );
+  },
+  set(value) {
+    if (selectedHomeBlock.value) selectedHomeBlock.value.content.logoWall = value;
+  },
+});
 const selectedAssetFile = ref<File>();
 const assetAltText = ref('');
 const assetDeleteTarget = ref<TemplateAsset>();
@@ -548,7 +564,7 @@ async function publish() {
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
-  if (saveState.value === 'saving' || saveState.value === 'failed') event.preventDefault();
+  if (logoUploadPending.value || saveState.value === 'saving' || saveState.value === 'failed') event.preventDefault();
 }
 
 onMounted(() => {
@@ -556,6 +572,7 @@ onMounted(() => {
   void load();
 });
 onBeforeRouteLeave(async () => {
+  if (logoUploadPending.value) return false;
   if (!canManage.value || saveState.value === 'saved') return true;
   if (saveTimer) {
     clearTimeout(saveTimer);
@@ -591,7 +608,7 @@ onBeforeUnmount(() => {
         v-if="canManage"
         class="button secondary"
         type="button"
-        :disabled="saveState === 'saving'"
+        :disabled="saveState === 'saving' || logoUploadPending"
         @click="saveDraft"
       >
         保存草稿
@@ -600,7 +617,7 @@ onBeforeUnmount(() => {
         v-if="canPublish"
         class="button"
         type="button"
-        :disabled="saveState !== 'saved' || !validation.success"
+        :disabled="saveState !== 'saved' || !validation.success || logoUploadPending"
         @click="publishPanelOpen = true"
       >
         发布新版本
@@ -619,6 +636,7 @@ onBeforeUnmount(() => {
           :key="section.key"
           type="button"
           :class="{ active: activeSection === section.key }"
+          :disabled="logoUploadPending"
           @click="activeSection = section.key"
         >
           <strong>{{ section.label }}</strong><small>{{ section.description }}</small>
@@ -631,6 +649,7 @@ onBeforeUnmount(() => {
           :key="node.nodeKey"
           type="button"
           :class="{ active: selectedNodeKey === node.nodeKey }"
+          :disabled="logoUploadPending"
           @click="selectNode(node.nodeKey)"
         >
           <span>{{ node.displayLabel }}</span>
@@ -766,6 +785,12 @@ onBeforeUnmount(() => {
               @input="setSelectedHomeCopy(key, ($event.target as HTMLTextAreaElement).value)"
             />
           </div>
+          <PartnerLogoEditor
+            v-if="selectedHomeBlock.nodeKey === 'home.cooperation'"
+            v-model="selectedLogoWall"
+            :disabled="!canManage || pending"
+            @pending-change="logoUploadPending = $event"
+          />
         </div>
       </template>
 
@@ -1183,7 +1208,7 @@ onBeforeUnmount(() => {
       <button
         class="button"
         type="button"
-        :disabled="pending || changeSummary.trim().length < 2"
+        :disabled="pending || logoUploadPending || changeSummary.trim().length < 2"
         @click="publish"
       >
         {{ pending ? '正在发布…' : '确认发布新版本' }}

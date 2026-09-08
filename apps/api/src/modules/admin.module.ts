@@ -35,6 +35,7 @@ import {
   UpdateEventSchema,
   UpdateEventAttendeeServiceConfigurationSchema,
   type EventId,
+  type UpdateEvent,
 } from '@conference/contracts';
 import {
   AuthGuard,
@@ -76,11 +77,35 @@ function cooperationRequestId(value: string) {
 export const ADMIN_EVENT_READ_GRANTS = [
   'event.read',
   'event.manage',
+  'event.order.refund',
   'event.registration.manage',
   'event.inventory.read',
   'event.inventory.manage',
   'event.site.read',
 ] as const;
+
+export function assertEventUpdateGrants(grants: string[], patch: UpdateEvent) {
+  if (
+    !grantAllows(grants, 'event.manage') &&
+    Object.keys(patch).some((key) => key !== 'settings')
+  ) {
+    throw new ForbiddenException('报名运营只能修改大会报名方式');
+  }
+  if (
+    patch.settings?.registration &&
+    !grantAllows(grants, 'event.manage') &&
+    !grantAllows(grants, 'event.registration.manage')
+  ) {
+    throw new ForbiddenException('报名设置需要大会管理或报名运营权限');
+  }
+  if (
+    patch.settings?.refunds &&
+    !grantAllows(grants, 'event.manage') &&
+    !grantAllows(grants, 'event.order.refund')
+  ) {
+    throw new ForbiddenException('退款规则需要大会管理或财务退款权限');
+  }
+}
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -454,7 +479,7 @@ class AdminController {
   }
 
   @Patch('events/:eventId')
-  @RequireGrant('event.manage', 'event.registration.manage')
+  @RequireGrant('event.manage', 'event.registration.manage', 'event.order.refund')
   async updateEvent(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Body() patch: Record<string, unknown>,
@@ -469,18 +494,8 @@ class AdminController {
         { issues: parsed.error.issues },
       );
     }
-    if (
-      !grantAllows(request.user!.grants, 'event.manage') &&
-      Object.keys(parsed.data).some((key) => key !== 'settings')
-    ) {
-      throw new ForbiddenException('报名运营只能修改大会报名方式');
-    }
+    assertEventUpdateGrants(request.user!.grants, parsed.data);
     if (parsed.data.settings?.refunds) {
-      if (
-        !grantAllows(request.user!.grants, 'event.manage') &&
-        !grantAllows(request.user!.grants, 'event.order.refund')
-      )
-        throw new ForbiddenException('退款规则需要大会管理或财务退款权限');
       if (parsed.data.settings.refunds.enabled)
         await this.wechat.refundConfiguration(request.user!.organizationId);
     }
