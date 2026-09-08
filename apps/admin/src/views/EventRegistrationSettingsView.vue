@@ -265,11 +265,12 @@ async function saveSettings() {
 }
 
 async function saveRefundPolicy() {
-  if (!canManageRefundPolicy.value || !refundPolicyDirty.value) return;
+  if (refundPending.value || !canManageRefundPolicy.value || !refundPolicyDirty.value) return;
   if (settingsForm.refundEnabled && refundPaymentReadiness.value === 'incomplete') {
     errorMessage.value = '请先完成微信退款配置，再开放用户自助退款。';
     return;
   }
+  const submittedRefundEnabled = settingsForm.refundEnabled;
   refundPending.value = true;
   message.value = '';
   errorMessage.value = '';
@@ -277,13 +278,13 @@ async function saveRefundPolicy() {
     event.value = await conferenceApi.updateEvent({
       settings: {
         refunds: {
-          enabled: settingsForm.refundEnabled,
+          enabled: submittedRefundEnabled,
           version: 'seven-day-v1',
           windowDays: 7,
         },
       },
     });
-    savedRefundEnabled.value = settingsForm.refundEnabled;
+    savedRefundEnabled.value = submittedRefundEnabled;
     message.value = savedMessage('退款设置已保存');
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '退款设置保存失败';
@@ -583,7 +584,7 @@ async function saveFlow() {
           <strong>开放购票后 7 天自助退款</strong>
           <small>开放后，符合条件的已支付订单会在个人中心显示退款入口</small>
         </span>
-        <input v-model="settingsForm.refundEnabled" type="checkbox" />
+        <input v-model="settingsForm.refundEnabled" type="checkbox" :disabled="refundPending" />
       </label>
 
       <div class="refund-readiness" :class="`is-${refundPaymentReadiness}`">
