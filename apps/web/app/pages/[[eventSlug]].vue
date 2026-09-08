@@ -1673,23 +1673,29 @@ onBeforeUnmount(() => {
     <section
       v-if="blockEnabled('home.cooperation') && renderedPartnerLogos.length"
       id="partner-wall"
-      aria-label="与大会同行的机构"
+      aria-labelledby="partner-wall-title"
       :style="blockStyle('home.cooperation')"
     >
-      <ul class="wrap partner-wall__logos">
-        <li v-for="logo in renderedPartnerLogos" :key="logo.id">
-          <div class="partner-wall__image" :class="{ 'is-dark': logo.background === 'dark' }">
-            <img
-              :src="partnerLogoUrl(logo.assetId)"
-              :alt="logo.name"
-              :style="{ '--logo-scale': logo.scale }"
-              loading="lazy"
-              decoding="async"
-              @error="failedPartnerAssets.add(logo.assetId)"
-            />
-          </div>
-        </li>
-      </ul>
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="kicker">OUR NETWORK</span>
+          <h2 id="partner-wall-title" class="sec-title">与大会同行的机构</h2>
+        </div>
+        <ul class="partner-wall__logos">
+          <li v-for="logo in renderedPartnerLogos" :key="logo.id">
+            <div class="partner-wall__image" :class="{ 'is-dark': logo.background === 'dark' }">
+              <img
+                :src="partnerLogoUrl(logo.assetId)"
+                :alt="logo.name"
+                :style="{ '--logo-scale': logo.scale }"
+                loading="lazy"
+                decoding="async"
+                @error="failedPartnerAssets.add(logo.assetId)"
+              />
+            </div>
+          </li>
+        </ul>
+      </div>
     </section>
 
     <!-- ── COOPERATION ── -->

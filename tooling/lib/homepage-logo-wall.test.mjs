@@ -17,9 +17,11 @@ const configuration = (enabled = true) => ({
   },
 });
 const image = `<img src="/api/v1/assets/templates/${id}" alt="机构名称">`;
-const wall = (content) => `<section id="partner-wall"><ul><li>${content}</li></ul></section>`;
+const heading = '<h2 id="partner-wall-title">与大会同行的机构</h2>';
+const wall = (content) =>
+  `<section id="partner-wall"><div><span>OUR NETWORK</span>${heading}<ul class="partner-wall__logos"><li>${content}</li></ul></div></section>`;
 
-test('accepts real image markup in the configured order', () => {
+test('accepts the section title and real image markup in the configured order', () => {
   assert.doesNotThrow(() => assertHomepageLogoWall(configuration(), wall(image)));
 });
 test('rejects the stale text grid even when logo configuration is already saved', () => {
@@ -30,6 +32,10 @@ test('rejects the stale text grid even when logo configuration is already saved'
 });
 test('rejects missing markup and visible labels beside otherwise valid images', () => {
   assert.throws(() => assertHomepageLogoWall(configuration(), ''), /missing/u);
+  assert.throws(
+    () => assertHomepageLogoWall(configuration(), wall(image).replace(heading, '')),
+    /section title/u,
+  );
   assert.throws(
     () => assertHomepageLogoWall(configuration(), wall(`${image}<strong>机构名称</strong>`)),
     /visible text/u,

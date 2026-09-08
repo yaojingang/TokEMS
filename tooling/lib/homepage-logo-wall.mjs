@@ -23,9 +23,18 @@ export function assertHomepageLogoWall(event, html) {
     expected,
     'Served homepage logo images differ from the saved configuration; rebuild the web image',
   );
+  assert.match(
+    section,
+    /<h2\b[^>]*\bid="partner-wall-title"[^>]*>[^<]+<\/h2>/u,
+    'Homepage logo wall is missing its section title',
+  );
+  const logos = section.match(
+    /<ul\b[^>]*\bclass="[^"]*\bpartner-wall__logos\b[^"]*"[^>]*>([\s\S]*?)<\/ul>/u,
+  )?.[1];
+  assert.ok(logos, 'Homepage logo wall is missing its image list');
   assert.equal(
-    section.replace(/<[^>]*>/gu, '').trim(),
+    logos.replace(/<[^>]*>/gu, '').trim(),
     '',
-    'Homepage logo wall contains visible text',
+    'Homepage logo list contains visible text beside the images',
   );
 }
