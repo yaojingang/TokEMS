@@ -26,6 +26,20 @@ test('project inventory derives page, view, migration, table, API and test count
       export const events = pgTable('events', {});
     `,
     'packages/contracts/src/example.test.ts': 'test("works", () => {});',
+    'apps/api/src/runtime.test.ts': `
+      @Controller('test-only')
+      class TestController {
+        @Get()
+        list() {}
+      }
+    `,
+    'apps/api/src/runtime.spec.ts': `
+      @Controller('spec-only')
+      class SpecController {
+        @Post()
+        create() {}
+      }
+    `,
   };
   for (const [path, contents] of Object.entries(files)) {
     const target = join(root, path);
@@ -44,6 +58,6 @@ test('project inventory derives page, view, migration, table, API and test count
     databaseTables: 2,
     apiControllers: 1,
     apiOperations: 2,
-    testFiles: 1,
+    testFiles: 3,
   });
 });
