@@ -113,7 +113,7 @@ export class CustomerRefundController {
 export class AdminRefundController {
   constructor(@Inject(RefundWorkflowService) private readonly workflow: RefundWorkflowService) {}
   @Get('events/:eventId/refund-policy')
-  @RequireGrant('event.registration.read')
+  @RequireGrant('event.registration.read', 'event.manage', 'event.order.refund')
   policy(@Req() request: AdminRequest, @Param('eventId', ParseIntPipe) eventId: number) {
     return this.workflow.eventPolicy(request.user.organizationId, eventId);
   }

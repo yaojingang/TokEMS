@@ -1891,7 +1891,8 @@
       "actionId": null,
       "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
       "requiredAnyGrants": [
-        "event.read"
+        "event.read",
+        "event.order.refund"
       ],
       "requiredAllGrants": []
     },
@@ -1926,6 +1927,7 @@
       "requiredAnyGrants": [
         "event.read",
         "event.manage",
+        "event.order.refund",
         "event.registration.manage",
         "event.inventory.read",
         "event.inventory.manage",
@@ -2192,7 +2194,9 @@
       "actionId": null,
       "exclusion": "Refund workflow operations require human review until explicitly catalogued",
       "requiredAnyGrants": [
-        "event.registration.read"
+        "event.registration.read",
+        "event.manage",
+        "event.order.refund"
       ],
       "requiredAllGrants": []
     },
@@ -2654,7 +2658,8 @@
       "exclusion": null,
       "requiredAnyGrants": [
         "event.manage",
-        "event.registration.manage"
+        "event.registration.manage",
+        "event.order.refund"
       ],
       "requiredAllGrants": []
     },
