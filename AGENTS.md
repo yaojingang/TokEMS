@@ -3,6 +3,7 @@
 ## 本地开发与预览
 
 - 主工作目录的 `main` 是本地集成分支。日常页面调整和连续小迭代默认在这里完成，无需每轮新建分支或工作树；本地提交与远端推送分别按用户授权执行。
+- 已在本地 `main` 完成的提交，远端推送使用 `HEAD:refs/heads/codex/<change-name>`，再通过 PR 合并到远端 `main`。用户授权推送后仍须遵守 PR 流程；禁止直接推送远端 `main` 或使用管理员权限跳过必需检查。
 - 需要并行隔离、较大实验或用户指定时才使用功能分支与独立工作树。完成并验证后及时合并到本地 `main`，再更新共享预览。
 - `http://127.0.0.1:8088/`、Compose 项目 `tokems` 和 `tokems-*:local` 镜像只用于主工作目录的共享预览。其他工作树不得构建、启动或替换这套共享服务。
 - 独立预览必须同时隔离 Compose 项目名、镜像标签、端口和数据卷；仅创建 Git 分支或工作树不能隔离运行环境。临时构建与测试优先使用不接管共享服务的验证方式。
@@ -13,6 +14,7 @@
 
 - 生产发布前必须阅读 `docs/production-deployment-runbook.md`。
 - 唯一上游仓库为 `https://github.com/yaojingang/TokEMS.git`，生产代码只允许来自已合并且 CI 通过的 `origin/main`。
+- 生产目标 SHA 必须等于一个以 `main` 为目标分支的已合并 PR 的 `merge_commit_sha`，并具有该 SHA 的成功主分支 CI 和完整镜像发布。确认提交已在远端 `main` 后，还须核对这三项证据才能给出可发布结论。
 - 生产服务器源码目录为 `/www/wwwroot/TokEMS`。宝塔站点目录 `/www/dk_project/wwwroot/hui.ailingdaoli.com` 只承载站点和反向代理配置，禁止在该目录拉取代码、构建镜像或执行数据库迁移。
 - 生产环境文件固定为 `/etc/tokems/production.env`，目录权限为 `root:root 0700`，文件权限为 `root:root 0600`。生产 Compose 和发布脚本禁止读取 Git 工作区中的实时 `.env`。
 - 服务器分支 `production` 跟踪 `origin/main`。发布前确认工作区干净，并确认服务器 `HEAD` 与 `origin/main` 完全一致。

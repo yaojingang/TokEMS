@@ -235,6 +235,7 @@ def verify_source_bundle(args: argparse.Namespace) -> None:
         run_git(
             "fetch",
             "--quiet",
+            "--no-auto-maintenance",
             "--no-tags",
             "--no-write-fetch-head",
             str(bundle),
@@ -301,6 +302,7 @@ def import_source_bundle(args: argparse.Namespace) -> None:
         run_git(
             "fetch",
             "--quiet",
+            "--no-auto-maintenance",
             "--no-tags",
             "--no-write-fetch-head",
             str(bundle),

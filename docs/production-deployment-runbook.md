@@ -128,11 +128,25 @@ pnpm check
 
 ### 6.2 PR 和合并
 
+功能分支上的提交按以下步骤发起 PR：
+
 ```bash
 git push -u origin <feature-branch>
 gh pr create --base main --head <feature-branch>
 gh pr checks <pr-number> --watch
 ```
+
+主工作目录允许在本地 `main` 连续提交。推送前确认 `origin/main..HEAD` 仅包含本轮已完成的提交，再把这些提交推送到远端功能分支。将 `<change-name>` 替换为本次改动的分支名称：
+
+```bash
+git fetch origin main
+git log --oneline origin/main..HEAD
+git push origin HEAD:refs/heads/codex/<change-name>
+gh pr create --base main --head codex/<change-name>
+gh pr checks <pr-number> --watch
+```
+
+本地 `main` 的提交授权与远端主分支的 PR 门禁同时适用。禁止直接推送远端 `main` 或使用管理员权限跳过必需检查。生产脚本要求最终目标 SHA 等于已合并 PR 的 `merge_commit_sha`；仅有远端提交、成功 CI 或已构建镜像均不足以通过此门禁。
 
 合并前确认：
 
@@ -144,7 +158,7 @@ gh pr checks <pr-number> --watch
 - 新迁移、生成文件、文档和测试全部纳入提交。
 - `origin/main` 没有尚未处理的冲突或更新。
 
-合并后记录目标提交：
+合并后记录目标提交，并确认它与本次 PR 的 `merge_commit_sha` 一致。等待该 SHA 的主分支 CI 和镜像发布工作流全部成功，核对最终 `release-<SHA>` descriptor 后，才进入服务器发布流程：
 
 ```bash
 git fetch origin main
