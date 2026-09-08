@@ -592,7 +592,7 @@ class SiteConfigurationController {
 
 @ApiTags('public-template-assets')
 @Controller('assets/templates')
-class TemplateAssetsController {
+export class TemplateAssetsController {
   constructor(
     @Inject(TemplateOperationsService)
     private readonly templates: TemplateOperationsService,
@@ -601,7 +601,10 @@ class TemplateAssetsController {
   @Get(':assetId')
   async asset(@Param('assetId') assetId: string, @Res() reply: FastifyReply) {
     const url = await this.templates.publicAssetUrl(assetId);
-    return reply.code(HttpStatus.FOUND).redirect(url);
+    return reply
+      .header('Cross-Origin-Resource-Policy', 'cross-origin')
+      .code(HttpStatus.FOUND)
+      .redirect(url);
   }
 }
 
