@@ -8,6 +8,7 @@ import {
 } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  auditLogs,
   customerUsers,
   events,
   orders,
@@ -227,6 +228,477 @@ persistent('WeChat configuration changes and refund creation serialize in Postgr
       policy,
     };
   }
+
+  it.each([
+    [undefined, 'default'],
+    [null, 'default'],
+    ['default', 'available'],
+    ['available', null],
+  ] as const)(
+    'preserves payment verification when refund funding changes from %s to %s',
+    async (previous, next) => {
+      const f = await fixture();
+      const verifiedAt = new Date('2026-09-08T00:00:00Z');
+      await db
+        .update(organizationIntegrations)
+        .set({
+          config: { ...f.config, refundFunding: previous },
+          lastVerifiedAt: verifiedAt,
+        })
+        .where(eq(organizationIntegrations.organizationId, f.organizationId));
+      await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: next,
+      });
+      const configuration = await f.gateway.getConfiguration(f.organizationId);
+      expect(configuration.status).toBe('verified');
+      expect(configuration.lastVerifiedAt).toBe(verifiedAt.toISOString());
+      expect(configuration.refundFunding).toBe(next);
+      const required = Reflect.get(f.gateway, 'requiredIntegration').bind(f.gateway);
+      await expect(required(f.organizationId, { requireVerified: true })).resolves.toBeDefined();
+      if (next) {
+        await expect(f.gateway.refundConfiguration(f.organizationId)).resolves.toMatchObject({
+          funding: next,
+        });
+      } else {
+        await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+          code: 'REFUND_NOT_CONFIGURED',
+        });
+      }
+    },
+  );
+
+  it.each(['configured', 'error'] as const)(
+    'keeps a %s merchant unverified after selecting refund funding',
+    async (status) => {
+      const f = await fixture();
+      await db
+        .update(organizationIntegrations)
+        .set({ status })
+        .where(eq(organizationIntegrations.organizationId, f.organizationId));
+      await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: 'available',
+      });
+      expect((await f.gateway.getConfiguration(f.organizationId)).status).toBe(status);
+      await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+        code: 'REFUND_NOT_CONFIGURED',
+      });
+      const required = Reflect.get(f.gateway, 'requiredIntegration').bind(f.gateway);
+      await expect(required(f.organizationId, { requireVerified: true })).rejects.toThrow(
+        '尚未验证通过',
+      );
+    },
+  );
+
+  it.each([
+    'appId',
+    'mchId',
+    'merchantCertificateSerial',
+    'platformPublicKeyId',
+    'merchantPrivateKey',
+    'apiV3Key',
+    'platformPublicKey',
+    'appSecret',
+    'channels',
+    'oauthEnabled',
+  ] as const)('still requires verification when funding and %s change together', async (field) => {
+    const f = await fixture();
+    const rotated = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const changes: UpdateWeChatPayConfiguration = {
+      ...f.config,
+      appId: 'wx-changed',
+      mchId: '1900000110',
+      merchantCertificateSerial: 'CHANGED_SERIAL',
+      platformPublicKeyId: 'PUB_KEY_ID_CHANGED',
+      merchantPrivateKey: rotated.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      apiV3Key: randomBytes(16).toString('hex'),
+      platformPublicKey: rotated.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      appSecret: 'changed-test-app-secret',
+      channels: { native: true, jsapi: true, h5: false },
+      oauthEnabled: true,
+    };
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      refundFunding: 'available',
+      [field]: changes[field],
+    });
+    expect((await f.gateway.getConfiguration(f.organizationId)).status).toBe('configured');
+    const required = Reflect.get(f.gateway, 'requiredIntegration').bind(f.gateway);
+    await expect(required(f.organizationId, { requireVerified: true })).rejects.toThrow(
+      '尚未验证通过',
+    );
+    await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+      code: 'REFUND_NOT_CONFIGURED',
+    });
+  });
+
+  it('keeps queued refund instructions immutable when the funding strategy changes', async () => {
+    const f = await fixture();
+    await f.workflow.createAdmin(f.organizationId, f.orderId, f.actorId, randomUUID(), {
+      amount: 39900,
+      reason: '出资策略验收',
+    });
+    const [before] = await db.select().from(refunds).where(eq(refunds.orderId, f.orderId));
+    expect(before?.requestSnapshot).toMatchObject({
+      amount: { refund: 39900, total: 39900, currency: 'CNY' },
+    });
+    expect(before!.requestSnapshot).not.toHaveProperty('funds_account');
+    await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+      ...f.config,
+      refundFunding: 'available',
+    });
+    const [after] = await db.select().from(refunds).where(eq(refunds.id, before!.id));
+    expect(after?.requestSnapshot).toEqual(before!.requestSnapshot);
+    expect(after?.outRefundNo).toBe(before!.outRefundNo);
+    await expect(f.gateway.refundConfiguration(f.organizationId)).resolves.toMatchObject({
+      funding: 'available',
+    });
+  });
+
+  it('rejects a stale successful verification after funding and credentials have changed', async () => {
+    const f = await fixture();
+    const inside = latch(),
+      release = latch();
+    Reflect.set(
+      f.gateway,
+      'request',
+      async (_method: string, _url: string, body: { echo_message: string }) => {
+        inside.resolve();
+        await release.promise;
+        return { echo_message: body.echo_message };
+      },
+    );
+    const verifying = f.gateway.testConnection(f.organizationId, f.actorId);
+    try {
+      await inside.promise;
+      await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: 'available',
+        apiV3Key: randomBytes(16).toString('hex'),
+      });
+    } finally {
+      release.resolve();
+    }
+    expect(await verifying).toMatchObject({ ok: false });
+    expect((await f.gateway.getConfiguration(f.organizationId)).status).toBe('configured');
+  });
+
+  it.each([
+    ['verified', true],
+    ['verified', false],
+    ['configured', true],
+    ['configured', false],
+    ['error', true],
+    ['error', false],
+  ] as const)(
+    'uses the latest concurrent verification outcome (initial: %s, success: %s)',
+    async (initialStatus, success) => {
+      const f = await fixture();
+      await db
+        .update(organizationIntegrations)
+        .set({ status: initialStatus })
+        .where(eq(organizationIntegrations.organizationId, f.organizationId));
+      const inside = latch(),
+        release = latch();
+      const integration = Reflect.get(f.gateway, 'integration').bind(f.gateway);
+      Reflect.set(f.gateway, 'integration', async (organizationId: string, reader?: unknown) => {
+        const row = await integration(organizationId, reader);
+        if (reader) {
+          inside.resolve();
+          await release.promise;
+        }
+        return row;
+      });
+      Reflect.set(
+        f.gateway,
+        'request',
+        async (_method: string, _url: string, body: { echo_message: string }) => {
+          if (!success) throw new Error('TEST_VERIFY_FAILED');
+          return { echo_message: body.echo_message };
+        },
+      );
+      const saving = f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: 'available',
+      });
+      let verifiedAt: string | null;
+      try {
+        await inside.promise;
+        expect(await f.gateway.testConnection(f.organizationId, f.actorId)).toMatchObject({
+          ok: success,
+        });
+        const current = await f.gateway.getConfiguration(f.organizationId);
+        expect(current.status).toBe(success ? 'verified' : 'error');
+        verifiedAt = current.lastVerifiedAt;
+      } finally {
+        release.resolve();
+      }
+      const status = success ? 'verified' : 'error';
+      expect(await saving).toMatchObject({ status, lastVerifiedAt: verifiedAt });
+      const [audit] = await db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.organizationId, f.organizationId));
+      expect(audit?.after).toMatchObject({ status });
+      if (!success) {
+        await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+          code: 'REFUND_NOT_CONFIGURED',
+        });
+      }
+    },
+  );
+
+  it.each([
+    ['verified', true],
+    ['verified', false],
+    ['configured', true],
+    ['configured', false],
+    ['legacy', false],
+  ] as const)(
+    'records a %s merchant verification returning after a funding save (success: %s)',
+    async (status, success) => {
+      const f = await fixture();
+      await db
+        .update(organizationIntegrations)
+        .set({
+          status: status === 'legacy' ? 'verified' : status,
+          ...(status === 'legacy'
+            ? {
+                config: {
+                  ...f.config,
+                  refundFunding: undefined,
+                  channels: undefined,
+                  oauthEnabled: undefined,
+                },
+              }
+            : {}),
+        })
+        .where(eq(organizationIntegrations.organizationId, f.organizationId));
+      const inside = latch(),
+        release = latch();
+      Reflect.set(
+        f.gateway,
+        'request',
+        async (_method: string, _url: string, body: { echo_message: string }) => {
+          inside.resolve();
+          await release.promise;
+          if (!success) throw new Error('TEST_VERIFY_FAILED_AFTER_FUNDING_SAVE');
+          return { echo_message: body.echo_message };
+        },
+      );
+      const verifying = f.gateway.testConnection(f.organizationId, f.actorId);
+      try {
+        await inside.promise;
+        await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+          ...f.config,
+          refundFunding: 'available',
+        });
+      } finally {
+        release.resolve();
+      }
+      const result = await verifying;
+      expect(result.ok).toBe(success);
+      expect(await f.gateway.getConfiguration(f.organizationId)).toMatchObject({
+        status: success ? 'verified' : 'error',
+        refundFunding: 'available',
+        lastVerifiedAt: result.verifiedAt,
+        lastError: success ? null : 'TEST_VERIFY_FAILED_AFTER_FUNDING_SAVE',
+      });
+      if (!success) {
+        await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+          code: 'REFUND_NOT_CONFIGURED',
+        });
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'keeps a newer verification result after a funding save (older success: %s)',
+    async (success) => {
+      const f = await fixture();
+      const inside = latch(),
+        release = latch();
+      let calls = 0;
+      Reflect.set(
+        f.gateway,
+        'request',
+        async (_method: string, _url: string, body: { echo_message: string }) => {
+          if (++calls === 1) {
+            inside.resolve();
+            await release.promise;
+            if (!success) throw new Error('STALE_VERIFY_FAILED');
+          }
+          return { echo_message: body.echo_message };
+        },
+      );
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const now = Date.now();
+      const older = f.gateway.testConnection(f.organizationId, f.actorId);
+      try {
+        await inside.promise;
+        await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+          ...f.config,
+          refundFunding: 'available',
+        });
+        vi.setSystemTime(now + 1_000);
+        const latest = await f.gateway.testConnection(f.organizationId, f.actorId);
+        expect(latest.ok).toBe(true);
+        release.resolve();
+        expect(await older).toMatchObject({ ok: false });
+        expect(await f.gateway.getConfiguration(f.organizationId)).toMatchObject({
+          status: 'verified',
+          lastVerifiedAt: latest.verifiedAt,
+          lastError: null,
+          refundFunding: 'available',
+        });
+      } finally {
+        release.resolve();
+        await older;
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    [true, false],
+    [false, true],
+    [true, true],
+    [false, false],
+  ])(
+    'records the newer verification after the older result (older: %s, newer: %s)',
+    async (olderSuccess, newerSuccess) => {
+      const f = await fixture();
+      const firstStarted = latch(),
+        secondStarted = latch(),
+        releaseFirst = latch(),
+        releaseSecond = latch();
+      let calls = 0;
+      Reflect.set(
+        f.gateway,
+        'request',
+        async (_method: string, _url: string, body: { echo_message: string }) => {
+          const first = ++calls === 1;
+          (first ? firstStarted : secondStarted).resolve();
+          await (first ? releaseFirst : releaseSecond).promise;
+          if (!(first ? olderSuccess : newerSuccess)) throw new Error('TEST_ORDERED_VERIFY_FAILED');
+          return { echo_message: body.echo_message };
+        },
+      );
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const now = Date.now();
+      const older = f.gateway.testConnection(f.organizationId, f.actorId);
+      let newer: ReturnType<typeof f.gateway.testConnection> | undefined;
+      try {
+        await firstStarted.promise;
+        vi.setSystemTime(now + 1_000);
+        newer = f.gateway.testConnection(f.organizationId, f.actorId);
+        await secondStarted.promise;
+        releaseFirst.resolve();
+        expect(await older).toMatchObject({ ok: olderSuccess });
+        releaseSecond.resolve();
+        const result = await newer;
+        expect(result.ok).toBe(newerSuccess);
+        expect(await f.gateway.getConfiguration(f.organizationId)).toMatchObject({
+          status: newerSuccess ? 'verified' : 'error',
+          lastVerifiedAt: result.verifiedAt,
+          lastError: newerSuccess ? null : 'TEST_ORDERED_VERIFY_FAILED',
+        });
+      } finally {
+        releaseFirst.resolve();
+        releaseSecond.resolve();
+        await Promise.all([older, newer]);
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('does not restore an older verification after a failed verification and a funding save', async () => {
+    const f = await fixture();
+    await db
+      .update(organizationIntegrations)
+      .set({ status: 'configured' })
+      .where(eq(organizationIntegrations.organizationId, f.organizationId));
+    const inside = latch(),
+      release = latch();
+    let calls = 0;
+    Reflect.set(
+      f.gateway,
+      'request',
+      async (_method: string, _url: string, body: { echo_message: string }) => {
+        if (++calls > 1) throw new Error('NEWER_VERIFY_FAILED');
+        inside.resolve();
+        await release.promise;
+        return { echo_message: body.echo_message };
+      },
+    );
+    const older = f.gateway.testConnection(f.organizationId, f.actorId);
+    try {
+      await inside.promise;
+      const latest = await f.gateway.testConnection(f.organizationId, f.actorId);
+      expect(latest.ok).toBe(false);
+      await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: 'available',
+      });
+      release.resolve();
+      expect(await older).toMatchObject({ ok: false });
+      expect(await f.gateway.getConfiguration(f.organizationId)).toMatchObject({
+        status: 'error',
+        lastVerifiedAt: latest.verifiedAt,
+        lastError: 'NEWER_VERIFY_FAILED',
+        refundFunding: 'available',
+      });
+      await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+        code: 'REFUND_NOT_CONFIGURED',
+      });
+    } finally {
+      release.resolve();
+      await older;
+    }
+  });
+
+  it('requires a new verification when a funding save migrates the encryption key version', async () => {
+    const f = await fixture();
+    const previousKey = process.env.INTEGRATION_ENCRYPTION_KEY!;
+    const previousKeys = process.env.INTEGRATION_ENCRYPTION_PREVIOUS_KEYS;
+    const inside = latch(),
+      release = latch();
+    Reflect.set(f.gateway, 'request', async () => {
+      inside.resolve();
+      await release.promise;
+      throw new Error('OLD_ENCRYPTION_SNAPSHOT_VERIFY_FAILED');
+    });
+    const verifying = f.gateway.testConnection(f.organizationId, f.actorId);
+    try {
+      await inside.promise;
+      vi.stubEnv('INTEGRATION_ENCRYPTION_KEY', randomBytes(32).toString('base64'));
+      vi.stubEnv('INTEGRATION_ENCRYPTION_KEY_VERSION', '2');
+      vi.stubEnv('INTEGRATION_ENCRYPTION_PREVIOUS_KEYS', JSON.stringify({ 1: previousKey }));
+      const saved = await f.gateway.updateConfiguration(f.organizationId, f.actorId, {
+        ...f.config,
+        refundFunding: 'available',
+      });
+      release.resolve();
+      expect(await verifying).toMatchObject({ ok: false });
+      expect(saved).toMatchObject({ status: 'configured', refundFunding: 'available' });
+      expect((await f.gateway.getConfiguration(f.organizationId)).status).toBe('configured');
+      const [current] = await db
+        .select()
+        .from(organizationIntegrations)
+        .where(eq(organizationIntegrations.organizationId, f.organizationId));
+      expect(current?.keyVersion).toBe(2);
+      await expect(f.gateway.refundConfiguration(f.organizationId)).rejects.toMatchObject({
+        code: 'REFUND_NOT_CONFIGURED',
+      });
+    } finally {
+      release.resolve();
+      await verifying;
+      vi.stubEnv('INTEGRATION_ENCRYPTION_KEY', previousKey);
+      vi.stubEnv('INTEGRATION_ENCRYPTION_KEY_VERSION', '1');
+      vi.stubEnv('INTEGRATION_ENCRYPTION_PREVIOUS_KEYS', previousKeys);
+    }
+  });
 
   it('preserves verified credentials when disabling new payments and rejects an unverified key change', async () => {
     const f = await fixture();

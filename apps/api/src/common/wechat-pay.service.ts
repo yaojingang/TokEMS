@@ -713,17 +713,21 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           h5: input.channels?.h5 ?? previousConfig.channels.h5,
         },
       };
-      const preserveVerification =
-        existing?.status === 'verified' &&
+      const keyVersion = integrationEncryptionKeyVersion();
+      const verificationSnapshotUnchanged =
+        existing?.keyVersion === keyVersion &&
         Object.entries(config).every(
           ([key, value]) =>
             key === 'enabled' ||
+            key === 'refundFunding' ||
             JSON.stringify(value) === JSON.stringify(previousConfig[key as keyof PublicConfig]),
         ) &&
         credentials.merchantPrivateKey === previousCredentials?.merchantPrivateKey &&
         credentials.apiV3Key === previousCredentials?.apiV3Key &&
         credentials.platformPublicKey === previousCredentials?.platformPublicKey &&
         credentials.appSecret === previousCredentials?.appSecret;
+      const preserveVerification =
+        existing?.status === 'verified' && verificationSnapshotUnchanged;
       const nextStatus = preserveVerification ? 'verified' : 'configured';
       const lastVerifiedAt = preserveVerification ? existing.lastVerifiedAt : null;
       const encryptedPayload: Record<string, string> = {
@@ -756,13 +760,13 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       if (credentials.appSecret) {
         encryptedPayload.appSecret = credentials.appSecret;
       }
-      const encryptedCredentials = encryptIntegrationCredentials(
-        organizationId,
-        PROVIDER,
-        encryptedPayload,
-      );
+      // Keep the credential snapshot stable across funding and collection-policy edits.
+      const encryptedCredentials =
+        verificationSnapshotUnchanged && existing?.encryptedCredentials
+          ? existing.encryptedCredentials
+          : encryptIntegrationCredentials(organizationId, PROVIDER, encryptedPayload);
       const now = new Date();
-      await tx
+      const [saved] = await tx
         .insert(organizationIntegrations)
         .values({
           organizationId,
@@ -770,7 +774,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           status: nextStatus,
           config,
           encryptedCredentials,
-          keyVersion: integrationEncryptionKeyVersion(),
+          keyVersion,
           lastVerifiedAt,
           lastError: null,
           updatedBy: actorId,
@@ -779,16 +783,24 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         .onConflictDoUpdate({
           target: [organizationIntegrations.organizationId, organizationIntegrations.provider],
           set: {
-            status: nextStatus,
+            // Preserve the latest result, including failures, across policy-only saves.
+            status: verificationSnapshotUnchanged
+              ? sql`${organizationIntegrations.status}`
+              : nextStatus,
             config,
             encryptedCredentials,
-            keyVersion: integrationEncryptionKeyVersion(),
-            lastVerifiedAt,
-            lastError: null,
+            keyVersion,
+            lastVerifiedAt: verificationSnapshotUnchanged
+              ? sql`${organizationIntegrations.lastVerifiedAt}`
+              : lastVerifiedAt,
+            lastError: verificationSnapshotUnchanged
+              ? sql`${organizationIntegrations.lastError}`
+              : null,
             updatedBy: actorId,
             updatedAt: now,
           },
-        });
+        })
+        .returning({ status: organizationIntegrations.status });
       await tx.insert(auditLogs).values({
         organizationId,
         actorId,
@@ -796,7 +808,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         resourceType: 'organization_integration',
         resourceId: existing?.id ?? organizationId,
         before: existing ? { status: existing.status, config: safeConfig(existing.config) } : null,
-        after: { status: nextStatus, config },
+        after: { status: saved!.status, config },
         traceId: crypto.randomUUID(),
       });
     });
@@ -1389,6 +1401,25 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       allowDisabled: true,
     });
     const verifiedAt = new Date();
+    // A funding edit keeps this proof valid; changed credentials or a newer result invalidate it.
+    const verificationSnapshot = and(
+      eq(organizationIntegrations.id, row.id),
+      eq(organizationIntegrations.organizationId, organizationId),
+      eq(organizationIntegrations.provider, PROVIDER),
+      or(
+        eq(organizationIntegrations.config, row.config),
+        sql`(${organizationIntegrations.config} - 'enabled' - 'refundFunding') =
+          (${JSON.stringify(config)}::jsonb - 'enabled' - 'refundFunding')`,
+      ),
+      row.encryptedCredentials
+        ? eq(organizationIntegrations.encryptedCredentials, row.encryptedCredentials)
+        : isNull(organizationIntegrations.encryptedCredentials),
+      eq(organizationIntegrations.keyVersion, row.keyVersion),
+      or(
+        isNull(organizationIntegrations.lastVerifiedAt),
+        lt(organizationIntegrations.lastVerifiedAt, verifiedAt),
+      ),
+    );
     try {
       const echoMessage = `tokems-${organizationId}-${verifiedAt.getTime()}`;
       const result = await this.request(
@@ -1414,19 +1445,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           updatedBy: actorId,
           updatedAt: verifiedAt,
         })
-        .where(
-          and(
-            eq(organizationIntegrations.id, row.id),
-            eq(organizationIntegrations.organizationId, organizationId),
-            eq(organizationIntegrations.provider, PROVIDER),
-            eq(organizationIntegrations.status, row.status),
-            eq(organizationIntegrations.config, row.config),
-            row.encryptedCredentials
-              ? eq(organizationIntegrations.encryptedCredentials, row.encryptedCredentials)
-              : isNull(organizationIntegrations.encryptedCredentials),
-            eq(organizationIntegrations.keyVersion, row.keyVersion),
-          ),
-        )
+        .where(verificationSnapshot)
         .returning({ id: organizationIntegrations.id });
       if (!verified) {
         throw new DomainError(
@@ -1452,19 +1471,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           updatedBy: actorId,
           updatedAt: verifiedAt,
         })
-        .where(
-          and(
-            eq(organizationIntegrations.id, row.id),
-            eq(organizationIntegrations.organizationId, organizationId),
-            eq(organizationIntegrations.provider, PROVIDER),
-            eq(organizationIntegrations.status, row.status),
-            eq(organizationIntegrations.config, row.config),
-            row.encryptedCredentials
-              ? eq(organizationIntegrations.encryptedCredentials, row.encryptedCredentials)
-              : isNull(organizationIntegrations.encryptedCredentials),
-            eq(organizationIntegrations.keyVersion, row.keyVersion),
-          ),
-        );
+        .where(verificationSnapshot);
       return {
         ok: false,
         status: 'error',
