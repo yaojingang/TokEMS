@@ -9,6 +9,7 @@ OpenAPI JSON：`http://localhost:8088/api/openapi.json`
 ## 通用请求约定
 
 - 后台接口使用 `Authorization: Bearer <token>`。
+- 后台登录凭据自登录成功起固定有效 90 天，并保存在当前浏览器；退出登录会清除本地凭据，凭据或成员授权变更仍会使已有登录失效。已签发的旧凭据保留原有效期，重新登录后生效。
 - 多组织公开读取可传 `X-Organization-Slug`，默认值来自 `PUBLIC_ORGANIZATION_SLUG`。
 - 关键写操作使用 8 到 160 字符的 `Idempotency-Key`。
 - `eventId` 统一为 `101`–`2147483647` 的正整数。首场大会为 `101`，新建成功后全局递增 1，已分配编号不复用。

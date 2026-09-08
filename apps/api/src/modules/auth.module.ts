@@ -174,18 +174,21 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    const accessToken = await this.jwt.signAsync({
-      sub: identity.uuid,
-      email: identity.email,
-      username: identity.username,
-      name: identity.name,
-      role: identity.role,
-      organizationId: identity.organizationId,
-      grants: identity.grants,
-      credentialVersion: identity.credentialVersion,
-      membershipId: identity.membershipId,
-      membershipVersion: identity.membershipVersion,
-    });
+    const accessToken = await this.jwt.signAsync(
+      {
+        sub: identity.uuid,
+        email: identity.email,
+        username: identity.username,
+        name: identity.name,
+        role: identity.role,
+        organizationId: identity.organizationId,
+        grants: identity.grants,
+        credentialVersion: identity.credentialVersion,
+        membershipId: identity.membershipId,
+        membershipVersion: identity.membershipVersion,
+      },
+      { expiresIn: '90d' },
+    );
     return {
       accessToken,
       user: {
