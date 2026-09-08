@@ -13,6 +13,7 @@ import {
   SpeakerRouteCodeSchema,
 } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
+import { isWechatContactUrl } from '~/utils/speaker-contact';
 
 definePageMeta({ alias: ['/s/:speakerId'] });
 
@@ -51,6 +52,12 @@ if (import.meta.server && error.value) {
 
 const avatarInitial = computed(() =>
   speakerAvatarText(speaker.value?.name ?? '', speaker.value?.initials),
+);
+const wechatLinks = computed(() =>
+  (speaker.value?.socialLinks ?? []).filter((link) => isWechatContactUrl(link.url)),
+);
+const otherSocialLinks = computed(() =>
+  (speaker.value?.socialLinks ?? []).filter((link) => !isWechatContactUrl(link.url)),
 );
 const eventDate = computed(() => {
   if (!speaker.value) return '';
@@ -184,7 +191,35 @@ useHead(() => {
             </section>
 
             <section
-              v-if="speaker.websiteUrl || speaker.socialLinks.length"
+              v-if="wechatLinks.length"
+              class="speaker-content-section speaker-wechat-section"
+            >
+              <div class="speaker-section-heading">
+                <span>CONTACT</span>
+                <h2>微信联系</h2>
+              </div>
+              <div class="speaker-wechat-contacts">
+                <div v-for="link in wechatLinks" :key="link.url" class="speaker-wechat-contact">
+                  <div
+                    class="speaker-contact-qr"
+                    role="img"
+                    :aria-label="`${speaker.name}的微信二维码`"
+                  >
+                    <QRCode :value="link.url" :size="176" level="M" render-as="svg" />
+                  </div>
+                  <div class="speaker-wechat-copy">
+                    <strong>{{ speaker.name }}</strong>
+                    <p>使用微信扫描二维码，添加好友交流。</p>
+                    <a :href="link.url" target="_blank" rel="noopener noreferrer">
+                      打开微信联系页 ↗
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section
+              v-if="speaker.websiteUrl || otherSocialLinks.length"
               class="speaker-content-section"
             >
               <div class="speaker-section-heading">
@@ -201,7 +236,7 @@ useHead(() => {
                   <span>官方网站</span><strong>访问 ↗</strong>
                 </a>
                 <a
-                  v-for="link in speaker.socialLinks"
+                  v-for="link in otherSocialLinks"
                   :key="`${link.label}:${link.url}`"
                   :href="link.url"
                   target="_blank"
@@ -401,9 +436,10 @@ useHead(() => {
 .speaker-topic-section > div:last-child h2 {
   margin: 0;
   color: #172033;
-  font-size: clamp(21px, 2.4vw, 27px);
+  font-size: clamp(20px, 2.1vw, 24px);
   line-height: 1.45;
-  text-wrap: balance;
+  overflow-wrap: anywhere;
+  text-wrap: wrap;
 }
 
 .speaker-topic-section > div:last-child p,
@@ -418,6 +454,57 @@ useHead(() => {
 
 .speaker-content-section > p {
   margin-top: 0;
+}
+
+.speaker-wechat-contacts {
+  display: grid;
+  gap: 24px;
+}
+
+.speaker-wechat-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.speaker-contact-qr {
+  flex: none;
+  padding: 14px;
+  border: 1px solid #e8edf4;
+  border-radius: 8px;
+  background: #fff;
+  line-height: 0;
+}
+
+.speaker-contact-qr :deep(svg) {
+  display: block;
+  width: 176px;
+  height: 176px;
+}
+
+.speaker-wechat-copy {
+  flex: 1 1 160px;
+  color: #172033;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.speaker-wechat-copy p {
+  margin: 6px 0 10px;
+  color: #4e5a6d;
+}
+
+.speaker-wechat-copy a {
+  display: inline-block;
+  padding: 6px 0;
+  color: #1f5fe8;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.speaker-wechat-copy a:active {
+  transform: translateY(1px);
 }
 
 .speaker-links {
@@ -680,7 +767,7 @@ useHead(() => {
   }
 
   .speaker-topic-section > div:last-child h2 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .speaker-topic-section > div:last-child p,

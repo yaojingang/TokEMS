@@ -51,6 +51,16 @@ const sensitiveValuePatterns = [
 ];
 
 type JsonRecord = Record<string, unknown>;
+
+export function canonicalSpeakerRoutes(
+  speakers: JsonRecord[],
+  routes: JsonRecord[],
+): JsonRecord[] {
+  // Public routes also reserve codes for speakers in historical releases.
+  const currentIds = new Set(speakers.map((speaker) => speaker.id));
+  return routes.filter((route) => currentIds.has(route.speakerId));
+}
+
 type CanonicalRenderer = {
   id: string;
   key: string;
@@ -1375,7 +1385,7 @@ async function buildSnapshot() {
         'termsContent',
       ]),
       speakers: liveSpeakerResult.rows.map(sanitizeSpeaker),
-      speakerRoutes: speakerRouteResult.rows,
+      speakerRoutes: canonicalSpeakerRoutes(liveSpeakerResult.rows, speakerRouteResult.rows),
       sessions: liveSessionResult.rows.map(sanitizeSession),
     };
 

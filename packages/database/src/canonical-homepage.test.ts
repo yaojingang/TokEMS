@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalSpeakerRoutes,
   validateCanonicalExportTopology,
   validateCanonicalHomepageSnapshot,
 } from './export-canonical-homepage.js';
@@ -17,6 +18,41 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it('selects current speaker routes without mutating the supplied mappings', async () => {
+    const value = await snapshot();
+    const backend = value.backend as {
+      speakers: Array<Record<string, unknown>>;
+      speakerRoutes: Array<Record<string, unknown>>;
+    };
+    const currentRoutes = structuredClone(backend.speakerRoutes);
+    const storedRoutes = [
+      ...currentRoutes,
+      { speakerId: randomUUID(), publicCode: 'zzzz' },
+    ];
+    backend.speakerRoutes = canonicalSpeakerRoutes(backend.speakers, storedRoutes);
+
+    expect(backend.speakerRoutes).toEqual(currentRoutes);
+    expect(storedRoutes).toHaveLength(currentRoutes.length + 1);
+    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+    expect(canonicalSpeakerRoutes([], storedRoutes)).toEqual([]);
+  });
+
+  it('continues rejecting missing or duplicate routes for current speakers', async () => {
+    const value = await snapshot();
+    const backend = value.backend as {
+      speakers: Array<Record<string, unknown>>;
+      speakerRoutes: Array<Record<string, unknown>>;
+    };
+    const currentRoutes = structuredClone(backend.speakerRoutes);
+    backend.speakerRoutes = canonicalSpeakerRoutes(backend.speakers, currentRoutes.slice(1));
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/must have one public route/u);
+    backend.speakerRoutes = canonicalSpeakerRoutes(backend.speakers, [
+      ...currentRoutes,
+      currentRoutes[0]!,
+    ]);
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/routes do not match/u);
+  });
+
   it.each([null, ''])('accepts omitted optional session text stored as %j', async (empty) => {
     const value = await snapshot();
     const release = value.release as { snapshot: { sessions: Array<Record<string, unknown>> } };

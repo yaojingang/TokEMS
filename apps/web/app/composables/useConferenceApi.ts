@@ -59,6 +59,16 @@ export function useConferenceApi() {
     return `${String(config.public.apiBase).replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
   }
 
+  function resolveEventResources(event: PublicEvent): PublicEvent {
+    return {
+      ...event,
+      speakers: event.speakers.map((speaker) => ({
+        ...speaker,
+        ...(speaker.avatarUrl ? { avatarUrl: publicApiResourceUrl(speaker.avatarUrl) } : {}),
+      })),
+    };
+  }
+
   function isNetworkFailure(error: unknown) {
     const failure = error as { response?: { status?: number }; statusCode?: number };
     return !failure?.response?.status && !failure?.statusCode;
@@ -71,11 +81,12 @@ export function useConferenceApi() {
         timeout: 4_000,
         headers: { 'X-Organization-Slug': organizationSlug },
       });
-      saveEvent(event);
-      return event;
+      const resolved = resolveEventResources(event);
+      saveEvent(resolved);
+      return resolved;
     } catch (error) {
       if (import.meta.dev && isNetworkFailure(error)) {
-        const event = structuredClone(DEMO_EVENT);
+        const event = resolveEventResources(structuredClone(DEMO_EVENT));
         saveEvent(event);
         return event;
       }
@@ -90,8 +101,9 @@ export function useConferenceApi() {
         timeout: 4_000,
         headers: { 'X-Organization-Slug': organizationSlug },
       });
-      saveEvent(event);
-      return event;
+      const resolved = resolveEventResources(event);
+      saveEvent(resolved);
+      return resolved;
     } catch (error) {
       if (import.meta.dev && isNetworkFailure(error)) return getEvent(DEMO_EVENT.slug);
       throw error;

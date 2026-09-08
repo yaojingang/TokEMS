@@ -1494,7 +1494,8 @@ try {
       }));
 
       const canonicalSpeakerIds = demoSpeakerRows.map((speaker) => speaker.id);
-      await tx.delete(speakerPublicRoutes).where(eq(speakerPublicRoutes.eventId, DEMO_IDS.event));
+      // Historical releases still resolve deleted speakers through their reserved routes.
+      // Upsert current mappings below; a reserved-code collision aborts this transaction.
       await tx
         .delete(speakers)
         .where(

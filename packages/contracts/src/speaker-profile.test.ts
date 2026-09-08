@@ -16,25 +16,27 @@ import {
 const speakerId = '55555555-5555-4555-8555-555555555551';
 
 describe('speaker profile contracts', () => {
-  it('publishes the confirmed homepage speaker lineup with complete draft topics', () => {
+  it('publishes the alphabetical guest lineup with the confirmed speaking roles', () => {
     expect(DEMO_EVENT.speakers.map((speaker) => speaker.name)).toEqual([
-      '姚金刚',
-      '乔向阳',
-      '陈铮',
-      '波波',
-      '刘树勋',
-      '高军',
-      '姚诗成',
-      '哥飞',
-      '大尤',
-      '任强',
-      '岳琦',
-      '玉伯',
-      '杨攀',
       'AJ',
-      'Berryxia（神的孩子在跳舞）',
+      '拔刀刘',
+      'Berryxia',
+      '陈峥',
+      '大尤',
+      '夫唯',
+      '高军',
+      '哥飞',
       '岚叔',
+      '冷洪利（光头牛哥）',
+      '刘树勋',
       '彭超',
+      '乔向阳',
+      '任强',
+      '杨攀',
+      '姚金刚',
+      '姚诗成',
+      '玉伯',
+      '岳琦',
       '余一',
     ]);
 
@@ -42,7 +44,15 @@ describe('speaker profile contracts', () => {
       expect(speaker.role.trim()).not.toBe('');
       expect(speaker.topic.trim()).not.toBe('');
       expect(DEMO_SPEAKER_PROFILES[speaker.id]?.bio.trim()).not.toBe('');
-      expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract.trim()).not.toBe('');
+      if (speaker.name === '夫唯') {
+        expect(speaker.topic).toBe('特邀嘉宾');
+        expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract).toBe('');
+        expect(DEMO_EVENT.sessions.some((session) => session.speaker?.includes('夫唯'))).toBe(
+          false,
+        );
+      } else {
+        expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract.trim()).not.toBe('');
+      }
     }
 
     const organizationNames = [
@@ -65,6 +75,12 @@ describe('speaker profile contracts', () => {
       topic: '品牌企业如何做好 GEO：内容建设与增长实践',
       tags: ['品牌GEO', '增长实践'],
     });
+    expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '岳琦')?.role).toContain(
+      '主持人',
+    );
+    expect(
+      DEMO_EVENT.sessions.find((session) => session.title === 'GEO Agent 实操')?.speaker,
+    ).toContain('floatboat');
   });
 
   it('creates stable four-letter speaker routes without exposing sequential identifiers', () => {
