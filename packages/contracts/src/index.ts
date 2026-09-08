@@ -383,6 +383,41 @@ export const TemplatePartnershipOrganizationGroupsSchema = z
     });
   });
 
+export const TemplatePartnerLogoSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string().trim().min(1).max(120),
+    assetId: z.uuid().nullable(),
+    group: TemplatePartnershipOrganizationGroupKeySchema,
+    enabled: z.boolean(),
+    background: z.enum(['light', 'dark']),
+    scale: z.number().min(0.5).max(2).default(1),
+  })
+  .strict();
+
+export const TemplateLogoWallSchema = z
+  .object({
+    enabled: z.boolean(),
+    items: z.array(TemplatePartnerLogoSchema).max(100),
+  })
+  .strict()
+  .superRefine((wall, context) => {
+    const ids = new Set<string>();
+    wall.items.forEach((item, index) => {
+      if (ids.has(item.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'id'],
+          message: 'Logo 标识重复',
+        });
+      }
+      ids.add(item.id);
+    });
+  });
+
+export type TemplatePartnerLogo = z.infer<typeof TemplatePartnerLogoSchema>;
+export type TemplateLogoWall = z.infer<typeof TemplateLogoWallSchema>;
+
 export const TemplateHomeBlockSchema = z.object({
   nodeKey: z
     .string()
@@ -867,23 +902,20 @@ export const ConferenceTemplateDefinitionSchema =
     if (definition.presentation.kind === 'structured') {
       definition.presentation.home.blocks.forEach((block, blockIndex) => {
         if (block.nodeKey !== 'home.cooperation') return;
-        const organizationGroups = block.content.organizationGroups;
-        if (organizationGroups === undefined) return;
-        const result = TemplatePartnershipOrganizationGroupsSchema.safeParse(organizationGroups);
-        if (result.success) return;
-        result.error.issues.forEach((issue) => {
-          context.addIssue({
-            code: 'custom',
-            path: [
-              'presentation',
-              'home',
-              'blocks',
-              blockIndex,
-              'content',
-              'organizationGroups',
-              ...issue.path,
-            ],
-            message: issue.message,
+        const fields = {
+          organizationGroups: TemplatePartnershipOrganizationGroupsSchema,
+          logoWall: TemplateLogoWallSchema,
+        };
+        Object.entries(fields).forEach(([key, schema]) => {
+          if (block.content[key] === undefined) return;
+          const result = schema.safeParse(block.content[key]);
+          if (result.success) return;
+          result.error.issues.forEach((issue) => {
+            context.addIssue({
+              code: 'custom',
+              path: ['presentation', 'home', 'blocks', blockIndex, 'content', key, ...issue.path],
+              message: issue.message,
+            });
           });
         });
       });

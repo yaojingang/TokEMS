@@ -545,7 +545,7 @@ const baseURL =
   import.meta.env.VITE_API_BASE ??
   (import.meta.env.DEV ? 'http://localhost:4100/api/v1' : '/api/v1');
 
-function apiResourceUrl(path: string | null | undefined) {
+export function apiResourceUrl(path: string | null | undefined) {
   if (!path) return null;
   if (/^https?:\/\//u.test(path)) return path;
   return `${baseURL.replace(/\/$/u, '')}/${path.replace(/^\//u, '')}`;

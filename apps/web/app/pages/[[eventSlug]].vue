@@ -39,13 +39,10 @@ import {
   resolveAttendeeNeedsSectionState,
   type AttendeeNeedsLastSuccess,
 } from '~/utils/attendee-needs';
-import { buildPartnershipOrganizationGroups } from '~/utils/partnership-organizations';
+import { visiblePartnerLogos } from '~/utils/partner-logos';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
-import {
-  resolveHomeRegistrationCta,
-  resolveSelfRegistrationState,
-} from '~/utils/purchase-journey';
+import { resolveHomeRegistrationCta, resolveSelfRegistrationState } from '~/utils/purchase-journey';
 import {
   createPublicViewRecorder,
   formatTrackingStartDate,
@@ -200,7 +197,6 @@ const homeBlock = (nodeKey: string) =>
   homeBlocks.value.find((block) => block.nodeKey === nodeKey) ??
   defaultHomeBlocks.find((block) => block.nodeKey === nodeKey);
 const blockEnabled = (nodeKey: string) => homeBlock(nodeKey)?.enabled ?? true;
-const cooperationBlockEnabled = computed(() => blockEnabled('home.cooperation'));
 const blockStyle = (nodeKey: string) => {
   const eventOrder = homeBlocks.value.findIndex((block) => block.nodeKey === nodeKey);
   const defaultOrder = defaultHomeBlocks.findIndex((block) => block.nodeKey === nodeKey);
@@ -497,23 +493,6 @@ const {
   },
   { watch: [eventRouteKey, membersBlockEnabled, membersPage, membersIndustry] },
 );
-const { data: partnershipMemberDirectory } = await useAsyncData(
-  () => `conference-partnership-members-${event.value.slug}`,
-  async () => {
-    if (!cooperationBlockEnabled.value) return emptyMemberList();
-    const slug = event.value.slug;
-    const snapshotKey = `${slug}:1:`;
-    const snapshot = memberDirectorySnapshots.get(snapshotKey);
-    if (snapshot) return snapshot;
-    const result = await loadMemberDirectoryWithFallback(
-      () => api.getEventMembers(slug, 1),
-      emptyMemberList(),
-    );
-    memberDirectorySnapshots.set(snapshotKey, result);
-    return result;
-  },
-  { watch: [eventRouteKey, cooperationBlockEnabled] },
-);
 const membersInitialLoading = computed(() =>
   isMemberDirectoryInitialLoading(membersPending.value, Boolean(memberDirectory.value)),
 );
@@ -541,22 +520,17 @@ const memberDirectoryState = computed(() =>
     memberDirectory.value?.total ?? 0,
   ),
 );
-const partnershipOrganizationGroups = computed(() =>
-  buildPartnershipOrganizationGroups(
-    event.value.speakers,
-    partnershipMemberDirectory.value?.items ?? [],
-    homeBlock('home.cooperation')?.content.organizationGroups,
-  ),
+const partnerLogos = computed(() =>
+  visiblePartnerLogos(homeBlock('home.cooperation')?.content.logoWall),
 );
-const partnershipOrganizationCount = computed(() =>
-  partnershipOrganizationGroups.value.reduce(
-    (total, group) => total + group.organizations.length,
-    0,
-  ),
+const partnerLogoUrl = (assetId: string) =>
+  `${String(runtimeConfig.public.apiBase).replace(/\/$/, '')}/assets/templates/${assetId}`;
+const failedPartnerAssets = ref(new Set<string>());
+const renderedPartnerLogos = computed(() =>
+  partnerLogos.value.filter((logo) => !failedPartnerAssets.value.has(logo.assetId)),
 );
-const partnershipOrganizationNameClass = (name: string) => ({
-  'is-long': Array.from(name).length > 8,
-  'is-extra-long': Array.from(name).length > 12,
+watch(partnerLogos, () => {
+  failedPartnerAssets.value = new Set();
 });
 const heroPrimaryAction = computed(() =>
   registrationAction.value.kind === 'register'
@@ -1696,62 +1670,26 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <!-- ── PARTNERSHIP ORGANIZATIONS ── -->
     <section
-      v-if="blockEnabled('home.cooperation') && partnershipOrganizationGroups.length"
+      v-if="blockEnabled('home.cooperation') && renderedPartnerLogos.length"
       id="partner-wall"
+      aria-label="与大会同行的机构"
       :style="blockStyle('home.cooperation')"
     >
-      <div class="wrap partner-wall reveal">
-        <div class="partner-wall__head">
-          <div>
-            <span class="kicker">{{
-              blockCopy('home.cooperation', 'wallKicker', 'ECOSYSTEM')
-            }}</span>
-            <h2 class="sec-title">
-              {{ blockCopy('home.cooperation', 'wallTitle', '与大会同行的机构') }}
-            </h2>
+      <ul class="wrap partner-wall__logos">
+        <li v-for="logo in renderedPartnerLogos" :key="logo.id">
+          <div class="partner-wall__image" :class="{ 'is-dark': logo.background === 'dark' }">
+            <img
+              :src="partnerLogoUrl(logo.assetId)"
+              :alt="logo.name"
+              :style="{ '--logo-scale': logo.scale }"
+              loading="lazy"
+              decoding="async"
+              @error="failedPartnerAssets.add(logo.assetId)"
+            />
           </div>
-          <div class="partner-wall__intro">
-            <p>
-              {{
-                blockCopy(
-                  'home.cooperation',
-                  'wallSubtitle',
-                  '汇集演讲嘉宾所属机构、媒体机构与主动公开公司信息的参会会员，名单随大会进展持续更新。',
-                )
-              }}
-            </p>
-            <span><b>{{ partnershipOrganizationCount }}</b> 家机构已收录</span>
-          </div>
-        </div>
-
-        <div class="partner-wall__groups">
-          <section
-            v-for="group in partnershipOrganizationGroups"
-            :key="group.key"
-            class="partner-wall__group"
-            :aria-labelledby="`partner-wall-${group.key}`"
-          >
-            <header class="partner-wall__group-head">
-              <span aria-hidden="true">{{ group.index }}</span>
-              <div>
-                <h3 :id="`partner-wall-${group.key}`">{{ group.label }}</h3>
-                <p>{{ group.meta }} · {{ group.organizations.length }}</p>
-              </div>
-            </header>
-            <ul class="partner-wall__logos">
-              <li
-                v-for="organization in group.organizations"
-                :key="organization"
-                :class="partnershipOrganizationNameClass(organization)"
-              >
-                <strong>{{ organization }}</strong>
-              </li>
-            </ul>
-          </section>
-        </div>
-      </div>
+        </li>
+      </ul>
     </section>
 
     <!-- ── COOPERATION ── -->

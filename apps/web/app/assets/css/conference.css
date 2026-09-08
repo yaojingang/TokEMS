@@ -2081,114 +2081,41 @@ h1.hero-h .accent {
   box-shadow: var(--shadow-lg);
 }
 
-/* ── PARTNERSHIP ORGANIZATIONS ── */
+/* ── PARTNER LOGOS ── */
 #partner-wall {
-  padding: clamp(52px, 6vw, 76px) 0;
-  background: var(--bg2);
-}
-.partner-wall__head {
-  display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(340px, 0.65fr);
-  align-items: end;
-  gap: clamp(36px, 7vw, 96px);
-  margin-bottom: clamp(34px, 5vw, 54px);
-}
-.partner-wall__head h2.sec-title {
-  margin-bottom: 0;
-}
-.partner-wall__intro {
-  display: grid;
-  justify-items: start;
-  gap: 16px;
-}
-.partner-wall__intro > p {
-  max-width: 560px;
-  color: var(--ink-soft);
-  font-size: 15px;
-  line-height: 1.8;
-  text-wrap: pretty;
-}
-.partner-wall__intro > span {
-  color: var(--ink-muted);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-.partner-wall__intro > span b {
-  margin-right: 5px;
-  color: var(--accent);
-  font-size: 20px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-.partner-wall__groups {
-  border-top: 1px solid var(--line);
-}
-.partner-wall__group {
-  display: grid;
-  grid-template-columns: 184px minmax(0, 1fr);
-  gap: 32px;
-  padding: 24px 0;
-  border-bottom: 1px solid var(--line);
-}
-.partner-wall__group-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 0;
-}
-.partner-wall__group-head > span {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  line-height: 1.7;
-}
-.partner-wall__group-head h3 {
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.5;
-}
-.partner-wall__group-head p {
-  margin-top: 4px;
-  color: var(--ink-muted);
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-  line-height: 1.5;
+  padding: clamp(40px, 5vw, 64px) 0;
+  background: #fff;
 }
 .partner-wall__logos {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-left: 1px solid var(--line);
+  gap: 36px;
   list-style: none;
 }
 .partner-wall__logos li {
   display: grid;
-  min-height: 76px;
+  min-width: 0;
+  height: 110px;
   place-items: center;
-  padding: 14px 16px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  background: #fff;
-  text-align: center;
 }
-.partner-wall__logos strong {
-  color: #27272a;
-  font-size: clamp(15px, 1.35vw, 18px);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-  text-wrap: balance;
+.partner-wall__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 94px;
+  padding: 14px 18px;
 }
-.partner-wall__logos .is-long strong {
-  font-size: 14px;
-  letter-spacing: 0;
+.partner-wall__image.is-dark {
+  background: #202125;
 }
-.partner-wall__logos .is-extra-long strong {
-  font-size: 12.5px;
-  line-height: 1.45;
+.partner-wall__image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(58px * var(--logo-scale, 1));
+  object-fit: contain;
 }
 
 /* ── COOPERATION ── */
@@ -2669,16 +2596,9 @@ footer {
   .host-grid {
     grid-template-columns: 1fr;
   }
-  .partner-wall__head {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-  .partner-wall__group {
-    grid-template-columns: 148px minmax(0, 1fr);
-    gap: 24px;
-  }
   .partner-wall__logos {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
   }
   .ticket-main {
     grid-template-columns: minmax(270px, 0.65fr) minmax(0, 1.35fr);
@@ -2826,38 +2746,21 @@ footer {
     border-top: 1px solid var(--line);
   }
   #partner-wall {
-    padding: 46px 0;
-  }
-  .partner-wall__head {
-    margin-bottom: 34px;
-  }
-  .partner-wall__intro {
-    gap: 12px;
-  }
-  .partner-wall__intro > p {
-    font-size: 14px;
-  }
-  .partner-wall__group {
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 24px 0;
-  }
-  .partner-wall__group-head {
-    padding: 0;
+    padding: 32px 0;
   }
   .partner-wall__logos {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 24px;
   }
   .partner-wall__logos li {
-    min-height: 68px;
-    padding: 12px 10px;
+    height: 86px;
   }
-  .partner-wall__logos strong {
-    font-size: 14px;
+  .partner-wall__image {
+    height: 76px;
+    padding: 10px;
   }
-  .partner-wall__logos .is-long strong,
-  .partner-wall__logos .is-extra-long strong {
-    font-size: 12px;
+  .partner-wall__image img {
+    max-height: calc(44px * var(--logo-scale, 1));
   }
   #cooperation {
     padding: 22px 0;
