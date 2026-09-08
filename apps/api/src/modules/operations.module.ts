@@ -556,7 +556,7 @@ export class OrganizationEventsController {
   }
 
   @Get('event-options')
-  @RequireGrant('event.read')
+  @RequireGrant('event.read', 'event.order.refund')
   eventOptions(@Req() request: AuthenticatedRequest) {
     return this.operations.listEventOptions(request.user.organizationId);
   }

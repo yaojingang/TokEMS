@@ -220,6 +220,7 @@ export function eventLandingRouteName(grants: string[]) {
   if (
     hasAnyGrant(grants, [
       'event.registration.manage',
+      'event.order.refund',
       'event.inventory.read',
       'event.inventory.manage',
     ])

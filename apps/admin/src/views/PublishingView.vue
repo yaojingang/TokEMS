@@ -6,8 +6,13 @@ import type {
   EventStatus,
   EventTemplateBinding,
   TemplateSurface,
+  TemplateLogoWall,
 } from '@conference/contracts';
-import { normalizeConferenceTemplateDefinition } from '@conference/contracts';
+import {
+  normalizeConferenceTemplateDefinition,
+  TemplateLogoWallSchema,
+} from '@conference/contracts';
+import PartnerLogoEditor from '../components/PartnerLogoEditor.vue';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, publicEventPreviewUrl, session } from '../lib/api';
@@ -49,6 +54,15 @@ const hasStructuredHome = computed(
   () => experience.value?.definition.presentation.kind === 'structured',
 );
 const homeForm = reactive({ primaryAction: '', secondaryAction: '' });
+const logoWall = ref<TemplateLogoWall>({ enabled: false, items: [] });
+const logoUploadPending = ref(false);
+const hasCooperationBlock = computed(
+  () =>
+    experience.value?.definition.presentation.kind === 'structured' &&
+    experience.value.definition.presentation.home.blocks.some(
+      (block) => block.nodeKey === 'home.cooperation',
+    ),
+);
 const faqForm = reactive({
   mode: 'home' as 'home' | 'page',
   title: '',
@@ -58,6 +72,7 @@ const faqForm = reactive({
   contactUrl: '',
 });
 const faqItems = ref<EventExperience['definition']['faq']['items']>([]);
+const editBaselines: Partial<EventExperience['overrides']> = {};
 
 function hydrateExperience(
   value: EventExperience,
@@ -65,12 +80,18 @@ function hydrateExperience(
 ) {
   const definition = normalizeConferenceTemplateDefinition(value.definition);
   experience.value = { ...value, definition };
+  // Keep each form's revision paired with the values that were loaded into it.
+  for (const surface of surfaces) editBaselines[surface] = structuredClone(value.overrides[surface]);
   if (surfaces.includes('home')) {
     const home =
       definition.presentation.kind === 'structured' ? definition.presentation.home : undefined;
     const hero = home?.blocks.find((item) => item.nodeKey === 'home.hero');
     homeForm.primaryAction = String(hero?.content.primaryAction ?? '立即报名');
     homeForm.secondaryAction = String(hero?.content.secondaryAction ?? '查看议程');
+    const wall = TemplateLogoWallSchema.safeParse(
+      home?.blocks.find((item) => item.nodeKey === 'home.cooperation')?.content.logoWall,
+    );
+    logoWall.value = wall.success ? wall.data : { enabled: false, items: [] };
   }
   if (surfaces.includes('faq')) {
     Object.assign(faqForm, {
@@ -115,13 +136,14 @@ function savedMessage(subject = '已保存') {
 }
 
 function requestTemplateReplacement(templateVersionId?: string) {
+  if (logoUploadPending.value) return;
   if (templateVersionId) replacementVersionId.value = templateVersionId;
   errorMessage.value = '';
   showReplacementConfirm.value = true;
 }
 
 async function updateBinding(templateVersionId: string) {
-  if (!binding.value) return;
+  if (!binding.value || logoUploadPending.value) return;
   pending.value = true;
   message.value = '';
   errorMessage.value = '';
@@ -148,21 +170,38 @@ async function updateBinding(templateVersionId: string) {
 }
 
 async function saveSurface(surface: EditableSiteSurface) {
-  if (!experience.value) return;
+  if (!experience.value || logoUploadPending.value) return;
   pending.value = true;
   message.value = '';
   errorMessage.value = '';
   try {
-    const override = experience.value.overrides[surface];
+    const override = editBaselines[surface];
+    if (!override) throw new Error('请先重新加载页面设置');
+    const homePatch = (key: string) =>
+      (override.document[key] ?? {}) as { content?: Record<string, unknown> };
     const document =
       surface === 'home'
         ? {
+            ...override.document,
             'home.hero': {
+              ...homePatch('home.hero'),
               content: {
+                ...homePatch('home.hero').content,
                 primaryAction: homeForm.primaryAction,
                 secondaryAction: homeForm.secondaryAction,
               },
             },
+            ...(hasCooperationBlock.value
+              ? {
+                  'home.cooperation': {
+                    ...homePatch('home.cooperation'),
+                    content: {
+                      ...homePatch('home.cooperation').content,
+                      logoWall: logoWall.value,
+                    },
+                  },
+                }
+              : {}),
           }
         : {
             $page: {
@@ -297,14 +336,14 @@ onMounted(() => void load());
             v-if="binding.upgradeAvailable && binding.currentPublishedVersionId"
             class="button"
             type="button"
-            :disabled="pending"
+            :disabled="pending || logoUploadPending"
             @click="requestTemplateReplacement(binding.currentPublishedVersionId)"
           >
             应用模板更新 V{{ binding.currentPublishedVersion }}
           </button>
           <div class="form-field">
             <label for="replacement-template">更换页面模板</label>
-            <select id="replacement-template" v-model="replacementVersionId">
+            <select id="replacement-template" v-model="replacementVersionId" :disabled="pending || logoUploadPending">
               <option
                 v-for="item in options"
                 :key="item.id"
@@ -317,7 +356,7 @@ onMounted(() => void load());
           <button
             class="button secondary"
             type="button"
-            :disabled="replacementVersionId === binding.templateVersionId"
+            :disabled="pending || logoUploadPending || replacementVersionId === binding.templateVersionId"
             @click="requestTemplateReplacement()"
           >
             检查并应用模板
@@ -341,7 +380,7 @@ onMounted(() => void load());
       <header class="admin-panel-header">
         <div>
           <h2>首页展示</h2>
-          <p>修改当前大会首页的主要行动入口，不影响共享模板</p>
+          <p>维护首页按钮和机构 Logo，保存后同步到当前大会</p>
         </div>
       </header>
       <form class="event-form settings-form-spaced" @submit.prevent="saveSurface('home')">
@@ -363,8 +402,16 @@ onMounted(() => void load());
             />
           </div>
         </div>
+        <PartnerLogoEditor
+          v-if="hasCooperationBlock"
+          v-model="logoWall"
+          :disabled="!canManageExperience || pending"
+          @pending-change="logoUploadPending = $event"
+        />
         <div v-if="canManageExperience" class="event-form-actions">
-          <button class="button" type="submit" :disabled="pending">保存首页设置</button>
+          <button class="button" type="submit" :disabled="pending || logoUploadPending">
+            保存首页设置
+          </button>
         </div>
       </form>
     </section>
@@ -486,7 +533,7 @@ onMounted(() => void load());
           </article>
         </div>
         <div v-if="canManageExperience" class="event-form-actions">
-          <button class="button" type="submit" :disabled="pending">保存 FAQ 设置</button>
+          <button class="button" type="submit" :disabled="pending || logoUploadPending">保存 FAQ 设置</button>
         </div>
       </form>
     </section>
@@ -501,7 +548,7 @@ onMounted(() => void load());
       { label: '保持独立', value: '票价、容量、报名、订单、发票和签到数据' },
       { label: '立即更新', value: '页面布局、首页、FAQ 与报名流程' },
     ]"
-    :busy="pending"
+    :busy="pending || logoUploadPending"
     :error="errorMessage"
     @cancel="
       showReplacementConfirm = false;
@@ -560,7 +607,7 @@ onMounted(() => void load());
         <button class="button secondary" type="button" @click="showSaveAsTemplate = false">
           取消
         </button>
-        <button class="button" type="submit" :disabled="pending">
+        <button class="button" type="submit" :disabled="pending || logoUploadPending">
           {{ pending ? '正在创建…' : '创建共享模板' }}
         </button>
       </div>

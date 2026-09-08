@@ -321,6 +321,7 @@ export const router = createRouter({
               'event.manage',
               'event.site.read',
               'event.registration.manage',
+              'event.order.refund',
               'event.inventory.read',
               'event.inventory.manage',
             ],
