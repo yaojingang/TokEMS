@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { assertBuildSourceState, assertBuildsConsistent } from './lib/build-version.mjs';
 import { localComposeEnvironment } from './lib/local-compose-environment.mjs';
+import { assertHomepageLogoWall } from './lib/homepage-logo-wall.mjs';
 
 const environment = localComposeEnvironment();
 
@@ -271,12 +272,18 @@ if (paymentOrigin) {
 }
 
 await waitFor('Nuxt 大会前台可访问', async () => {
-  const { body } = await request(endpoints.web);
+  const [{ body }, { body: homepage }] = await Promise.all([
+    request(endpoints.web),
+    request(`${endpoints.api}/homepage`, {
+      headers: { 'X-Organization-Slug': publicOrganizationSlug },
+    }),
+  ]);
   assert(body.includes('中国第二届GEO大会'), 'Web page did not render the conference shell');
   assert(
     body.includes('customer-account-action'),
     'Web page did not render the customer account entry',
   );
+  assertHomepageLogoWall(homepage, body);
 });
 
 await waitFor('Vue 运营后台与 SPA 回退可访问', async () => {

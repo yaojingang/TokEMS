@@ -2381,6 +2381,7 @@ run_full_preflight() {
   }
   curl "${CURL_ARGS[@]}" "${PUBLIC_ORIGIN}/api/v1/health" | assert_health_json
 
+  assert_payment_quiet_window
   assert_standard_release_scope
   determine_canonical_sync
   if [[ "$canonical_sync_required" == 'true' ]] && canonical_repair_scope_is_compatible; then
@@ -2400,6 +2401,66 @@ run_full_preflight() {
   log "Runtime commit: ${release_baseline_sha}"
   log "Target commit:  ${target_sha}"
   log "Canonical sync: ${canonical_sync_required}"
+}
+
+# Only aggregate counts leave PostgreSQL; provider identifiers and customer data stay in the database.
+read_payment_activity() {
+  compose_bounded "$DB_QUERY_TIMEOUT_SECONDS" exec -T postgres sh -lc \
+    'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F ","' <<'SQL'
+begin read only;
+select
+  (select count(*) from payments where provider = 'wechatpay'
+    and status in ('preparing', 'pending', 'processing', 'query_pending', 'close_pending', 'unknown')) as active_attempts,
+  (select count(*) from payment_notification_inbox inbox where status <> 'processed'
+    and not exists (
+      select 1 from payments settled
+      inner join orders paid_order on paid_order.id = settled.order_id
+      inner join tickets issued on issued.registration_id = paid_order.registration_id
+      left join lateral (
+        select coalesce(sum(r.amount), 0) as amount from refunds r
+        where r.payment_id = settled.id and r.order_id = paid_order.id
+          and r.organization_id = paid_order.organization_id and r.currency = settled.currency
+          and r.status = 'succeeded'
+      ) returned on true
+      where paid_order.id = inbox.order_id and paid_order.organization_id = inbox.organization_id
+        and (
+          (paid_order.status = 'paid' and settled.status = 'succeeded')
+          or (paid_order.status = 'partially_refunded' and settled.status = 'succeeded'
+            and returned.amount > 0 and returned.amount < settled.amount)
+          or (paid_order.status = 'refunded' and settled.status = 'refunded'
+            and returned.amount = settled.amount)
+        )
+        and settled.provider = 'wechatpay'
+        and settled.external_id = inbox.payload->>'externalId'
+        and settled.amount::text = inbox.payload->>'amount'
+        and settled.currency = inbox.payload->>'currency'
+    )) as unsettled_notifications,
+  (select count(*) from orders o where o.status = 'paid'
+    and not exists (select 1 from tickets t where t.registration_id = o.registration_id)) as paid_without_tickets;
+commit;
+SQL
+}
+
+payment_activity_is_clear() {
+  local activity
+  activity="$(read_payment_activity)" || return 2
+  [[ "$activity" =~ ^[0-9]+,[0-9]+,[0-9]+$ ]] || return 2
+  if [[ "$activity" != '0,0,0' ]]; then
+    log "Payment activity (active attempts, unsettled notifications, paid orders without tickets): ${activity}"
+    return 1
+  fi
+}
+
+assert_payment_quiet_window() {
+  # A recovery already has writes stopped; permit its verified forward repair to restore payments.
+  [[ "$recovery_in_progress" != 'true' ]] || return 0
+  local status=0
+  payment_activity_is_clear || status=$?
+  if [[ $status -eq 1 ]]; then
+    die 'Payments are still being settled. Services remain available; retry after payment recovery completes.'
+  elif [[ $status -ne 0 ]]; then
+    die 'Unable to verify payment settlement; no release write freeze is allowed.'
+  fi
 }
 
 capture_business_snapshot() {
@@ -3036,7 +3097,48 @@ assert_write_services_stopped() {
   done
 }
 
+# A payment can appear after preflight. Resume the same stopped containers before any database work.
+resume_original_services_before_database() {
+  [[ "$database_update_started" == 'false' && "$canonical_update_started" == 'false' && \
+     "$target_writes_enabled" == 'false' && "$recovery_in_progress" == 'false' ]] || \
+    die 'A payment race cannot resume original services after database work or protected recovery.'
+  assert_write_services_stopped
+  [[ "$(read_database_migration_hash)" == "$release_baseline_migration_hash" ]] || \
+    die 'Database identity changed while cancelling the release.'
+  local image
+  if [[ "$images_changed" == 'true' ]]; then
+    for image in "${ROLLBACK_IMAGES[@]}"; do
+      docker tag "${image}:${rollback_tag}" "${image}:local"
+    done
+  fi
+  active_env_file="$backup_dir/.env"
+  active_compose_file="$backup_dir/docker-compose.yml"
+  unset TOKEMS_READ_ONLY_DATABASE_URL
+  assert_thaw_watchdog_active
+  protected_write_block_confirmed='false'
+  compose_bounded "$SERVICE_TRANSITION_TIMEOUT_SECONDS" start --wait --wait-timeout 300 api worker \
+    >"$backup_dir/payment-race-resume.log" 2>&1
+  assert_runtime_image_tags
+  assert_current_runtime_identity
+  [[ "$runtime_sha" == "$release_baseline_sha" ]] || die 'Resumed services differ from the release baseline.'
+  assert_api_uses_compose_database
+  assert_operational_write_state normal
+  wait_for_worker_ready
+  curl "${CURL_ARGS[@]}" "${PUBLIC_ORIGIN}/api/v1/health" | assert_health_json
+  set_write_service_restart_policy unless-stopped
+  clear_pending_recovery_marker
+  release_write_freeze='false'
+  recovery_marker_armed='false'
+  containers_switched='false'
+  images_changed='false'
+  # The live environment was never installed and the original containers have resumed successfully.
+  backup_ready='false'
+  printf 'status=cancelled-payment-activity\nruntime_sha=%s\n' "$runtime_sha" >"$backup_dir/deployment-result.txt"
+  stop_thaw_watchdog
+}
+
 enter_release_write_freeze() {
+  assert_payment_quiet_window
   assert_no_parallel_release
   log 'Freezing API and Worker writes for the final database backup, migration, and release verification'
   read_only_compose_file="$backup_dir/docker-compose.read-only.yml"
@@ -3057,6 +3159,10 @@ YAML
   assert_write_services_stopped
   protected_write_block_confirmed='true'
   release_write_freeze='true'
+  if [[ "$recovery_in_progress" != 'true' ]] && ! payment_activity_is_clear; then
+    resume_original_services_before_database
+    die 'Payment activity changed or could not be verified after stopping. Original services resumed; database work was cancelled.'
+  fi
 }
 
 thaw_release_write_freeze() {

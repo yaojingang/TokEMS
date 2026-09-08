@@ -54,6 +54,13 @@ describe('administrator entry resolution', () => {
     });
   });
 
+  it('routes refund reviewers to the refund settings card', () => {
+    expect(eventLandingRouteName(['event.read', 'event.order.refund'])).toBe(
+      'event-settings-registration',
+    );
+    expect(hasEventWorkspaceLanding(['event.order.refund'])).toBe(true);
+  });
+
   it('does not expose a workspace landing page for AI-only permissions', () => {
     const grants = ['event.read', 'event.ai.read'];
 

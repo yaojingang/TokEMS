@@ -4,6 +4,7 @@ import {
   API_ERROR_CODES,
   ConferenceTemplateDefinitionSchema,
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  TemplateLogoWallSchema,
   normalizeConferenceTemplateDefinition,
   type ConferenceTemplateDefinition,
   type ConferenceTemplateDraft,
@@ -39,7 +40,7 @@ import {
   templatePackages,
   users,
 } from '@conference/database';
-import { and, asc, count, desc, eq, isNull, max, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, max, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
@@ -99,6 +100,40 @@ export class TemplateOperationsService {
 
   private digest(value: unknown) {
     return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  }
+
+  private async validateLogoAssets(
+    tx: Pick<Database, 'select'>,
+    organizationId: string,
+    definition: ConferenceTemplateDefinition,
+  ) {
+    if (definition.presentation.kind !== 'structured') return;
+    const block = definition.presentation.home.blocks.find(
+      (item) => item.nodeKey === 'home.cooperation',
+    );
+    if (block?.content.logoWall === undefined) return;
+    const wall = TemplateLogoWallSchema.parse(block.content.logoWall);
+    const assetIds = [
+      ...new Set(wall.items.flatMap((item) => (item.assetId ? [item.assetId] : []))),
+    ];
+    if (!assetIds.length) return;
+    const assets = await tx
+      .select({ id: templateAssets.id })
+      .from(templateAssets)
+      .where(
+        and(
+          inArray(templateAssets.id, assetIds),
+          eq(templateAssets.organizationId, organizationId),
+          eq(templateAssets.purpose, TEMPLATE_ASSET_PURPOSE),
+        ),
+      );
+    if (assets.length !== assetIds.length) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        'Logo 图片缺失或不属于当前组织的公开模板素材',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
   }
 
   private s3Presigned(
@@ -637,6 +672,7 @@ export class TemplateOperationsService {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`template-assets:${organizationId}`}, 0))`,
       );
+      await this.validateLogoAssets(tx, organizationId, parsed.data);
       const [updated] = await tx
         .update(conferenceTemplateDrafts)
         .set({
@@ -782,6 +818,7 @@ export class TemplateOperationsService {
         validation.data.presentation.kind === 'structured'
           ? validation.data.presentation.home.seo.shareAssetId
           : null;
+      await this.validateLogoAssets(tx, organizationId, validation.data);
       if (shareAssetId) {
         const [asset] = await tx
           .select({ id: templateAssets.id })
@@ -1424,6 +1461,22 @@ export class TemplateOperationsService {
             'HTML 模板首页由模板变量绑定维护，当前页面不支持大会级首页覆盖',
             HttpStatus.CONFLICT,
           );
+        }
+        if (surface === 'home') {
+          let merged: ConferenceTemplateDefinition;
+          try {
+            merged = mergeTemplateDefinition(
+              normalizeConferenceTemplateDefinition(activeTemplate.definition),
+              { home: input.document },
+            );
+          } catch {
+            throw new DomainError(
+              API_ERROR_CODES.VALIDATION_ERROR,
+              '首页配置不完整，请检查 Logo 设置',
+              HttpStatus.UNPROCESSABLE_ENTITY,
+            );
+          }
+          await this.validateLogoAssets(tx, organizationId, merged);
         }
         const [existing] = await tx
           .select()
