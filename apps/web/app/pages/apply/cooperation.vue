@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { publicEventHomePath, type PublicEvent } from '@conference/contracts';
+import {
+  DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  publicEventHomePath,
+  publicEventScopedPath,
+  type PublicEvent,
+} from '@conference/contracts';
 import { createError, onBeforeUnmount, useAsyncData } from '#imports';
+import { resolveEventExperience } from '~/composables/useEventExperience';
 import { copyPlainText } from '~/utils/copy-text';
 
 const organizerContact = {
@@ -88,6 +94,60 @@ if (eventError.value || !event.value) {
 useHead(() => ({ title: `合作联系 · ${event.value?.name ?? '大会'}` }));
 
 const homeHref = computed(() => publicEventHomePath(event.value!.slug));
+const experience = computed(() => resolveEventExperience(event.value!));
+const defaultHomeBlocks =
+  DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.kind === 'structured'
+    ? DEFAULT_CONFERENCE_TEMPLATE_DEFINITION.presentation.home.blocks
+    : [];
+const homeBlock = (nodeKey: string) =>
+  experience.value.home.blocks.find((block) => block.nodeKey === nodeKey) ??
+  defaultHomeBlocks.find((block) => block.nodeKey === nodeKey);
+const navigationCopy = (key: string, fallback: string) => {
+  const value = homeBlock('home.navigation')?.content[key];
+  if (typeof value === 'string') return value;
+  const defaultValue = defaultHomeBlocks.find((block) => block.nodeKey === 'home.navigation')
+    ?.content[key];
+  return typeof defaultValue === 'string' ? defaultValue : fallback;
+};
+const navigationLinks = computed(() =>
+  (
+    [
+      ['home.value', 'whyLabel', '背景', `${homeHref.value}#why`],
+      ['home.upgrade', 'editionLabel', '第二届', `${homeHref.value}#upgrade`],
+      ['home.agenda', 'agendaLabel', '议程', `${homeHref.value}#agenda`],
+      ['home.speakers', 'speakersLabel', '嘉宾', `${homeHref.value}#speakers`],
+      ['home.members', 'membersLabel', '会员', `${homeHref.value}#members`],
+      ['home.tickets', 'ticketsLabel', '门票', `${homeHref.value}#tickets`],
+      [
+        'home.cooperation',
+        'cooperationLabel',
+        '合作',
+        publicEventScopedPath('/apply/cooperation', event.value!.slug),
+      ],
+      [
+        'home.faq-summary',
+        'faqLabel',
+        'FAQ',
+        experience.value.faq.mode === 'page'
+          ? publicEventScopedPath('/faq', event.value!.slug)
+          : `${homeHref.value}#faq`,
+      ],
+    ] as const
+  )
+    .filter(([nodeKey]) =>
+      nodeKey === 'home.members'
+        ? Boolean(
+            event.value!.experience?.home?.blocks.find((block) => block.nodeKey === nodeKey)
+              ?.enabled,
+          )
+        : (homeBlock(nodeKey)?.enabled ?? true),
+    )
+    .map(([nodeKey, key, label, href]) => ({
+      nodeKey,
+      label: navigationCopy(key, label),
+      href,
+    })),
+);
 </script>
 
 <template>
@@ -95,10 +155,20 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
     <nav id="nav" class="scrolled cooperation-nav" aria-label="合作联系页导航">
       <div class="nav-inner">
         <NuxtLink :to="homeHref" class="logo" aria-label="返回大会首页">
-          <span class="logo-mark">G</span>
-          <span>{{ event?.shortName || event?.name || '大会官网' }}</span>
-          <span class="logo-sub">合作联系</span>
+          <span class="logo-mark">{{ navigationCopy('logoMark', 'G') }}</span>
+          <span>{{ navigationCopy('brandLabel', 'GEO大会') }}</span>
+          <span class="logo-sub">{{ navigationCopy('brandMeta', '2026 · 第二届') }}</span>
         </NuxtLink>
+        <div v-if="homeBlock('home.navigation')?.enabled !== false" class="nav-links">
+          <a
+            v-for="link in navigationLinks"
+            :key="link.nodeKey"
+            :href="link.href"
+            :aria-current="link.nodeKey === 'home.cooperation' ? 'page' : undefined"
+          >
+            {{ link.label }}
+          </a>
+        </div>
         <div class="nav-cta">
           <NuxtLink class="btn btn-outline cooperation-home-link" :to="homeHref">
             <span class="cooperation-home-link__desktop">返回大会首页</span>
@@ -206,6 +276,14 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 
 .cooperation-home-link__mobile {
   display: none;
+}
+
+.cooperation-nav .nav-links a {
+  white-space: nowrap;
+}
+
+.cooperation-nav .nav-links a[aria-current='page'] {
+  color: var(--accent);
 }
 
 .cooperation-shell {
@@ -495,6 +573,32 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
   line-height: 1.65;
 }
 
+@media (max-width: 1200px) {
+  .cooperation-nav .nav-inner {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .cooperation-nav .nav-links {
+    display: flex;
+    order: 3;
+    flex-basis: 100%;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .cooperation-nav .nav-links a {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .cooperation-shell {
+    padding-top: 172px;
+  }
+}
+
 @media (max-width: 900px) {
   .cooperation-intro {
     grid-template-columns: 1fr;
@@ -529,7 +633,7 @@ const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 
 @media (max-width: 700px) {
   .cooperation-shell {
-    padding: 104px 20px 56px;
+    padding: 148px 20px 56px;
   }
 
   .cooperation-intro {
