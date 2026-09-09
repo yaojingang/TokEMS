@@ -28,8 +28,8 @@ const {
   selectTrendPreset,
   applyCustomTrend,
 } = createDashboardTrendState((query) => conferenceApi.getDashboard(query));
-const money = (amount = 0) =>
-  `¥${(amount / 100).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`;
+const money = (amount = 0, maximumFractionDigits = 0) =>
+  `¥${(amount / 100).toLocaleString('zh-CN', { maximumFractionDigits })}`;
 const trendTotal = computed(() =>
   (dashboard.value?.registrationTrend ?? []).reduce((sum, item) => sum + item.value, 0),
 );
@@ -277,6 +277,24 @@ onMounted(async () => {
           <span class="delta neutral">{{
             pendingInvoiceCount === null ? '暂不可用' : '项待处理'
           }}</span>
+        </div>
+      </article>
+      <article class="admin-metric">
+        <span>退款订单数</span>
+        <div class="admin-metric-value">
+          <strong>{{ dashboard.metrics.refundedOrders?.toLocaleString() ?? '—' }}</strong>
+          <span class="delta neutral">已成功退款</span>
+        </div>
+      </article>
+      <article class="admin-metric">
+        <span>退款金额</span>
+        <div class="admin-metric-value">
+          <strong class="metric-money">{{
+            dashboard.metrics.refundedAmount == null
+              ? '—'
+              : money(dashboard.metrics.refundedAmount, 2)
+          }}</strong>
+          <span class="delta neutral">累计已退</span>
         </div>
       </article>
     </section>

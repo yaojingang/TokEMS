@@ -14,6 +14,8 @@ describe('admin dashboard metric contract', () => {
         confirmedAttendees: 4,
         purchasers: 2,
         revenue: 59_800,
+        refundedOrders: 2,
+        refundedAmount: 10_001,
         checkedIn: 1,
         conversionRate: 25,
         pendingReview: 2,
@@ -28,6 +30,8 @@ describe('admin dashboard metric contract', () => {
       confirmedAttendees: 4,
       purchasers: 2,
       revenue: 59_800,
+      refundedOrders: 2,
+      refundedAmount: 10_001,
     });
   });
 });

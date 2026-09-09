@@ -5464,6 +5464,7 @@ export class ConferenceRepository {
       const paidOrders = orderRows.filter((order) =>
         ['paid', 'partially_refunded'].includes(order.status),
       );
+      const refundedOrders = orderRows.filter((order) => order.status === 'refunded');
       const paidRegistrationIds = new Set(
         paidOrders
           .filter((order) => {
@@ -5500,6 +5501,8 @@ export class ConferenceRepository {
           confirmedAttendees,
           purchasers: purchaserKeys.size,
           revenue: paidOrders.reduce((total, order) => total + order.amount, 0),
+          refundedOrders: refundedOrders.length,
+          refundedAmount: refundedOrders.reduce((total, order) => total + order.amount, 0),
           checkedIn: this.memory.checkins.size,
           conversionRate: registrationRows.length
             ? Number(((paidRegistrationIds.size / registrationRows.length) * 100).toFixed(1))
@@ -5536,27 +5539,28 @@ export class ConferenceRepository {
         HttpStatus.NOT_FOUND,
       );
     }
-    const [[registrationMetric], [orderMetric], [checkinMetric], ticketRows] = await Promise.all([
-      db
-        .select({
-          registrations: count(),
-          activeSubmitted: sql<number>`count(*) filter (where ${registrations.status} in ('pending_review', 'pending_payment', 'confirmed', 'checked_in', 'completed'))::int`,
-          confirmedAttendees: sql<number>`count(*) filter (where ${registrations.status} in ('confirmed', 'checked_in', 'completed'))::int`,
-          pendingReview: sql<number>`count(*) filter (where ${registrations.status} = 'pending_review')::int`,
-        })
-        .from(registrations)
-        .where(
-          and(
-            eq(registrations.organizationId, organizationId),
-            eq(registrations.eventId, eventId),
-            isNull(registrations.supersededAt),
+    const [[registrationMetric], [orderMetric], [refundMetric], [checkinMetric], ticketRows] =
+      await Promise.all([
+        db
+          .select({
+            registrations: count(),
+            activeSubmitted: sql<number>`count(*) filter (where ${registrations.status} in ('pending_review', 'pending_payment', 'confirmed', 'checked_in', 'completed'))::int`,
+            confirmedAttendees: sql<number>`count(*) filter (where ${registrations.status} in ('confirmed', 'checked_in', 'completed'))::int`,
+            pendingReview: sql<number>`count(*) filter (where ${registrations.status} = 'pending_review')::int`,
+          })
+          .from(registrations)
+          .where(
+            and(
+              eq(registrations.organizationId, organizationId),
+              eq(registrations.eventId, eventId),
+              isNull(registrations.supersededAt),
+            ),
           ),
-        ),
-      db
-        .select({
-          paidOrders: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
-          paidSeats: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded') and ${registrations.status} <> 'cancelled' and ${registrations.supersededAt} is null)::int`,
-          purchasers: sql<number>`count(distinct case
+        db
+          .select({
+            paidOrders: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
+            paidSeats: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded') and ${registrations.status} <> 'cancelled' and ${registrations.supersededAt} is null)::int`,
+            purchasers: sql<number>`count(distinct case
               when ${orders.status} in ('paid', 'partially_refunded') then coalesce(
                 case when ${orders.purchaserCustomerUserId} is not null then 'customer:' || ${orders.purchaserCustomerUserId}::text end,
                 case when nullif(${orders.purchaserSnapshot}->>'customerUserId', '') is not null then 'customer:' || (${orders.purchaserSnapshot}->>'customerUserId') end,
@@ -5566,7 +5570,7 @@ export class ConferenceRepository {
                 'order:' || ${orders.id}::text
               )
           end)::int`,
-          revenue: sql<number>`coalesce(sum(
+            revenue: sql<number>`coalesce(sum(
               case when ${orders.status} in ('paid', 'partially_refunded', 'refunded')
                 then greatest(
                   ${orders.amount} - coalesce((
@@ -5580,20 +5584,33 @@ export class ConferenceRepository {
                 else 0
               end
           ), 0)::int`,
-        })
-        .from(orders)
-        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-        .where(and(eq(orders.organizationId, organizationId), eq(orders.eventId, eventId))),
-      db
-        .select({ value: count() })
-        .from(checkinRecords)
-        .where(and(eq(checkinRecords.eventId, eventId), eq(checkinRecords.result, 'accepted'))),
-      db
-        .select()
-        .from(ticketTypes)
-        .where(eq(ticketTypes.eventId, eventId))
-        .orderBy(asc(ticketTypes.price)),
-    ]);
+          })
+          .from(orders)
+          .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+          .where(and(eq(orders.organizationId, organizationId), eq(orders.eventId, eventId))),
+        db
+          .select({
+            refundedOrders: sql<number>`count(distinct ${refunds.orderId})::int`,
+            refundedAmount: sql<number>`coalesce(sum(${refunds.amount}), 0)::int`,
+          })
+          .from(refunds)
+          .where(
+            and(
+              eq(refunds.organizationId, organizationId),
+              eq(refunds.eventId, eventId),
+              eq(refunds.status, 'succeeded'),
+            ),
+          ),
+        db
+          .select({ value: count() })
+          .from(checkinRecords)
+          .where(and(eq(checkinRecords.eventId, eventId), eq(checkinRecords.result, 'accepted'))),
+        db
+          .select()
+          .from(ticketTypes)
+          .where(eq(ticketTypes.eventId, eventId))
+          .orderBy(asc(ticketTypes.price)),
+      ]);
     const registrationTotal = Number(registrationMetric?.registrations ?? 0);
     const activeSubmitted = Number(registrationMetric?.activeSubmitted ?? 0);
     const paidSeats = Number(orderMetric?.paidSeats ?? 0);
@@ -5609,6 +5626,8 @@ export class ConferenceRepository {
         confirmedAttendees: Number(registrationMetric?.confirmedAttendees ?? 0),
         purchasers: Number(orderMetric?.purchasers ?? 0),
         revenue: Number(orderMetric?.revenue ?? 0),
+        refundedOrders: Number(refundMetric?.refundedOrders ?? 0),
+        refundedAmount: Number(refundMetric?.refundedAmount ?? 0),
         checkedIn: Number(checkinMetric?.value ?? 0),
         conversionRate: activeSubmitted
           ? Number(((paidSeats / activeSubmitted) * 100).toFixed(1))

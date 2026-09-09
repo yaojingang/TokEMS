@@ -21,6 +21,8 @@ const dashboardForRange = (from: string, to: string, value = 1): AdminDashboard 
       confirmedAttendees: 1,
       purchasers: 1,
       revenue: 100,
+      refundedOrders: 0,
+      refundedAmount: 0,
       checkedIn: 0,
       conversionRate: 100,
       pendingReview: 0,

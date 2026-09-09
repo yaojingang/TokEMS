@@ -1567,6 +1567,8 @@ export const AdminDashboardSchema = z.object({
     confirmedAttendees: z.number().int(),
     purchasers: z.number().int(),
     revenue: z.number().int(),
+    refundedOrders: z.number().int().nonnegative(),
+    refundedAmount: z.number().int().nonnegative(),
     checkedIn: z.number().int(),
     conversionRate: z.number(),
     pendingReview: z.number().int(),
