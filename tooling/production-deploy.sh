@@ -48,7 +48,8 @@ readonly SERVICE_TRANSITION_TIMEOUT_SECONDS=360
 readonly GIT_BUNDLE_IMPORT_TIMEOUT_SECONDS=180
 readonly BUILD_TIMEOUT_SECONDS=3600
 readonly DATA_COMPARE_TIMEOUT_SECONDS=300
-readonly DATA_COMPARE_MAX_VIRTUAL_KIB=262144
+# Alibaba Linux Python 3.6 reserves about 226 MiB before decoding the canonical snapshot.
+readonly DATA_COMPARE_MAX_VIRTUAL_KIB=524288
 readonly POST_THAW_STABILIZATION_SECONDS=15
 readonly WORKER_READY_TIMEOUT_SECONDS=2400
 readonly WORKER_READY_POLL_SECONDS=5
@@ -356,7 +357,7 @@ cleanup_temp_script() {
   fi
   if [[ -n "$session_env_file" && -f "$session_env_file" ]]; then
     case "$session_env_file" in
-      /run/lock/tokems-production-deploy/production.env.*) rm -f -- "$session_env_file" ;;
+      /run/lock/tokems-production-deploy/production.env.*) rm -f -- "$session_env_file" "$session_env_file.read-only.yml" ;;
     esac
   fi
 }
@@ -609,6 +610,9 @@ restore_application_rollback() {
     [[ -s "$read_only_compose_file" ]] || return 1
     export TOKEMS_READ_ONLY_DATABASE_URL
     TOKEMS_READ_ONLY_DATABASE_URL="$(read_only_database_url)" || return 1
+    # Web reports environment metadata; static Gateway/Admin keep their image metadata.
+    # Keep both web surfaces on the image migration while API/Worker use the current database.
+    write_read_only_compose_override "$release_baseline_code_migration" "$release_baseline_code_migration_hash" || return 1
   fi
 
   if [[ "$canonical_update_started" == 'true' ]]; then
@@ -1082,6 +1086,15 @@ assert_pending_recovery_policy() {
       fi
       export TOKEMS_READ_ONLY_DATABASE_URL
       TOKEMS_READ_ONLY_DATABASE_URL="$(read_only_database_url)"
+      # Preserve the prior recovery evidence and discard any old rollback web pins.
+      read_only_compose_file="$session_env_file.read-only.yml"
+      if [[ "$recovery_runtime" == 'target' ]]; then
+        write_read_only_compose_override
+      else
+        write_read_only_compose_override \
+          "$(env_file_value TOKEMS_ROLLBACK_CODE_MIGRATION "$active_env_file")" \
+          "$(env_file_value TOKEMS_ROLLBACK_CODE_MIGRATION_HASH "$active_env_file")"
+      fi
       if [[ "$recovery_runtime" == 'target' ]]; then
         compose_read_only_bounded "$SERVICE_TRANSITION_TIMEOUT_SECONDS" up -d \
           --no-build \
@@ -2330,6 +2343,24 @@ canonical_repair_scope_is_compatible() {
   return 0
 }
 
+assert_canonical_comparison_capacity() {
+  [[ "$canonical_sync_required" == 'true' ]] || return 0
+  log 'Checking canonical snapshot decoding within the bounded data-verification memory budget'
+  git_as_owner show "${target_sha}:${CANONICAL_SNAPSHOT_PATHS[0]}" | (
+    ulimit -v "$DATA_COMPARE_MAX_VIRTUAL_KIB"
+    timeout --foreground --kill-after=10s "${DATA_COMPARE_TIMEOUT_SECONDS}s" python3 -c '
+import json
+import sys
+
+try:
+    snapshot = json.load(sys.stdin)
+    assert snapshot["release"]["id"]
+except MemoryError:
+    raise SystemExit("Canonical snapshot exceeds the data-verification memory budget; release stopped before write freeze.")
+'
+  )
+}
+
 run_full_preflight() {
   log 'Running production preflight'
   assert_minimal_git_state
@@ -2384,6 +2415,7 @@ run_full_preflight() {
   assert_payment_quiet_window
   assert_standard_release_scope
   determine_canonical_sync
+  assert_canonical_comparison_capacity
   if [[ "$canonical_sync_required" == 'true' ]] && canonical_repair_scope_is_compatible; then
     canonical_repair_mode='true'
     log 'Canonical repair can reuse the verified running images; host-build capacity is not required.'
@@ -3137,12 +3169,16 @@ resume_original_services_before_database() {
   stop_thaw_watchdog
 }
 
-enter_release_write_freeze() {
-  assert_payment_quiet_window
-  assert_no_parallel_release
-  log 'Freezing API and Worker writes for the final database backup, migration, and release verification'
-  read_only_compose_file="$backup_dir/docker-compose.read-only.yml"
-  cat >"$read_only_compose_file" <<'YAML'
+write_read_only_compose_override() {
+  local web_migration="${1:-}" web_migration_hash="${2:-}"
+  local override_temp
+  if [[ -n "$web_migration" || -n "$web_migration_hash" ]]; then
+    [[ "$web_migration" =~ ^[0-9]{4}_[a-zA-Z0-9_]+\.sql$ && "$web_migration_hash" =~ ^[0-9a-f]{64}$ ]] || {
+      die 'Read-only rollback web migration identity is invalid.'
+    }
+  fi
+  override_temp="$(mktemp "${read_only_compose_file}.XXXXXX")" || return 1
+  if ! cat >"$override_temp" <<'YAML'
 services:
   api:
     environment:
@@ -3150,7 +3186,38 @@ services:
   worker:
     command: [node, -e, "setInterval(() => {}, 1000)"]
 YAML
-  chmod 600 "$read_only_compose_file"
+  then
+    rm -f -- "$override_temp"
+    return 1
+  fi
+  if [[ -n "$web_migration" ]]; then
+    if ! cat >>"$override_temp" <<YAML
+  web:
+    environment:
+      BUILD_MIGRATION: "$web_migration"
+      BUILD_MIGRATION_HASH: "$web_migration_hash"
+  payment-web:
+    environment:
+      BUILD_MIGRATION: "$web_migration"
+      BUILD_MIGRATION_HASH: "$web_migration_hash"
+YAML
+    then
+      rm -f -- "$override_temp"
+      return 1
+    fi
+  fi
+  if ! chmod 600 "$override_temp" || ! mv -f -- "$override_temp" "$read_only_compose_file"; then
+    rm -f -- "$override_temp"
+    return 1
+  fi
+}
+
+enter_release_write_freeze() {
+  assert_payment_quiet_window
+  assert_no_parallel_release
+  log 'Freezing API and Worker writes for the final database backup, migration, and release verification'
+  read_only_compose_file="$backup_dir/docker-compose.read-only.yml"
+  write_read_only_compose_override
   containers_switched='true'
   start_thaw_watchdog
   set_write_service_restart_policy no
