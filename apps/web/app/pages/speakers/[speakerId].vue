@@ -556,7 +556,7 @@ useHead(() => {
   font-size: 18px;
   line-height: 1.4;
   overflow-wrap: anywhere;
-  text-wrap: balance;
+  text-wrap: wrap;
 }
 
 .speaker-event > span {

@@ -7,7 +7,8 @@ import type {
   RegistrationStatus,
   WaitlistEntry,
 } from '@conference/contracts';
-import { useRoute } from 'vue-router';
+import { RegistrationStatusSchema, RefundApplicationQuerySchema } from '@conference/contracts';
+import { useRoute, useRouter } from 'vue-router';
 import { conferenceApi, publicEventUrl, session, type AdminRegistrationRow } from '../lib/api';
 import RegistrationOperationsTabs from '../components/RegistrationOperationsTabs.vue';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
@@ -31,6 +32,10 @@ const jumpPageDraft = ref('1');
 const totalRecords = ref(0);
 let loadRequestId = 0;
 const route = useRoute();
+const router = useRouter();
+const refundFilter = computed(
+  () => RefundApplicationQuerySchema.shape.status.safeParse(route.query.refundStatus).data ?? 'all',
+);
 const registrationUrl = computed(() => publicEventUrl('/register'));
 const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize.value)));
 const visibleRange = computed(() => {
@@ -92,6 +97,16 @@ function jumpToPage() {
 }
 
 async function load(resetPage = false) {
+  if (resetPage) {
+    const query = { ...route.query, q: q.value || undefined, status: status.value || undefined };
+    if (
+      String(route.query.q ?? '') !== q.value ||
+      String(route.query.status ?? '') !== status.value
+    ) {
+      await router.push({ query });
+      return;
+    }
+  }
   const requestId = ++loadRequestId;
   const requestedPage = resetPage ? 1 : page.value;
   loading.value = true;
@@ -138,10 +153,19 @@ async function exportData() {
 }
 
 watch(
-  () => route.query.q,
-  (query) => {
-    q.value = String(query ?? '');
-    void load(true);
+  () => [
+    route.params.eventId,
+    route.query.q,
+    route.query.status,
+    route.query.panel,
+    route.query.refundStatus,
+  ],
+  () => {
+    q.value = String(route.query.q ?? '');
+    status.value = RegistrationStatusSchema.safeParse(route.query.status).data ?? '';
+    showRefunds.value = route.query.panel === 'refunds';
+    page.value = 1;
+    void load();
   },
   { immediate: true },
 );
@@ -188,6 +212,7 @@ watch(
     <RegistrationRefundPanel
       v-if="showRefunds && refundEventId"
       :event-id="refundEventId"
+      :initial-status="refundFilter"
       @changed="load()"
     />
     <form class="registration-toolbar" role="search" @submit.prevent="load(true)">

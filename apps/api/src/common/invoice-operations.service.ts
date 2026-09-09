@@ -1,3 +1,4 @@
+import { INVOICE_ACTIONABLE_STATUSES } from '@conference/contracts';
 import { guardRefundWrite } from './refund-write-guard.js';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
@@ -633,6 +634,13 @@ export class InvoiceOperationsService {
   private listConditions(organizationId: string, query: InvoiceListQuery = {}): SQL[] {
     const conditions = [eq(invoiceRequests.organizationId, organizationId)];
     if (query.eventId) conditions.push(eq(invoiceRequests.eventId, query.eventId));
+    if (query.worklist === 'actionable')
+      conditions.push(
+        sql`${invoiceRequests.status} in (${sql.join(
+          INVOICE_ACTIONABLE_STATUSES.map((status) => sql`${status}`),
+          sql`, `,
+        )})`,
+      );
     if (query.status) conditions.push(eq(invoiceRequests.status, query.status));
     if (query.dateField === 'issued' && (query.from || query.to)) {
       const issuedConditions: SQL[] = [eq(invoiceDocuments.invoiceRequestId, invoiceRequests.id)];

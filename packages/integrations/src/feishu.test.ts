@@ -5,6 +5,7 @@ import {
   FeishuApiError,
   FeishuBotClient,
   buildFeishuDigestCard,
+  buildFeishuDigestLinks,
 } from './feishu.js';
 
 const snapshot: FeishuDigestSnapshot = {
@@ -81,7 +82,7 @@ describe('Feishu bot integration', () => {
     });
   });
 
-  it('gets the bot token and lists only active chats the bot belongs to', async () => {
+  it('gets the bot token and explains unavailable groups without assuming missing fields', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -95,8 +96,13 @@ describe('Feishu bot integration', () => {
             code: 0,
             data: {
               items: [
-                { chat_id: 'oc_active', name: '大会运营群', chat_status: 'normal' },
-                { chat_id: 'oc_closed', name: '已解散群', chat_status: 'disbanded' },
+                {
+                  chat_id: 'oc_active',
+                  name: '大会运营群',
+                  chat_status: 'normal',
+                  external: false,
+                },
+                { chat_id: 'oc_closed', name: '已解散群', chat_status: 'dissolved' },
               ],
               has_more: false,
             },
@@ -113,6 +119,19 @@ describe('Feishu bot integration', () => {
         description: '',
         ownerId: '',
         external: false,
+        status: 'normal',
+        selectable: true,
+        unavailableReason: '',
+      },
+      {
+        chatId: 'oc_closed',
+        name: '已解散群',
+        description: '',
+        ownerId: '',
+        external: null,
+        status: 'dissolved',
+        selectable: false,
+        unavailableReason: '该群已解散',
       },
     ]);
     expect(fetcher).toHaveBeenNthCalledWith(
@@ -161,7 +180,9 @@ describe('Feishu bot integration', () => {
       .mockRejectedValueOnce(new Error('socket reset'));
     const client = new FeishuBotClient({ appId: 'cli_tokems', appSecret: 'secret-value' }, fetcher);
 
-    await expect(client.sendInteractiveMessage('oc_active', {})).rejects.toMatchObject({
+    await expect(
+      client.sendInteractiveMessage('oc_active', {}, 'delivery-test-id'),
+    ).rejects.toMatchObject({
       code: 'FEISHU_SEND_OUTCOME_UNKNOWN',
       outcomeUnknown: true,
       retryable: false,
@@ -179,11 +200,29 @@ describe('Feishu bot integration', () => {
       );
     const client = new FeishuBotClient({ appId: 'cli_tokems', appSecret: 'secret-value' }, fetcher);
 
-    await expect(client.sendInteractiveMessage('oc_active', {})).rejects.toMatchObject({
+    await expect(
+      client.sendInteractiveMessage('oc_active', {}, 'delivery-test-id'),
+    ).rejects.toMatchObject({
       outcomeUnknown: true,
       retryable: false,
       httpStatus: 500,
     } satisfies Partial<FeishuApiError>);
+  });
+
+  it('routes every digest action through the deployed admin base path', () => {
+    const links = buildFeishuDigestLinks('https://admin.example.com', 101, snapshot);
+    expect(links.dashboard).toBe('https://admin.example.com/admin/events/101/overview');
+    expect(links.registrations).toBe(
+      'https://admin.example.com/admin/events/101/registrations?status=pending_review',
+    );
+    expect(links.refunds).toBe(
+      'https://admin.example.com/admin/events/101/registrations?panel=refunds&refundStatus=pending_review',
+    );
+    expect(links.invoices).toBe(
+      'https://admin.example.com/admin/events/101/invoices?worklist=actionable',
+    );
+    const card = buildFeishuDigestCard(snapshot, links);
+    expect(JSON.stringify(card)).not.toContain('https://admin.example.com/events/');
   });
 
   it('builds a static card with aggregate data and safe deep links', () => {
@@ -197,7 +236,7 @@ describe('Feishu bot integration', () => {
     );
     const serialized = JSON.stringify(card);
     expect(serialized).toContain('【测试】第二届中国 GEO & AI 营销大会');
-    expect(serialized).toContain('待处理 12');
+    expect(serialized).toContain('当前待办');
     expect(serialized).toContain('https://admin.example.com/events/101/overview');
     expect(serialized).toContain('"behaviors":[{"type":"open_url"');
     expect(serialized).not.toContain('"url":');
@@ -220,5 +259,88 @@ describe('Feishu bot integration', () => {
 
     expect(JSON.stringify(card)).toContain('签到 **96**');
     expect(JSON.stringify(card)).toContain('累计签到 **188**');
+  });
+});
+
+describe('Feishu provider failure boundaries', () => {
+  const token = () =>
+    new Response(JSON.stringify({ code: 0, tenant_access_token: 't-fixture', expire: 7200 }));
+  const response = (data: unknown) => new Response(JSON.stringify({ code: 0, data }));
+  it('rejects partial pagination instead of returning a partial group list', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(response({ items: [], has_more: true, page_token: 'next' }))
+      .mockResolvedValueOnce(new Response('unavailable', { status: 503 }));
+    await expect(
+      new FeishuBotClient(
+        { appId: 'cli_fixture', appSecret: 'fixture-secret' },
+        fetcher,
+      ).listChats(),
+    ).rejects.toBeInstanceOf(FeishuApiError);
+  });
+  it('rejects missing and repeated page cursors', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValue(response({ items: [], has_more: true }));
+    await expect(
+      new FeishuBotClient(
+        { appId: 'cli_fixture', appSecret: 'fixture-secret' },
+        fetcher,
+      ).listChats(),
+    ).rejects.toMatchObject({ code: 'FEISHU_CHAT_LIST_INCOMPLETE' });
+  });
+  it('passes the stable UUID and never exposes raw provider messages', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: 230020, msg: 'secret-provider-response' }), {
+          headers: { 'Retry-After': '60' },
+        }),
+      );
+    const client = new FeishuBotClient(
+      { appId: 'cli_fixture', appSecret: 'fixture-secret' },
+      fetcher,
+    );
+    await expect(
+      client.sendInteractiveMessage('oc_fixture', {}, 'stable-id'),
+    ).rejects.toMatchObject({ retryable: true, retryAfterMs: 60000 });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
+      uuid: 'stable-id',
+      msg_type: 'interactive',
+    });
+  });
+  it.each([
+    {},
+    null,
+    { code: null },
+    { code: '0' },
+    { code: 0 },
+    { code: 0, data: {} },
+    { code: 0, data: { message_id: {} } },
+    { code: 0, data: { message_id: ' ' } },
+  ])('classifies incomplete success responses as unknown: %j', async (body) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(token())
+      .mockResolvedValueOnce(new Response(JSON.stringify(body)));
+    await expect(
+      new FeishuBotClient(
+        { appId: 'cli_fixture', appSecret: 'fixture-secret' },
+        fetcher,
+      ).sendInteractiveMessage('oc_fixture', {}, 'stable-id'),
+    ).rejects.toMatchObject({ outcomeUnknown: true, retryable: false });
+  });
+  it('enforces the encoded complete-request size before sending', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    await expect(
+      new FeishuBotClient(
+        { appId: 'cli_fixture', appSecret: 'fixture-secret' },
+        fetcher,
+      ).sendInteractiveMessage('oc_fixture', { text: '中'.repeat(9000) }, 'stable-id'),
+    ).rejects.toMatchObject({ code: 'FEISHU_CARD_TOO_LARGE' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

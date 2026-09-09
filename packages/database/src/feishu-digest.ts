@@ -1,9 +1,9 @@
 import {
   feishuDigestReportWindow,
-  type FeishuDigestSnapshot,
+  type FeishuDigestSnapshotV2,
   type EventId,
 } from '@conference/contracts';
-import { and, count, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { ConferenceDatabase } from './index.js';
 import {
   checkinRecords,
@@ -12,14 +12,23 @@ import {
   eventPublicMetrics,
   events,
   invoiceRequests,
+  invoiceStateLogs,
   inventoryReservations,
   orders,
   payments,
   refunds,
+  refundRequests,
   registrations,
   ticketTypes,
   waitlistEntries,
 } from './schema.js';
+import {
+  refundAttentionCondition,
+  refundCurrentExecutionCondition,
+  refundReportingSuccessTime,
+  refundReportingSuccessLowerBound,
+  refundReportingSuccessUpperBound,
+} from './refund-reporting-policy.js';
 import { activeInventoryReservationAt } from './inventory-reservation-policy.js';
 
 export class FeishuDigestEventNotFoundError extends Error {
@@ -59,9 +68,10 @@ export async function loadFeishuDigestSnapshot(
   organizationId: string,
   eventId: EventId,
   options: { now?: Date; reportDate?: string } = {},
-): Promise<FeishuDigestSnapshot> {
+): Promise<FeishuDigestSnapshotV2> {
   return db.transaction(
     async (snapshotDb) => {
+      await snapshotDb.execute(sql`set local statement_timeout = '30s'`);
       const generatedAt = options.now ?? new Date();
       const [event] = await snapshotDb
         .select({
@@ -83,7 +93,7 @@ export async function loadFeishuDigestSnapshot(
       - coalesce((
         select sum(${inventoryReservations.quantity})
         from ${inventoryReservations}
-        where ${inventoryReservations.ticketTypeId} = ${ticketTypes.id}
+        where inventory_reservations.ticket_type_id = ticket_types.id
           and ${inventoryReservations.convertedAt} is null
           and ${inventoryReservations.releasedAt} is null
           and (${activeInventoryReservationAt(generatedAt)})
@@ -91,7 +101,7 @@ export async function loadFeishuDigestSnapshot(
       - coalesce((
         select count(*)
         from ${waitlistEntries}
-        where ${waitlistEntries.ticketTypeId} = ${ticketTypes.id}
+        where waitlist_entries.ticket_type_id = ticket_types.id
           and ${waitlistEntries.status} = 'invited'
           and ${waitlistEntries.expiresAt} > ${generatedAt}
       ), 0),
@@ -107,14 +117,18 @@ export async function loadFeishuDigestSnapshot(
         [cumulativeOrder],
         [dailyRefund],
         [dailyInvoice],
+        [invoiceSubmissions],
+        [refundApplications],
+        [refundQuality],
+        [currencyQuality],
         [invoiceTodo],
         [dailyCheckin],
         [cumulativeCheckin],
         [paymentTodo],
         [cooperationTodo],
         [inventory],
-      ] = await Promise.all([
-        snapshotDb
+      ] = [
+        await snapshotDb
           .select({
             pageViews: eventPublicMetricDays.pageViews,
             timezoneSnapshot: eventPublicMetricDays.timezoneSnapshot,
@@ -128,7 +142,7 @@ export async function loadFeishuDigestSnapshot(
             ),
           )
           .limit(1),
-        snapshotDb
+        await snapshotDb
           .select({
             pageViews: eventPublicMetrics.pageViews,
             dailyTrackingStartedAt: eventPublicMetrics.dailyTrackingStartedAt,
@@ -141,19 +155,22 @@ export async function loadFeishuDigestSnapshot(
             ),
           )
           .limit(1),
-        snapshotDb
+        await snapshotDb
           .select({ value: count() })
           .from(registrations)
           .where(
             and(
               eq(registrations.organizationId, organizationId),
               eq(registrations.eventId, eventId),
-              isNull(registrations.supersededAt),
+              or(
+                isNull(registrations.supersededAt),
+                gte(registrations.supersededAt, window.windowEnd),
+              ),
               gte(registrations.createdAt, window.windowStart),
               lt(registrations.createdAt, window.windowEnd),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({
             validRegistrations: sql<number>`count(*) filter (where ${registrations.status} in ('pending_review', 'pending_payment', 'confirmed', 'checked_in', 'completed'))::int`,
             confirmedAttendees: sql<number>`count(*) filter (where ${registrations.status} in ('confirmed', 'checked_in', 'completed'))::int`,
@@ -167,7 +184,7 @@ export async function loadFeishuDigestSnapshot(
               isNull(registrations.supersededAt),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({
             paidOrders: sql<number>`count(distinct ${payments.orderId})::int`,
             grossReceipts: sql<string>`coalesce(sum(${payments.amount}), 0)`,
@@ -183,7 +200,7 @@ export async function loadFeishuDigestSnapshot(
               lt(payments.succeededAt, window.windowEnd),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({
             paidOrders: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
             paidSeats: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded') and ${registrations.status} <> 'cancelled' and ${registrations.supersededAt} is null)::int`,
@@ -205,7 +222,7 @@ export async function loadFeishuDigestSnapshot(
           .from(orders)
           .innerJoin(registrations, eq(registrations.id, orders.registrationId))
           .where(and(eq(orders.organizationId, organizationId), eq(orders.eventId, eventId))),
-        snapshotDb
+        await snapshotDb
           .select({
             successfulRefunds: count(),
             refundAmount: sql<string>`coalesce(sum(${refunds.amount}), 0)`,
@@ -216,22 +233,80 @@ export async function loadFeishuDigestSnapshot(
               eq(refunds.organizationId, organizationId),
               eq(refunds.eventId, eventId),
               eq(refunds.status, 'succeeded'),
-              gte(refunds.createdAt, window.windowStart),
-              lt(refunds.createdAt, window.windowEnd),
+              sql`${refundReportingSuccessTime()} >= ${window.windowStart}`,
+              sql`${refundReportingSuccessTime()} < ${window.windowEnd}`,
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({ value: count() })
           .from(invoiceRequests)
           .where(
             and(
               eq(invoiceRequests.organizationId, organizationId),
               eq(invoiceRequests.eventId, eventId),
-              gte(invoiceRequests.requestedAt, window.windowStart),
-              lt(invoiceRequests.requestedAt, window.windowEnd),
+              gte(invoiceRequests.createdAt, window.windowStart),
+              lt(invoiceRequests.createdAt, window.windowEnd),
             ),
           ),
-        snapshotDb
+        await snapshotDb
+          .select({ value: sql<number>`count(distinct ${invoiceStateLogs.invoiceRequestId})::int` })
+          .from(invoiceStateLogs)
+          .innerJoin(invoiceRequests, eq(invoiceRequests.id, invoiceStateLogs.invoiceRequestId))
+          .where(
+            and(
+              eq(invoiceRequests.organizationId, organizationId),
+              eq(invoiceRequests.eventId, eventId),
+              eq(invoiceStateLogs.toStatus, 'pending_review'),
+              sql`${invoiceStateLogs.fromStatus} is distinct from 'pending_review'`,
+              gte(invoiceStateLogs.createdAt, window.windowStart),
+              lt(invoiceStateLogs.createdAt, window.windowEnd),
+            ),
+          ),
+        await snapshotDb
+          .select({
+            daily: sql<number>`count(*) filter (where ${refundRequests.createdAt} >= ${window.windowStart} and ${refundRequests.createdAt} < ${window.windowEnd})::int`,
+            pendingReview: sql<number>`count(*) filter (where ${refundRequests.reviewStatus} = 'pending_review')::int`,
+            waitingFunds: sql<number>`count(*) filter (where ${refundCurrentExecutionCondition('waiting_funds')})::int`,
+            processing: sql<number>`count(*) filter (where ${refundCurrentExecutionCondition('processing')})::int`,
+            attention: sql<number>`count(*) filter (where ${refundAttentionCondition(generatedAt)})::int`,
+          })
+          .from(refundRequests)
+          .where(
+            and(
+              eq(refundRequests.organizationId, organizationId),
+              eq(refundRequests.eventId, eventId),
+            ),
+          ),
+        await snapshotDb
+          .select({ missing: count() })
+          .from(refunds)
+          .where(
+            and(
+              eq(refunds.organizationId, organizationId),
+              eq(refunds.eventId, eventId),
+              eq(refunds.status, 'succeeded'),
+              sql`${refundReportingSuccessTime()} is null`,
+              sql`(${refundReportingSuccessLowerBound()} is null or ${refundReportingSuccessLowerBound()} < ${window.windowEnd})`,
+              sql`(${refundReportingSuccessUpperBound()} is null or ${refundReportingSuccessUpperBound()} >= ${window.windowStart})`,
+            ),
+          ),
+        await snapshotDb
+          .select({
+            currencies: sql<string[]>`array(select distinct currency from (
+              select o.currency from orders o where o.organization_id = ${organizationId} and o.event_id = ${eventId}
+              union select p.currency from payments p join orders o on o.id = p.order_id where o.organization_id = ${organizationId} and o.event_id = ${eventId} and p.status in ('succeeded', 'refunded')
+              union select r.currency from refunds r where r.organization_id = ${organizationId} and r.event_id = ${eventId} and r.status = 'succeeded'
+            ) currencies order by currency)`,
+            invalidAmounts: sql<number>`(select count(*) from orders o where o.organization_id = ${organizationId} and o.event_id = ${eventId} and (
+              ((o.status in ('paid', 'partially_refunded', 'refunded') or exists (select 1 from refunds r where r.order_id = o.id and r.status = 'succeeded'))
+                and (select count(*) from payments p where p.order_id = o.id and p.status in ('succeeded', 'refunded')) <> 1)
+              or exists (select 1 from payments p where p.order_id = o.id and p.status in ('succeeded', 'refunded') and p.amount <> o.amount)
+              or coalesce((select sum(r.amount) from refunds r where r.order_id = o.id and r.status = 'succeeded'), 0) > coalesce((select sum(p.amount) from payments p where p.order_id = o.id and p.status in ('succeeded', 'refunded')), 0)
+            ))::int`,
+          })
+          .from(events)
+          .where(eq(events.id, eventId)),
+        await snapshotDb
           .select({
             actionable: sql<number>`count(*) filter (where ${invoiceRequests.status} in ('pending_review', 'issue_failed', 'adjustment_required'))::int`,
             awaitingDetails: sql<number>`count(*) filter (where ${invoiceRequests.status} = 'awaiting_details')::int`,
@@ -244,7 +319,7 @@ export async function loadFeishuDigestSnapshot(
               eq(invoiceRequests.eventId, eventId),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({ value: count() })
           .from(checkinRecords)
           .where(
@@ -255,11 +330,11 @@ export async function loadFeishuDigestSnapshot(
               lt(checkinRecords.checkedInAt, window.windowEnd),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({ value: count() })
           .from(checkinRecords)
           .where(and(eq(checkinRecords.eventId, eventId), eq(checkinRecords.result, 'accepted'))),
-        snapshotDb
+        await snapshotDb
           .select({
             exceptions: sql<number>`count(distinct ${payments.orderId}) filter (
           where ${payments.status} in ('query_pending', 'close_pending', 'unknown')
@@ -272,7 +347,7 @@ export async function loadFeishuDigestSnapshot(
           .from(payments)
           .innerJoin(orders, eq(orders.id, payments.orderId))
           .where(and(eq(orders.organizationId, organizationId), eq(orders.eventId, eventId))),
-        snapshotDb
+        await snapshotDb
           .select({ value: count() })
           .from(cooperationRequests)
           .where(
@@ -282,7 +357,7 @@ export async function loadFeishuDigestSnapshot(
               eq(cooperationRequests.status, 'new'),
             ),
           ),
-        snapshotDb
+        await snapshotDb
           .select({
             remainingInventory: sql<string>`coalesce(sum(${availableInventory}) filter (where ${ticketTypes.active}), 0)`,
             lowStockTicketTypes: sql<number>`count(*) filter (
@@ -298,7 +373,7 @@ export async function loadFeishuDigestSnapshot(
           .where(
             and(eq(ticketTypes.organizationId, organizationId), eq(ticketTypes.eventId, eventId)),
           ),
-      ]);
+      ];
 
       const pageViewsAvailable = hasCompleteFeishuPageViewDay({
         dailyTrackingStartedAt: publicMetric?.dailyTrackingStartedAt,
@@ -308,25 +383,53 @@ export async function loadFeishuDigestSnapshot(
       });
       const grossReceipts = numeric(dailyPayment?.grossReceipts);
       const refundAmount = numeric(dailyRefund?.refundAmount);
+      const qualityIssues: FeishuDigestSnapshotV2['qualityIssues'] = [];
+      const moneyInvalid =
+        (currencyQuality?.currencies?.length ?? 0) > 1 ||
+        numeric(currencyQuality?.invalidAmounts) > 0;
+      const refundTimeMissing = numeric(refundQuality?.missing) > 0;
+      const issue = (category: string, paths: string[], description: string) =>
+        paths.forEach((metricPath) => qualityIssues.push({ category, metricPath, description }));
+      if (!pageViewsAvailable)
+        issue(
+          'incomplete_day',
+          ['daily.pageViews'],
+          '昨日访问统计尚未覆盖完整一天，其他指标正常展示。',
+        );
+      if (moneyInvalid)
+        issue(
+          'money_quality',
+          ['daily.grossReceipts', 'daily.refundAmount', 'daily.netCash', 'cumulative.netRevenue'],
+          '金额涉及多币种或异常流水，请到后台按币种核对，数量继续展示。',
+        );
+      if (refundTimeMissing)
+        issue(
+          'refund_time_missing',
+          ['daily.successfulRefunds', 'daily.refundAmount', 'daily.netCash'],
+          '部分退款缺少可信成功时间，本日退款及支付净额暂不可用。',
+        );
 
       return {
-        metricVersion: 1,
+        metricVersion: 2,
         event,
         reportDate: window.reportDate,
         windowStart: window.windowStart.toISOString(),
         windowEnd: window.windowEnd.toISOString(),
         generatedAt: generatedAt.toISOString(),
-        currency: inventory?.currency ?? 'CNY',
+        currency: currencyQuality?.currencies?.[0] ?? inventory?.currency ?? 'CNY',
+        qualityIssues,
         pageViewsAvailable,
         daily: {
           pageViews: pageViewsAvailable ? numeric(dailyPublicMetric?.pageViews) : null,
           newRegistrations: numeric(dailyRegistration?.value),
           paidOrders: numeric(dailyPayment?.paidOrders),
-          grossReceipts,
-          successfulRefunds: numeric(dailyRefund?.successfulRefunds),
-          refundAmount,
-          netCash: grossReceipts - refundAmount,
-          invoiceRequests: numeric(dailyInvoice?.value),
+          grossReceipts: moneyInvalid ? null : grossReceipts,
+          successfulRefunds: refundTimeMissing ? null : numeric(dailyRefund?.successfulRefunds),
+          refundAmount: moneyInvalid || refundTimeMissing ? null : refundAmount,
+          netCash: moneyInvalid || refundTimeMissing ? null : grossReceipts - refundAmount,
+          refundRequests: numeric(refundApplications?.daily),
+          invoiceDemands: numeric(dailyInvoice?.value),
+          invoiceSubmissions: numeric(invoiceSubmissions?.value),
           checkins: numeric(dailyCheckin?.value),
         },
         cumulative: {
@@ -335,11 +438,14 @@ export async function loadFeishuDigestSnapshot(
           paidOrders: numeric(cumulativeOrder?.paidOrders),
           paidSeats: numeric(cumulativeOrder?.paidSeats),
           confirmedAttendees: numeric(cumulativeRegistration?.confirmedAttendees),
-          netRevenue: numeric(cumulativeOrder?.netRevenue),
+          netRevenue: moneyInvalid ? null : numeric(cumulativeOrder?.netRevenue),
           remainingInventory: numeric(inventory?.remainingInventory),
           checkins: numeric(cumulativeCheckin?.value),
         },
         todos: {
+          refundPendingReview: numeric(refundApplications?.pendingReview),
+          refundWaitingFunds: numeric(refundApplications?.waitingFunds),
+          refundAttention: numeric(refundApplications?.attention),
           pendingRegistrationReview: numeric(cumulativeRegistration?.pendingReview),
           invoiceActionable: numeric(invoiceTodo?.actionable),
           paymentExceptions: numeric(paymentTodo?.exceptions),
@@ -347,6 +453,7 @@ export async function loadFeishuDigestSnapshot(
           lowStockTicketTypes: numeric(inventory?.lowStockTicketTypes),
         },
         monitoring: {
+          refundProcessing: numeric(refundApplications?.processing),
           invoiceAwaitingDetails: numeric(invoiceTodo?.awaitingDetails),
           invoiceIssuing: numeric(invoiceTodo?.issuing),
           pendingPayments: numeric(paymentTodo?.pending),

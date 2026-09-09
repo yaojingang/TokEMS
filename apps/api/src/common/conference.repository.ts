@@ -53,6 +53,7 @@ import {
   customerProfiles,
   customerUsers,
   eventFeishuDigestSubscriptions,
+  feishuDigestDeliveries,
   eventReleases,
   eventPublicMetricDays,
   eventPublicMetrics,
@@ -6130,7 +6131,7 @@ export class ConferenceRepository {
               ),
             );
         }
-        if (row && (patch.timezone !== undefined || nextStatus === 'archived')) {
+        if (row && (row.timezone !== current.timezone || (nextStatus === 'archived' && current.status !== 'archived'))) {
           const [digest] = await tx
             .select({
               id: eventFeishuDigestSubscriptions.id,
@@ -6156,10 +6157,13 @@ export class ConferenceRepository {
                   archived || !digest.enabled
                     ? null
                     : nextFeishuDigestRun(changedAt, row.timezone, digest.sendLocalTime),
+                configVersion: sql`${eventFeishuDigestSubscriptions.configVersion} + 1`,
+                pauseReason: archived ? 'event_archived' : null,
                 revision: sql`${eventFeishuDigestSubscriptions.revision} + 1`,
                 updatedAt: changedAt,
               })
               .where(eq(eventFeishuDigestSubscriptions.id, digest.id));
+            await tx.update(feishuDigestDeliveries).set({ status: 'cancelled', leaseToken: null, leaseUntil: null, lastErrorCode: archived ? 'EVENT_ARCHIVED' : 'EVENT_TIMEZONE_CHANGED', lastError: '大会状态或时区已变化，原发送任务已取消', updatedAt: changedAt }).where(and(eq(feishuDigestDeliveries.organizationId, organizationId), eq(feishuDigestDeliveries.eventId, eventId), inArray(feishuDigestDeliveries.status, ['queued', 'generating', 'retrying'])));
           }
         }
         await tx.insert(auditLogs).values({

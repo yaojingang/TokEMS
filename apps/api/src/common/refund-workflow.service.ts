@@ -1,3 +1,4 @@
+import { refundAttentionCondition, refundCurrentExecutionCondition } from '@conference/database';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
@@ -730,14 +731,9 @@ export class RefundWorkflowService {
       conditions.push(eq(refundRequests.reviewStatus, 'pending_review'));
     if (query.status === 'completed')
       conditions.push(eq(refundRequests.fulfillmentStatus, 'completed'));
-    if (query.status === 'attention')
-      conditions.push(
-        sql`(${refundRequests.fulfillmentStatus} = 'manual_required' or ${refundRequests.attentionReason} is not null or (${refundRequests.terminatedAt} is null and coalesce(${refundRequests.reviewedAt}, ${refundRequests.createdAt}) < now() - interval '24 hours'))`,
-      );
+    if (query.status === 'attention') conditions.push(refundAttentionCondition());
     if (query.status === 'waiting_funds' || query.status === 'processing')
-      conditions.push(
-        sql`exists (select 1 from ${refunds} where ${refunds.requestId} = ${refundRequests.id} and ${refunds.currentAttempt} = true and ${refunds.status} = ${query.status})`,
-      );
+      conditions.push(refundCurrentExecutionCondition(query.status));
     const rows = await this.db()
       .select({
         request: refundRequests,

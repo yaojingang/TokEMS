@@ -9,6 +9,7 @@ export const FeishuBotStatusSchema = z.enum([
 ]);
 
 export const FeishuBotConfigurationSchema = z.object({
+  connectionVersion: z.number().int().nonnegative(),
   enabled: z.boolean(),
   appId: z.string(),
   appName: z.string(),
@@ -17,10 +18,20 @@ export const FeishuBotConfigurationSchema = z.object({
   lastVerifiedAt: z.string().nullable(),
   lastError: z.string().nullable(),
   secretsPresent: z.object({ appSecret: z.boolean() }),
+  diagnostics: z.object({
+    credentials: z.enum(['pending', 'passed', 'failed']),
+    bot: z.enum(['pending', 'passed', 'failed']),
+    chats: z.enum(['pending', 'passed', 'failed']),
+    sending: z.literal('verify_by_test'),
+  }),
+  affectedEvents: z.array(
+    z.object({ eventId: z.number().int(), eventName: z.string(), enabled: z.boolean() }),
+  ),
 });
 
 export const UpdateFeishuBotConfigurationSchema = z
   .object({
+    expectedConnectionVersion: z.number().int().nonnegative(),
     enabled: z.boolean(),
     appId: z
       .string()
@@ -50,10 +61,14 @@ export const FeishuChatSchema = z.object({
   name: z.string(),
   description: z.string(),
   ownerId: z.string(),
-  external: z.boolean(),
+  external: z.boolean().nullable(),
+  status: z.enum(['normal', 'dissolved', 'dissolved_save', 'unknown']),
+  selectable: z.boolean(),
+  unavailableReason: z.string(),
 });
 
 export const FeishuChatListSchema = z.object({
+  connectionVersion: z.number().int().nonnegative(),
   items: z.array(FeishuChatSchema),
   refreshedAt: z.string(),
   setupHint: z.string(),
@@ -110,7 +125,7 @@ export const FeishuDigestMonitoringMetricsSchema = z.object({
   pendingPayments: z.number().int().nonnegative(),
 });
 
-export const FeishuDigestSnapshotSchema = z.object({
+export const FeishuDigestSnapshotV1Schema = z.object({
   metricVersion: z.literal(1),
   event: z.object({
     id: z.number().int().min(101),
@@ -139,8 +154,48 @@ export const FeishuDigestSnapshotSchema = z.object({
   monitoring: FeishuDigestMonitoringMetricsSchema,
 });
 
+export const FeishuDigestSnapshotV2Schema = FeishuDigestSnapshotV1Schema.extend({
+  metricVersion: z.literal(2),
+  daily: FeishuDigestDailyMetricsSchema.omit({ invoiceRequests: true }).extend({
+    grossReceipts: z.number().int().nonnegative().nullable(),
+    successfulRefunds: z.number().int().nonnegative().nullable(),
+    refundAmount: z.number().int().nonnegative().nullable(),
+    netCash: z.number().int().nullable(),
+    refundRequests: z.number().int().nonnegative(),
+    invoiceDemands: z.number().int().nonnegative(),
+    invoiceSubmissions: z.number().int().nonnegative(),
+  }),
+  cumulative: FeishuDigestCumulativeMetricsSchema.extend({
+    netRevenue: z.number().int().nullable(),
+  }),
+  todos: FeishuDigestTodoMetricsSchema.extend({
+    refundPendingReview: z.number().int().nonnegative(),
+    refundWaitingFunds: z.number().int().nonnegative(),
+    refundAttention: z.number().int().nonnegative(),
+  }),
+  monitoring: FeishuDigestMonitoringMetricsSchema.extend({
+    refundProcessing: z.number().int().nonnegative(),
+  }),
+  qualityIssues: z.array(
+    z.object({ category: z.string(), metricPath: z.string(), description: z.string() }),
+  ),
+});
+export const FeishuDigestSnapshotSchema = z.discriminatedUnion('metricVersion', [
+  FeishuDigestSnapshotV1Schema,
+  FeishuDigestSnapshotV2Schema,
+]);
+
+export const FeishuDigestServiceHealthSchema = z.object({
+  ready: z.boolean(),
+  queueReachable: z.boolean(),
+  lastScanAt: z.string().nullable(),
+  buildSha: z.string(),
+});
+
 export const UpdateFeishuDigestSubscriptionSchema = z
   .object({
+    expectedConfigVersion: z.number().int().nonnegative(),
+    expectedConnectionVersion: z.number().int().nonnegative(),
     enabled: z.boolean(),
     chatId: z
       .string()
@@ -162,6 +217,10 @@ export const UpdateFeishuDigestSubscriptionSchema = z
   });
 
 export const FeishuDigestSubscriptionSchema = z.object({
+  configVersion: z.number().int().nonnegative(),
+  connectionVersion: z.number().int().nonnegative(),
+  pauseReason: z.string().nullable(),
+  serviceHealth: FeishuDigestServiceHealthSchema,
   eventId: z.number().int().min(101),
   eventName: z.string(),
   eventStatus: z.string(),
@@ -179,6 +238,8 @@ export const FeishuDigestSubscriptionSchema = z.object({
 
 export const FeishuDigestTestMessageSchema = z
   .object({
+    expectedConfigVersion: z.number().int().nonnegative(),
+    expectedConnectionVersion: z.number().int().nonnegative(),
     chatId: z
       .string()
       .trim()
@@ -214,6 +275,31 @@ export const FeishuDigestDeliverySchema = z.object({
   lastErrorCode: z.string(),
   lastError: z.string(),
   createdAt: z.string(),
+  resolution: z
+    .object({
+      kind: z.enum(['received', 'resent']),
+      actorId: z.string(),
+      at: z.string(),
+      childDeliveryId: z.string().optional(),
+    })
+    .nullable(),
+  availableActions: z.array(z.enum(['resend', 'regenerate', 'resolve'])),
+});
+
+export const FeishuDigestDeliveryDetailSchema = FeishuDigestDeliverySchema.extend({
+  snapshot: FeishuDigestSnapshotSchema.nullable(),
+  card: z.record(z.string(), z.unknown()).nullable(),
+});
+export const FeishuDigestRecoveryRequestSchema = z
+  .object({
+    expectedConfigVersion: z.number().int().nonnegative(),
+    expectedConnectionVersion: z.number().int().nonnegative(),
+    confirmResend: z.boolean().optional(),
+  })
+  .strict();
+export const FeishuDigestPreviewSchema = z.object({
+  snapshot: FeishuDigestSnapshotSchema,
+  card: z.record(z.string(), z.unknown()),
 });
 
 export type FeishuBotConfiguration = z.infer<typeof FeishuBotConfigurationSchema>;
@@ -224,11 +310,25 @@ export type FeishuChatList = z.infer<typeof FeishuChatListSchema>;
 export type FeishuDigestDeliveryStatus = z.infer<typeof FeishuDigestDeliveryStatusSchema>;
 export type FeishuDigestDeliveryKind = z.infer<typeof FeishuDigestDeliveryKindSchema>;
 export type FeishuDigestSnapshot = z.infer<typeof FeishuDigestSnapshotSchema>;
+export type FeishuDigestSnapshotV2 = z.infer<typeof FeishuDigestSnapshotV2Schema>;
+export type FeishuDigestServiceHealth = z.infer<typeof FeishuDigestServiceHealthSchema>;
+export type FeishuDigestDeliveryDetail = z.infer<typeof FeishuDigestDeliveryDetailSchema>;
+export type FeishuDigestRecoveryRequest = z.infer<typeof FeishuDigestRecoveryRequestSchema>;
 export type FeishuDigestSubscription = z.infer<typeof FeishuDigestSubscriptionSchema>;
 export type UpdateFeishuDigestSubscription = z.infer<typeof UpdateFeishuDigestSubscriptionSchema>;
 export type FeishuDigestTestMessage = z.infer<typeof FeishuDigestTestMessageSchema>;
 export type FeishuDigestSendResult = z.infer<typeof FeishuDigestSendResultSchema>;
 export type FeishuDigestDelivery = z.infer<typeof FeishuDigestDeliverySchema>;
+
+export function feishuConnectionVersion(config: Record<string, unknown>) {
+  const value = config.connectionVersion;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+export const FEISHU_DIGEST_GRACE_MS = 12 * 60 * 60_000;
+export const FEISHU_DIGEST_LEASE_MS = 120_000;
+export const FEISHU_DIGEST_DEDUP_MS = 60 * 60_000;
+export const FEISHU_DIGEST_HEARTBEAT_KEY = 'feishu-digest:scheduler:heartbeat:v2';
 
 function checkedTimeZone(timeZone: string) {
   new Intl.DateTimeFormat('en', { timeZone }).format();
@@ -323,7 +423,27 @@ export function zonedDateTimeToDate(date: string, time: string, requestedTimeZon
   ) {
     throw new Error('所选时区在该时刻不存在，请调整时间');
   }
-  return result;
+  const candidates = [-86_400_000, 0, 86_400_000]
+    .map((offset) => {
+      const probe = new Date(instant + offset);
+      const parts = Object.fromEntries(
+        formatter
+          .formatToParts(probe)
+          .filter((part) => part.type !== 'literal')
+          .map((part) => [part.type, Number(part.value)]),
+      );
+      const local = Date.UTC(
+        parts.year!,
+        parts.month! - 1,
+        parts.day!,
+        parts.hour!,
+        parts.minute!,
+        parts.second!,
+      );
+      return new Date(target - (local - probe.valueOf()));
+    })
+    .filter((candidate) => formatter.format(candidate) === formatter.format(result));
+  return new Date(Math.min(...candidates.map((candidate) => candidate.valueOf())));
 }
 
 export function feishuDigestReportWindow(now: Date, timeZone: string, reportDate?: string) {

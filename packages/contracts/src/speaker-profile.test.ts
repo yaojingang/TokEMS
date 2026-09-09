@@ -27,10 +27,11 @@ describe('speaker profile contracts', () => {
       '高军',
       '哥飞',
       '岚叔',
-      '冷洪利（光头牛哥）',
+      '冷洪利',
       '刘树勋',
       '彭超',
       '乔向阳',
+      '任开心',
       '任强',
       '杨攀',
       '姚金刚',
@@ -48,6 +49,11 @@ describe('speaker profile contracts', () => {
         expect(speaker.topic).toBe('特邀嘉宾');
         expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract).toBe('');
         expect(DEMO_EVENT.sessions.some((session) => session.speaker?.includes('夫唯'))).toBe(
+          false,
+        );
+      } else if (speaker.topic === '分享主题待公布') {
+        expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract).toBe('');
+        expect(DEMO_EVENT.sessions.some((session) => session.speaker?.includes(speaker.name))).toBe(
           false,
         );
       } else {

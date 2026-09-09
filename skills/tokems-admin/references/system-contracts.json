@@ -1504,7 +1504,8 @@
       "method": "GET",
       "path": "/api/v1/admin/events/:eventId/feishu-digest",
       "requiredGrants": [
-        "org.settings.read"
+        "org.settings.read",
+        "event.dashboard.read"
       ],
       "agentScopes": [
         "tokems:read",
@@ -1543,7 +1544,8 @@
       "method": "GET",
       "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries",
       "requiredGrants": [
-        "org.settings.read"
+        "org.settings.read",
+        "event.dashboard.read"
       ],
       "agentScopes": [
         "tokems:read",
@@ -2041,10 +2043,11 @@
       "handler": "OrganizationEventsController.feishuDigestSubscription",
       "actionId": "communications.feishu-digest.get",
       "exclusion": null,
-      "requiredAnyGrants": [
-        "org.settings.read"
-      ],
-      "requiredAllGrants": []
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.read",
+        "event.dashboard.read"
+      ]
     },
     {
       "method": "GET",
@@ -2052,10 +2055,23 @@
       "handler": "OrganizationEventsController.feishuDigestDeliveries",
       "actionId": "communications.feishu-digest.deliveries.list",
       "exclusion": null,
-      "requiredAnyGrants": [
-        "org.settings.read"
-      ],
-      "requiredAllGrants": []
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.read",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries/:deliveryId",
+      "handler": "OrganizationEventsController.feishuDigestDeliveryDetail",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.read",
+        "event.dashboard.read"
+      ]
     },
     {
       "method": "GET",
@@ -3040,8 +3056,32 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/regenerate",
+      "handler": "OrganizationEventsController.regenerateFeishuDigestDelivery",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.manage",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/resend",
       "handler": "OrganizationEventsController.resendFeishuDigestDelivery",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "org.settings.manage",
+        "event.dashboard.read"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/feishu-digest/deliveries/:deliveryId/resolve",
+      "handler": "OrganizationEventsController.resolveFeishuDigestDelivery",
       "actionId": null,
       "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
       "requiredAnyGrants": [],

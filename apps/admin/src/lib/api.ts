@@ -1,5 +1,19 @@
 import { computed, ref } from 'vue';
-import type { AdminRefundApplicationView } from '@conference/contracts';
+import type {
+  FeishuBotConfiguration,
+  UpdateFeishuBotConfiguration,
+  FeishuBotVerification,
+  FeishuChatList,
+  FeishuDigestSubscription,
+  UpdateFeishuDigestSubscription,
+  FeishuDigestSnapshot,
+  FeishuDigestDelivery,
+  FeishuDigestDeliveryDetail,
+  FeishuDigestTestMessage,
+  FeishuDigestSendResult,
+  FeishuDigestRecoveryRequest,
+  AdminRefundApplicationView,
+} from '@conference/contracts';
 import {
   type AccountProfile,
   type AcceptOrganizationInvitation,
@@ -559,6 +573,17 @@ function normalizeAdminSpeaker<T extends AdminSpeakerSummary>(speaker: T): T {
   };
 }
 
+export class AdminApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'AdminApiError';
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseURL}${path}`, {
     ...init,
@@ -568,10 +593,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers,
     },
   });
-  const body = (await response.json().catch(() => ({}))) as T & { message?: string };
+  const body = (await response.json().catch(() => ({}))) as T & { message?: string; details?: Record<string, unknown> };
   if (!response.ok) {
     if (response.status === 401) session.clear();
-    throw new Error(body.message ?? `请求失败（${response.status}）`);
+    throw new AdminApiError(body.message ?? `请求失败（${response.status}）`, response.status, body.details);
   }
   return body;
 }
@@ -591,6 +616,51 @@ const adminPreferenceWriter = createLatestPreferenceWriter(async (lastEventId) =
 });
 
 export const conferenceApi = {
+  getFeishuBotConfiguration: () =>
+    request<FeishuBotConfiguration>('/admin/integrations/feishu-bot'),
+  updateFeishuBotConfiguration: (input: UpdateFeishuBotConfiguration) =>
+    request<FeishuBotConfiguration>('/admin/integrations/feishu-bot', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  verifyFeishuBot: () =>
+    request<FeishuBotVerification>('/admin/integrations/feishu-bot/verify', { method: 'POST' }),
+  getFeishuChats: () => request<FeishuChatList>('/admin/integrations/feishu-bot/chats'),
+  refreshFeishuChats: () =>
+    request<FeishuChatList>('/admin/integrations/feishu-bot/chats/refresh', { method: 'POST' }),
+  getFeishuDigestSubscription: (eventId: EventId) =>
+    request<FeishuDigestSubscription>(`/admin/events/${eventId}/feishu-digest`),
+  updateFeishuDigestSubscription: (eventId: EventId, input: UpdateFeishuDigestSubscription) =>
+    request<FeishuDigestSubscription>(`/admin/events/${eventId}/feishu-digest`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  previewFeishuDigest: (eventId: EventId) =>
+    request<{ snapshot: FeishuDigestSnapshot; card: Record<string, unknown> }>(
+      `/admin/events/${eventId}/feishu-digest/preview`,
+    ),
+  getFeishuDeliveries: (eventId: EventId) =>
+    request<FeishuDigestDelivery[]>(`/admin/events/${eventId}/feishu-digest/deliveries`),
+  getFeishuDelivery: (eventId: EventId, id: string) =>
+    request<FeishuDigestDeliveryDetail>(`/admin/events/${eventId}/feishu-digest/deliveries/${id}`),
+  sendFeishuTest: (eventId: EventId, input: FeishuDigestTestMessage, key: string) =>
+    request<FeishuDigestSendResult>(`/admin/events/${eventId}/feishu-digest/send-test`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body: JSON.stringify(input),
+    }),
+  recoverFeishuDelivery: (
+    eventId: EventId,
+    id: string,
+    action: 'resend' | 'regenerate' | 'resolve',
+    input: FeishuDigestRecoveryRequest,
+    key: string,
+  ) =>
+    request<FeishuDigestSendResult>(
+      `/admin/events/${eventId}/feishu-digest/deliveries/${id}/${action}`,
+      { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) },
+    ),
+
   refundExceptions(eventId: number) {
     return request<
       Array<{ orderId: string; registrationId: string; orderNo: string; reason: string | null }>

@@ -662,6 +662,9 @@ export const eventFeishuDigestSubscriptions = pgTable(
     lastSuccessfulAt: timestamp('last_successful_at', { withTimezone: true }),
     testVerifiedAt: timestamp('test_verified_at', { withTimezone: true }),
     testVerifiedChatId: varchar('test_verified_chat_id', { length: 160 }),
+    configVersion: integer('config_version').notNull().default(0),
+    testVerifiedConnectionVersion: integer('test_verified_connection_version'),
+    pauseReason: varchar('pause_reason', { length: 120 }),
     revision: integer('revision').notNull().default(0),
     ...timestamps,
   },
@@ -707,6 +710,19 @@ export const feishuDigestDeliveries = pgTable(
     windowEnd: timestamp('window_end', { withTimezone: true }).notNull(),
     generatedAt: timestamp('generated_at', { withTimezone: true }),
     aggregateSnapshot: jsonb('aggregate_snapshot').$type<FeishuDigestSnapshot>(),
+    cardPayload: jsonb('card_payload').$type<Record<string, unknown>>(),
+    requestHash: varchar('request_hash', { length: 64 }),
+    connectionVersion: integer('connection_version'),
+    subscriptionConfigVersion: integer('subscription_config_version'),
+    leaseToken: uuid('lease_token'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    firstSendStartedAt: timestamp('first_send_started_at', { withTimezone: true }),
+    resolution: jsonb('resolution').$type<{
+      kind: 'received' | 'resent';
+      actorId: string;
+      at: string;
+      childDeliveryId?: string;
+    }>(),
     cardDigest: varchar('card_digest', { length: 64 }),
     chatIdSnapshot: varchar('chat_id_snapshot', { length: 160 }).notNull(),
     chatNameSnapshot: varchar('chat_name_snapshot', { length: 200 }).notNull(),
