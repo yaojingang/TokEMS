@@ -101,16 +101,29 @@ const refundPaymentReadiness = computed<'ready' | 'incomplete' | 'unknown'>(() =
     : 'incomplete';
 });
 const refundPaymentStatus = computed(() => {
-  if (refundPaymentReadiness.value === 'ready') return '微信退款配置可用';
+  if (refundPaymentReadiness.value === 'ready') return '退款开启条件已满足';
   if (refundPaymentReadiness.value === 'incomplete') return '微信退款配置待完善';
   return '启用时将校验微信退款配置';
 });
 const refundPaymentDescription = computed(() => {
   if (refundPaymentReadiness.value === 'ready') return '审核通过后，系统会自动提交微信原路退款。';
-  if (refundPaymentReadiness.value === 'incomplete')
-    return '请先完成商户凭据验证，并选择退款出资账户。';
-  return '需要微信商户凭据验证通过，并选择退款出资账户。';
+  if (refundPaymentReadiness.value === 'unknown') return '启用时将由系统校验商户验证状态与退款出资账户。';
+  const configuration = paymentConfiguration.value!;
+  if (configuration.status === 'verified') return '商户验证已通过，请选择退款出资账户。';
+  if (configuration.refundFunding) {
+    return configuration.status === 'error'
+      ? '退款出资账户已设置，商户验证失败，请前往支付设置重新验证。'
+      : '退款出资账户已设置，请完成商户验证。';
+  }
+  return configuration.status === 'error'
+    ? '商户验证失败，请前往支付设置重新验证，并选择退款出资账户。'
+    : '请完成商户配置与验证，并选择退款出资账户。';
 });
+const refundSaveBlockedReason = computed(() =>
+  settingsForm.refundEnabled && refundPaymentReadiness.value === 'incomplete'
+    ? refundPaymentDescription.value
+    : '',
+);
 const canManageTickets = computed(() => session.can('event.inventory.manage'));
 const canReadFlow = computed(() => session.can('event.site.read'));
 const canManageFlow = computed(() => session.can('event.content.manage'));
@@ -266,8 +279,8 @@ async function saveSettings() {
 
 async function saveRefundPolicy() {
   if (refundPending.value || !canManageRefundPolicy.value || !refundPolicyDirty.value) return;
-  if (settingsForm.refundEnabled && refundPaymentReadiness.value === 'incomplete') {
-    errorMessage.value = '请先完成微信退款配置，再开放用户自助退款。';
+  if (refundSaveBlockedReason.value) {
+    errorMessage.value = refundSaveBlockedReason.value;
     return;
   }
   const submittedRefundEnabled = settingsForm.refundEnabled;
@@ -598,7 +611,7 @@ async function saveFlow() {
         <RouterLink
           v-if="canReadPaymentSettings"
           class="button secondary compact"
-          :to="{ name: 'manage-settings-payment' }"
+          :to="{ name: 'manage-settings-payment', hash: '#payment-refund-settings' }"
         >
           前往支付设置
         </RouterLink>
@@ -608,14 +621,23 @@ async function saveFlow() {
         已提交的申请会继续处理；关闭入口不会中止已批准退款。
       </p>
       <div class="event-form-actions">
+        <p
+          v-if="refundSaveBlockedReason"
+          id="refund-save-blocked-reason"
+          class="refund-save-blocked-reason"
+          role="status"
+        >
+          {{ refundSaveBlockedReason }}
+        </p>
         <button
           class="button"
           type="submit"
           :disabled="
             refundPending ||
               !refundPolicyDirty ||
-              (settingsForm.refundEnabled && refundPaymentReadiness === 'incomplete')
+              Boolean(refundSaveBlockedReason)
           "
+          :aria-describedby="refundSaveBlockedReason ? 'refund-save-blocked-reason' : undefined"
         >
           {{ refundPending ? '保存中…' : '保存退款设置' }}
         </button>
@@ -941,7 +963,17 @@ async function saveFlow() {
 }
 
 .refund-settings-form .event-form-actions {
+  flex-wrap: wrap;
+  align-items: center;
   margin-top: 0;
+}
+
+.refund-save-blocked-reason {
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--gold);
+  font-size: var(--admin-font-caption);
+  line-height: 1.6;
 }
 
 @media (max-width: 640px) {

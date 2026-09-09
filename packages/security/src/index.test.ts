@@ -24,8 +24,12 @@ describe('ticket code security contract', () => {
     () => {
       for (let index = 0; index < 100_000; index += 1) {
         const code = createTicketCode();
-        expect(isStrictTicketCode(code)).toBe(true);
-        expect(isReadableTicketCode(code)).toBe(true);
+        if (!isStrictTicketCode(code)) {
+          expect.fail(`Generated ticket code violates the strict contract: ${code}`);
+        }
+        if (!isReadableTicketCode(code)) {
+          expect.fail(`Generated ticket code violates the readable contract: ${code}`);
+        }
       }
     },
   );

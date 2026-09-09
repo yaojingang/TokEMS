@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import type { WeChatPayConfiguration } from '@conference/contracts';
 import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
@@ -7,6 +8,7 @@ import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
 
 const configuration = ref<WeChatPayConfiguration>();
+const route = useRoute();
 const unmatchedRefunds = ref<
   Awaited<ReturnType<typeof conferenceApi.unmatchedRefundNotifications>>
 >([]);
@@ -141,7 +143,7 @@ async function testConnection() {
 }
 
 /**
- * Persists configuration changes and immediately re-validates the merchant link.
+ * Persists configuration changes and verifies when the server requires it.
  */
 async function save() {
   if (!loaded.value) {
@@ -175,8 +177,12 @@ async function save() {
       ...(form.appSecret.trim() ? { appSecret: form.appSecret.trim() } : {}),
     });
     applyConfiguration(result);
-    message.value = '配置已加密保存，正在验证微信支付连接。';
-    await testConnection();
+    if (result.status === 'verified') {
+      message.value = '配置已保存，商户验证保持通过。';
+    } else {
+      message.value = '配置已加密保存，正在验证微信支付连接。';
+      await testConnection();
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '微信支付配置保存失败';
   } finally {
@@ -184,7 +190,14 @@ async function save() {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  if (route.hash !== '#payment-refund-settings') return;
+  await nextTick();
+  const refundSettings = document.querySelector<HTMLElement>(route.hash);
+  refundSettings?.scrollIntoView({ block: 'start' });
+  refundSettings?.focus({ preventScroll: true });
+});
 </script>
 
 <template>
@@ -351,7 +364,12 @@ onMounted(load);
         </div>
       </section>
 
-      <section class="settings-form-section" aria-labelledby="payment-refund-heading">
+      <section
+        id="payment-refund-settings"
+        class="settings-form-section"
+        tabindex="-1"
+        aria-labelledby="payment-refund-heading"
+      >
         <div v-if="unmatchedRefunds.length" class="settings-inline-error" role="alert">
           <strong>{{ unmatchedRefunds.length }} 条退款通知需要核验</strong>
           <p v-for="item in unmatchedRefunds" :key="item.id">
@@ -367,11 +385,19 @@ onMounted(load);
         </div>
         <div class="form-field full">
           <label for="wechat-refund-funding">退款出资账户</label>
-          <select id="wechat-refund-funding" v-model="form.refundFunding" :disabled="!canManage">
+          <select
+            id="wechat-refund-funding"
+            v-model="form.refundFunding"
+            :disabled="!canManage"
+            aria-describedby="wechat-refund-funding-help"
+          >
             <option value="" disabled>待财务确认</option>
             <option value="default">默认退款账户（按微信商户配置）</option>
             <option value="available">可用余额（已确认使用旧资金账户）</option>
           </select>
+          <p id="wechat-refund-funding-help">
+            默认退款账户由微信按商户配置处理；可用余额仅适用于已确认的旧资金流商户。请由财务确认后选择。仅修改出资账户时会保留已通过的商户验证，凭据变更需重新验证。
+          </p>
         </div>
         <p v-if="configuration?.refundNotifyUrl">
           退款结果通知地址：{{ configuration.refundNotifyUrl }}
@@ -462,8 +488,14 @@ onMounted(load);
         v-if="canManage"
         :pending="pending"
         :disabled="testing"
-        primary-label="保存并验证"
+        primary-label="保存设置"
       />
     </form>
   </section>
 </template>
+
+<style scoped>
+#payment-refund-settings {
+  scroll-margin-top: 96px;
+}
+</style>
