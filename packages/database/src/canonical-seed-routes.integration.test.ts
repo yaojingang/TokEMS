@@ -75,6 +75,42 @@ describePersistent('canonical seed speaker route retention', () => {
     await new Promise<void>((resolve) => storage.close(() => resolve()));
   });
 
+  it('preserves the independent production V153 when syncing a newer canonical release', async () => {
+    // Production activated refund settings as V153 before the local logo update used V153.
+    await database!.query(
+      `insert into event_releases
+        (event_id, version, template_key, template_version_id, status, snapshot,
+         artifact_key, change_summary, change_scope, activation_kind)
+       select event_id, 153, template_key, template_version_id, status,
+         jsonb_set(snapshot, '{event,settings,refunds}',
+           '{"enabled":true,"version":"seven-day-v1","windowDays":7}'::jsonb),
+         artifact_key, 'Production V153: independent refund settings', 'event', 'save'
+       from event_releases where event_id = $1 and version = $2
+       on conflict (event_id, version) do update set
+         snapshot = excluded.snapshot, change_summary = excluded.change_summary,
+         change_scope = excluded.change_scope`,
+      [DEMO_IDS.event, CANONICAL_HOMEPAGE_SNAPSHOT.release.version],
+    );
+    const historical = await database!.query(
+      'select * from event_releases where event_id = $1 and version = 153',
+      [DEMO_IDS.event],
+    );
+    expect(historical.rows).toHaveLength(1);
+    await seed();
+    const preserved = await database!.query(
+      'select * from event_releases where event_id = $1 and version = 153',
+      [DEMO_IDS.event],
+    );
+    expect(preserved.rows).toEqual(historical.rows);
+    const active = await database!.query(
+      `select r.version from events e join event_releases r
+       on r.id::text = e.settings->>'currentReleaseId' where e.id = $1`,
+      [DEMO_IDS.event],
+    );
+    expect(active.rows[0]?.version).toBe(CANONICAL_HOMEPAGE_SNAPSHOT.release.version);
+    expect(active.rows[0]?.version).toBeGreaterThan(153);
+  }, 60_000);
+
   it('keeps deleted speakers reserved when applying a snapshot of current speakers', async () => {
     await database!.query(
       'insert into speaker_public_routes (organization_id, event_id, speaker_id, public_code) values ($1, $2, $3, $4)',
