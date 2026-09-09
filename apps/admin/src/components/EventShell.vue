@@ -44,7 +44,14 @@ const navigation = computed(() => [
   {
     name: session.canAny(['event.manage', 'event.site.read'])
       ? 'event-settings-general'
-      : 'event-settings-registration',
+      : session.canAny([
+            'event.registration.manage',
+            'event.order.refund',
+            'event.inventory.read',
+            'event.inventory.manage',
+          ])
+        ? 'event-settings-registration'
+        : 'event-settings-feishu',
     match: '/settings',
     icon: '◇',
     label: '大会配置',
@@ -94,7 +101,13 @@ const navigation = computed(() => [
   },
 ]);
 const visibleNavigation = computed(() =>
-  navigation.value.filter((item) => session.canAny(item.grants)),
+  navigation.value.filter(
+    (item) =>
+      session.canAny(item.grants) ||
+      (item.match === '/settings' &&
+        session.can('org.settings.read') &&
+        session.can('event.dashboard.read')),
+  ),
 );
 
 function isActive(match: string) {
@@ -261,6 +274,12 @@ onMounted(() => {
             :to="eventRoute('event-settings-registration')"
           >
             报名设置
+          </RouterLink>
+          <RouterLink
+            v-if="session.can('org.settings.read') && session.can('event.dashboard.read')"
+            :to="eventRoute('event-settings-feishu')"
+          >
+            飞书机器人
           </RouterLink>
           <RouterLink
             v-if="session.can('event.registration.manage')"

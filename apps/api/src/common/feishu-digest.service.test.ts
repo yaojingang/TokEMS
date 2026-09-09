@@ -24,7 +24,7 @@ describe('Feishu digest manual delivery idempotency', () => {
     expect(first.length).toBeLessThanOrEqual(240);
   });
 
-  it('separates different actors and requests after the API cache expires', () => {
+  it('separates actors and keeps the durable key stable so changed requests can be rejected', () => {
     expect(feishuManualDeliveryDedupKey({ ...base, actorId: randomUUID() })).not.toBe(
       feishuManualDeliveryDedupKey(base),
     );
@@ -33,7 +33,7 @@ describe('Feishu digest manual delivery idempotency', () => {
         ...base,
         request: { chatId: 'oc_second', dataVisibilityConfirmed: true },
       }),
-    ).not.toBe(feishuManualDeliveryDedupKey(base));
+    ).toBe(feishuManualDeliveryDedupKey(base));
   });
 });
 

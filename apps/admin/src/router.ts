@@ -200,6 +200,12 @@ export const router = createRouter({
               meta: { requiredGrants: ['org.settings.read'] },
             },
             {
+              path: 'feishu',
+              name: 'manage-settings-feishu',
+              component: () => import('./views/ManagementFeishuSettingsView.vue'),
+              meta: { requiredGrants: ['org.settings.read'] },
+            },
+            {
               path: 'sms',
               name: 'manage-settings-sms',
               component: () => import('./views/ManagementSmsSettingsView.vue'),
@@ -335,6 +341,16 @@ export const router = createRouter({
             title: '大会配置',
             code: 'FORM',
             requiredGrants: ['event.registration.manage'],
+          },
+        },
+        {
+          path: 'settings/feishu',
+          name: 'event-settings-feishu',
+          component: () => import('./views/EventFeishuSettingsView.vue'),
+          meta: {
+            title: '大会配置',
+            code: 'FEISHU',
+            requiredAllGrants: ['org.settings.read', 'event.dashboard.read'],
           },
         },
         {

@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "webPages": 17,
-  "adminViews": 38,
-  "migrations": 63,
-  "latestMigration": "0062_refund_cash_breakdown.sql",
+  "adminViews": 40,
+  "migrations": 65,
+  "latestMigration": "0064_feishu_manual_request_hash.sql",
   "databaseTables": 83,
   "apiControllers": 35,
-  "apiOperations": 289,
-  "testFiles": 187
+  "apiOperations": 292,
+  "testFiles": 192
 }

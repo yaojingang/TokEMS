@@ -4308,16 +4308,31 @@ export const CreateInvoiceDocumentSchema = z.object({
   replacesDocumentId: z.string().uuid().optional(),
 });
 
-export const InvoiceListQuerySchema = z.object({
-  q: z.string().trim().max(120).optional(),
-  eventId: EventIdParamSchema.optional(),
-  status: InvoiceRequestStatusSchema.optional(),
-  from: z.iso.datetime().optional(),
-  to: z.iso.datetime().optional(),
-  dateField: z.enum(['requested', 'issued']).default('requested').optional(),
-  cursor: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50).optional(),
-});
+export const INVOICE_ACTIONABLE_STATUSES = [
+  'pending_review',
+  'issue_failed',
+  'adjustment_required',
+] as const;
+export const InvoiceListQuerySchema = z
+  .object({
+    worklist: z.literal('actionable').optional(),
+    q: z.string().trim().max(120).optional(),
+    eventId: EventIdParamSchema.optional(),
+    status: InvoiceRequestStatusSchema.optional(),
+    from: z.iso.datetime().optional(),
+    to: z.iso.datetime().optional(),
+    dateField: z.enum(['requested', 'issued']).default('requested').optional(),
+    cursor: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.worklist && value.status)
+      context.addIssue({
+        code: 'custom',
+        path: ['worklist'],
+        message: '待处理工作列表与单一状态不能同时筛选',
+      });
+  });
 
 export const NotificationTemplateSchema = z.object({
   id: z.string(),

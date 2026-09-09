@@ -442,6 +442,20 @@
       "when": 1788535073606,
       "tag": "0062_refund_cash_breakdown",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1788909134614,
+      "tag": "0063_feishu_digest_delivery_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1788909788581,
+      "tag": "0064_feishu_manual_request_hash",
+      "breakpoints": true
     }
   ]
 }

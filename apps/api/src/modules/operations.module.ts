@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpStatus,
+  HttpCode,
   Inject,
   Module,
   Param,
@@ -28,6 +29,7 @@ import {
   CreateEventSchema,
   EventShortSlugSchema,
   FeishuDigestTestMessageSchema,
+  FeishuDigestRecoveryRequestSchema,
   OfflineCheckInSyncSchema,
   PublishEventSchema,
   QueueNotificationSchema,
@@ -52,6 +54,7 @@ import {
 import { z } from 'zod';
 import {
   AuthGuard,
+  grantAllows,
   RequireAllGrants,
   RequireGrant,
   type AuthenticatedUser,
@@ -419,7 +422,10 @@ export class OrganizationEventsController {
   @Get('integrations/feishu-bot')
   @RequireGrant('org.settings.read')
   feishuBotConfiguration(@Req() request: AuthenticatedRequest) {
-    return this.feishuDigest.getConfiguration(request.user.organizationId);
+    return this.feishuDigest.getConfiguration(
+      request.user.organizationId,
+      grantAllows(request.user.grants, 'org.settings.manage'),
+    );
   }
 
   @Patch('integrations/feishu-bot')
@@ -454,7 +460,7 @@ export class OrganizationEventsController {
   }
 
   @Get('events/:eventId/feishu-digest')
-  @RequireGrant('org.settings.read')
+  @RequireAllGrants('org.settings.read', 'event.dashboard.read')
   feishuDigestSubscription(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: AuthenticatedRequest,
@@ -487,6 +493,7 @@ export class OrganizationEventsController {
   }
 
   @Post('events/:eventId/feishu-digest/send-test')
+  @HttpCode(HttpStatus.ACCEPTED)
   @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
   @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   sendFeishuDigestTest(
@@ -509,12 +516,12 @@ export class OrganizationEventsController {
           input,
           requestKey,
         ),
-      60 * 60_000,
+      { ttlMs: 60 * 60_000, allowLeaseTakeover: true },
     );
   }
 
   @Get('events/:eventId/feishu-digest/deliveries')
-  @RequireGrant('org.settings.read')
+  @RequireAllGrants('org.settings.read', 'event.dashboard.read')
   feishuDigestDeliveries(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Req() request: AuthenticatedRequest,
@@ -522,30 +529,86 @@ export class OrganizationEventsController {
     return this.feishuDigest.listDeliveries(request.user.organizationId, eventId);
   }
 
+  @Get('events/:eventId/feishu-digest/deliveries/:deliveryId')
+  @RequireAllGrants('org.settings.read', 'event.dashboard.read')
+  feishuDigestDeliveryDetail(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('deliveryId') deliveryId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.feishuDigest.deliveryDetail(
+      request.user.organizationId,
+      eventId,
+      parse(z.uuid(), deliveryId),
+    );
+  }
+
   @Post('events/:eventId/feishu-digest/deliveries/:deliveryId/resend')
+  @HttpCode(HttpStatus.ACCEPTED)
   @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
   @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   resendFeishuDigestDelivery(
     @Param('eventId', EventIdPipe) eventId: EventId,
     @Param('deliveryId') deliveryId: string,
+    @Body() body: unknown,
     @Headers('idempotency-key') key: string | undefined,
     @Req() request: AuthenticatedRequest,
   ) {
+    return this.recoverFeishuDelivery(eventId, deliveryId, body, key, request, 'resend');
+  }
+
+  @Post('events/:eventId/feishu-digest/deliveries/:deliveryId/regenerate')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
+  regenerateFeishuDigestDelivery(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('deliveryId') deliveryId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.recoverFeishuDelivery(eventId, deliveryId, body, key, request, 'regenerate');
+  }
+
+  @Post('events/:eventId/feishu-digest/deliveries/:deliveryId/resolve')
+  @RequireAllGrants('org.settings.manage', 'event.dashboard.read')
+  resolveFeishuDigestDelivery(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('deliveryId') deliveryId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.recoverFeishuDelivery(eventId, deliveryId, body, key, request, 'resolve');
+  }
+
+  private recoverFeishuDelivery(
+    eventId: EventId,
+    deliveryId: string,
+    body: unknown,
+    key: string | undefined,
+    request: AuthenticatedRequest,
+    action: 'resend' | 'regenerate' | 'resolve',
+  ) {
+    const id = parse(z.uuid(), deliveryId);
+    const input = parse(FeishuDigestRecoveryRequestSchema, body);
     const requestKey = idempotencyKey(key);
-    const input = { deliveryId };
     return this.idempotency.execute(
-      `feishu-digest:resend:${request.user.organizationId}:${eventId}:${request.user.sub}`,
+      `feishu-digest:${action}:${request.user.organizationId}:${eventId}:${request.user.sub}`,
       requestKey,
-      input,
+      { deliveryId: id, ...input },
       () =>
-        this.feishuDigest.resendDelivery(
+        this.feishuDigest.recoverDelivery(
           request.user.organizationId,
           eventId,
-          deliveryId,
+          id,
           request.user.sub,
           requestKey,
+          action,
+          input,
         ),
-      60 * 60_000,
+      { allowLeaseTakeover: true },
     );
   }
 

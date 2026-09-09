@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { Queue, UnrecoverableError, Worker, type ConnectionOptions, type Job } from 'bullmq';
 import sharp from 'sharp';
 import {
+  FEISHU_DIGEST_HEARTBEAT_KEY,
+  INVOICE_ACTIONABLE_STATUSES,
   HtmlTemplateAiProposalOutputSchema,
   OrganizationSettingsSchema,
   normalizeConferenceTemplateDefinition,
@@ -104,7 +106,13 @@ import {
 import type { ConferenceDatabase } from '@conference/database';
 import { consumeAttendeeClaimInvitation } from './attendee-claim-invitation.worker.js';
 import { financialNotificationRecipient } from './financial-notification-recipient.js';
-import { enqueueDueFeishuDigests, processFeishuDigestDelivery } from './feishu-digest.worker.js';
+import {
+  createFeishuRateGate,
+  recoverFeishuDigestDeliveries,
+  enqueueDueFeishuDigests,
+  processFeishuDigestDelivery,
+  type FeishuRateGate,
+} from './feishu-digest.worker.js';
 import {
   deliverWhileInvoiceCurrent,
   invoiceNotificationIsCurrent,
@@ -1278,6 +1286,15 @@ async function processInvoiceExport(db: ConferenceDatabase, payload: Record<stri
     ];
     if (typeof filters.eventId === 'number') {
       conditions.push(eq(invoiceRequests.eventId, filters.eventId));
+    }
+    if (filters.worklist === 'actionable') {
+      if (filters.status) throw new Error('发票工作列表与状态不可同时筛选');
+      conditions.push(
+        sql`${invoiceRequests.status} in (${sql.join(
+          INVOICE_ACTIONABLE_STATUSES.map((status) => sql`${status}`),
+          sql`, `,
+        )})`,
+      );
     }
     if (typeof filters.status === 'string' && filters.status) {
       conditions.push(sql<boolean>`${invoiceRequests.status} = ${filters.status}`);
@@ -3035,7 +3052,11 @@ async function deliverPaymentSucceededNotification(
   );
 }
 
-async function processDomainEvent(job: Job<Record<string, unknown>>, db: ConferenceDatabase) {
+async function processDomainEvent(
+  job: Job<Record<string, unknown>>,
+  db: ConferenceDatabase,
+  feishuRateGate?: FeishuRateGate,
+) {
   const { eventType, payload, correlationId } = job.data;
   const eventPayload: Record<string, unknown> = {
     ...(payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}),
@@ -3134,7 +3155,9 @@ async function processDomainEvent(job: Job<Record<string, unknown>>, db: Confere
     case 'FeishuDigestDeliveryRequested': {
       const deliveryId = String(eventPayload.deliveryId ?? '');
       if (!deliveryId) throw new Error('FeishuDigestDeliveryRequested is missing deliveryId');
-      const result = await processFeishuDigestDelivery(db, deliveryId);
+      const result = await processFeishuDigestDelivery(db, deliveryId, {
+        acquireRateSlot: feishuRateGate,
+      });
       console.info(
         `[feishu-digest] delivery processed id=${deliveryId} status=${'status' in result ? result.status : 'unchanged'}`,
       );
@@ -4087,7 +4110,8 @@ async function start() {
       removeOnFail: { age: 7 * 86_400 },
     },
   });
-  const worker = new Worker(queueName, (job) => processDomainEvent(job, db), {
+  const feishuRateGate = createFeishuRateGate(await queue.getBackend().client);
+  const worker = new Worker(queueName, (job) => processDomainEvent(job, db, feishuRateGate), {
     connection: workerConnection,
     concurrency,
     autorun: false,
@@ -4311,6 +4335,18 @@ async function start() {
     maintainingFeishuDigests = true;
     try {
       const result = await enqueueDueFeishuDigests(db);
+      const recovery = await recoverFeishuDigestDeliveries(db);
+      await (
+        await queue.getBackend().client
+      ).set(
+        FEISHU_DIGEST_HEARTBEAT_KEY,
+        JSON.stringify({
+          lastScanAt: new Date().toISOString(),
+          buildSha: process.env.BUILD_SHA ?? 'local',
+        }),
+        { EX: 180 },
+      );
+      if (recovery.backlog) console.info(`[feishu-digest] recovery=${JSON.stringify(recovery)}`);
       if (result.queued || result.skipped || result.cancelled || result.disabled) {
         console.info(`[feishu-digest] schedule result=${JSON.stringify(result)}`);
       }

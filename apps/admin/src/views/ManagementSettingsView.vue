@@ -15,6 +15,7 @@ const router = useRouter();
 const formState = provideSettingsFormState();
 
 const items: SettingsItem[] = [
+  { name: 'manage-settings-feishu', label: '飞书机器人', grants: ['org.settings.read'] },
   {
     name: 'manage-settings-website',
     label: '公开网站',

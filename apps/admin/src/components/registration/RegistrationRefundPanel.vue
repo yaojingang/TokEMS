@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import type { AdminRefundApplicationView } from '@conference/contracts';
+import {
+  RefundApplicationQuerySchema,
+  type AdminRefundApplicationView,
+} from '@conference/contracts';
 import { conferenceApi, session } from '../../lib/api';
 import { dateTime, money } from '../../lib/format';
-const props = defineProps<{ eventId: number; orderId?: string }>();
+const props = defineProps<{ eventId: number; orderId?: string; initialStatus?: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const rows = ref<AdminRefundApplicationView[]>([]);
 const exceptions = ref<Awaited<ReturnType<typeof conferenceApi.refundExceptions>>>([]);
@@ -13,7 +16,9 @@ const errorMessage = ref('');
 const message = ref('');
 const reason = ref('');
 const externalNumber = ref('');
-const filter = ref('all');
+const filter = ref(
+  RefundApplicationQuerySchema.shape.status.safeParse(props.initialStatus).data ?? 'all',
+);
 const offset = ref(0);
 const canManage = computed(() => session.canAny(['event.order.refund']));
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -159,9 +164,11 @@ async function external(action: 'external_hold' | 'automatic' | 'verify') {
   }
 }
 watch(
-  () => [props.eventId, props.orderId],
+  () => [props.eventId, props.orderId, props.initialStatus],
   () => {
     scopeVersion += 1;
+    filter.value =
+      RefundApplicationQuerySchema.shape.status.safeParse(props.initialStatus).data ?? 'all';
     rows.value = [];
     exceptions.value = [];
     reason.value = '';
@@ -206,12 +213,7 @@ onBeforeUnmount(() => {
         >
           退款设置
         </RouterLink>
-        <button
-          class="button secondary"
-          type="button"
-          :disabled="loading || pending"
-          @click="load"
-        >
+        <button class="button secondary" type="button" :disabled="loading || pending" @click="load">
           刷新
         </button>
       </div>

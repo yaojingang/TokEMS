@@ -104,10 +104,10 @@ describe('Feishu digest delivery policy', () => {
   it('keeps a fresh generating delivery retryable after a worker interruption', () => {
     const now = new Date('2026-08-19T12:00:00.000Z');
 
-    expect(feishuGeneratingDeliveryNeedsRetry(new Date('2026-08-19T11:55:00.000Z'), now)).toBe(
+    expect(feishuGeneratingDeliveryNeedsRetry(new Date('2026-08-19T11:59:00.000Z'), now)).toBe(
       true,
     );
-    expect(feishuGeneratingDeliveryNeedsRetry(new Date('2026-08-19T11:49:59.999Z'), now)).toBe(
+    expect(feishuGeneratingDeliveryNeedsRetry(new Date('2026-08-19T11:57:59.999Z'), now)).toBe(
       false,
     );
   });
@@ -175,6 +175,7 @@ describePersistent('Feishu digest durable scheduler', () => {
       nextRunAt: new Date('2026-08-20T01:00:00.000Z'),
       testVerifiedAt: new Date('2026-08-19T01:00:00.000Z'),
       testVerifiedChatId: 'oc_test',
+      testVerifiedConnectionVersion: 0,
     });
   });
 

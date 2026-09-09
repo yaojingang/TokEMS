@@ -268,6 +268,7 @@ export class CommerceOperationsService {
             refundNo: `RF${now.getFullYear()}${nanoid(12).toUpperCase()}`,
             status: 'succeeded',
             source: 'manual',
+            succeededAt: now,
             amount: input.amount,
             currency: order.currency,
             reason: input.reason,

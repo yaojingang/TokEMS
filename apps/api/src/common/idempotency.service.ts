@@ -153,6 +153,7 @@ export class IdempotencyService {
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
         '相同请求正在处理中，请稍后重试',
         HttpStatus.CONFLICT,
+        { operationPending: true },
       );
     }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "feishu_digest_deliveries" ADD COLUMN "request_hash" varchar(64);

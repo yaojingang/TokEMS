@@ -766,6 +766,7 @@ export const AGENT_ACTIONS = [
   }),
   action('communications.feishu-digest.get', 'GET', '/api/v1/admin/events/:eventId/feishu-digest', {
     grant: 'org.settings.read',
+    grants: ['org.settings.read', 'event.dashboard.read'],
     scopes: ['tokems:read', 'tokems:communications'],
     description: '读取大会飞书日报配置与连接状态。',
   }),
@@ -787,6 +788,7 @@ export const AGENT_ACTIONS = [
     '/api/v1/admin/events/:eventId/feishu-digest/deliveries',
     {
       grant: 'org.settings.read',
+      grants: ['org.settings.read', 'event.dashboard.read'],
       scopes: ['tokems:read', 'tokems:communications'],
       description: '读取大会飞书日报投递记录。',
     },

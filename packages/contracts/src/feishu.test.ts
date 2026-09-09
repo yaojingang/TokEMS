@@ -13,6 +13,7 @@ describe('Feishu digest contracts', () => {
   it('validates bot credentials and target chat configuration', () => {
     expect(
       UpdateFeishuBotConfigurationSchema.parse({
+        expectedConnectionVersion: 0,
         enabled: true,
         appId: 'cli_tokems123',
         appSecret: 'secret-value',
@@ -81,5 +82,29 @@ describe('Feishu digest contracts', () => {
 
     expect(window.windowStart.toISOString()).toBe('2026-09-06T04:00:00.000Z');
     expect(window.windowEnd.toISOString()).toBe('2026-09-07T03:00:00.000Z');
+  });
+});
+
+describe('Feishu configuration versions and report dates', () => {
+  it('requires explicit versions and a visibility confirmation for a test', () => {
+    const body = {
+      chatId: 'oc_test',
+      dataVisibilityConfirmed: true,
+      expectedConfigVersion: 1,
+      expectedConnectionVersion: 2,
+    };
+    expect(FeishuDigestTestMessageSchema.safeParse(body).success).toBe(true);
+    expect(
+      FeishuDigestTestMessageSchema.safeParse({ ...body, expectedConfigVersion: undefined })
+        .success,
+    ).toBe(false);
+  });
+  it('chooses the first occurrence when European daylight saving repeats a time', () => {
+    expect(zonedDateTimeToDate('2026-10-25', '02:30', 'Europe/Berlin').toISOString()).toBe(
+      '2026-10-25T00:30:00.000Z',
+    );
+    expect(
+      nextFeishuDigestRun(new Date('2026-10-25T00:45:00Z'), 'Europe/Berlin', '02:30').toISOString(),
+    ).toBe('2026-10-26T01:30:00.000Z');
   });
 });
