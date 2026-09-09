@@ -326,8 +326,8 @@
                     "scale": 1
                   },
                   {
-                    "assetId": "ac46bab9-cfef-423e-8532-3d8030e33085",
-                    "background": "dark",
+                    "assetId": "ce442365-50a5-4cb8-9ce7-1190e73fd269",
+                    "background": "light",
                     "enabled": true,
                     "group": "speaker",
                     "id": "5b04bb79-9e28-49d8-8f78-7d23ca549887",
@@ -371,8 +371,8 @@
                     "scale": 1
                   },
                   {
-                    "assetId": "34aad55f-64d8-4509-aed2-49d5fa23df6f",
-                    "background": "dark",
+                    "assetId": "92be8c38-3e57-46cd-8adc-c63bb0a3b719",
+                    "background": "light",
                     "enabled": true,
                     "group": "speaker",
                     "id": "dad817d0-8edc-459c-bfc6-3259e6f3a35f",
