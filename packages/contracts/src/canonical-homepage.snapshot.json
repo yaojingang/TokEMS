@@ -283,6 +283,11 @@
           }
         ],
         "locale": "zh-CN",
+        "refunds": {
+          "enabled": true,
+          "version": "seven-day-v1",
+          "windowDays": 7
+        },
         "registration": {
           "accountMode": "mobile_otp_required",
           "additionalPurchaseEnabled": false,
@@ -2956,9 +2961,9 @@
   },
   "release": {
     "activationKind": "save",
-    "changeScope": "experience",
-    "changeSummary": "更新首页设置",
-    "id": "c175a2d7-bb8a-4e0a-af97-96d2be67cd81",
+    "changeScope": "event",
+    "changeSummary": "更新大会基本信息",
+    "id": "eb666632-9310-4618-809e-14db4f743029",
     "snapshot": {
       "event": {
         "address": "广东省深圳市南山区（具体酒店待定）",
@@ -3000,6 +3005,11 @@
             }
           ],
           "locale": "zh-CN",
+          "refunds": {
+            "enabled": true,
+            "version": "seven-day-v1",
+            "windowDays": 7
+          },
           "registration": {
             "accountMode": "mobile_otp_required",
             "additionalPurchaseEnabled": false,
@@ -4555,7 +4565,7 @@
     },
     "templateKey": "editorial-blue",
     "templateVersionId": "7917ad7c-304e-43d2-822c-e5d7f86c5b26",
-    "version": 153
+    "version": 154
   },
   "schemaVersion": 1,
   "source": {
