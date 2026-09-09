@@ -1062,6 +1062,8 @@ describe('ConferenceRepository in-memory operational loop', () => {
       paidSeats: 6,
       confirmedAttendees: 6,
       purchasers: 6,
+      refundedOrders: 0,
+      refundedAmount: 0,
       conversionRate: 60,
     });
     expect(dashboard.metrics.revenue).toBeGreaterThan(0);

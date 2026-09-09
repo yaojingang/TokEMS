@@ -23,6 +23,7 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
   const purchaserTwo = randomUUID();
   const ticketTypeId = randomUUID();
   let eventId = 0;
+  let emptyEventId = 0;
 
   beforeAll(async () => {
     const db = database.db!;
@@ -49,8 +50,13 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
         address: '深圳测试地址',
         settings: {},
       })
-      .returning({ id: events.id });
+      .returning();
     eventId = event!.id;
+    const [emptyEvent] = await db
+      .insert(events)
+      .values({ ...event!, id: undefined, slug: `${event!.slug}-empty` })
+      .returning({ id: events.id });
+    emptyEventId = emptyEvent!.id;
     await db.insert(ticketTypes).values({
       id: ticketTypeId,
       organizationId,
@@ -136,10 +142,21 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
         eventId,
         orderId: orderIds[1]!,
         refundNo: `METRIC-REFUND-1-${randomUUID().slice(0, 8)}`,
-        amount: 10_000,
+        amount: 6_001,
         currency: 'CNY',
         status: 'succeeded',
         reason: '部分退款测试',
+        idempotencyKey: randomUUID(),
+      },
+      {
+        organizationId,
+        eventId,
+        orderId: orderIds[1]!,
+        refundNo: `METRIC-REFUND-REPEAT-${randomUUID().slice(0, 8)}`,
+        amount: 4_000,
+        currency: 'CNY',
+        status: 'succeeded',
+        reason: '同一订单再次部分退款',
         idempotencyKey: randomUUID(),
       },
       {
@@ -165,6 +182,19 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
         idempotencyKey: randomUUID(),
       },
     ]);
+    await db.insert(refunds).values(
+      ['pending', 'processing', 'failed', 'closed'].map((status) => ({
+        organizationId,
+        eventId,
+        orderId: orderIds[0]!,
+        refundNo: `METRIC-${status}-${randomUUID().slice(0, 8)}`,
+        amount: 8_888,
+        currency: 'CNY',
+        status,
+        reason: '未成功的退款应排除',
+        idempotencyKey: randomUUID(),
+      })),
+    );
   });
 
   afterAll(async () => {
@@ -182,10 +212,30 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
       paidSeats: 2,
       confirmedAttendees: 4,
       purchasers: 2,
-      revenue: 104_700,
+      revenue: 104_699,
+      refundedOrders: 3,
+      refundedAmount: 54_901,
       checkedIn: 0,
       conversionRate: 40,
       pendingReview: 1,
     });
+  });
+
+  it('returns zero refund metrics for another event with no refunds', async () => {
+    const dashboard = await repository.getDashboard(emptyEventId, organizationId);
+
+    expect(dashboard.metrics.refundedOrders).toBe(0);
+    expect(dashboard.metrics.refundedAmount).toBe(0);
+  });
+
+  it('keeps cumulative refunds independent of the registration trend date range', async () => {
+    const dashboard = await repository.getDashboard(eventId, organizationId, {
+      from: '2020-01-01',
+      to: '2020-01-02',
+    });
+
+    expect(dashboard.metrics.refundedOrders).toBe(3);
+    expect(dashboard.metrics.refundedAmount).toBe(54_901);
+    expect(dashboard.registrationTrend.every((day) => day.value === 0)).toBe(true);
   });
 });
