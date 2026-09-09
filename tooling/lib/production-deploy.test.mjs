@@ -255,7 +255,7 @@ test('production deploy script pins the documented topology and release gates', 
     'assert_final_backup_capacity',
     'assert_release_verification_capacity',
     'assert_post_thaw_evidence_capacity',
-    'DATA_COMPARE_MAX_VIRTUAL_KIB=262144',
+    'DATA_COMPARE_MAX_VIRTUAL_KIB=524288',
     'assert_ordered_subsequence',
     'RECOVERY_REQUIRED',
     'arm_release_recovery_marker',
@@ -521,6 +521,199 @@ test('canonical data comparison permits only snapshot-declared rows with zero ne
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test(
+  'canonical comparison reads the real snapshot with the production Python virtual-memory baseline',
+  { skip: process.platform !== 'linux' },
+  () => {
+    const budget = Number(source.match(/DATA_COMPARE_MAX_VIRTUAL_KIB=(\d+)/)[1]);
+    const result = spawnSync(
+      'python3',
+      [
+        '-',
+        String(budget),
+        resolve(repositoryRoot, 'packages/contracts/src/canonical-homepage.snapshot.json'),
+      ],
+      {
+        encoding: 'utf8',
+        input: `import json, mmap, resource, sys
+# Reserve address space without consuming physical memory, matching Alibaba Python 3.6.
+reserved = mmap.mmap(-1, 226 * 1024 * 1024)
+limit = int(sys.argv[1]) * 1024
+resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+with open(sys.argv[2], encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+assert snapshot["release"]["id"]
+print("canonical snapshot decoded under release limit")
+`,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /canonical snapshot decoded under release limit/);
+  },
+);
+
+test('read-only rollback pins both web services to image metadata and resets pins for forward recovery', () => {
+  const start = source.indexOf('write_read_only_compose_override() {');
+  const end = source.indexOf('\nenter_release_write_freeze() {', start);
+  assert.ok(start >= 0 && end > start, 'read-only override writer is required');
+  const writer = source.slice(start, end);
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-rollback-web-'));
+  const override = resolve(directory, 'read-only.yml');
+  const base = resolve(directory, 'compose.yml');
+  try {
+    writeFileSync(
+      base,
+      `services:
+  api:
+    image: test-api
+    environment: {BUILD_MIGRATION: '0064_target.sql', BUILD_MIGRATION_HASH: '${'b'.repeat(64)}'}
+  worker:
+    image: test-worker
+    environment: {BUILD_MIGRATION: '0064_target.sql'}
+  web:
+    image: test-web
+    environment: {BUILD_MIGRATION: '0064_target.sql', BUILD_MIGRATION_HASH: '${'b'.repeat(64)}'}
+  payment-web:
+    image: test-web
+    environment: {BUILD_MIGRATION: '0064_target.sql', BUILD_MIGRATION_HASH: '${'b'.repeat(64)}'}
+`,
+    );
+    const run = (migration, hash) => {
+      const generated = spawnSync(
+        'bash',
+        [
+          '-c',
+          `set -Eeuo pipefail
+read_only_compose_file="$OVERRIDE"
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+${writer}
+write_read_only_compose_override "$MIGRATION" "$HASH"
+`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, OVERRIDE: override, MIGRATION: migration, HASH: hash },
+        },
+      );
+      assert.equal(generated.status, 0, generated.stderr);
+      const config = spawnSync(
+        'docker',
+        [
+          'compose',
+          '-p',
+          'tokems-rollback-test',
+          '-f',
+          base,
+          '-f',
+          override,
+          'config',
+          '--format',
+          'json',
+        ],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            TOKEMS_READ_ONLY_DATABASE_URL: 'postgresql://readonly@example.invalid/conference',
+          },
+        },
+      );
+      assert.equal(config.status, 0, config.stderr);
+      return JSON.parse(config.stdout).services;
+    };
+    const rollback = run('0062_previous.sql', 'a'.repeat(64));
+    for (const service of ['web', 'payment-web']) {
+      assert.equal(rollback[service].environment.BUILD_MIGRATION, '0062_previous.sql');
+      assert.equal(rollback[service].environment.BUILD_MIGRATION_HASH, 'a'.repeat(64));
+    }
+    assert.equal(rollback.api.environment.BUILD_MIGRATION, '0064_target.sql');
+    assert.equal(
+      rollback.api.environment.DATABASE_URL,
+      'postgresql://readonly@example.invalid/conference',
+    );
+    assert.deepEqual(rollback.worker.command, ['node', '-e', 'setInterval(() => {}, 1000)']);
+    const forward = run('', '');
+    for (const service of ['web', 'payment-web'])
+      assert.equal(forward[service].environment.BUILD_MIGRATION, '0064_target.sql');
+    assert.equal(forward.api.environment.DATABASE_URL, rollback.api.environment.DATABASE_URL);
+    assert.deepEqual(forward.worker.command, rollback.worker.command);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('failed read-only override writes preserve the prior complete recovery configuration', () => {
+  const writer = source.slice(
+    source.indexOf('write_read_only_compose_override() {'),
+    source.indexOf('\nenter_release_write_freeze() {'),
+  );
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-rollback-write-'));
+  const override = resolve(directory, 'read-only.yml');
+  try {
+    for (const failedWrite of [1, 2]) {
+      writeFileSync(override, 'previous-complete-read-only-override\n');
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          `set +e
+read_only_compose_file="$OVERRIDE"
+writes=0
+cat() {
+  writes=$((writes + 1))
+  if [[ "$writes" == "$FAILED_WRITE" ]]; then
+    printf 'services:\\n  api:\\n'
+    return 1
+  fi
+  command cat "$@"
+}
+die() { exit 1; }
+${writer}
+write_read_only_compose_override 0062_previous.sql ${'a'.repeat(64)} || exit 23
+exit 0
+`,
+        ],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, OVERRIDE: override, FAILED_WRITE: String(failedWrite) },
+        },
+      );
+      assert.equal(result.status, 23, result.stderr);
+      assert.equal(readFileSync(override, 'utf8'), 'previous-complete-read-only-override\n');
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('canonical snapshot capacity is checked before the protected write window', () => {
+  const preflight = source.slice(
+    source.indexOf('run_full_preflight() {'),
+    source.indexOf('\ncapture_business_snapshot() {'),
+  );
+  assert.match(preflight, /assert_canonical_comparison_capacity/);
+  const capacity = source.slice(
+    source.indexOf('assert_canonical_comparison_capacity() {'),
+    source.indexOf('\nrun_full_preflight() {'),
+  );
+  assert.match(capacity, /ulimit -v "\$DATA_COMPARE_MAX_VIRTUAL_KIB"/);
+  assert.match(capacity, /json.load/);
+  const recovery = source.slice(
+    source.indexOf('assert_pending_recovery_policy() {'),
+    source.indexOf('\nwrite_pending_recovery_marker() {'),
+  );
+  assert.match(recovery, /read_only_compose_file="\$session_env_file.read-only.yml"/);
+  assert.match(recovery, /write_read_only_compose_override/);
+  const rollback = source.slice(
+    source.indexOf('restore_application_rollback() {'),
+    source.indexOf('\non_exit() {'),
+  );
+  assert.match(
+    rollback,
+    /write_read_only_compose_override "\$release_baseline_code_migration" "\$release_baseline_code_migration_hash"/,
+  );
 });
 
 test('protected rollback blocks writes and persists recovery before database evidence queries', () => {
