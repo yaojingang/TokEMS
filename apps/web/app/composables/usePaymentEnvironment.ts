@@ -33,8 +33,7 @@ export function readPaymentEnvironmentSignals(): PaymentEnvironmentSignals {
     userAgent: navigator.userAgent ?? '',
     platform: navigator.platform ?? '',
     maxTouchPoints: navigator.maxTouchPoints ?? 0,
-    userAgentDataMobile:
-      typeof userAgentData?.mobile === 'boolean' ? userAgentData.mobile : null,
+    userAgentDataMobile: typeof userAgentData?.mobile === 'boolean' ? userAgentData.mobile : null,
   };
 }
 
@@ -69,6 +68,20 @@ export function detectIPadDesktopMode(signals: PaymentEnvironmentSignals): boole
   return isMacLike && maxTouchPoints > 1;
 }
 
+/** Identifies desktop WeChat so its checkout displays a Native payment QR code. */
+export function detectDesktopWeChat(signals: PaymentEnvironmentSignals): boolean {
+  if (!detectWeChatInApp(signals.userAgent)) return false;
+  if (
+    signals.userAgentDataMobile === true ||
+    /Android|iPhone|iPad|iPod|Windows Phone/i.test(signals.userAgent) ||
+    detectIPadDesktopMode(signals)
+  )
+    return false;
+  return /WindowsWechat|MacWechat|DesktopWechat|Windows NT|Macintosh|X11|Linux (?:x86_64|i686)/i.test(
+    signals.userAgent,
+  );
+}
+
 /**
  * Detects a phone-class browser outside WeChat (external Safari/Chrome/etc.).
  * Prefers `navigator.userAgentData.mobile` when available; falls back to UA.
@@ -93,7 +106,8 @@ export function detectMobileExternalBrowser(signals: PaymentEnvironmentSignals):
  * Resolution (viewport width/height/DPR) must never decide the channel.
  *
  * Rules:
- * - WeChat in-app → jsapi
+ * - Desktop WeChat → native
+ * - Mobile WeChat in-app → jsapi
  * - iPad / tablet → native (manual H5 switch remains available in UI)
  * - Phone external browser → h5
  * - Desktop → native
@@ -104,6 +118,7 @@ export function detectMobileExternalBrowser(signals: PaymentEnvironmentSignals):
 export function resolvePaymentChannel(
   signals: PaymentEnvironmentSignals = readPaymentEnvironmentSignals(),
 ): PaymentChannel {
+  if (detectDesktopWeChat(signals)) return 'native';
   if (detectWeChatInApp(signals.userAgent)) return 'jsapi';
   if (detectIPadDesktopMode(signals)) return 'native';
   if (detectMobileExternalBrowser(signals)) return 'h5';
@@ -119,6 +134,7 @@ export function usePaymentEnvironment() {
   return {
     readPaymentEnvironmentSignals,
     detectWeChatInApp,
+    detectDesktopWeChat,
     detectIPadDesktopMode,
     detectMobileExternalBrowser,
     resolvePaymentChannel,

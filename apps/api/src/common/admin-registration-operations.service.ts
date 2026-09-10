@@ -1,3 +1,6 @@
+import { OrderItemsService } from './order-items.service.js';
+import { registrationOrderJoin } from './customer-order-ownership.js';
+import { eraseUnavailableClaimInvitationReplays, attendeeClaimTokens, orderItems, tickets } from '@conference/database';
 import { guardRefundWrite } from './refund-write-guard.js';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
@@ -30,7 +33,7 @@ import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { InvoiceOperationsService } from './invoice-operations.service.js';
-import { validateRegistrationAttendeeName } from './registration-attendee-validation.js';
+import { registrationSnapshotFields, validateRegistrationAttendeeName } from './registration-attendee-validation.js';
 
 @Injectable()
 export class AdminRegistrationOperationsService {
@@ -101,9 +104,38 @@ export class AdminRegistrationOperationsService {
       ? { access: 'included', request: null }
       : { access: 'restricted' };
     let notes: AdminRegistrationOperationsDetail['notes'] = [];
+    let batchReview: AdminRegistrationOperationsDetail['batchReview'] = null;
 
     const db = this.database.db;
     if (db) {
+      if (order?.modelVersion === 2 && grantAllows(grants, 'event.registration.manage')) {
+        batchReview = await db.transaction(async (tx) => {
+          const [current] = await tx.select().from(orders).where(and(
+            eq(orders.id, order.id), eq(orders.eventId, eventId), eq(orders.organizationId, organizationId),
+          )).for('share').limit(1);
+          if (!current) return null;
+          const rows = await tx.select({ item: orderItems, registration: registrations })
+            .from(orderItems).innerJoin(registrations, eq(registrations.id, orderItems.registrationId))
+            .where(eq(orderItems.orderId, current.id)).orderBy(orderItems.position);
+          if (rows.length !== current.quantity)
+            throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '订单报名资料需要核验，请刷新后联系主办方', HttpStatus.CONFLICT);
+          return {
+            orderId: current.id,
+            version: current.version,
+            status: current.status,
+            quantity: current.quantity,
+            items: await Promise.all(rows.map(async ({ item, registration: attendee }) => ({
+              registrationId: attendee.id,
+              position: item.position,
+              registrationCode: attendee.registrationCode,
+              attendee: attendee.attendee,
+              fields: await registrationSnapshotFields(tx, attendee),
+              formAnswers: attendee.formAnswers,
+            }))),
+          };
+        });
+      }
       if (ticket) {
         const checkinRows = await db
           .select({
@@ -130,6 +162,8 @@ export class AdminRegistrationOperationsService {
       }
 
       if (canReadCommerce && order) {
+        const [financialOrder] = await db.select({ settledPaymentId: orders.settledPaymentId }).from(orders).where(eq(orders.id, order.id)).limit(1);
+        const primaryPaymentId = financialOrder?.settledPaymentId;
         const [paymentRows, refundRows] = await Promise.all([
           db
             .select()
@@ -149,6 +183,10 @@ export class AdminRegistrationOperationsService {
             )
             .orderBy(desc(refunds.createdAt)),
         ]);
+        if (order.modelVersion === 2 && primaryPaymentId && !paymentRows.some((payment) => payment.id === primaryPaymentId)) {
+          const [primary] = await db.select().from(payments).where(and(eq(payments.id, primaryPaymentId), eq(payments.orderId, order.id))).limit(1);
+          if (primary) paymentRows.push(primary);
+        }
         const paymentAttempts = paymentRows.map((payment) => ({
           id: payment.id,
           provider: payment.provider,
@@ -166,7 +204,7 @@ export class AdminRegistrationOperationsService {
           updatedAt: payment.updatedAt.toISOString(),
         }));
         const successfulPayment = paymentAttempts.find((payment) =>
-          ['succeeded', 'refunded'].includes(payment.status),
+          ['succeeded', 'refunded'].includes(payment.status) && (order.modelVersion !== 2 || payment.id === primaryPaymentId),
         );
         const mappedRefunds = refundRows.map((refund) => ({
           id: refund.id,
@@ -179,8 +217,8 @@ export class AdminRegistrationOperationsService {
           createdAt: refund.createdAt.toISOString(),
           updatedAt: refund.updatedAt.toISOString(),
         }));
-        const succeededRefundAmount = mappedRefunds
-          .filter((refund) => refund.status === 'succeeded')
+        const succeededRefundAmount = refundRows
+          .filter((refund) => refund.status === 'succeeded' && (order.modelVersion !== 2 || refund.paymentId === primaryPaymentId))
           .reduce((sum, refund) => sum + refund.amount, 0);
         const [reserved] = await db
           .select({ amount: sql<number>`coalesce(sum(${refundRequests.reservedAmount}), 0)::int` })
@@ -191,7 +229,7 @@ export class AdminRegistrationOperationsService {
           refundRows
             .filter(
               (refund) =>
-                !refund.requestId &&
+                !refund.requestId && (order.modelVersion !== 2 || refund.paymentId === primaryPaymentId) &&
                 ['processing', 'query_pending', 'abnormal'].includes(refund.status),
             )
             .reduce((sum, refund) => sum + refund.amount, 0);
@@ -222,7 +260,7 @@ export class AdminRegistrationOperationsService {
             and(
               eq(invoiceRequests.organizationId, organizationId),
               eq(invoiceRequests.eventId, eventId),
-              eq(invoiceRequests.registrationId, registrationId),
+              order ? eq(invoiceRequests.orderId, order.id) : eq(invoiceRequests.registrationId, registrationId),
             ),
           )
           .limit(1);
@@ -271,6 +309,7 @@ export class AdminRegistrationOperationsService {
       snapshotAt: new Date().toISOString(),
       traceId: randomUUID(),
       registration,
+      batchReview,
       customer: customerContext,
       fulfillment,
       commerce,
@@ -281,6 +320,11 @@ export class AdminRegistrationOperationsService {
           allowed: grantAllows(grants, 'event.registration.manage'),
         },
         refund_order: refundCapability,
+        close_unpaid_order: {
+          allowed:
+            grantsAllowAll(grants, ['event.registration.manage', 'event.order.read']) &&
+            Boolean(order && ['pending_payment', 'processing'].includes(order.status)),
+        },
         manage_invoice: {
           allowed: grantsAllowAll(grants, ['event.read', 'org.invoice.manage']),
         },
@@ -316,17 +360,15 @@ export class AdminRegistrationOperationsService {
     };
     const traceId = randomUUID();
     await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${eventId}:${attendee.mobile}`}, 0))`,
-      );
-      const [refundOrder] = await tx
-        .select({ id: orders.id })
-        .from(orders)
-        .where(
-          and(eq(orders.registrationId, registrationId), eq(orders.organizationId, organizationId)),
-        )
-        .limit(1);
-      if (refundOrder) await guardRefundWrite(tx, refundOrder.id);
+      const [identity] = await tx.select({ mobile: registrations.attendeeMobileE164 }).from(registrations)
+        .where(and(eq(registrations.id, registrationId), eq(registrations.eventId, eventId), eq(registrations.organizationId, organizationId))).limit(1);
+      for (const mobile of [...new Set([attendee.mobile, ...(identity ? [identity.mobile] : [])])].sort()) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${eventId}:${mobile}`},0))`);
+      }
+      const [refundOrder] = await tx.select({ order: orders }).from(registrations).innerJoin(orders, registrationOrderJoin())
+        .where(and(eq(registrations.id, registrationId), eq(orders.eventId, eventId), eq(orders.organizationId, organizationId))).limit(1);
+      if (refundOrder) await guardRefundWrite(tx, refundOrder.order.id, false, { purpose: 'rights', registrationId });
+      const [selected] = refundOrder ? await tx.select().from(orderItems).where(eq(orderItems.registrationId, registrationId)).limit(1) : [];
       const [current] = await tx
         .select()
         .from(registrations)
@@ -342,6 +384,13 @@ export class AdminRegistrationOperationsService {
         .limit(1);
       if (!current) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '报名不存在', HttpStatus.NOT_FOUND);
+      }
+      if (identity?.mobile !== current.attendeeMobileE164 || (input.expectedUpdatedAt && input.expectedUpdatedAt !== current.updatedAt.toISOString()) || (refundOrder?.order.modelVersion === 2 && !input.expectedUpdatedAt)) {
+        throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '参会资料已经更新，请刷新后修改', HttpStatus.CONFLICT);
+      }
+      if (refundOrder?.order.modelVersion === 2) {
+        const [ticket] = await tx.select().from(tickets).where(eq(tickets.registrationId, registrationId)).limit(1);
+        if (!selected || selected.state === 'cancelled' || ticket?.status === 'used' || ['closed','processing'].includes(refundOrder.order.status)) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '该名额当前不可修改资料', HttpStatus.CONFLICT);
       }
       await validateRegistrationAttendeeName(tx, current, attendee.name);
       const [duplicate] = await tx
@@ -370,6 +419,7 @@ export class AdminRegistrationOperationsService {
           attendee,
           attendeeMobileE164: attendee.mobile,
           attendeeEmailNormalized: attendee.email,
+          formAnswers: { ...current.formAnswers, ...Object.fromEntries(Object.entries(attendee).filter(([key]) => Object.hasOwn(current.formAnswers, key))) },
           updatedAt: new Date(),
         })
         .where(
@@ -380,6 +430,16 @@ export class AdminRegistrationOperationsService {
             isNull(registrations.supersededAt),
           ),
         );
+      if (selected && refundOrder?.order.modelVersion === 2) {
+        const now = new Date();
+        await tx.update(orderItems).set({ version: sql`${orderItems.version}+1`, updatedAt: now }).where(eq(orderItems.id, selected.id));
+        await tx.update(orders).set({ version: sql`${orders.version}+1`, updatedAt: now }).where(eq(orders.id, selected.orderId));
+        if (current.attendeeMobileE164 !== attendee.mobile || current.attendeeEmailNormalized !== attendee.email) {
+          await tx.update(attendeeClaimTokens).set({ revokedAt: now }).where(and(eq(attendeeClaimTokens.registrationId, registrationId), isNull(attendeeClaimTokens.revokedAt)));
+          await eraseUnavailableClaimInvitationReplays(tx, now, [registrationId]);
+          if (!current.customerUserId && selected.state === 'active' && refundOrder.order.settledPaymentId) await new OrderItemsService(this.database).createInvitation(tx, refundOrder.order, selected, { ...current, attendee, attendeeMobileE164: attendee.mobile, attendeeEmailNormalized: attendee.email }, now);
+        }
+      }
       await tx.insert(auditLogs).values({
         organizationId,
         eventId,

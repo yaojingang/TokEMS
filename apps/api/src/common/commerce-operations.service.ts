@@ -1,3 +1,6 @@
+import { syncLegacyOrderItemState } from '@conference/database';
+import { findExpiredInventoryOrders } from '@conference/database';
+import { invalidateInvoiceFileAccess } from '@conference/database';
 import { createHash } from 'node:crypto';
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import { RefundWorkflowService } from './refund-workflow.service.js';
@@ -19,6 +22,7 @@ import {
   orderStateLogs,
   outboxEvents,
   payments,
+  paymentNotificationInbox,
   refunds,
   refundRequests,
   registrations,
@@ -26,9 +30,10 @@ import {
   ticketTypes,
   waitlistEntries,
 } from '@conference/database';
-import { and, count, eq, gt, inArray, isNull, lt, sql, sum } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNull, sql, sum } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DatabaseService } from './database.service.js';
+import { OrderItemsService } from './order-items.service.js';
 import { DomainError } from './domain-error.js';
 import { withPostgresTransactionRetry } from './transaction-retry.js';
 
@@ -159,6 +164,7 @@ export class CommerceOperationsService {
             HttpStatus.NOT_FOUND,
           );
         }
+        if (order.modelVersion === 2 || !order.registrationId) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '请通过名额退款申请处理该订单；免费名额请使用取消操作', HttpStatus.CONFLICT);
         const [ticket] = await tx
           .select()
           .from(tickets)
@@ -310,6 +316,7 @@ export class CommerceOperationsService {
             .update(registrations)
             .set({ status: 'cancelled', updatedAt: now })
             .where(eq(registrations.id, order.registrationId));
+          await syncLegacyOrderItemState(tx, order, 'cancelled', now);
           if (ticket?.status === 'valid' && registration.status !== 'cancelled') {
             await tx
               .update(ticketTypes)
@@ -342,6 +349,7 @@ export class CommerceOperationsService {
               updatedAt: now,
             })
             .where(eq(invoiceRequests.id, invoice.id));
+          if (nextInvoiceStatus !== invoice.status) await invalidateInvoiceFileAccess(tx, invoice.id);
           if (nextInvoiceStatus !== invoice.status) {
             await tx.insert(invoiceStateLogs).values({
               invoiceRequestId: invoice.id,
@@ -399,36 +407,18 @@ export class CommerceOperationsService {
 
   async releaseExpiredReservations(limit = 100) {
     const db = this.db();
-    const candidates = await db
-      .select({ reservation: inventoryReservations, order: orders })
-      .from(inventoryReservations)
-      .innerJoin(orders, eq(orders.id, inventoryReservations.orderId))
-      .leftJoin(
-        payments,
-        and(
-          eq(payments.orderId, orders.id),
-          eq(payments.provider, 'wechatpay'),
-          inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]),
-        ),
-      )
-      .where(
-        and(
-          isNull(inventoryReservations.releasedAt),
-          isNull(inventoryReservations.convertedAt),
-          isNull(payments.id),
-          lt(inventoryReservations.expiresAt, new Date()),
-          eq(orders.status, 'pending_payment'),
-        ),
-      )
-      .limit(Math.min(Math.max(limit, 1), 500));
+    const candidates = await findExpiredInventoryOrders(db, new Date(), limit);
     if (!candidates.length) return { released: 0, orderIds: [] as string[] };
 
     const releasedOrderIds: string[] = [];
     for (const candidate of candidates) {
+      if (releasedOrderIds.includes(candidate.order.id)) continue;
       const released = await db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${candidate.order.id}`}, 0))`,
         );
+        const [currentOrder] = await tx.select().from(orders).where(eq(orders.id, candidate.order.id)).for('update').limit(1);
+        if (!currentOrder || !['pending_payment', 'pending_review'].includes(currentOrder.status) || currentOrder.expiresAt > new Date()) return false;
         const [activeWeChatPayment] = await tx
           .select({ id: payments.id })
           .from(payments)
@@ -441,6 +431,16 @@ export class CommerceOperationsService {
           )
           .limit(1);
         if (activeWeChatPayment) return false;
+        const [unsettled] = await tx.select({ id: paymentNotificationInbox.id }).from(paymentNotificationInbox).where(and(eq(paymentNotificationInbox.orderId, currentOrder.id), sql`${paymentNotificationInbox.status} <> 'processed'`)).limit(1);
+        const [receivedMoney] = await tx.select({ id: payments.id }).from(payments).where(and(eq(payments.orderId, currentOrder.id), sql`(${payments.succeededAt} is not null or ${payments.status} in ('succeeded','refunded'))`)).limit(1);
+        if (unsettled || receivedMoney || currentOrder.entitlementsOnHold || currentOrder.refundExecutionMode === 'external_hold' || currentOrder.settledPaymentId) return false;
+
+        if (currentOrder.modelVersion === 2) {
+          await new OrderItemsService(this.database).cancelUnpaidItems(tx, currentOrder);
+          await tx.insert(orderStateLogs).values({ orderId: currentOrder.id, fromStatus: currentOrder.status, toStatus: 'closed', reason: currentOrder.status === 'pending_review' ? '整单审核期限已结束，名额已释放' : '整单支付期限已结束，名额已释放' });
+          if (currentOrder.status === 'pending_review') await tx.insert(outboxEvents).values({ organizationId: currentOrder.organizationId, eventId: currentOrder.eventId, eventType: 'BatchOrderReviewExpired', correlationId: `batch:review-expired:${currentOrder.id}`, payload: { orderId: currentOrder.id, quantity: currentOrder.quantity, recipientRole: 'purchaser' } });
+          return true;
+        }
 
         const [reservation] = await tx
           .update(inventoryReservations)
@@ -461,10 +461,12 @@ export class CommerceOperationsService {
           .where(and(eq(orders.id, candidate.order.id), eq(orders.status, 'pending_payment')))
           .returning();
         if (!order) return false;
+        if (!order.registrationId) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '订单报名关系需要核验', HttpStatus.CONFLICT);
         await tx
           .update(registrations)
           .set({ status: 'cancelled', updatedAt: new Date() })
           .where(eq(registrations.id, order.registrationId));
+        await syncLegacyOrderItemState(tx, order, 'cancelled', new Date());
         await tx.insert(orderStateLogs).values({
           orderId: order.id,
           fromStatus: 'pending_payment',

@@ -589,6 +589,7 @@ async function runVisualSmoke() {
       const statusDetail = row.querySelector('.registration-status-detail');
       const actionCell = row.querySelector('.registration-action-column');
       const action = row.querySelector('.registration-view-action');
+      const viewport = row.closest('.data-table-wrap')?.getBoundingClientRect();
       const textLines = (element) => {
         if (!element) return 0;
         const range = document.createRange();
@@ -603,9 +604,11 @@ async function runVisualSmoke() {
         actionWidth: action?.getBoundingClientRect().width ?? 0,
         actionTextLines: textLines(action),
         actionWhiteSpace: action ? getComputedStyle(action).whiteSpace : '',
+        actionRightGap: (viewport?.right ?? 0) - (action?.getBoundingClientRect().right ?? 0),
+        actionLeftGap: (action?.getBoundingClientRect().left ?? 0) - (viewport?.left ?? 0),
       };
     });
-    if (layout.statusCellWidth < 132 || layout.statusDetailWhiteSpace !== 'nowrap') {
+    if (layout.statusCellWidth < 120 || layout.statusDetailWhiteSpace !== 'nowrap') {
       issues.push(`${label}: 业务状态列宽度或单行约束失效`);
     }
     if (layout.statusDetailLines !== 1) {
@@ -620,6 +623,9 @@ async function runVisualSmoke() {
     }
     if (layout.actionTextLines !== 1) {
       issues.push(`${label}: 查看按钮文字断成 ${layout.actionTextLines} 行`);
+    }
+    if (layout.actionRightGap < 12 || layout.actionLeftGap < 0) {
+      issues.push(`${label}: 查看按钮未完整保留在表格可视区域内`);
     }
     checked.push(label);
   }

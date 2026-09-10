@@ -20,6 +20,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import {
   API_ERROR_CODES,
+  AdminItemRefundSchema,
   CustomerRefundApplicationSchema,
   RefundVersionSchema,
   RejectRefundApplicationSchema,
@@ -112,6 +113,16 @@ export class CustomerRefundController {
 @Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AdminRefundController {
   constructor(@Inject(RefundWorkflowService) private readonly workflow: RefundWorkflowService) {}
+  @Get('events/:eventId/orders/:orderId/item-refund-context')
+  @RequireGrant('event.order.read')
+  itemContext(@Req() request: AdminRequest, @Param('eventId', ParseIntPipe) eventId: number, @Param('orderId', ParseUUIDPipe) orderId: string) {
+    return this.workflow.adminItemContext(request.user.organizationId, eventId, orderId);
+  }
+  @Post('events/:eventId/orders/:orderId/item-refunds')
+  @RequireGrant('event.order.refund')
+  createItems(@Req() request: AdminRequest, @Param('eventId', ParseIntPipe) eventId: number, @Param('orderId', ParseUUIDPipe) orderId: string, @Headers('idempotency-key') key: string | undefined, @Body() body: unknown) {
+    return this.workflow.createAdminItems(request.user.organizationId, eventId, orderId, request.user.sub, idempotency(key), parse(AdminItemRefundSchema, body));
+  }
   @Get('events/:eventId/refund-policy')
   @RequireGrant('event.registration.read', 'event.manage', 'event.order.refund')
   policy(@Req() request: AdminRequest, @Param('eventId', ParseIntPipe) eventId: number) {
@@ -267,6 +278,7 @@ export class AdminRefundController {
       request.user.sub,
       idempotency(key),
       parse(VerifyExternalRefundSchema, body).outRefundNo,
+      parse(VerifyExternalRefundSchema, body).allocations,
     );
   }
 }

@@ -8,6 +8,7 @@ interface RegistrationExportAttendee {
 }
 
 export interface RegistrationExportRow {
+  item?: { id: string; allocatedAmount: number; state: string } | null;
   registration: {
     customerUserId?: string | null;
     registrationCode: string;
@@ -71,7 +72,7 @@ export function buildRegistrationExportCsv(
     '参会人邮箱',
     '订单归属',
     '购买意图 ID',
-    '订单总额（分）',
+    '名额金额（分）',
     '报名编号',
     '报名状态',
     '订单号',
@@ -106,7 +107,7 @@ export function buildRegistrationExportCsv(
         attendee.email,
         registrationOrderOwnership(row),
         row.order?.purchaseIntentId,
-        row.order?.amount,
+        row.item?.allocatedAmount ?? row.order?.amount,
         row.registration.registrationCode,
         row.registration.status,
         row.order?.orderNo,

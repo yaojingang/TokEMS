@@ -14,6 +14,7 @@ import type {
   CustomerInvoiceOrderContext,
   CustomerInvoiceSendResult,
   CustomerRegistrationDetail,
+  CustomerOrderDetail,
   CustomerRegistrationList,
   CustomerPurchasedOrder,
   CustomerPurchasedOrderList,
@@ -27,6 +28,8 @@ import type {
   UpdateAttendeeShowcase,
   UpdateAttendeeNeeds,
 } from '@conference/contracts';
+import { nextTick } from 'vue';
+import { browserLocalStorage, browserSessionStorage } from '../utils/browser-storage';
 
 export const CUSTOMER_SESSION_REQUEST_TIMEOUT_MS = 4_000;
 
@@ -116,6 +119,7 @@ export function useCustomerSession() {
   }
 
   async function logout(all = false) {
+    const customerId = session.value?.customer.id;
     if (session.value) {
       await $fetch(`/customer-auth/${all ? 'logout-all' : 'logout'}`, {
         method: 'POST',
@@ -127,6 +131,23 @@ export function useCustomerSession() {
     session.value = null;
     refreshFailed.value = false;
     loaded.value = true;
+    // Let registration pages finish their identity-transition saves before clearing drafts.
+    await nextTick();
+    const singleDraftPrefix = 'conference.registrationDraft.';
+    const owner = customerId === undefined ? null : encodeURIComponent(`customer:${customerId}`);
+    for (const storage of [browserLocalStorage, browserSessionStorage]) {
+      const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+      for (const key of keys) {
+        if (!key) continue;
+        if (
+          key.startsWith('conference.batchRegistrationDraft.') ||
+          (owner &&
+            key.startsWith(singleDraftPrefix) &&
+            key.slice(singleDraftPrefix.length).split('.')[2] === owner)
+        )
+          storage.removeItem(key);
+      }
+    }
   }
 
   async function updateProfile(input: UpdateCustomerProfile) {
@@ -192,17 +213,51 @@ export function useCustomerSession() {
     });
   }
 
-  function updatePurchasedOrderAttendee(orderId: string, input: UpdatePurchasedOrderAttendee) {
-    return $fetch<CustomerPurchasedOrder>(
-      `/customer/orders/${encodeURIComponent(orderId)}/attendee`,
-      {
-        method: 'PATCH',
-        baseURL,
-        credentials: 'include',
-        headers: headers(true),
-        body: input,
+  function updatePurchasedOrderAttendee(
+    orderId: string,
+    input: UpdatePurchasedOrderAttendee,
+    item?: undefined,
+    key?: string,
+  ): Promise<CustomerPurchasedOrder>;
+  function updatePurchasedOrderAttendee(
+    orderId: string,
+    input: UpdatePurchasedOrderAttendee,
+    item: { id: string; version: number },
+    key?: string,
+  ): Promise<CustomerOrderDetail>;
+  function updatePurchasedOrderAttendee(
+    orderId: string,
+    input: UpdatePurchasedOrderAttendee,
+    item: { id: string; version: number } | undefined,
+    key?: string,
+  ): Promise<CustomerPurchasedOrder | CustomerOrderDetail>;
+  function updatePurchasedOrderAttendee(
+    orderId: string,
+    input: UpdatePurchasedOrderAttendee,
+    item?: { id: string; version: number },
+    key?: string,
+  ) {
+    const options = {
+      method: 'PATCH' as const,
+      baseURL,
+      credentials: 'include' as const,
+      headers: {
+        ...headers(true),
+        ...(item ? { 'Idempotency-Key': key ?? crypto.randomUUID() } : {}),
       },
-    );
+      body: item ? { ...input, expectedVersion: item.version } : input,
+      timeout: CUSTOMER_SESSION_REQUEST_TIMEOUT_MS,
+      retry: 0,
+    };
+    return item
+      ? $fetch<CustomerOrderDetail>(
+          `/customer/orders/${encodeURIComponent(orderId)}/items/${encodeURIComponent(item.id)}/attendee`,
+          options,
+        )
+      : $fetch<CustomerPurchasedOrder>(
+          `/customer/orders/${encodeURIComponent(orderId)}/attendee`,
+          options,
+        );
   }
 
   function registration(registrationId: string) {
@@ -440,6 +495,11 @@ export function useCustomerSession() {
     authDialogOpen.value = true;
   }
 
+  function requestReauthentication() {
+    session.value = null;
+    openLogin();
+  }
+
   function refundContext(orderId: string) {
     return $fetch<RefundContext>(`/customer/orders/${encodeURIComponent(orderId)}/refund-context`, {
       baseURL,
@@ -509,5 +569,6 @@ export function useCustomerSession() {
     submitInvoice,
     sendInvoice,
     openLogin,
+    requestReauthentication,
   };
 }

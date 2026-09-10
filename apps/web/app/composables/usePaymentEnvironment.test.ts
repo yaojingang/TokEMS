@@ -141,6 +141,27 @@ describe('detectMobileExternalBrowser', () => {
 });
 
 describe('resolvePaymentChannel matrix', () => {
+  it.each([
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 MicroMessenger/3.9.10.27 WindowsWechat',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 MicroMessenger/3.8.9 MacWechat',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36 MicroMessenger/4.0.0',
+  ])('routes desktop WeChat to a Native QR code: %s', (userAgent) => {
+    expect(resolvePaymentChannel(signals({ userAgent }))).toBe('native');
+  });
+
+  it('keeps iPad WeChat on JSAPI even with a Macintosh user agent', () => {
+    expect(
+      resolvePaymentChannel(
+        signals({
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 MicroMessenger/8.0.49',
+          platform: 'MacIntel',
+          maxTouchPoints: 5,
+        }),
+      ),
+    ).toBe('jsapi');
+  });
+
   it('routes WeChat in-app to jsapi', () => {
     expect(
       resolvePaymentChannel(
@@ -215,7 +236,8 @@ describe('resolvePaymentChannel matrix', () => {
   it('never uses viewport resolution (signals omit width/height entirely)', () => {
     const desktop = resolvePaymentChannel(
       signals({
-        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        userAgent:
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         platform: 'Linux x86_64',
         userAgentDataMobile: false,
       }),

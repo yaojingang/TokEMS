@@ -1,3 +1,4 @@
+import { eraseUnavailableClaimInvitationReplays } from '@conference/database';
 import { guardRefundWrite } from './refund-write-guard.js';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
@@ -54,9 +55,12 @@ import {
   events,
   invoiceRequests,
   orders,
+  orderItems,
   orderAccessTokens,
   outboxEvents,
   payments,
+  paymentNotificationInbox,
+  refundRequests,
   publicUserIds,
   registrations,
   tickets,
@@ -66,18 +70,26 @@ import {
 import { maskMobile, normalizeMainlandMobile, sealSecret, sha256 } from '@conference/security';
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 import { DatabaseService } from './database.service.js';
+import { OrderItemsService } from './order-items.service.js';
+import { BatchRegistrationService } from './batch-registration.service.js';
+import { registrationEditVersion } from './registration-edit-version.js';
+import { claimAttendeeItem } from './attendee-item-claim.js';
 import { DomainError } from './domain-error.js';
 import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import { CUSTOMER_INVOICE_PAYMENT_ELIGIBLE_ORDER_STATUSES } from './customer-invoice-policy.js';
 import {
   customerCanManageOrder,
+  registrationOrderJoin,
   customerPurchaserScopeSql,
   purchaserCanAccessTicket,
 } from './customer-order-ownership.js';
 import { AttendeeShowcaseService } from './attendee-showcase.service.js';
 import { attendeeShowcasePublicEligibilitySql } from './attendee-showcase-policy.js';
 import { attendeeUpdateDiff } from './attendee-update-policy.js';
-import { validateRegistrationAttendeeName } from './registration-attendee-validation.js';
+import {
+  registrationEditableAttendeeFields,
+  validateRegistrationAttendeeFields,
+} from './registration-attendee-validation.js';
 import {
   resolvePublishedRegistrationSettings,
   type RegistrationReleaseSnapshot,
@@ -199,6 +211,10 @@ export class CustomerAccountService {
     return this.database.db;
   }
 
+  private registrationEditVersion(registration: typeof registrations.$inferSelect, order: typeof orders.$inferSelect) {
+    return registrationEditVersion(registration, order);
+  }
+
   private async resolveCustomerUserUuid(
     organizationId: string,
     publicUserId: number,
@@ -312,9 +328,9 @@ export class CustomerAccountService {
       .from(registrations)
       .innerJoin(events, eq(events.id, registrations.eventId))
       .innerJoin(ticketTypes, eq(ticketTypes.id, registrations.ticketTypeId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
-      .leftJoin(invoiceRequests, eq(invoiceRequests.registrationId, registrations.id))
+      .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
       .where(and(...conditions))
       .orderBy(desc(registrations.createdAt), desc(registrations.id))
       .limit(options.limit ?? 51);
@@ -543,6 +559,7 @@ export class CustomerAccountService {
               orderIsActive: sql<boolean>`
                 ${orders.id} is null
                 or ${orders.status} in ('pending_review', 'processing', 'paid', 'partially_refunded')
+                or (${orders.modelVersion} = 2 and exists (select 1 from order_items oi where oi.order_id = ${orders.id} and oi.registration_id = ${registrations.id} and oi.state = 'active'))
                 or (${orders.status} = 'pending_payment' and ${orders.expiresAt} > now())
                 or exists (
                   select 1
@@ -554,7 +571,7 @@ export class CustomerAccountService {
               `,
             })
             .from(registrations)
-            .leftJoin(orders, eq(orders.registrationId, registrations.id))
+            .leftJoin(orders, registrationOrderJoin())
             .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
             .where(
               and(
@@ -567,63 +584,8 @@ export class CustomerAccountService {
             .orderBy(desc(registrations.createdAt))
             .limit(1)
             .then((rows) => rows[0] ?? null);
-          const purchaseSummary = await tx
-            .select({
-              paidCount: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
-              pendingCount: sql<number>`count(*) filter (
-                where ${orders.status} in ('pending_review', 'processing')
-                  or (
-                    ${orders.status} = 'pending_payment'
-                    and (
-                      ${orders.expiresAt} > now()
-                      or exists (
-                        select 1 from ${payments}
-                        where ${payments.orderId} = ${orders.id}
-                          and ${payments.provider} = 'wechatpay'
-                          and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
-                      )
-                    )
-                  )
-              )::int`,
-              activeSeatCount: sql<number>`count(*) filter (
-                where ${orders.status} in ('pending_review', 'processing', 'paid', 'partially_refunded')
-                  or (
-                    ${orders.status} = 'pending_payment'
-                    and (
-                      ${orders.expiresAt} > now()
-                      or exists (
-                        select 1 from ${payments}
-                        where ${payments.orderId} = ${orders.id}
-                          and ${payments.provider} = 'wechatpay'
-                          and ${inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES])}
-                      )
-                    )
-                  )
-              )::int`,
-              resumePaymentOrderId: sql<string | null>`(
-                array_agg(${orders.id} order by ${orders.createdAt} desc)
-                filter (where ${orders.status} = 'pending_payment' and ${orders.expiresAt} > now())
-              )[1]`,
-            })
-            .from(orders)
-            .innerJoin(registrations, eq(registrations.id, orders.registrationId))
-            .where(
-              and(
-                eq(orders.organizationId, session.organizationId),
-                eq(orders.eventId, eventId),
-                this.purchaserScope(session.customerUserId),
-                isNull(registrations.supersededAt),
-              ),
-            )
-            .then(
-              (rows) =>
-                rows[0] ?? {
-                  paidCount: 0,
-                  pendingCount: 0,
-                  activeSeatCount: 0,
-                  resumePaymentOrderId: null,
-                },
-            );
+          const counts = await new BatchRegistrationService(this.database, new OrderItemsService(this.database)).purchaseCounts(tx, eventId, session);
+          const purchaseSummary = { ...counts, resumePaymentOrderId: counts.pendingOrderId };
           return { event, eventSettings, releaseSnapshot, attendance, purchaseSummary };
         },
         { isolationLevel: 'repeatable read', accessMode: 'read only' },
@@ -656,7 +618,6 @@ export class CustomerAccountService {
       checkoutAvailable &&
       pendingCount === 0 &&
       activeSeatCount < maxActiveSeatsPerPurchaser &&
-      (!attendance || attendance.canManageOrder) &&
       !hasActiveSelfAttendance;
     const recommendedActions: EventPurchaseContext['recommendedActions'] = [];
     if (purchaseSummary.resumePaymentOrderId) {
@@ -683,7 +644,7 @@ export class CustomerAccountService {
           }
         : null,
       selfRegistrationState,
-      myPurchases: { paidCount, pendingCount, activeSeatCount },
+      myPurchases: { paidCount, pendingCount, activeSeatCount, confirmedSeatCount: purchaseSummary.confirmedSeatCount, reservedSeatCount: purchaseSummary.reservedSeatCount },
       resumePaymentOrderId: purchaseSummary.resumePaymentOrderId,
       recommendedActions,
     };
@@ -750,7 +711,6 @@ export class CustomerAccountService {
     const conditions: SQL[] = [
       eq(orders.organizationId, session.organizationId),
       this.purchaserScope(session.customerUserId),
-      isNull(registrations.supersededAt),
     ];
     const sortAt = sql<Date>`date_trunc('milliseconds', ${orders.createdAt})`;
     if (orderId) conditions.push(eq(orders.id, orderId));
@@ -763,6 +723,8 @@ export class CustomerAccountService {
     const rows = await this.db()
       .select({
         order: orders,
+        paidAmount: sql<number>`coalesce((select p.amount from payments p where p.id = ${orders.settledPaymentId} and p.succeeded_at is not null),0)::int`,
+        refundedAmount: sql<number>`coalesce((select sum(r.amount) from refunds r where r.order_id = ${orders.id} and r.payment_id = ${orders.settledPaymentId} and r.status = 'succeeded'),0)::int`,
         registration: registrations,
         event: { name: events.name, slug: events.slug },
         ticketTypeName: ticketTypes.name,
@@ -777,9 +739,9 @@ export class CustomerAccountService {
         invoice: { id: invoiceRequests.id, status: invoiceRequests.status },
       })
       .from(orders)
-      .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+      .leftJoin(registrations, eq(registrations.id, orders.registrationId))
       .innerJoin(events, eq(events.id, orders.eventId))
-      .innerJoin(ticketTypes, eq(ticketTypes.id, registrations.ticketTypeId))
+      .leftJoin(ticketTypes, eq(ticketTypes.id, registrations.ticketTypeId))
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
       .where(and(...conditions))
@@ -787,8 +749,29 @@ export class CustomerAccountService {
       .limit(normalizedLimit + 1);
     const hasMore = rows.length > normalizedLimit;
     const page = rows.slice(0, normalizedLimit);
+    const service = new OrderItemsService(this.database);
+    const summaries: CustomerPurchasedOrder[] = [];
+    for (const row of page) {
+      if (row.order.modelVersion === 1 && row.registration && row.ticketTypeName) {
+        summaries.push({ ...this.purchasedOrder({ ...row, registration: row.registration, ticketTypeName: row.ticketTypeName }), modelVersion: 1, quantity: 1 });
+        continue;
+      }
+      const detail = await service.checkout(this.db(), row.order, session.customerUserId);
+      const first = detail.items[0]!;
+      const self = detail.items.find((item) => item.isSelf);
+      summaries.push({ id: row.order.id, orderNo: row.order.orderNo, registrationId: row.order.registrationId,
+        paidAmount: row.paidAmount, refundedAmount: row.refundedAmount, netAmount: Math.max(0, row.paidAmount - row.refundedAmount),
+        modelVersion: row.order.modelVersion, quantity: row.order.quantity, activeSeatCount: detail.items.filter((item) => item.state === 'active').length,
+        eventId: row.order.eventId, eventName: row.event.name, eventSlug: row.event.slug,
+        attendeeName: row.order.quantity > 1 ? `${first.registration.attendee.name}等 ${row.order.quantity} 位` : first.registration.attendee.name,
+        attendeeMobile: row.order.quantity === 1 ? first.registration.attendee.mobile : '', isProxyPurchase: !self,
+        attendeeClaimed: detail.items.every((item) => item.attendeeClaimed), canEditAttendee: row.order.quantity === 1 && first.canEditAttendee,
+        ticketTypeName: first.registration.ticketType.name, status: row.order.status, paymentStatus: row.paymentStatus as CustomerPurchasedOrder['paymentStatus'],
+        amount: row.order.amount, currency: row.order.currency, ticketCode: null, ticketStatus: self?.ticketStatus ?? null,
+        invoiceId: row.invoice?.id ?? null, invoiceStatus: row.invoice?.status ?? null, expiresAt: row.order.expiresAt.toISOString(), createdAt: row.order.createdAt.toISOString() });
+    }
     return {
-      items: page.map((row) => this.purchasedOrder(row)),
+      items: summaries,
       nextCursor: hasMore
         ? this.encodeCursor(page.at(-1)!.order.createdAt, page.at(-1)!.order.id)
         : null,
@@ -800,16 +783,15 @@ export class CustomerAccountService {
       const [order] = await tx
         .select({ id: orders.id, status: orders.status, expiresAt: orders.expiresAt })
         .from(orders)
-        .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+        .leftJoin(registrations, eq(registrations.id, orders.registrationId))
         .where(
           and(
             eq(orders.id, orderId),
             eq(orders.organizationId, session.organizationId),
             this.purchaserScope(session.customerUserId),
-            isNull(registrations.supersededAt),
           ),
         )
-        .for('update')
+        .for('update', { of: orders })
         .limit(1);
       if (!order) {
         throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
@@ -851,9 +833,26 @@ export class CustomerAccountService {
     if (!row) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '报名记录不存在', HttpStatus.NOT_FOUND);
     }
+    const summary = this.registrationSummary(row, session.customerUserId);
+    const [item] = row.order.modelVersion === 2 ? await this.db().select().from(orderItems).where(eq(orderItems.registrationId, registrationId)).limit(1) : [];
+    if (!summary.canManageOrder)
+      return { ...summary, attendee: row.registration.attendee, canEditRegistrationInfo: false };
     return {
-      ...this.registrationSummary(row, session.customerUserId),
+      ...summary,
       attendee: row.registration.attendee,
+      ...(item ? { orderItemId: item.id, orderItemVersion: item.version } : {}),
+      registrationEditVersion: this.registrationEditVersion(row.registration, row.order),
+      registrationEditFields: await registrationEditableAttendeeFields(
+        this.db(),
+        row.registration,
+      ),
+      canEditRegistrationInfo:
+        summary.canManageOrder &&
+        row.order.pricingSnapshot.manualReview !== true &&
+        row.order.status === 'pending_payment' &&
+        row.registration.status === 'pending_payment' &&
+        (!row.registration.customerUserId ||
+          row.registration.customerUserId === session.customerUserId),
     };
   }
 
@@ -863,6 +862,7 @@ export class CustomerAccountService {
       from refunds customer_invoice_refunds
       where customer_invoice_refunds.order_id = ${orders.id}
         and customer_invoice_refunds.status = 'succeeded'
+        and (${orders.modelVersion} <> 2 or customer_invoice_refunds.payment_id = ${orders.settledPaymentId})
     ), 0)`;
     const eligibleAmount = sql<number>`greatest(${orders.amount} - ${successfulRefundAmount}, 0)`;
     const eligible = and(
@@ -874,7 +874,9 @@ export class CustomerAccountService {
         where customer_invoice_payments.order_id = ${orders.id}
           and customer_invoice_payments.status in ('succeeded', 'refunded')
           and customer_invoice_payments.succeeded_at is not null
+          and (${orders.modelVersion} <> 2 or customer_invoice_payments.id = ${orders.settledPaymentId})
       )`,
+      sql`not exists (select 1 from refund_requests ir where ir.order_id = ${orders.id} and ir.review_status in ('pending_review','approved') and ir.terminated_at is null)`,
       gt(orders.amount, 0),
       gt(eligibleAmount, 0),
     )!;
@@ -913,9 +915,8 @@ export class CustomerAccountService {
     const normalizedLimit = Math.min(Math.max(query.limit, 1), 50);
     const conditions = this.invoiceCenterConditions(query.category);
     const baseScope = and(
-      eq(registrations.organizationId, session.organizationId),
+      eq(orders.organizationId, session.organizationId),
       this.purchaserScope(session.customerUserId),
-      isNull(registrations.supersededAt),
     )!;
     const sortAt = sql<Date>`date_trunc('milliseconds', ${orders.createdAt})`;
     const pageConditions: SQL[] = [baseScope, conditions.selected];
@@ -955,9 +956,9 @@ export class CustomerAccountService {
             )`,
             hasEmail: sql<boolean>`${invoiceRequests.email} is not null and btrim(${invoiceRequests.email}) <> ''`,
           })
-          .from(registrations)
-          .innerJoin(orders, eq(orders.registrationId, registrations.id))
-          .innerJoin(events, eq(events.id, registrations.eventId))
+          .from(orders)
+          .leftJoin(registrations, eq(orders.registrationId, registrations.id))
+          .innerJoin(events, eq(events.id, orders.eventId))
           .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
           .where(and(...pageConditions))
           .orderBy(desc(sortAt), desc(orders.id))
@@ -971,8 +972,8 @@ export class CustomerAccountService {
             issued: sql<number>`count(*) filter (where ${conditions.issued})::int`,
             history: sql<number>`count(*) filter (where ${conditions.history})::int`,
           })
-          .from(registrations)
-          .innerJoin(orders, eq(orders.registrationId, registrations.id))
+          .from(orders)
+          .leftJoin(registrations, eq(orders.registrationId, registrations.id))
           .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
           .where(baseScope);
         return [pageRows, aggregate] as const;
@@ -1006,7 +1007,7 @@ export class CustomerAccountService {
           availableActions: customerInvoiceCenterActionsForStatus(
             row.status,
             Boolean(row.hasActiveDocument),
-            Boolean(row.hasEmail),
+            false,
           ),
         };
       }),
@@ -1147,165 +1148,7 @@ export class CustomerAccountService {
     session: AuthenticatedCustomer,
     input: AttendeeClaimInput,
   ): Promise<AttendeeClaimResult> {
-    const db = this.db();
-    const claimedAt = await db.transaction(async (tx) => {
-      const now = new Date();
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`attendee-claim:${input.registrationId}:${session.customerUserId}`}, 0))`,
-      );
-      const [claimingUser] = await tx
-        .select({ id: customerUsers.id, status: customerUsers.status })
-        .from(customerUsers)
-        .where(
-          and(
-            eq(customerUsers.id, session.customerUserId),
-            eq(customerUsers.organizationId, session.organizationId),
-          ),
-        )
-        .for('update')
-        .limit(1);
-      if (!claimingUser || claimingUser.status !== 'active') {
-        throw new DomainError(
-          API_ERROR_CODES.UNAUTHORIZED,
-          '用户会话已经失效，请重新登录',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      const [registration] = await tx
-        .select()
-        .from(registrations)
-        .where(
-          and(
-            eq(registrations.id, input.registrationId),
-            eq(registrations.organizationId, session.organizationId),
-            isNull(registrations.supersededAt),
-          ),
-        )
-        .for('update')
-        .limit(1);
-      const [claim] = registration
-        ? await tx
-            .select()
-            .from(attendeeClaimTokens)
-            .where(
-              and(
-                eq(attendeeClaimTokens.registrationId, registration.id),
-                eq(attendeeClaimTokens.tokenHash, sha256(input.claimToken)),
-              ),
-            )
-            .for('update')
-            .limit(1)
-        : [];
-      const proof = registration && claim ? { registration, claim } : null;
-      if (
-        !proof ||
-        proof.claim.consumedAt ||
-        proof.claim.revokedAt ||
-        proof.claim.expiresAt <= now
-      ) {
-        throw new DomainError(
-          API_ERROR_CODES.UNAUTHORIZED,
-          '参会名额认领凭证无效或已经过期',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`attendee-claim-event:${proof.registration.eventId}:${session.customerUserId}`}, 0))`,
-      );
-      if (
-        proof.claim.mobileDigest !== sha256(session.customer.mobile) ||
-        proof.registration.attendeeMobileE164 !== session.customer.mobile
-      ) {
-        throw new DomainError(
-          API_ERROR_CODES.FORBIDDEN,
-          '请使用参会人报名手机号登录后认领',
-          HttpStatus.FORBIDDEN,
-        );
-      }
-      if (['draft', 'cancelled'].includes(proof.registration.status)) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '当前报名状态无法认领',
-          HttpStatus.CONFLICT,
-        );
-      }
-      if (
-        proof.registration.customerUserId &&
-        proof.registration.customerUserId !== session.customerUserId
-      ) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '该参会名额已经被其他账号认领',
-          HttpStatus.CONFLICT,
-        );
-      }
-      const [existingAttendance] = await tx
-        .select({ id: registrations.id })
-        .from(registrations)
-        .where(
-          and(
-            eq(registrations.organizationId, session.organizationId),
-            eq(registrations.eventId, proof.registration.eventId),
-            eq(registrations.customerUserId, session.customerUserId),
-            isNull(registrations.supersededAt),
-            sql`${registrations.id} <> ${proof.registration.id}`,
-          ),
-        )
-        .limit(1);
-      if (existingAttendance) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '当前账号已经拥有本场大会的报名记录',
-          HttpStatus.CONFLICT,
-        );
-      }
-      const [consumed] = await tx
-        .update(attendeeClaimTokens)
-        .set({ consumedAt: now })
-        .where(
-          and(
-            eq(attendeeClaimTokens.id, proof.claim.id),
-            isNull(attendeeClaimTokens.consumedAt),
-            isNull(attendeeClaimTokens.revokedAt),
-            gt(attendeeClaimTokens.expiresAt, now),
-          ),
-        )
-        .returning({ id: attendeeClaimTokens.id });
-      if (!consumed) {
-        throw new DomainError(
-          API_ERROR_CODES.UNAUTHORIZED,
-          '参会名额认领凭证已经使用',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      await tx
-        .update(registrations)
-        .set({ customerUserId: session.customerUserId, updatedAt: now })
-        .where(eq(registrations.id, proof.registration.id));
-      await tx
-        .update(customerUsers)
-        .set({
-          lastRegistrationAt: sql`greatest(
-            coalesce(${customerUsers.lastRegistrationAt}, '-infinity'::timestamptz),
-            ${proof.registration.createdAt}
-          )`,
-          updatedAt: now,
-        })
-        .where(eq(customerUsers.id, session.customerUserId));
-      await tx.insert(auditLogs).values({
-        organizationId: session.organizationId,
-        eventId: proof.registration.eventId,
-        actorId: session.customerUserId,
-        actorType: 'customer',
-        action: 'customer.attendee.claim',
-        resourceType: 'registration',
-        resourceId: proof.registration.id,
-        before: { customerUserId: proof.registration.customerUserId },
-        after: { customerUserId: session.customerUserId, claimTokenId: proof.claim.id },
-        traceId: crypto.randomUUID(),
-      });
-      return now;
-    });
+    const claimedAt = await claimAttendeeItem(this.db(), new OrderItemsService(this.database), session, input);
     return {
       claimed: true,
       claimedAt: claimedAt.toISOString(),
@@ -1317,6 +1160,7 @@ export class CustomerAccountService {
     session: AuthenticatedCustomer,
     orderId: string,
     input: UpdatePurchasedOrderAttendee,
+    selectedItem?: { id: string; version: number },
   ): Promise<CustomerPurchasedOrder> {
     const db = this.db();
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1339,10 +1183,13 @@ export class CustomerAccountService {
               );
             }
           }
-          if (orderIdentity && requestedMobile) {
-            await tx.execute(
-              sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${orderIdentity.eventId}:${requestedMobile}`}, 0))`,
-            );
+          if (orderIdentity) {
+            const [identity] = await tx.select({ registration: registrations }).from(registrations)
+              .innerJoin(orders, registrationOrderJoin())
+              .leftJoin(orderItems, eq(orderItems.registrationId, registrations.id))
+              .where(and(eq(orders.id, orderId), selectedItem ? eq(orderItems.id, selectedItem.id) : undefined)).limit(1);
+            const mobiles = [...new Set([requestedMobile, identity?.registration.attendeeMobileE164].filter((value): value is string => Boolean(value)))].sort();
+            for (const mobile of mobiles) await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`registration-mobile:${orderIdentity.eventId}:${mobile}`}, 0))`);
           }
           const [order] = await tx
             .select()
@@ -1351,13 +1198,20 @@ export class CustomerAccountService {
             .for('update')
             .limit(1);
           if (order) await guardRefundWrite(tx, order.id, true);
-          const [registration] = order
+          const [selected] = order?.modelVersion === 2
+            ? await tx.select().from(orderItems).where(and(eq(orderItems.orderId, order.id), selectedItem ? eq(orderItems.id, selectedItem.id) : eq(orderItems.position, 1))).for('update').limit(1)
+            : [];
+          if (order?.modelVersion === 2 && (!selected || (order.quantity > 1 && !selectedItem) || (selectedItem && selected.version !== selectedItem.version))) {
+            throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '请选择明确的参会名额，并刷新最新资料后修改', HttpStatus.CONFLICT);
+          }
+          const targetRegistrationId = selected?.registrationId ?? order?.registrationId;
+          const [registration] = order && targetRegistrationId
             ? await tx
                 .select()
                 .from(registrations)
                 .where(
                   and(
-                    eq(registrations.id, order.registrationId),
+                    eq(registrations.id, targetRegistrationId),
                     eq(registrations.organizationId, session.organizationId),
                     isNull(registrations.supersededAt),
                   ),
@@ -1377,7 +1231,14 @@ export class CustomerAccountService {
           ) {
             throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
           }
-          await guardRefundWrite(tx, order.id);
+          await guardRefundWrite(tx, order.id, false, { purpose: 'rights', registrationId: registration.id, ...(selected ? { orderItemId: selected.id } : {}) });
+          if (selected && (selected.state === 'cancelled' || order.status === 'pending_review' || order.pricingSnapshot.manualReview === true)) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '已审核资料如需变更，请取消未支付订单后重新提交，或联系主办方', HttpStatus.CONFLICT);
+          if (selected) {
+            const capabilities = await new OrderItemsService(this.database).checkout(tx, order, session.customerUserId);
+            if (!capabilities.items.find((item) => item.id === selected.id)?.canEditAttendee) {
+              throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '该名额当前不可修改，请刷新订单状态', HttpStatus.CONFLICT);
+            }
+          }
           const scope = { order, registration };
           const [ticket] = await tx
             .select()
@@ -1396,15 +1257,49 @@ export class CustomerAccountService {
               ),
             )
             .for('update');
-          if (scope.registration.customerUserId) {
+          const editingOwnRegistration =
+            scope.registration.customerUserId === session.customerUserId;
+          if (
+            (editingOwnRegistration || (order.modelVersion === 2 && !selectedItem)) &&
+            input.expectedRegistrationVersion !==
+              this.registrationEditVersion(scope.registration, scope.order)
+          ) {
             throw new DomainError(
               API_ERROR_CODES.INVALID_STATE_TRANSITION,
-              '参会人已认领该名额，请由参会人维护个人信息',
+              '报名信息已发生变化，填写内容已保留。请重新加载最新报名信息后修改',
+              HttpStatus.CONFLICT,
+              { reason: 'registration_version_conflict' },
+            );
+          }
+          if (
+            scope.registration.customerUserId &&
+            !(
+              editingOwnRegistration &&
+              scope.order.status === 'pending_payment' &&
+              scope.registration.status === 'pending_payment'
+            )
+          ) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              editingOwnRegistration
+                ? '当前订单状态无法修改报名信息，请返回报名详情查看或联系主办方处理'
+                : '参会人已认领该名额，请由参会人维护个人信息',
               HttpStatus.CONFLICT,
             );
           }
           if (
-            ['refunded', 'closed'].includes(scope.order.status) ||
+            editingOwnRegistration &&
+            requestedMobile !== undefined &&
+            requestedMobile !== scope.registration.attendeeMobileE164
+          ) {
+            throw new DomainError(
+              API_ERROR_CODES.INVALID_STATE_TRANSITION,
+              '报名手机号与登录身份绑定，如需更换请联系主办方处理',
+              HttpStatus.CONFLICT,
+            );
+          }
+          if (
+            (scope.order.status === 'closed' || (scope.order.modelVersion === 1 && scope.order.status === 'refunded')) ||
             scope.registration.status === 'checked_in' ||
             ticket?.status === 'used'
           ) {
@@ -1419,7 +1314,15 @@ export class CustomerAccountService {
             mobile: scope.registration.attendeeMobileE164,
             email: scope.registration.attendeeEmailNormalized,
           };
-          await validateRegistrationAttendeeName(tx, scope.registration, input.name);
+          if (order.modelVersion === 2) {
+            const allowed = await registrationEditableAttendeeFields(tx, scope.registration);
+            for (const key of ['name', 'email', 'company', 'title', 'city'] as const) {
+              if (input[key] !== undefined && input[key]!.trim() !== currentAttendee[key] && !allowed.some((field) => field.key === key)) {
+                throw new DomainError(API_ERROR_CODES.VALIDATION_ERROR, '该报名字段未开放修改', HttpStatus.BAD_REQUEST);
+              }
+            }
+          }
+          await validateRegistrationAttendeeFields(tx, scope.registration, input);
           const normalizedEmail = input.email?.trim().toLowerCase();
           const {
             attendee: normalizedAttendee,
@@ -1495,12 +1398,24 @@ export class CustomerAccountService {
             .update(registrations)
             .set({
               attendee,
+              formAnswers: {
+                ...scope.registration.formAnswers,
+                ...Object.fromEntries(
+                  changedFields
+                    .filter((key) => Object.hasOwn(scope.registration.formAnswers, key))
+                    .map((key) => [key, attendee[key]]),
+                ),
+              },
               attendeeMobileE164: normalizedAttendee.mobile,
               attendeeEmailNormalized: normalizedAttendee.email,
               updatedAt: now,
             })
             .where(eq(registrations.id, scope.registration.id));
-          if (contactChanged) {
+          if (selected) {
+            await tx.update(orderItems).set({ version: selected.version + 1, updatedAt: now }).where(eq(orderItems.id, selected.id));
+            await tx.update(orders).set({ version: sql`${orders.version} + 1`, updatedAt: now }).where(eq(orders.id, order.id));
+          }
+          if (contactChanged && !scope.registration.customerUserId && (order.modelVersion === 1 || (order.settledPaymentId && selected?.state === 'active'))) {
             if (activeClaims.length > 0) {
               await tx
                 .update(attendeeClaimTokens)
@@ -1512,6 +1427,7 @@ export class CustomerAccountService {
                   ),
                 );
             }
+            await eraseUnavailableClaimInvitationReplays(tx, now, [scope.registration.id]);
             const claimToken = randomBytes(32).toString('base64url');
             const [claim] = await tx
               .insert(attendeeClaimTokens)
@@ -1782,7 +1698,7 @@ export class CustomerAccountService {
                 attendeeShowcaseProfiles,
                 eq(attendeeShowcaseProfiles.registrationId, registrations.id),
               )
-              .leftJoin(orders, eq(orders.registrationId, registrations.id))
+              .leftJoin(orders, registrationOrderJoin())
               .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
               .innerJoin(customerUsers, eq(customerUsers.id, registrations.customerUserId))
               .where(
@@ -1826,12 +1742,11 @@ export class CustomerAccountService {
               })
               .from(invoiceRequests)
               .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
-              .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+              .leftJoin(registrations, eq(registrations.id, orders.registrationId))
               .where(
                 and(
                   eq(invoiceRequests.organizationId, organizationId),
                   inArray(invoiceOwner, pageUserIds),
-                  isNull(registrations.supersededAt),
                 ),
               )
               .groupBy(invoiceOwner),
@@ -2019,7 +1934,6 @@ export class CustomerAccountService {
     const conditions: SQL[] = [
       eq(invoiceRequests.organizationId, organizationId),
       this.purchaserScope(customerUserId),
-      isNull(registrations.supersededAt),
     ];
     if (cursor) {
       const decoded = this.decodeCursor(cursor);
@@ -2042,7 +1956,7 @@ export class CustomerAccountService {
       })
       .from(invoiceRequests)
       .innerJoin(events, eq(events.id, invoiceRequests.eventId))
-      .innerJoin(registrations, eq(registrations.id, invoiceRequests.registrationId))
+      .leftJoin(registrations, eq(registrations.id, invoiceRequests.registrationId))
       .innerJoin(orders, eq(orders.id, invoiceRequests.orderId))
       .where(and(...conditions))
       .orderBy(desc(invoiceRequests.requestedAt), desc(invoiceRequests.id))
@@ -2214,6 +2128,21 @@ export class CustomerAccountService {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${`customer-user:${organizationId}:${candidate.mobileE164}`}, 0))`,
         );
+        const related = await tx.select({ id: orders.id }).from(orders).where(and(eq(orders.organizationId, organizationId), or(eq(orders.purchaserCustomerUserId, customerUserId), sql`exists (select 1 from registrations own_registration where own_registration.customer_user_id = ${customerUserId}
+          and (own_registration.id = ${orders.registrationId} or exists (select 1 from order_items oi where oi.order_id = ${orders.id} and oi.registration_id = own_registration.id)))`))).orderBy(asc(orders.id));
+        for (const relatedOrder of related) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${relatedOrder.id}`},0))`);
+          const [order] = await tx.select().from(orders).where(eq(orders.id, relatedOrder.id)).for('update').limit(1);
+          if (!order) continue;
+          const [payment] = await tx.select({ id: payments.id }).from(payments).where(and(eq(payments.orderId, order.id), inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]))).limit(1);
+          const [notice] = await tx.select({ id: paymentNotificationInbox.id }).from(paymentNotificationInbox).where(and(eq(paymentNotificationInbox.orderId, order.id), sql`${paymentNotificationInbox.status} <> 'processed'`)).limit(1);
+          const [refund] = await tx.select({ id: refundRequests.id }).from(refundRequests).where(and(eq(refundRequests.orderId, order.id), isNull(refundRequests.terminatedAt))).limit(1);
+          if (['pending_payment', 'pending_review', 'processing'].includes(order.status) || order.entitlementsOnHold || order.refundExecutionMode === 'external_hold' || payment || notice || refund) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '该账户仍有进行中的报名、支付或退款，请先处理完成后再删除', HttpStatus.CONFLICT);
+          if (order.modelVersion === 2 && order.settledPaymentId) {
+            const rows = await new OrderItemsService(this.database).rows(tx, order.id);
+            if (rows.length !== order.quantity || rows.some((row) => !row.ticket)) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, '该账户仍有未完成的出票，请核验后再删除', HttpStatus.CONFLICT);
+          }
+        }
         const [user] = await tx
           .select({
             id: customerUsers.id,

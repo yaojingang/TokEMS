@@ -49,6 +49,7 @@ import {
   memberships,
   organizationInvitations,
   organizationIntegrations,
+  invoiceSmsBlockReason,
   organizationHomepageEvents,
   organizations,
   outboxEvents,
@@ -2462,10 +2463,7 @@ export class OrganizationAdminService {
       )
       .limit(1);
     const [aliyunSms] = await this.db()
-      .select({
-        status: organizationIntegrations.status,
-        config: organizationIntegrations.config,
-      })
+      .select()
       .from(organizationIntegrations)
       .where(
         and(
@@ -2476,11 +2474,15 @@ export class OrganizationAdminService {
       .limit(1);
     const hasPayment = payment?.status === 'verified' || payment?.status === 'configured';
     const smsConfig = aliyunSms ? readAliyunSmsConfiguration(aliyunSms.config) : undefined;
+    const invoiceNotificationReady =
+      aliyunSms && (await invoiceSmsBlockReason(this.db(), aliyunSms)) === null;
     const hasNotification = Boolean(
+      invoiceNotificationReady ||
       (aliyunSms?.status === 'verified' &&
         smsConfig?.enabled &&
-        Object.values(smsConfig.templates).some(
-          (template) => template.enabled && template.status === 'verified',
+        Object.entries(smsConfig.templates).some(
+          ([key, template]) =>
+            key !== 'invoiceReady' && template.enabled && template.status === 'verified',
         )) ||
       process.env.NOTIFICATION_WEBHOOK_URL ||
       process.env.SMTP_URL ||

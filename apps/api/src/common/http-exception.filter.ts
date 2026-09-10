@@ -1,3 +1,5 @@
+import { InvoiceSmsError } from '@conference/database';
+import { redactInvoiceFilePath } from '@conference/security';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import {
   ArgumentsHost,
@@ -16,17 +18,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const context = host.switchToHttp();
     const response = context.getResponse<FastifyReply>();
     const request = context.getRequest<FastifyRequest>();
+    if (/^\/api\/v1\/invoice-files\//.test(request.url)) response.headers({'cache-control':'private, no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow'});
     const traceId = String(request.id ?? crypto.randomUUID());
     const status =
-      exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const body = exception instanceof HttpException ? exception.getResponse() : undefined;
+      exception instanceof InvoiceSmsError ? exception.status : exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    const body = exception instanceof InvoiceSmsError ? {message:exception.message,details:exception.details} : exception instanceof HttpException ? exception.getResponse() : undefined;
     const normalized = typeof body === 'object' && body !== null ? body : {};
     const record = normalized as Record<string, unknown>;
-    const safePath = request.url.split('?')[0] ?? request.url;
+    const safePath = redactInvoiceFilePath(request.url);
     if (status >= 500) {
       const detail =
         exception instanceof Error ? (exception.stack ?? exception.message) : exception;
-      this.logger.error(`${request.method} ${safePath} failed [${traceId}]`, detail);
+      this.logger.error(`${request.method} ${safePath} failed [${traceId}]`, redactInvoiceFilePath(String(detail)));
     }
 
     response.status(status).send({

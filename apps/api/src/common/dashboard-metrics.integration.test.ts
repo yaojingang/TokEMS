@@ -203,12 +203,12 @@ describePersistent('PostgreSQL dashboard metric semantics', () => {
     await database.onModuleDestroy();
   });
 
-  it('uses paid seats for conversion and subtracts successful refunds from revenue', async () => {
+  it('retains refunded orders in cumulative paid orders while counting active seats and net revenue separately', async () => {
     const dashboard = await repository.getDashboard(eventId, organizationId);
 
     expect(dashboard.metrics).toEqual({
       registrations: 6,
-      paidOrders: 3,
+      paidOrders: 4,
       paidSeats: 2,
       confirmedAttendees: 4,
       purchasers: 2,

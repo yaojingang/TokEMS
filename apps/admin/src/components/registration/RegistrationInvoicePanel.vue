@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InvoiceSmsStatusPanel from '../InvoiceSmsStatusPanel.vue';
 import { computed, reactive, ref } from 'vue';
 import type { AdminRegistrationOperationsDetail, EventId } from '@conference/contracts';
 import { conferenceApi } from '../../lib/api';
@@ -415,8 +416,8 @@ async function sendInvoice() {
   if (!request.value) return;
   busy.value = true;
   try {
-    await conferenceApi.sendInvoice(request.value.id, props.eventId);
-    emit('success', `发票已加入发送队列，将发送至 ${request.value.maskedEmail ?? '接收邮箱'}。`);
+    const result = await conferenceApi.sendInvoice(request.value.id, props.eventId);
+    emit('success', `发票已加入发送队列，将发送至 ${result.maskedRecipient}。`);
     emit('refresh');
   } catch (error) {
     emit('error', error instanceof Error ? error.message : '发票发送失败');
@@ -525,6 +526,13 @@ async function downloadDocument(document: InvoiceDetail['documents'][number]) {
         </div>
       </dl>
 
+      <InvoiceSmsStatusPanel
+        v-if="request"
+        :invoice="request"
+        :event-id="eventId"
+        :can-manage="canManage"
+        @refresh="emit('refresh')"
+      />
       <div v-if="canManage" class="invoice-toolbar" aria-label="发票操作">
         <button
           v-if="request.status === 'pending_review'"
@@ -545,7 +553,7 @@ async function downloadDocument(document: InvoiceDetail['documents'][number]) {
           上传发票
         </button>
         <button
-          v-if="request.status === 'issued'"
+          v-if="request.status === 'issued' && !request.smsNotification"
           class="text-action"
           type="button"
           :disabled="busy"

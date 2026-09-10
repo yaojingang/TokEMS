@@ -406,6 +406,8 @@ describe('ConferenceRepository in-memory operational loop', () => {
   });
 
   it('enforces the additional-purchase flag, one pending order, waitlist scope, and seat cap', async () => {
+    const demoEvent = Reflect.get(repository, 'demoEvent') as PublicEvent;
+    demoEvent.registration.additionalPurchaseEnabled = false;
     const otherInput = (mobile: string, intent: string) => ({
       ...registrationInput(),
       purchaseFor: 'other' as const,
@@ -422,7 +424,6 @@ describe('ConferenceRepository in-memory operational loop', () => {
       ),
     ).rejects.toMatchObject({ status: 409 });
 
-    const demoEvent = Reflect.get(repository, 'demoEvent') as PublicEvent;
     demoEvent.registration.additionalPurchaseEnabled = true;
     const selfCheckout = await repository.createCheckout(
       registrationInput(),
@@ -630,6 +631,8 @@ describe('ConferenceRepository in-memory operational loop', () => {
   });
 
   it('counts a failed purchase intent once while throttling the eleventh distinct attempt', async () => {
+    const demoEvent = Reflect.get(repository, 'demoEvent') as PublicEvent;
+    demoEvent.registration.additionalPurchaseEnabled = false;
     const failedInput = (intent: string) => ({
       ...registrationInput(),
       purchaseFor: 'other' as const,
@@ -1309,7 +1312,7 @@ describe('registration review transaction retry', () => {
     const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
     const transaction = vi.fn<() => Promise<never>>().mockRejectedValue(deadlock);
     const repository = new ConferenceRepository({
-      db: { transaction },
+      db: { transaction, select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) },
     } as unknown as DatabaseService);
 
     await expect(

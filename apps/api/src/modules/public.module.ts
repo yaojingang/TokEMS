@@ -24,6 +24,8 @@ import {
   CheckInRequestSchema,
   CreateCooperationRequestSchema,
   CreateRegistrationSchema,
+  CreateRegistrationBatchSchema,
+  RegistrationBatchQuoteInputSchema,
   isPublicEventStatus,
   PaymentCallbackSchema,
   PublicAttendeeNeedListQuerySchema,
@@ -50,6 +52,8 @@ import { CooperationRequestService } from '../common/cooperation-request.service
 import { IdempotencyService } from '../common/idempotency.service.js';
 import { EventPublicMetricsService } from '../common/event-public-metrics.service.js';
 import { DatabaseService } from '../common/database.service.js';
+import { BatchRegistrationService } from '../common/batch-registration.service.js';
+import { CustomerAuthGuard, type CustomerRequest } from '../common/customer-auth.guard.js';
 
 const WeChatSwitchChannelBodySchema = z
   .object({
@@ -669,6 +673,7 @@ class RegistrationsController {
       );
     }
     const session = await this.customerAuth.optionalSession(request);
+    if (session) this.customerAuth.validateCsrf(request, session);
     return this.repository.createCheckout(
       parsed.data,
       idempotencyKey(key),
@@ -681,6 +686,30 @@ class RegistrationsController {
           }
         : undefined,
     );
+  }
+}
+
+@ApiTags('registration-batches')
+@UseGuards(CustomerAuthGuard)
+@Controller('registration-batches')
+export class RegistrationBatchesController {
+  constructor(@Inject(BatchRegistrationService) private readonly batches: BatchRegistrationService) {}
+
+  @Post('quote')
+  @Throttle({ default: { limit: 90, ttl: 60_000 } })
+  quote(@Body() body: unknown, @Req() request: CustomerRequest) {
+    const parsed = RegistrationBatchQuoteInputSchema.safeParse(body);
+    if (!parsed.success) throw new DomainError(API_ERROR_CODES.VALIDATION_ERROR, '请核对票种与购买数量', HttpStatus.BAD_REQUEST, { issues: parsed.error.issues });
+    return this.batches.quote(parsed.data, request.customerSession);
+  }
+
+  @Post()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  create(@Body() body: unknown, @Req() request: CustomerRequest, @Headers('idempotency-key') key?: string) {
+    const parsed = CreateRegistrationBatchSchema.safeParse(body);
+    if (!parsed.success) throw new DomainError(API_ERROR_CODES.VALIDATION_ERROR, '请检查每位参会人的报名信息', HttpStatus.BAD_REQUEST, { issues: parsed.error.issues });
+    const session = request.customerSession;
+    return this.batches.create(parsed.data, idempotencyKey(key), { customerUserId: session.customerUserId, organizationId: session.organizationId, mobile: session.customer.mobile, profile: session.customer.profile });
   }
 }
 
@@ -1183,6 +1212,7 @@ class CheckInController {
     TemplateAssetsController,
     CooperationRequestsController,
     RegistrationsController,
+    RegistrationBatchesController,
     WaitlistController,
     OrdersController,
     CheckInController,

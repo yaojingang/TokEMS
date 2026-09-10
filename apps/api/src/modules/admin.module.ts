@@ -35,11 +35,13 @@ import {
   UpdateEventSchema,
   UpdateEventAttendeeServiceConfigurationSchema,
   type EventId,
+  type Order,
   type UpdateEvent,
 } from '@conference/contracts';
 import {
   AuthGuard,
   grantAllows,
+  grantsAllowAll,
   RequireGrant,
   type AuthenticatedUser,
 } from '../common/auth.guard.js';
@@ -50,6 +52,13 @@ import { EventIdPipe, OptionalEventIdPipe } from '../common/event-id.pipe.js';
 import { CooperationRequestService } from '../common/cooperation-request.service.js';
 import { AgentSurface } from '../common/agent-operation-catalog.js';
 import { AttendeeServiceHubService } from '../common/attendee-service-hub.service.js';
+
+function registrationForGrants<T extends { order?: Order | undefined }>(row: T, grants: string[]): T {
+  if (row.order?.modelVersion !== 2 || grantAllows(grants, 'event.order.read')) return row;
+  const visible = { ...row };
+  delete visible.order;
+  return visible;
+}
 
 function idempotencyKey(value: string | undefined) {
   if (!value || value.length < 8 || value.length > 160) {
@@ -171,7 +180,10 @@ class AdminController {
       scopedEventId ?? queryEventId,
       parsed.data,
       request.user!.organizationId,
-    );
+    ).then((page) => ({
+      ...page,
+      items: page.items.map((row) => registrationForGrants(row, request.user!.grants)),
+    }));
   }
 
   @Get('events/:eventId/cooperation-requests')
@@ -336,7 +348,7 @@ class AdminController {
       registrationId,
       request.user!.organizationId,
       grantAllows(request.user!.grants, 'customer.read'),
-    );
+    ).then((row) => registrationForGrants(row, request.user!.grants));
   }
 
   @Get('events/:eventId/registrations/:registrationId/operations-detail')
@@ -457,6 +469,39 @@ class AdminController {
       scopedEventId ?? queryEventId,
       parsed.data,
       request.user!.organizationId,
+    );
+  }
+
+  @Post('events/:eventId/orders/:orderId/close')
+  @RequireGrant('event.registration.manage')
+  closeUnpaidOrder(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Param('orderId') orderId: string,
+    @Body() body: unknown,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+  ) {
+    const user = request.user!;
+    if (!grantsAllowAll(user.grants, ['event.registration.manage', 'event.order.read'])) {
+      throw new ForbiddenException('关闭订单需要报名管理和订单查看权限');
+    }
+    const input = z
+      .object({ reason: z.string().trim().min(2).max(240), expectedExpiresAt: z.iso.datetime() })
+      .strict()
+      .safeParse(body);
+    if (!z.uuid().safeParse(orderId).success || !input.success) {
+      throw new DomainError(
+        API_ERROR_CODES.VALIDATION_ERROR,
+        '请填写 2 到 240 字的关闭原因，并使用有效的订单标识',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return this.wechat.closeUnpaidOrder(
+      orderId,
+      eventId,
+      user.organizationId,
+      user.sub,
+      input.data.reason,
+      input.data.expectedExpiresAt,
     );
   }
 

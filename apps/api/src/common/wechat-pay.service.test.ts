@@ -31,6 +31,130 @@ type RequestMethod = (
   },
 ) => Promise<Record<string, unknown>>;
 
+describe('payment channel conflict recovery signal', () => {
+  it.each(['native', undefined])(
+    'still closes an older channel or an explicit close request (%s)',
+    async (targetChannel) => {
+      const attempt = {
+        id: 'old-attempt',
+        channel: 'jsapi',
+        status: 'pending',
+        outTradeNo: 'OLDTRADE',
+        updatedAt: new Date(),
+      };
+      const query = { from: vi.fn(), where: vi.fn(), limit: vi.fn().mockResolvedValue([attempt]) };
+      query.from.mockReturnValue(query);
+      query.where.mockReturnValue(query);
+      const update = {
+        set: vi.fn(),
+        where: vi.fn(),
+        returning: vi.fn().mockResolvedValue([{ ...attempt, status: 'close_pending' }]),
+      };
+      update.set.mockReturnValue(update);
+      update.where.mockReturnValue(update);
+      const tx = { execute: vi.fn(), select: () => query, update: vi.fn().mockReturnValue(update) };
+      const database = {
+        db: { transaction: (callback: (value: typeof tx) => unknown) => callback(tx) },
+      } as unknown as DatabaseService;
+      const service = new WeChatPayService(database) as unknown as {
+        beginCloseAttempt: (id: string, targetChannel?: string) => Promise<unknown>;
+      };
+      await expect(
+        service.beginCloseAttempt('fixture-order', targetChannel),
+      ).resolves.toMatchObject({ id: 'old-attempt', status: 'close_pending' });
+      expect(tx.update).toHaveBeenCalledOnce();
+      expect(update.set).toHaveBeenCalledWith({
+        status: 'close_pending',
+        updatedAt: expect.any(Date),
+      });
+    },
+  );
+
+  it('preserves the target channel when another browser has already switched', async () => {
+    const attempt = {
+      id: 'new-attempt',
+      channel: 'native',
+      status: 'pending',
+      outTradeNo: 'NEWTRADE',
+      updatedAt: new Date(),
+    };
+    const query = { from: vi.fn(), where: vi.fn(), limit: vi.fn().mockResolvedValue([attempt]) };
+    query.from.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    const tx = { execute: vi.fn(), select: () => query, update: vi.fn() };
+    const database = {
+      db: { transaction: (callback: (value: typeof tx) => unknown) => callback(tx) },
+    } as unknown as DatabaseService;
+    const service = new WeChatPayService(database) as unknown as {
+      beginCloseAttempt: (id: string, targetChannel: string) => Promise<unknown>;
+    };
+    await expect(service.beginCloseAttempt('fixture-order', 'native')).resolves.toEqual({
+      sameChannel: true,
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['jsapi', 'h5'])(
+    'identifies an existing %s attempt without mutating it',
+    async (activeChannel) => {
+      const order = { status: 'pending_payment', expiresAt: new Date(Date.now() + 60_000) };
+      function selected(rows: unknown[]) {
+        const query = {
+          from: vi.fn(),
+          innerJoin: vi.fn(),
+          where: vi.fn(),
+          for: vi.fn(),
+          limit: vi.fn().mockResolvedValue(rows),
+        };
+        for (const method of [query.from, query.innerJoin, query.where, query.for])
+          method.mockReturnValue(query);
+        return query;
+      }
+      const tx = {
+        execute: vi.fn(),
+        select: vi
+          .fn()
+          .mockReturnValueOnce(selected([{ order, tokenScopes: ['order:read'] }]))
+          .mockReturnValueOnce(
+            selected([
+              { channel: activeChannel, status: 'pending', merchantId: 'fixture-merchant' },
+            ]),
+          ),
+        insert: vi.fn(),
+        update: vi.fn(),
+      };
+      const database = {
+        db: { transaction: (callback: (value: typeof tx) => unknown) => callback(tx) },
+      } as unknown as DatabaseService;
+      const service = new WeChatPayService(database) as unknown as {
+        claimAttempt: (
+          id: string,
+          channel: string,
+          order: object,
+          hash: string,
+          version: number,
+          merchantId: string,
+        ) => Promise<unknown>;
+      };
+      await expect(
+        service.claimAttempt(
+          'fixture-order',
+          'native',
+          order,
+          'fixture-hash',
+          1,
+          'fixture-merchant',
+        ),
+      ).rejects.toMatchObject({
+        code: 'INVALID_STATE_TRANSITION',
+        details: { reason: 'payment_channel_conflict', activeChannel, requestedChannel: 'native' },
+      });
+      expect(tx.insert).not.toHaveBeenCalled();
+      expect(tx.update).not.toHaveBeenCalled();
+    },
+  );
+});
+
 /**
  * Builds RSA key fixtures for merchant and platform signing tests.
  *

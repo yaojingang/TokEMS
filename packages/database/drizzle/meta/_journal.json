@@ -456,6 +456,20 @@
       "when": 1788909788581,
       "tag": "0064_feishu_manual_request_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1789008316751,
+      "tag": "0065_batch_ticket_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1789009086305,
+      "tag": "0066_invoice_sms_direct_download",
+      "breakpoints": true
     }
   ]
 }

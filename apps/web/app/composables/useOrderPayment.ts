@@ -159,9 +159,7 @@ export function shouldAutoPrepareWeChatPayment(
   localSimulationAllowed: boolean,
 ): boolean {
   return Boolean(
-    !localSimulationAllowed &&
-      order?.paymentMethod === 'wechat' &&
-      canInitiateOrderPayment(order),
+    !localSimulationAllowed && order?.paymentMethod === 'wechat' && canInitiateOrderPayment(order),
   );
 }
 
@@ -225,6 +223,20 @@ export function isPaidSwitchResult(
   result: WeChatPaymentSwitchResult,
 ): result is { paid: true; orderId: string } {
   return 'paid' in result && result.paid === true;
+}
+
+export function isPaymentChannelConflict(error: unknown): boolean {
+  const failure = error as {
+    response?: { status?: number };
+    statusCode?: number;
+    status?: number;
+    data?: { code?: string; details?: { reason?: string } };
+  };
+  return (
+    (failure?.response?.status ?? failure?.statusCode ?? failure?.status) === 409 &&
+    failure?.data?.code === 'INVALID_STATE_TRANSITION' &&
+    failure.data.details?.reason === 'payment_channel_conflict'
+  );
 }
 
 /**
@@ -510,25 +522,38 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
     phase.value = channel.value === 'jsapi' ? 'authorizing' : 'preparing';
 
     try {
-      let result: WeChatPaymentPrepareResult;
+      let requestPrepare: () => Promise<WeChatPaymentPrepareResult>;
 
       if (channel.value === 'jsapi') {
         const ready = await ensureOAuthSession();
         if (!ready) return;
         phase.value = 'preparing';
-        result = await api.prepareWeChatJsapiPayment(
-          options.orderId,
-          accessToken.value,
-          oauthSessionToken.value,
-        );
+        requestPrepare = () =>
+          api.prepareWeChatJsapiPayment(
+            options.orderId,
+            accessToken.value,
+            oauthSessionToken.value,
+          );
       } else if (channel.value === 'h5') {
-        result = await api.prepareWeChatH5Payment(options.orderId, accessToken.value);
+        requestPrepare = () => api.prepareWeChatH5Payment(options.orderId, accessToken.value);
       } else {
-        result = await api.prepareWeChatNativePayment(options.orderId, accessToken.value);
+        requestPrepare = () => api.prepareWeChatNativePayment(options.orderId, accessToken.value);
       }
 
-      applyPrepareResult(result);
-      startPolling();
+      let result: WeChatPaymentSwitchResult;
+      try {
+        result = await requestPrepare();
+      } catch (error) {
+        if (!isPaymentChannelConflict(error)) throw error;
+        // The server checks payment settlement and closes the old attempt before switching.
+        result = await api.switchWeChatPaymentChannel(
+          options.orderId,
+          accessToken.value,
+          channel.value,
+          channel.value === 'jsapi' ? oauthSessionToken.value : undefined,
+        );
+      }
+      await applyPaymentResult(result);
     } catch (error) {
       clearPreparedPayload();
       errorMessage.value = paymentErrorMessage(error, '微信支付准备失败，请稍后重试。');
@@ -547,6 +572,21 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
     } finally {
       preparing.value = false;
     }
+  }
+
+  async function applyPaymentResult(result: WeChatPaymentSwitchResult) {
+    if (isPaidSwitchResult(result)) {
+      stopPolling();
+      clearPreparedPayload();
+      const paidOrder = order.value ? { ...order.value, status: 'paid' as const } : undefined;
+      if (paidOrder) order.value = paidOrder;
+      phase.value = 'paid';
+      errorMessage.value = '';
+      if (paidOrder) await options.onPaid?.(paidOrder);
+      return;
+    }
+    applyPrepareResult(result);
+    startPolling();
   }
 
   /**
@@ -656,16 +696,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
 
     try {
       const result = await api.switchWeChatPaymentChannel(options.orderId, accessToken.value, next);
-      if (isPaidSwitchResult(result)) {
-        const paidOrder = order.value ? { ...order.value, status: 'paid' as const } : undefined;
-        if (paidOrder) order.value = paidOrder;
-        phase.value = 'paid';
-        errorMessage.value = '';
-        if (paidOrder) await options.onPaid?.(paidOrder);
-        return;
-      }
-      applyPrepareResult(result);
-      startPolling();
+      await applyPaymentResult(result);
     } catch (error) {
       errorMessage.value = paymentErrorMessage(error, '切换支付方式失败，请稍后重试。');
       phase.value = 'error';
@@ -724,7 +755,7 @@ export function useOrderPayment(options: UseOrderPaymentOptions) {
 
     if (!accessToken.value) {
       phase.value = 'error';
-      errorMessage.value = '订单访问凭证缺失，请从报名成功页或邮件中的支付链接重新进入。';
+      errorMessage.value = '支付链接的临时凭证已失效，请返回个人中心，在未支付订单中点击“继续支付”。';
       return;
     }
 

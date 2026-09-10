@@ -511,3 +511,8 @@ export function decryptIntegrationCredentials(
 export function csrfToken(sessionId: string, secret: string) {
   return createHmac('sha256', secret).update(`customer-session:${sessionId}`).digest('base64url');
 }
+
+/** Capability URLs must not enter error bodies or request logs. */
+export function redactInvoiceFilePath(value: string) {
+  return value.split('?')[0]!.replace(/(\/invoice\/file\/|\/api\/v1\/invoice-files\/)[^\s/#?]+/gi, '$1[redacted]');
+}

@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import type { AliyunSmsConfiguration, AliyunSmsTemplateKey } from '@conference/contracts';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import {
+  TestAliyunSmsConfigurationSchema,
+  type AliyunSmsConfiguration,
+  type AliyunSmsConnectionTest,
+  type AliyunSmsTemplateKey,
+} from '@conference/contracts';
 import SaveStatus from '../components/SaveStatus.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
@@ -74,9 +79,9 @@ const templateRows: Array<{
   },
   {
     key: 'invoiceReady',
-    name: '电子发票已开具',
-    description: '发票开具完成后发送下载入口',
-    variables: ['eventName', 'expiresAt', 'url'],
+    name: '发票短信通知',
+    description: '开启后，上传或替换发票成功时通知购票人。链接免登录，有效期 30 天。',
+    variables: ['eventName', 'expiresAt', 'fileToken'],
   },
   {
     key: 'eventReminder',
@@ -126,11 +131,53 @@ const loading = ref(true);
 const loaded = ref(false);
 const pending = ref(false);
 const testing = ref(false);
+const invoiceTestMessage = ref('');
+const needsReload = ref(false);
+const invoiceCopy = computed(
+  () =>
+    `【${form.signName || '短信签名'}】您的${'${eventName}'}电子发票已开具，请于${'${expiresAt}'}前查看及下载：${configuration.value?.invoiceFileOrigin || '本站域名'}/invoice/file/${'${fileToken}'}。请妥善保管领取链接。`,
+);
+let testTimer: ReturnType<typeof setInterval> | undefined;
+const invoiceReadyVerified = computed(() =>
+  Boolean(configuration.value?.invoiceSms.verifiedFingerprint),
+);
+onUnmounted(() => {
+  if (testTimer) clearInterval(testTimer);
+});
+async function refreshInvoiceTest(deliveryId: string) {
+  try {
+    const result = await conferenceApi.getInvoiceSmsTestStatus(deliveryId);
+    invoiceTestMessage.value = result.ready
+      ? '测试短信已送达，PDF 可直接打开。现在可以开启发票短信通知。'
+      : (result.error ??
+        (result.status === 'accepted'
+          ? '短信平台已受理，等待送达回执。'
+          : '正在验证公开文件与短信发送结果。'));
+    if (
+      result.ready ||
+      ['failed', 'cancelled'].includes(result.status) ||
+      !result.configurationMatches
+    ) {
+      if (testTimer) clearInterval(testTimer);
+      const latest = await conferenceApi.getAliyunSmsConfiguration();
+      if (!hasUnsavedChanges.value) applyConfiguration(latest);
+      else {
+        invoiceTestMessage.value += ' 当前有未保存修改，请重新载入配置后继续。';
+        needsReload.value = true;
+      }
+    }
+  } catch {
+    invoiceTestMessage.value = '测试状态读取失败，请稍后刷新。';
+  }
+}
 const message = ref('');
 const errorMessage = ref('');
 const testPhone = ref('');
 const testTemplateKey = ref<AliyunSmsTemplateKey>('customerOtp');
 const testConfirmed = ref(false);
+const testPhoneInput = ref<HTMLInputElement>();
+const testResult = ref<AliyunSmsConnectionTest>();
+const testError = ref('');
 const form = reactive({
   enabled: false,
   signName: '',
@@ -166,18 +213,44 @@ const hasUnsavedChanges = computed(() => {
       form.templates[row.key].templateCode.trim() !== current.templates[row.key].templateCode,
   );
 });
+const selectedTemplate = computed(
+  () => templateRows.find((row) => row.key === testTemplateKey.value)!,
+);
+const testPhoneValid = computed(() =>
+  TestAliyunSmsConfigurationSchema.shape.phoneNumber.safeParse(testPhone.value).success,
+);
+const testBlockedReason = computed(() => {
+  const saved = configuration.value;
+  if (!canManage.value) return '当前账号没有短信设置管理权限。';
+  if (hasUnsavedChanges.value) return '当前有未保存修改，请先保存配置再发送测试短信。';
+  if (needsReload.value) return '请重新载入最新配置后继续测试。';
+  if (!saved?.secretsPresent.accessKeyId || !saved.secretsPresent.accessKeySecret || !saved.signName)
+    return '请先在下方保存短信账号与签名，并配置要测试的模板 CODE。';
+  if (!saved.enabled) return '短信服务尚未启用，请在下方开启并保存。';
+  if (!saved.templates[testTemplateKey.value].templateCode)
+    return `请先填写并保存「${selectedTemplate.value.name}」的模板 CODE。`;
+  if (testTemplateKey.value !== 'invoiceReady' && !saved.templates[testTemplateKey.value].enabled)
+    return `请先启用并保存「${selectedTemplate.value.name}」场景。`;
+  return '';
+});
 const canSendTest = computed(
   () =>
     canManage.value &&
     loaded.value &&
-    configuration.value?.status !== 'unconfigured' &&
-    Boolean(testPhone.value.trim()) &&
-    form.templates[testTemplateKey.value].enabled &&
-    !hasUnsavedChanges.value &&
+    !testBlockedReason.value &&
+    testPhoneValid.value &&
     testConfirmed.value &&
     !pending.value &&
     !testing.value,
 );
+
+async function selectTestTemplate(key: AliyunSmsTemplateKey) {
+  testTemplateKey.value = key;
+  testConfirmed.value = false;
+  await nextTick();
+  testPhoneInput.value?.focus({ preventScroll: true });
+  testPhoneInput.value?.scrollIntoView({ block: 'center' });
+}
 
 function applyConfiguration(value: AliyunSmsConfiguration) {
   configuration.value = value;
@@ -189,7 +262,7 @@ function applyConfiguration(value: AliyunSmsConfiguration) {
     Object.assign(form.templates[row.key], value.templates[row.key]);
   }
   const firstEnabled = templateRows.find((row) => value.templates[row.key].enabled);
-  if (firstEnabled) testTemplateKey.value = firstEnabled.key;
+  if (firstEnabled && testTemplateKey.value !== 'invoiceReady' && !value.templates[testTemplateKey.value].enabled) testTemplateKey.value = firstEnabled.key;
   testConfirmed.value = false;
   clearDirty();
 }
@@ -203,6 +276,7 @@ watch([pending, testing], () => setBusy(pending.value || testing.value), { immed
 watch(hasUnsavedChanges, setDirty, { immediate: true });
 
 async function load() {
+  needsReload.value = false;
   loading.value = true;
   loaded.value = false;
   message.value = '';
@@ -210,6 +284,12 @@ async function load() {
   try {
     applyConfiguration(await conferenceApi.getAliyunSmsConfiguration());
     loaded.value = true;
+    const testId = configuration.value?.invoiceSms.testDeliveryId;
+    if (testId) {
+      void refreshInvoiceTest(testId);
+      if (testTimer) clearInterval(testTimer);
+      testTimer = setInterval(() => void refreshInvoiceTest(testId), 5000);
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '短信服务配置读取失败';
   } finally {
@@ -228,6 +308,8 @@ async function save() {
   try {
     const result = await conferenceApi.updateAliyunSmsConfiguration({
       enabled: form.enabled,
+      expectedUpdatedAt: configuration.value?.updatedAt ?? null,
+      invoiceDeliveryMode: 'direct_file_v1',
       signName: form.signName.trim(),
       templates: Object.fromEntries(
         templateRows.map((row) => [
@@ -254,22 +336,28 @@ async function save() {
 async function sendTest() {
   if (!canSendTest.value) return;
   testing.value = true;
-  message.value = '';
-  errorMessage.value = '';
+  testResult.value = undefined;
+  testError.value = '';
   try {
     const result = await conferenceApi.testAliyunSmsConfiguration({
       phoneNumber: testPhone.value.trim(),
       templateKey: testTemplateKey.value,
     });
-    applyConfiguration(await conferenceApi.getAliyunSmsConfiguration());
+    testResult.value = result;
     testConfirmed.value = false;
-    if (result.ok) {
-      message.value = `${result.message} 受理编号：${result.bizId || '阿里云未返回编号'}`;
-    } else {
-      errorMessage.value = result.message;
+    if (result.deliveryId) {
+      invoiceTestMessage.value = result.message;
+      if (testTimer) clearInterval(testTimer);
+      testTimer = setInterval(() => void refreshInvoiceTest(result.deliveryId!), 5000);
+    }
+    try {
+      applyConfiguration(await conferenceApi.getAliyunSmsConfiguration());
+    } catch {
+      testError.value = '测试已提交，配置状态刷新失败。请重新载入后查看。';
+      needsReload.value = true;
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '测试短信发送失败';
+    testError.value = error instanceof Error ? error.message : '测试短信发送失败';
   } finally {
     testing.value = false;
   }
@@ -311,6 +399,112 @@ watch([testPhone, testTemplateKey], () => {
     </header>
 
     <form
+      id="sms-test"
+      class="sms-test-panel"
+      aria-labelledby="sms-test-heading"
+      :aria-busy="testing"
+      @submit.prevent="sendTest"
+    >
+      <div class="settings-form-section-head">
+        <div>
+          <h3 id="sms-test-heading">发送测试短信</h3>
+          <p>使用已保存的账号、签名和模板，向指定手机发送真实短信。</p>
+        </div>
+        <a class="text-link" href="#sms-account">配置账号与签名</a>
+      </div>
+      <p v-if="testBlockedReason" class="settings-inline-warning" role="status">
+        {{ testBlockedReason }}
+      </p>
+      <button v-if="needsReload" class="button secondary" type="button" @click="load">
+        {{ hasUnsavedChanges ? '放弃未保存修改并重新载入' : '重新载入配置' }}
+      </button>
+      <div class="sms-test-fields">
+        <div class="form-field">
+          <label for="sms-test-phone">接收手机号</label>
+          <input
+            id="sms-test-phone"
+            ref="testPhoneInput"
+            v-model="testPhone"
+            type="tel"
+            inputmode="tel"
+            autocomplete="tel"
+            maxlength="14"
+            placeholder="填写接收测试短信的手机号"
+            :aria-invalid="Boolean(testPhone.trim()) && !testPhoneValid"
+            aria-describedby="sms-test-phone-hint"
+            :disabled="!canManage || pending || testing"
+          />
+          <small
+            id="sms-test-phone-hint"
+            :class="{ 'sms-test-invalid': testPhone.trim() && !testPhoneValid }"
+          >
+            {{
+              testPhone.trim() && !testPhoneValid
+                ? '请输入有效的中国大陆手机号'
+                : '支持中国大陆手机号，可带 +86 前缀。'
+            }}
+          </small>
+        </div>
+        <div class="form-field">
+          <label for="sms-test-template">测试场景</label>
+          <select
+            id="sms-test-template"
+            v-model="testTemplateKey"
+            :disabled="!canManage || pending || testing"
+          >
+            <option v-for="row in templateRows" :key="row.key" :value="row.key">
+              {{ row.name
+              }}{{
+                row.key === 'invoiceReady'
+                  ? '（可先测试）'
+                  : form.templates[row.key].enabled
+                    ? ''
+                    : '（未启用）'
+              }}
+            </option>
+          </select>
+        </div>
+      </div>
+      <div class="sms-test-context">
+        <span>签名：<strong>{{ configuration?.signName || '待配置' }}</strong></span>
+        <span>
+          模板：<code>{{ configuration?.templates[testTemplateKey].templateCode || '待配置' }}</code>
+        </span>
+        <a class="text-link" href="#sms-templates">配置通知模板</a>
+        <p>
+          {{
+            testTemplateKey === 'invoiceReady'
+              ? '将发送测试 PDF 的领取链接，并检查文件访问与送达回执。重新测试会暂时关闭发票通知。'
+              : '系统自动填入所选场景的示例数据，用于验证短信接口与模板。'
+          }}
+        </p>
+      </div>
+      <label class="sms-test-confirm">
+        <input
+          v-model="testConfirmed"
+          type="checkbox"
+          :disabled="!canManage || pending || testing"
+        />
+        <span>我确认将向上述手机号发送真实短信，并可能产生费用。</span>
+      </label>
+      <button class="button" type="submit" :disabled="!canSendTest">
+        {{ testing ? '发送中…' : '发送并验证' }}
+      </button>
+      <div
+        v-if="testResult && !testResult.deliveryId"
+        class="sms-test-result"
+        :class="{ 'is-error': !testResult.ok }"
+        :role="testResult.ok ? 'status' : 'alert'"
+      >
+        <strong>{{ testResult.ok ? '短信平台已受理' : '短信发送失败' }}</strong>
+        <p>{{ testResult.message }}</p>
+        <p v-if="testResult.bizId">受理编号：<code>{{ testResult.bizId }}</code></p>
+      </div>
+      <p v-if="testError" class="settings-inline-error" role="alert">{{ testError }}</p>
+      <p v-if="invoiceTestMessage" class="sms-test-result" role="status">{{ invoiceTestMessage }}</p>
+    </form>
+
+    <form
       class="event-form settings-form-spaced"
       data-settings-form
       :inert="pending || testing"
@@ -332,7 +526,7 @@ watch([testPhone, testTemplateKey], () => {
         </label>
       </div>
 
-      <section class="settings-form-section" aria-labelledby="sms-account-heading">
+      <section id="sms-account" class="settings-form-section" aria-labelledby="sms-account-heading">
         <div class="settings-form-section-head">
           <div>
             <h3 id="sms-account-heading">账号与签名</h3>
@@ -391,7 +585,7 @@ watch([testPhone, testTemplateKey], () => {
         </div>
       </section>
 
-      <section class="settings-form-section" aria-labelledby="sms-template-heading">
+      <section id="sms-templates" class="settings-form-section" aria-labelledby="sms-template-heading">
         <div class="settings-form-section-head">
           <div>
             <h3 id="sms-template-heading">通知场景与模板</h3>
@@ -411,7 +605,12 @@ watch([testPhone, testTemplateKey], () => {
                   <input
                     v-model="form.templates[row.key].enabled"
                     type="checkbox"
-                    :disabled="!canManage"
+                    :disabled="
+                      !canManage ||
+                        (row.key === 'invoiceReady' &&
+                          !form.templates.invoiceReady.enabled &&
+                          !invoiceReadyVerified)
+                    "
                   />
                   <span>
                     <strong>{{ row.name }}</strong>
@@ -419,14 +618,16 @@ watch([testPhone, testTemplateKey], () => {
                     <small
                       v-if="form.templates[row.key].enabled"
                       class="sms-template-validation"
-                      :class="`is-${form.templates[row.key].status ?? 'unverified'}`"
+                      :class="`is-${row.key === 'invoiceReady' && invoiceReadyVerified ? 'verified' : form.templates[row.key].status ?? 'unverified'}`"
                     >
                       {{
-                        form.templates[row.key].status === 'verified'
-                          ? '接口已受理'
-                          : form.templates[row.key].status === 'error'
-                            ? '模板验证失败'
-                            : '模板待验证'
+                        row.key === 'invoiceReady' && invoiceReadyVerified
+                          ? '测试短信已送达，文件可打开'
+                          : form.templates[row.key].status === 'verified'
+                            ? '接口已受理'
+                            : form.templates[row.key].status === 'error'
+                              ? '模板验证失败'
+                              : '模板待验证'
                       }}
                     </small>
                   </span>
@@ -442,8 +643,19 @@ watch([testPhone, testTemplateKey], () => {
                     :disabled="!canManage"
                   />
                 </div>
-                <div class="sms-variable-list" aria-label="模板变量">
-                  <code v-for="variable in row.variables" :key="variable">{{ variable }}</code>
+                <div class="sms-template-tools">
+                  <div class="sms-variable-list" aria-label="模板变量">
+                    <code v-for="variable in row.variables" :key="variable">{{ variable }}</code>
+                  </div>
+                  <button
+                    class="button secondary compact"
+                    type="button"
+                    :disabled="!canManage || pending || testing"
+                    :aria-label="`测试${row.name}模板`"
+                    @click="selectTestTemplate(row.key)"
+                  >
+                    测试此模板
+                  </button>
                 </div>
               </article>
             </div>
@@ -451,6 +663,15 @@ watch([testPhone, testTemplateKey], () => {
         </div>
       </section>
 
+      <div class="settings-security-note">
+        <strong>发票短信启用步骤</strong>
+        <span>保存发票模板 CODE → 选择发票场景发送测试 → 收到送达回执 →
+          开启并保存。模板须包含固定本站域名与 /invoice/file/ 路径，fileToken 使用 24
+          位字母数字变量，需由短信服务商审核。变更签名、密钥、模板或域名后须重新验证。关闭不会补发历史发票。重新测试会暂时关闭发票通知。</span>
+      </div>
+      <div class="settings-security-note">
+        <strong>发票短信文案参考</strong><span>{{ invoiceCopy }}<br /><small>当前参考文案 {{ invoiceCopy.length }} 个字符；变量实际内容及计费以渠道为准。</small></span>
+      </div>
       <div class="settings-security-note">
         <strong>安全策略</strong>
         <span>AccessKey 使用 AES-256-GCM
@@ -466,54 +687,82 @@ watch([testPhone, testTemplateKey], () => {
         primary-label="保存短信配置"
       />
     </form>
-
-    <section class="sms-test-panel" aria-labelledby="sms-test-heading">
-      <div class="settings-form-section-head">
-        <div>
-          <h3 id="sms-test-heading">发送测试短信</h3>
-          <p>该操作会调用阿里云正式接口，产生一条真实短信和相应费用。</p>
-        </div>
-      </div>
-      <p v-if="hasUnsavedChanges" class="settings-inline-warning" role="status">
-        当前有未保存修改，请先保存配置再发送测试短信。
-      </p>
-      <div class="sms-test-fields">
-        <div class="form-field">
-          <label for="sms-test-phone">接收手机号</label>
-          <input
-            id="sms-test-phone"
-            v-model="testPhone"
-            inputmode="tel"
-            autocomplete="tel"
-            placeholder="13800138000"
-            :disabled="!canManage || testing"
-          />
-        </div>
-        <div class="form-field">
-          <label for="sms-test-template">测试场景</label>
-          <select
-            id="sms-test-template"
-            v-model="testTemplateKey"
-            :disabled="!canManage || testing"
-          >
-            <option
-              v-for="row in templateRows"
-              :key="row.key"
-              :value="row.key"
-              :disabled="!form.templates[row.key].enabled"
-            >
-              {{ row.name }}{{ form.templates[row.key].enabled ? '' : '（未启用）' }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <label class="sms-test-confirm">
-        <input v-model="testConfirmed" type="checkbox" :disabled="!canManage || testing" />
-        <span>我确认将向上述手机号发送真实短信，并可能产生费用。</span>
-      </label>
-      <button class="button secondary" type="button" :disabled="!canSendTest" @click="sendTest">
-        {{ testing ? '发送中…' : '发送并验证' }}
-      </button>
-    </section>
   </section>
 </template>
+
+<style scoped>
+.sms-test-panel {
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sms-test-panel > .button {
+  justify-self: start;
+  width: auto;
+}
+
+.sms-test-fields {
+  align-items: start;
+}
+
+.sms-test-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  color: var(--muted);
+  font-size: var(--admin-font-caption);
+  overflow-wrap: anywhere;
+}
+
+.sms-test-context p {
+  flex-basis: 100%;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.sms-test-context strong {
+  color: var(--ink);
+}
+
+.sms-test-result {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--admin-font-control);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.sms-test-result p {
+  margin: 6px 0 0;
+}
+
+.sms-test-result strong {
+  color: var(--green);
+}
+
+.sms-test-result.is-error,
+.sms-test-result.is-error strong,
+.sms-test-invalid {
+  color: var(--red);
+}
+
+.sms-template-tools {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.sms-template-tools .button {
+  white-space: nowrap;
+}
+
+#sms-account,
+#sms-templates {
+  scroll-margin-top: 96px;
+}
+</style>

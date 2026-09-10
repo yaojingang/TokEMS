@@ -376,7 +376,10 @@ onMounted(() => void load());
       </div>
     </section>
 
-    <section v-if="hasStructuredHome" class="admin-panel event-experience-panel">
+    <section
+      v-if="hasStructuredHome"
+      class="admin-panel event-experience-panel event-home-experience-panel"
+    >
       <header class="admin-panel-header">
         <div>
           <h2>首页展示</h2>
@@ -614,3 +617,13 @@ onMounted(() => void load());
     </form>
   </section>
 </template>
+
+<style scoped>
+.event-home-experience-panel > .event-form {
+  max-width: none;
+}
+
+.event-home-experience-panel .logo-editor {
+  margin-top: 24px;
+}
+</style>

@@ -541,8 +541,8 @@ async function saveFlow() {
       </div>
       <label class="setting-toggle">
         <span>
-          <strong>允许购票人继续增加名额</strong>
-          <small>开启后，已报名用户可继续为他人创建独立订单。{{ settingsEffectDescription }}</small>
+          <strong>允许一次购买多个名额及后续增购</strong>
+          <small>开启后，购票人可一次选择多个名额，逐人填写资料并统一支付；也可在已有名额基础上继续增购。{{ settingsEffectDescription }}</small>
         </span>
         <input v-model="settingsForm.additionalPurchaseEnabled" type="checkbox" />
       </label>
@@ -557,7 +557,7 @@ async function saveFlow() {
           step="1"
           required
         />
-        <small>包含本人和代购名额，已关闭、已退款和已取消记录不计入。</small>
+        <small>累计包含本人、代购及待审核/待支付预留名额。已取消并释放的名额不计入；退款后保留参会资格的名额继续计入。</small>
       </div>
       <div class="event-form-actions">
         <button class="button" type="submit" :disabled="settingsPending">

@@ -1049,11 +1049,17 @@ describePersistent('payment recovery across deployments', () => {
       new URL('../../../../tooling/production-deploy.sh', import.meta.url),
       'utf8',
     );
-    const query = source
+    const body = source
       .slice(source.indexOf('read_payment_activity() {'))
       .match(/begin read only;\n([\s\S]*?)\ncommit;/)?.[1];
-    if (!query) throw new Error('Missing actual deployment SQL');
-    // Run the unchanged deployment SQL against this organization's real fixture rows.
+    if (!body) throw new Error('Missing actual deployment SQL');
+    const [probe, branches] = body.split('\\gset');
+    const complete = branches?.match(/\\if :batch_complete\n([\s\S]*?)\\elif :batch_present/)?.[1];
+    const partial = branches?.match(/\\elif :batch_present\n([\s\S]*?)\\else/)?.[1];
+    const legacy = branches?.match(/\\else\n([\s\S]*?)\\endif/)?.[1];
+    if (!probe || !complete || !partial || !legacy)
+      throw new Error('Missing deployment schema probe or SQL branches');
+    // Select the production psql branch using its actual schema probe.
     // Temporary tables prevent other concurrently running suites from changing the evidence.
     const readCounts = () =>
       db.transaction(async (tx) => {
@@ -1073,6 +1079,17 @@ describePersistent('payment recovery across deployments', () => {
         await tx.execute(
           sql`create temporary table payment_notification_inbox on commit drop as select * from public.payment_notification_inbox where organization_id = ${f.org.id}`,
         );
+        const capabilities = (await tx.execute(sql.raw(probe))).rows[0];
+        if (
+          typeof capabilities?.batch_complete !== 'boolean' ||
+          typeof capabilities?.batch_present !== 'boolean'
+        )
+          throw new Error('Deployment schema probe must return booleans');
+        const query = capabilities.batch_complete
+          ? complete
+          : capabilities.batch_present
+            ? partial
+            : legacy;
         return (await tx.execute(sql.raw(query))).rows[0];
       });
     const baseline = {

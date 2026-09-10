@@ -1171,6 +1171,7 @@ export const ticketTypes = pgTable(
   },
   (table) => [
     uniqueIndex('ticket_types_event_code_unique').on(table.eventId, table.code),
+    uniqueIndex('ticket_types_item_scope_unique').on(table.id, table.organizationId, table.eventId),
     index('ticket_types_event_idx').on(table.eventId),
   ],
 );
@@ -1313,9 +1314,12 @@ export const orders = pgTable(
     eventId: integer('event_id')
       .notNull()
       .references(() => events.id, { onDelete: 'cascade' }),
-    registrationId: uuid('registration_id')
-      .notNull()
-      .references(() => registrations.id),
+    registrationId: uuid('registration_id').references(() => registrations.id),
+    modelVersion: integer('model_version').notNull().default(1),
+    quantity: integer('quantity').notNull().default(1),
+    settledPaymentId: uuid('settled_payment_id'),
+    entitlementsOnHold: boolean('entitlements_on_hold').notNull().default(false),
+    version: integer('version').notNull().default(1),
     purchaserCustomerUserId: uuid('purchaser_customer_user_id').references(() => customerUsers.id, {
       onDelete: 'set null',
     }),
@@ -1353,6 +1357,16 @@ export const orders = pgTable(
       foreignColumns: [customerUsers.id, customerUsers.organizationId],
       name: 'orders_purchaser_customer_org_fk',
     }).onDelete('no action'),
+    foreignKey({
+      columns: [table.settledPaymentId, table.id],
+      foreignColumns: [payments.id, payments.orderId],
+      name: 'orders_settled_payment_scope_fk',
+    }),
+    check(
+      'orders_model_shape_check',
+      sql`(${table.modelVersion} = 1 and ${table.quantity} = 1 and ${table.registrationId} is not null) or (${table.modelVersion} = 2 and ${table.quantity} between 1 and 20 and ${table.purchaseIntentId} is not null and ((${table.quantity} = 1 and ${table.registrationId} is not null) or (${table.quantity} > 1 and ${table.registrationId} is null)))`,
+    ),
+    check('orders_version_check', sql`${table.version} >= 1`),
     uniqueIndex('orders_refund_scope_unique').on(table.id, table.organizationId, table.eventId),
     uniqueIndex('orders_no_unique').on(table.orderNo),
     uniqueIndex('orders_registration_unique').on(table.registrationId),
@@ -1374,6 +1388,78 @@ export const orders = pgTable(
       .where(
         sql`${table.purchaserCustomerUserId} is not null and ${table.purchaseIntentId} is not null`,
       ),
+  ],
+);
+
+export const orderItems = pgTable(
+  'order_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id').notNull(),
+    registrationId: uuid('registration_id').notNull(),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    clientId: uuid('client_id'),
+    position: integer('position').notNull(),
+    ticketTypeId: uuid('ticket_type_id').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    allocatedAmount: integer('allocated_amount').notNull(),
+    pricingSnapshot: jsonb('pricing_snapshot').$type<Record<string, unknown>>().notNull(),
+    state: varchar('state', { length: 24 })
+      .$type<'pending' | 'active' | 'cancelled'>()
+      .notNull()
+      .default('pending'),
+    version: integer('version').notNull().default(1),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    inventoryReleasedAt: timestamp('inventory_released_at', {
+      withTimezone: true,
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.orderId, table.organizationId, table.eventId],
+      foreignColumns: [orders.id, orders.organizationId, orders.eventId],
+      name: 'order_items_order_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.registrationId, table.organizationId, table.eventId],
+      foreignColumns: [registrations.id, registrations.organizationId, registrations.eventId],
+      name: 'order_items_registration_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.ticketTypeId, table.organizationId, table.eventId],
+      foreignColumns: [ticketTypes.id, ticketTypes.organizationId, ticketTypes.eventId],
+      name: 'order_items_ticket_scope_fk',
+    }),
+    uniqueIndex('order_items_registration_unique').on(table.registrationId),
+    uniqueIndex('order_items_order_position_unique').on(table.orderId, table.position),
+    uniqueIndex('order_items_order_client_unique').on(table.orderId, table.clientId),
+    uniqueIndex('order_items_scope_unique').on(
+      table.id,
+      table.orderId,
+      table.organizationId,
+      table.eventId,
+    ),
+    uniqueIndex('order_items_registration_scope_unique').on(
+      table.orderId,
+      table.registrationId,
+      table.organizationId,
+      table.eventId,
+    ),
+    uniqueIndex('order_items_reservation_scope_unique').on(
+      table.id,
+      table.orderId,
+      table.ticketTypeId,
+      table.eventId,
+    ),
+    check('order_items_position_check', sql`${table.position} between 1 and 20`),
+    check(
+      'order_items_money_check',
+      sql`${table.unitPrice} >= 0 and ${table.allocatedAmount} >= 0`,
+    ),
+    check('order_items_state_check', sql`${table.state} in ('pending', 'active', 'cancelled')`),
+    check('order_items_version_check', sql`${table.version} >= 1`),
   ],
 );
 
@@ -1470,6 +1556,7 @@ export const inventoryReservations = pgTable(
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
+    orderItemId: uuid('order_item_id'),
     quantity: integer('quantity').notNull().default(1),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     convertedAt: timestamp('converted_at', { withTimezone: true }),
@@ -1477,6 +1564,21 @@ export const inventoryReservations = pgTable(
     ...timestamps,
   },
   (table) => [
+    foreignKey({
+      columns: [table.orderItemId, table.orderId, table.ticketTypeId, table.eventId],
+      foreignColumns: [
+        orderItems.id,
+        orderItems.orderId,
+        orderItems.ticketTypeId,
+        orderItems.eventId,
+      ],
+      name: 'inventory_reservations_item_scope_fk',
+    }),
+    check(
+      'inventory_reservations_item_quantity_check',
+      sql`${table.orderItemId} is null or ${table.quantity} = 1`,
+    ),
+    index('inventory_reservations_item_idx').on(table.orderItemId),
     index('inventory_reservations_ticket_expiry_idx').on(table.ticketTypeId, table.expiresAt),
   ],
 );
@@ -1487,7 +1589,7 @@ export const payments = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     orderId: uuid('order_id')
       .notNull()
-      .references(() => orders.id, { onDelete: 'cascade' }),
+      .references((): AnyPgColumn => orders.id, { onDelete: 'cascade' }),
     provider: varchar('provider', { length: 40 }).notNull(),
     channel: paymentChannel('channel'),
     outTradeNo: varchar('out_trade_no', { length: 32 }),
@@ -1926,6 +2028,10 @@ export const refunds = pgTable(
     currency: varchar('currency', { length: 3 }).notNull(),
     status: varchar('status', { length: 32 }).notNull(),
     requestId: uuid('request_id').references(() => refundRequests.id),
+    protectionScope: varchar('protection_scope', { length: 24 })
+      .$type<'order' | 'items'>()
+      .notNull()
+      .default('order'),
     source: varchar('source', { length: 24 }).notNull().default('legacy'),
     merchantId: varchar('merchant_id', { length: 32 }),
     outRefundNo: varchar('out_refund_no', { length: 64 }),
@@ -1978,6 +2084,14 @@ export const refunds = pgTable(
       'refunds_execution_shape_check',
       sql`${table.source} not in ('wechat_api', 'external') or (${table.paymentId} is not null and ${table.merchantId} is not null and ${table.outRefundNo} is not null and ${table.amount} > 0 and ${table.currency} = 'CNY')`,
     ),
+    check('refunds_protection_scope_check', sql`${table.protectionScope} in ('order', 'items')`),
+    uniqueIndex('refunds_allocation_scope_unique').on(
+      table.id,
+      table.paymentId,
+      table.orderId,
+      table.organizationId,
+      table.eventId,
+    ),
     uniqueIndex('refunds_no_unique').on(table.refundNo),
     uniqueIndex('refunds_merchant_out_refund_unique').on(table.merchantId, table.outRefundNo),
     uniqueIndex('refunds_merchant_provider_refund_unique').on(
@@ -1992,6 +2106,145 @@ export const refunds = pgTable(
       .where(sql`${table.requestId} is not null`),
     uniqueIndex('refunds_idempotency_unique').on(table.idempotencyKey),
     index('refunds_order_idx').on(table.orderId),
+  ],
+);
+
+export const refundRequestItems = pgTable(
+  'refund_request_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    refundRequestId: uuid('refund_request_id').notNull(),
+    paymentId: uuid('payment_id').notNull(),
+    orderId: uuid('order_id').notNull(),
+    orderItemId: uuid('order_item_id').notNull(),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    requestedAmount: integer('requested_amount').notNull(),
+    approvedAmount: integer('approved_amount'),
+    rightsEffect: varchar('rights_effect', { length: 24 }).$type<'revoke' | 'retain'>().notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [
+        table.refundRequestId,
+        table.orderId,
+        table.paymentId,
+        table.organizationId,
+        table.eventId,
+      ],
+      foreignColumns: [
+        refundRequests.id,
+        refundRequests.orderId,
+        refundRequests.paymentId,
+        refundRequests.organizationId,
+        refundRequests.eventId,
+      ],
+      name: 'refund_request_items_request_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.orderItemId, table.orderId, table.organizationId, table.eventId],
+      foreignColumns: [
+        orderItems.id,
+        orderItems.orderId,
+        orderItems.organizationId,
+        orderItems.eventId,
+      ],
+      name: 'refund_request_items_order_item_scope_fk',
+    }),
+    uniqueIndex('refund_request_items_request_item_unique').on(
+      table.refundRequestId,
+      table.orderItemId,
+    ),
+    uniqueIndex('refund_request_items_allocation_scope_unique').on(
+      table.id,
+      table.paymentId,
+      table.orderId,
+      table.orderItemId,
+      table.organizationId,
+      table.eventId,
+    ),
+    check(
+      'refund_request_items_money_check',
+      sql`${table.requestedAmount} >= 0 and (${table.approvedAmount} is null or (${table.approvedAmount} >= 0 and ${table.approvedAmount} <= ${table.requestedAmount}))`,
+    ),
+    check('refund_request_items_rights_check', sql`${table.rightsEffect} in ('revoke', 'retain')`),
+    check('refund_request_items_version_check', sql`${table.version} >= 1`),
+  ],
+);
+
+export const refundItemAllocations = pgTable(
+  'refund_item_allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    refundId: uuid('refund_id').notNull(),
+    paymentId: uuid('payment_id').notNull(),
+    orderId: uuid('order_id').notNull(),
+    orderItemId: uuid('order_item_id').notNull(),
+    refundRequestItemId: uuid('refund_request_item_id'),
+    organizationId: uuid('organization_id').notNull(),
+    eventId: integer('event_id').notNull(),
+    amount: integer('amount').notNull(),
+    basis: varchar('basis', { length: 120 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [
+        table.refundId,
+        table.paymentId,
+        table.orderId,
+        table.organizationId,
+        table.eventId,
+      ],
+      foreignColumns: [
+        refunds.id,
+        refunds.paymentId,
+        refunds.orderId,
+        refunds.organizationId,
+        refunds.eventId,
+      ],
+      name: 'refund_item_allocations_refund_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.paymentId, table.orderId],
+      foreignColumns: [payments.id, payments.orderId],
+      name: 'refund_item_allocations_payment_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.orderItemId, table.orderId, table.organizationId, table.eventId],
+      foreignColumns: [
+        orderItems.id,
+        orderItems.orderId,
+        orderItems.organizationId,
+        orderItems.eventId,
+      ],
+      name: 'refund_item_allocations_order_item_scope_fk',
+    }),
+    foreignKey({
+      columns: [
+        table.refundRequestItemId,
+        table.paymentId,
+        table.orderId,
+        table.orderItemId,
+        table.organizationId,
+        table.eventId,
+      ],
+      foreignColumns: [
+        refundRequestItems.id,
+        refundRequestItems.paymentId,
+        refundRequestItems.orderId,
+        refundRequestItems.orderItemId,
+        refundRequestItems.organizationId,
+        refundRequestItems.eventId,
+      ],
+      name: 'refund_item_allocations_request_item_scope_fk',
+    }),
+    uniqueIndex('refund_item_allocations_refund_item_unique').on(table.refundId, table.orderItemId),
+    index('refund_item_allocations_order_item_idx').on(table.orderId, table.orderItemId),
+    check('refund_item_allocations_amount_check', sql`${table.amount} >= 0`),
+    check('refund_item_allocations_basis_check', sql`length(trim(${table.basis})) > 0`),
   ],
 );
 
@@ -2041,9 +2294,7 @@ export const invoiceRequests = pgTable(
     orderId: uuid('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    registrationId: uuid('registration_id')
-      .notNull()
-      .references(() => registrations.id, { onDelete: 'cascade' }),
+    registrationId: uuid('registration_id').references(() => registrations.id),
     buyerType: varchar('buyer_type', { length: 32 }),
     title: varchar('title', { length: 200 }),
     taxId: varchar('tax_id', { length: 40 }),
@@ -2065,9 +2316,19 @@ export const invoiceRequests = pgTable(
   },
   (table) => [
     foreignKey({
-      columns: [table.orderId, table.registrationId, table.organizationId, table.eventId],
-      foreignColumns: [orders.id, orders.registrationId, orders.organizationId, orders.eventId],
+      columns: [table.orderId, table.organizationId, table.eventId],
+      foreignColumns: [orders.id, orders.organizationId, orders.eventId],
       name: 'invoice_requests_order_scope_fk',
+    }),
+    foreignKey({
+      columns: [table.orderId, table.registrationId, table.organizationId, table.eventId],
+      foreignColumns: [
+        orderItems.orderId,
+        orderItems.registrationId,
+        orderItems.organizationId,
+        orderItems.eventId,
+      ],
+      name: 'invoice_requests_registration_item_scope_fk',
     }),
     uniqueIndex('invoice_requests_org_no_unique').on(table.organizationId, table.requestNo),
     uniqueIndex('invoice_requests_order_unique').on(table.orderId),
@@ -2539,9 +2800,48 @@ export const notificationTemplates = pgTable(
   ],
 );
 
+export const invoiceDocumentAccessLinks = pgTable('invoice_document_access_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  eventId: integer('event_id').references(() => events.id),
+  orderId: uuid('order_id').references(() => orders.id),
+  invoiceRequestId: uuid('invoice_request_id').references(() => invoiceRequests.id),
+  invoiceDocumentId: uuid('invoice_document_id').references(() => invoiceDocuments.id),
+  documentIdentity: text('document_identity'),
+  purpose: varchar('purpose', { length: 32 }).notNull(),
+  recipientHash: varchar('recipient_hash', { length: 64 }).notNull(),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  sealedToken: text('sealed_token'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('invoice_file_access_token_unique').on(table.tokenHash),
+  index('invoice_file_access_invoice_idx').on(table.invoiceRequestId, table.createdAt),
+  check('invoice_file_access_scope', sql`(
+    ${table.purpose} = 'invoice' and ${table.eventId} is not null and ${table.orderId} is not null
+    and ${table.invoiceRequestId} is not null and ${table.invoiceDocumentId} is not null and ${table.documentIdentity} is not null
+  ) or (
+    ${table.purpose} = 'test' and ${table.eventId} is null and ${table.orderId} is null
+    and ${table.invoiceRequestId} is null and ${table.invoiceDocumentId} is null and ${table.documentIdentity} is null
+  )`),
+]);
+
 export const notificationDeliveries = pgTable(
   'notification_deliveries',
   {
+    invoiceRequestId: uuid('invoice_request_id').references(() => invoiceRequests.id),
+    invoiceDocumentId: uuid('invoice_document_id').references(() => invoiceDocuments.id),
+    documentIdentity: text('document_identity'),
+    fileAccessLinkId: uuid('file_access_link_id').references(() => invoiceDocumentAccessLinks.id),
+    businessKey: varchar('business_key', { length: 240 }),
+    activationRevision: integer('activation_revision'),
+    purpose: varchar('purpose', { length: 32 }),
+    recipientSource: varchar('recipient_source', { length: 40 }),
+    configurationFingerprint: varchar('configuration_fingerprint', { length: 64 }),
+    attemptedAt: timestamp('attempted_at', { withTimezone: true }),
+    fileReachable: boolean('file_reachable').notNull().default(false),
+    sendAttempts: integer('send_attempts').notNull().default(0),
     id: uuid('id').primaryKey().defaultRandom(),
     organizationId: uuid('organization_id')
       .notNull()
@@ -2569,6 +2869,8 @@ export const notificationDeliveries = pgTable(
     ...timestamps,
   },
   (table) => [
+    uniqueIndex('notification_delivery_business_key_unique').on(table.businessKey),
+    index('notification_delivery_invoice_idx').on(table.invoiceRequestId, table.createdAt),
     index('notification_deliveries_org_status_idx').on(table.organizationId, table.status),
     index('notification_deliveries_event_time_idx').on(table.eventId, table.createdAt),
     index('notification_deliveries_channel_subject_time_idx').on(

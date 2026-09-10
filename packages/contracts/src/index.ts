@@ -1,3 +1,5 @@
+import { InvoiceSmsPolicySchema, InvoiceSmsNotificationSchema } from './invoice-sms.js';
+export * from './invoice-sms.js';
 import { z } from 'zod';
 import { EventRefundPolicySchema } from './refunds.js';
 export * from './refunds.js';
@@ -1228,7 +1230,7 @@ export const SessionSchema = z.object({
   kind: z.enum(['talk', 'break', 'workshop']),
 });
 
-export { DEFAULT_REGISTRATION_TERMS } from './registration-terms.js';
+export { DEFAULT_REGISTRATION_TERMS, DEFAULT_REGISTRATION_TERMS_VERSION } from './registration-terms.js';
 
 export const RegistrationFieldSchema = z.object({
   key: z
@@ -1490,7 +1492,10 @@ export const RegistrationSchema = z.object({
 export const OrderSchema = z.object({
   id: z.string(),
   orderNo: z.string(),
-  registrationId: z.string(),
+  registrationId: z.string().nullable(),
+  modelVersion: z.number().int().min(1).max(2).optional(),
+  quantity: z.number().int().min(1).max(20).optional(),
+  version: z.number().int().positive().optional(),
   status: OrderStatusSchema,
   amount: z.number().int().nonnegative(),
   currency: z.string().length(3),
@@ -1532,6 +1537,151 @@ export const RegistrationCheckoutSchema = z.object({
   order: OrderSchema,
   orderAccessToken: z.string().min(32).max(500).optional(),
   ticket: TicketSchema.optional(),
+});
+
+export const BatchAttendeeInputSchema = z.object({
+  clientId: z.uuid(),
+  isSelf: z.boolean(),
+  attendee: CreateRegistrationSchema.shape.attendee,
+  formAnswers: RegistrationAnswersSchema.optional(),
+  marketingConsent: z.boolean().default(false),
+});
+
+export const RegistrationBatchQuoteInputSchema = z.object({
+  eventId: EventIdSchema,
+  ticketTypeId: z.string().min(1),
+  quantity: z.number().int().min(1).max(20),
+});
+
+export const CreateRegistrationBatchSchema = RegistrationBatchQuoteInputSchema.extend({
+  attendees: z.array(BatchAttendeeInputSchema).min(1).max(20),
+  purchaseIntentId: z.uuid(),
+  formVersion: z.number().int().positive(),
+  termsVersion: z.string().min(1).max(32),
+  termsAccepted: z.literal(true),
+  proxyAuthorizationAccepted: z.boolean(),
+  quoteFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  waitlistOfferToken: z.string().min(32).max(200).optional(),
+}).superRefine((input, context) => {
+  if (input.quantity !== input.attendees.length) {
+    context.addIssue({ code: 'custom', path: ['attendees'], message: '购买数量与参会人数量必须一致' });
+  }
+  const ids = new Set<string>();
+  let selfCount = 0;
+  for (const [index, attendee] of input.attendees.entries()) {
+    if (ids.has(attendee.clientId)) {
+      context.addIssue({ code: 'custom', path: ['attendees', index, 'clientId'], message: '参会人卡片标识不能重复' });
+    }
+    ids.add(attendee.clientId);
+    if (attendee.isSelf) selfCount += 1;
+  }
+  if (selfCount > 1) {
+    context.addIssue({ code: 'custom', path: ['attendees'], message: '本人只能占用一个参会名额' });
+  }
+  if (input.attendees.some((attendee) => !attendee.isSelf) && !input.proxyAuthorizationAccepted) {
+    context.addIssue({ code: 'custom', path: ['proxyAuthorizationAccepted'], message: '请确认已获得其他参会人的代报名授权' });
+  }
+  if (input.waitlistOfferToken && (input.quantity !== 1 || !input.attendees[0]?.isSelf)) {
+    context.addIssue({ code: 'custom', path: ['waitlistOfferToken'], message: '候补购买资格仅限本人一个名额' });
+  }
+});
+
+export const RegistrationBatchQuoteSchema = z.object({
+  eventId: EventIdSchema,
+  ticketTypeId: z.string(),
+  ticketTypeName: z.string(),
+  quantity: z.number().int().min(1).max(20),
+  unitPrice: z.number().int().nonnegative(),
+  amount: z.number().int().nonnegative(),
+  currency: z.string().length(3),
+  availableQuantity: z.number().int().nonnegative(),
+  activeSeatCount: z.number().int().nonnegative(),
+  remainingSeatCount: z.number().int().nonnegative(),
+  maxActiveSeatsPerPurchaser: z.number().int().min(1).max(20),
+  additionalPurchaseEnabled: z.boolean(),
+  manualReview: z.boolean(),
+  formVersion: z.number().int().positive(),
+  termsVersion: z.string(),
+  quoteFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  blockedReason: z.string().nullable(),
+  pendingOrderId: z.string().nullable(),
+});
+
+export const PurchasedOrderItemSchema = z.object({
+  id: z.string().uuid(),
+  registrationId: z.string().uuid(),
+  clientId: z.string().uuid().nullable(),
+  position: z.number().int().positive(),
+  state: z.enum(['pending', 'active', 'cancelled']),
+  version: z.number().int().positive(),
+  allocatedAmount: z.number().int().nonnegative(),
+  unitPrice: z.number().int().nonnegative(),
+  refundedAmount: z.number().int().nonnegative(),
+  isSelf: z.boolean(),
+  attendeeClaimed: z.boolean(),
+  registration: RegistrationSchema.extend({ formVersion: z.number().int().positive().optional(), termsVersion: z.string().optional() }),
+  registrationEditVersion: z.string(),
+  registrationEditFields: z.array(RegistrationFieldSchema).optional(),
+  registrationFields: z.array(RegistrationFieldSchema).optional(),
+  ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
+  canEditAttendee: z.boolean(),
+  canGenerateInvitation: z.boolean(),
+  canCancelFree: z.boolean(),
+  unavailableReason: z.string().nullable(),
+});
+
+export const RegistrationBatchCheckoutSchema = z.object({
+  order: OrderSchema,
+  items: z.array(PurchasedOrderItemSchema).min(1).max(20),
+  myRegistrationId: z.string().nullable(),
+  nextAction: z.enum(['review', 'payment', 'confirming', 'complete', 'closed']),
+  orderAccessToken: z.string().min(32).max(500).optional(),
+  registration: RegistrationSchema.optional(),
+  isProxyPurchase: z.boolean(),
+  ticket: TicketSchema.optional(),
+});
+
+export const CustomerOrderDetailSchema = RegistrationBatchCheckoutSchema.omit({ orderAccessToken: true }).extend({
+  eventId: EventIdSchema,
+  eventName: z.string(),
+  eventSlug: z.string(),
+  canCancel: z.boolean(),
+  refundedAmount: z.number().int().nonnegative(),
+  invoiceId: z.string().nullable(),
+});
+
+export const CancelCustomerOrderSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+}).strict();
+
+export const SelectedOrderItemsSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  items: z.array(z.object({ id: z.uuid(), version: z.number().int().positive() }).strict()).min(1).max(20),
+}).strict().superRefine((input, context) => {
+  if (new Set(input.items.map((item) => item.id)).size !== input.items.length) {
+    context.addIssue({ code: 'custom', path: ['items'], message: '请勿重复选择同一名额' });
+  }
+});
+
+export const GenerateClaimInvitationSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  notify: z.boolean().default(false),
+}).strict();
+
+export const ClaimInvitationResultSchema = z.object({
+  itemId: z.string(),
+  version: z.number().int().positive(),
+  claimUrl: z.string().nullable(),
+  expiresAt: z.string(),
+  replayAvailable: z.boolean(),
+});
+
+export const ReviewBatchOrderSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  decision: z.enum(['approve', 'reject']),
+  reason: z.string().trim().max(500).default(''),
+}).strict().refine((input) => input.decision !== 'reject' || input.reason.length >= 2, {
+  path: ['reason'], message: '拒绝报名时需要填写原因',
 });
 
 export const ReviewRegistrationSchema = z
@@ -2469,6 +2619,8 @@ export const EventPurchaseContextSchema = z.object({
     paidCount: z.number().int().nonnegative(),
     pendingCount: z.number().int().nonnegative(),
     activeSeatCount: z.number().int().nonnegative(),
+    confirmedSeatCount: z.number().int().nonnegative().optional(),
+    reservedSeatCount: z.number().int().nonnegative().optional(),
   }),
   resumePaymentOrderId: z.string().uuid().nullable(),
   recommendedActions: z.array(
@@ -2548,9 +2700,15 @@ export const CustomerRegistrationDetailSchema = z.preprocess(
   z.discriminatedUnion('canManageOrder', [
     CustomerManagedRegistrationSummarySchema.extend({
       attendee: CustomerRegistrationAttendeeSchema,
+      canEditRegistrationInfo: z.boolean().default(false),
+      registrationEditVersion: z.string().nullable().default(null),
+      registrationEditFields: z.array(RegistrationFieldSchema).default([]),
+      orderItemId: z.string().nullable().optional(),
+      orderItemVersion: z.number().int().positive().optional(),
     }),
     CustomerAttendeeRegistrationSummarySchema.extend({
       attendee: CustomerRegistrationAttendeeSchema,
+      canEditRegistrationInfo: z.literal(false).default(false),
     }),
   ]),
 );
@@ -2688,7 +2846,10 @@ export const CustomerRegistrationListSchema = z.object({
 export const CustomerPurchasedOrderSchema = z.object({
   id: z.string(),
   orderNo: z.string(),
-  registrationId: z.string(),
+  registrationId: z.string().nullable(),
+  modelVersion: z.number().int().min(1).max(2).optional(),
+  quantity: z.number().int().min(1).max(20).optional(),
+  activeSeatCount: z.number().int().nonnegative().optional(),
   eventId: EventIdSchema,
   eventName: z.string(),
   eventSlug: z.string(),
@@ -2701,6 +2862,9 @@ export const CustomerPurchasedOrderSchema = z.object({
   status: OrderStatusSchema,
   paymentStatus: RegistrationLatestPaymentStatusSchema.nullable(),
   amount: z.number().int().nonnegative(),
+  paidAmount: z.number().int().nonnegative().optional(),
+  refundedAmount: z.number().int().nonnegative().optional(),
+  netAmount: z.number().int().nonnegative().optional(),
   currency: z.string(),
   ticketCode: z.string().nullable(),
   ticketStatus: z.enum(['valid', 'used', 'cancelled']).nullable(),
@@ -2722,6 +2886,7 @@ export const AttendeeClaimInputSchema = z.object({
 
 export const UpdatePurchasedOrderAttendeeSchema = z
   .object({
+    expectedRegistrationVersion: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
     name: z.string().trim().max(120).optional(),
     mobile: MainlandMobileSchema.optional(),
     email: z.union([z.email(), z.literal('')]).optional(),
@@ -2729,7 +2894,10 @@ export const UpdatePurchasedOrderAttendeeSchema = z
     title: z.string().trim().max(100).optional(),
     city: z.string().trim().max(80).optional(),
   })
-  .refine((value) => Object.keys(value).length > 0, '至少修改一个参会人字段');
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'expectedRegistrationVersion'),
+    '至少修改一个参会人字段',
+  );
 
 export const AttendeeClaimResultSchema = z.object({
   claimed: z.literal(true),
@@ -3344,7 +3512,7 @@ export const UpdateWeChatPayConfigurationSchema = z
 
 export const WeChatPayConnectionTestSchema = z.object({
   ok: z.boolean(),
-  status: z.enum(['verified', 'error']),
+  status: z.enum(['verified', 'error', 'pending']),
   message: z.string(),
   verifiedAt: z.string(),
 });
@@ -3476,6 +3644,9 @@ export const AliyunSmsConfigurationSchema = z.object({
     accessKeySecret: z.boolean(),
   }),
   templates: AliyunSmsTemplatesSchema,
+  invoiceFileOrigin: z.string().default(''),
+  invoiceSms: InvoiceSmsPolicySchema.default(() => InvoiceSmsPolicySchema.parse({})),
+  updatedAt: z.string().nullable().default(null),
 });
 
 const UpdateAliyunSmsTemplateConfigurationSchema = z.object({
@@ -3492,6 +3663,8 @@ const UpdateAliyunSmsTemplateConfigurationSchema = z.object({
 
 export const UpdateAliyunSmsConfigurationSchema = z
   .object({
+    expectedUpdatedAt: z.string().nullable(),
+    invoiceDeliveryMode: z.literal('direct_file_v1').optional(),
     enabled: z.boolean(),
     signName: z.string().trim().min(2).max(100),
     accessKeyId: z.string().trim().min(12).max(128).optional(),
@@ -3522,13 +3695,7 @@ export const UpdateAliyunSmsConfigurationSchema = z
         });
       }
     }
-    if (input.enabled && !Object.values(input.templates).some((template) => template?.enabled)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['templates'],
-        message: '启用短信服务时至少需要启用一个通知场景',
-      });
-    }
+
   });
 
 export const TestAliyunSmsConfigurationSchema = z
@@ -3542,8 +3709,9 @@ export const TestAliyunSmsConfigurationSchema = z
   .strict();
 
 export const AliyunSmsConnectionTestSchema = z.object({
+  deliveryId: z.string().optional(),
   ok: z.boolean(),
-  status: z.enum(['verified', 'error']),
+  status: z.enum(['verified', 'error', 'pending']),
   message: z.string(),
   verifiedAt: z.string(),
   bizId: z.string(),
@@ -4064,7 +4232,7 @@ export const InvoiceRequestSchema = z.object({
   eventName: z.string(),
   orderId: z.string(),
   orderNo: z.string(),
-  registrationId: z.string(),
+  registrationId: z.string().nullable(),
   attendeeName: z.string(),
   buyerType: z.enum(['individual', 'company']).nullable(),
   title: z.string().nullable(),
@@ -4081,6 +4249,7 @@ export const InvoiceRequestSchema = z.object({
   status: InvoiceRequestStatusSchema,
   rejectionReason: z.string().nullable(),
   deliveryStatus: z.enum(['not_sent', 'queued', 'sent', 'failed']),
+  smsNotification: InvoiceSmsNotificationSchema.optional(),
   lastSentAt: z.string().nullable(),
   requestedAt: z.string(),
   reviewedAt: z.string().nullable(),
@@ -4209,6 +4378,7 @@ export const RegistrationNoteSchema = z.object({
 
 export const UpdateAdminRegistrationAttendeeSchema = z
   .object({
+    expectedUpdatedAt: z.iso.datetime().optional(),
     attendee: z
       .object({
         name: z.string().trim().max(80),
@@ -4232,10 +4402,32 @@ export const AdminRegistrationCapabilitySchema = z.object({
   reasonCode: z.string().optional(),
 });
 
+export const AdminRegistrationBatchReviewSchema = z.object({
+  orderId: z.string().uuid(),
+  version: z.number().int().positive(),
+  status: OrderStatusSchema,
+  quantity: z.number().int().min(1).max(20),
+  items: z.array(z.object({
+    registrationId: z.string().uuid(),
+    position: z.number().int().positive(),
+    registrationCode: z.string(),
+    attendee: CustomerRegistrationAttendeeSchema,
+    fields: z.array(RegistrationFieldSchema),
+    formAnswers: RegistrationAnswersSchema,
+  }).strict()).min(1).max(20),
+}).strict();
+
+export const ReviewBatchOrderResultSchema = z.object({
+  orderId: z.string().uuid(),
+  status: OrderStatusSchema,
+  version: z.number().int().positive(),
+}).strict();
+
 export const AdminRegistrationOperationsDetailSchema = z.object({
   snapshotAt: z.string(),
   traceId: z.string(),
   registration: AdminRegistrationOperationsRegistrationSchema,
+  batchReview: AdminRegistrationBatchReviewSchema.nullable().optional(),
   customer: AdminRegistrationOperationsCustomerSchema,
   fulfillment: z.object({
     ticket: AdminRegistrationOperationsTicketSchema.nullable(),
@@ -4281,6 +4473,8 @@ export function isCustomerInvoiceEditableStatus(
 }
 
 export const CustomerInvoiceSendResultSchema = z.object({
+  deliveryId: z.string().optional(),
+  maskedRecipient: z.string().optional(),
   queued: z.literal(true),
   alreadyQueued: z.boolean(),
   retryAfterSeconds: z.number().int().nonnegative(),
@@ -4461,6 +4655,20 @@ export type RecordPublicEventView = z.infer<typeof RecordPublicEventViewSchema>;
 export type PublicEventViewResult = z.infer<typeof PublicEventViewResultSchema>;
 export type PublicEvent = z.infer<typeof PublicEventSchema>;
 export type CreateRegistration = z.infer<typeof CreateRegistrationSchema>;
+export type CreateRegistrationBatch = z.infer<typeof CreateRegistrationBatchSchema>;
+export type BatchAttendeeInput = z.infer<typeof BatchAttendeeInputSchema>;
+export type RegistrationBatchQuoteInput = z.infer<typeof RegistrationBatchQuoteInputSchema>;
+export type RegistrationBatchQuote = z.infer<typeof RegistrationBatchQuoteSchema>;
+export type RegistrationBatchCheckout = z.infer<typeof RegistrationBatchCheckoutSchema>;
+export type PurchasedOrderItem = z.infer<typeof PurchasedOrderItemSchema>;
+export type CustomerOrderDetail = z.infer<typeof CustomerOrderDetailSchema>;
+export type CancelCustomerOrder = z.infer<typeof CancelCustomerOrderSchema>;
+export type SelectedOrderItems = z.infer<typeof SelectedOrderItemsSchema>;
+export type GenerateClaimInvitation = z.infer<typeof GenerateClaimInvitationSchema>;
+export type ClaimInvitationResult = z.infer<typeof ClaimInvitationResultSchema>;
+export type ReviewBatchOrder = z.infer<typeof ReviewBatchOrderSchema>;
+export type AdminRegistrationBatchReview = z.infer<typeof AdminRegistrationBatchReviewSchema>;
+export type ReviewBatchOrderResult = z.infer<typeof ReviewBatchOrderResultSchema>;
 export type Registration = z.infer<typeof RegistrationSchema>;
 export type Order = z.infer<typeof OrderSchema>;
 export type CustomerOrderAccess = z.infer<typeof CustomerOrderAccessSchema>;

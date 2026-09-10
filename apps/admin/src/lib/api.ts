@@ -1,3 +1,5 @@
+import type { RegistrationBatchCheckout, ReviewBatchOrder, ReviewBatchOrderResult, AdminItemRefund } from '@conference/contracts';
+import type { InvoiceSmsTestStatus } from '@conference/contracts';
 import { computed, ref } from 'vue';
 import type {
   FeishuBotConfiguration,
@@ -1039,6 +1041,18 @@ export const conferenceApi = {
   getWaitlist(eventId?: EventId) {
     return request<WaitlistEntry[]>(`/admin/events/${eventScope(eventId)}/waitlist`);
   },
+  getBatchOrder(orderId: string, eventId?: EventId) {
+    return request<RegistrationBatchCheckout>(`/admin/events/${eventScope(eventId)}/orders/${orderId}/items`);
+  },
+  reviewBatchOrder(orderId: string, input: ReviewBatchOrder, eventId?: EventId, key: string = crypto.randomUUID()) {
+    return request<ReviewBatchOrderResult>(`/admin/events/${eventScope(eventId)}/orders/${orderId}/review`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) });
+  },
+  getItemRefundContext(orderId: string, eventId?: EventId) {
+    return request<{ orderId: string; quantity: number; contextVersion: string; currency: string; remaining: number; items: Array<{ id: string; registrationId: string; name: string; ticketName: string; refundableAmount: number; version: number; canRetain: boolean; canRevoke: boolean; blockedReason: string | null }> }>(`/admin/events/${eventScope(eventId)}/orders/${orderId}/item-refund-context`);
+  },
+  refundOrderItems(orderId: string, input: AdminItemRefund, key: string, eventId?: EventId) {
+    return request(`/admin/events/${eventScope(eventId)}/orders/${orderId}/item-refunds`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(input) });
+  },
   reviewRegistration(registrationId: string, input: ReviewRegistration, eventId?: EventId) {
     return request<RegistrationCheckout>(
       `/admin/events/${eventScope(eventId)}/registrations/${registrationId}/review`,
@@ -1055,6 +1069,16 @@ export const conferenceApi = {
     if (filters.status) query.set('status', filters.status);
     if (filters.page) query.set('page', String(filters.page));
     return request<AdminOrderList>(`/admin/orders?${query}`);
+  },
+  closeUnpaidOrder(
+    orderId: string,
+    input: { reason: string; expectedExpiresAt: string },
+    eventId: EventId,
+  ) {
+    return request<{ orderId: string; status: 'closed' }>(
+      `/admin/events/${eventScope(eventId)}/orders/${encodeURIComponent(orderId)}/close`,
+      { method: 'POST', body: JSON.stringify(input) },
+    );
   },
   checkIn(payload: Omit<CheckInRequest, 'eventId' | 'checkInListId'>, eventId?: EventId) {
     return request<CheckInResult>('/checkins', {
@@ -1927,14 +1951,22 @@ export const conferenceApi = {
       },
     );
   },
-  sendInvoice(invoiceId: string, eventId?: EventId) {
-    return request<{ queued: boolean }>(
+  sendInvoice(invoiceId: string, eventId?: EventId, input:{forceAfterUncertain?:boolean;reason?:string}={}) {
+    return request<{ queued: boolean;alreadyQueued:boolean;maskedRecipient:string }>(
       `/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/send`,
       {
         method: 'POST',
         headers: { 'Idempotency-Key': `invoice-send-${crypto.randomUUID()}` },
+        body:JSON.stringify(input),
       },
     );
+  },
+  revokeInvoiceAccess(invoiceId:string,input:{expectedUpdatedAt:string;reason:string;resend:boolean},eventId?:EventId) {
+    return request(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}/revoke-access`,{method:'POST',
+      headers:{'Idempotency-Key':`invoice-revoke-${crypto.randomUUID()}`},body:JSON.stringify(input)});
+  },
+  getInvoiceSmsTestStatus(deliveryId:string) {
+    return request<InvoiceSmsTestStatus>(`/admin/integrations/aliyun-sms/invoice-ready/tests/${deliveryId}`);
   },
   requestInvoiceDetailsReminder(invoiceId: string, eventId?: EventId) {
     return request<{ queued: boolean; alreadyQueued: boolean }>(

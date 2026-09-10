@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildRegistrationExportCsv } from './registration-export-csv.js';
 
 describe('registration CSV export', () => {
-  it('exports purchaser, attendee, ownership, intent, and order total as separate columns', () => {
+  it('exports purchaser, attendee, ownership, intent, and seat amount as separate columns', () => {
     const csv = buildRegistrationExportCsv(
       {
         eventName: '指标大会',
@@ -47,7 +47,7 @@ describe('registration CSV export', () => {
     );
 
     expect(csv).toContain(
-      '"购票人姓名","购票人手机号","购票人邮箱","参会人姓名","参会人手机号","参会人邮箱","订单归属","购买意图 ID","订单总额（分）"',
+      '"购票人姓名","购票人手机号","购票人邮箱","参会人姓名","参会人手机号","参会人邮箱","订单归属","购买意图 ID","名额金额（分）"',
     );
     expect(csv).toContain(
       '"购票人","13800138000","buyer@example.com","参会人","13900139000","attendee@example.com","proxy","22222222-2222-4222-8222-222222222222","39900"',

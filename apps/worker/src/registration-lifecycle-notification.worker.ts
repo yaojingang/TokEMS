@@ -22,7 +22,7 @@ interface RefundScope {
   organizationId: string;
   eventId: number;
   eventName: string;
-  registrationId: string;
+  registrationId: string | null;
   orderNo: string;
   amount: number;
   payerRefund?: number | null;
@@ -36,7 +36,7 @@ interface LifecycleDeliveryInput {
   id: string;
   organizationId: string;
   eventId: number;
-  registrationId: string;
+  registrationId: string | null;
   channel: 'email' | 'sms';
   recipient: string;
   subject: string;

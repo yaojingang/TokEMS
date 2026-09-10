@@ -81,7 +81,10 @@ jobs:
       NODE_ENV: test
       DEPLOYMENT_MODE: local
       DATABASE_URL: postgresql://conference:conference@localhost:5432/conference
+      BATCH_TEST_DATABASE_URL: postgresql://conference:conference@localhost:5432/conference
+      INVOICE_SMS_TEST_DATABASE_URL: postgresql://conference:conference@localhost:5432/conference
       REDIS_URL: redis://localhost:6379
+      INVOICE_SMS_TEST_REDIS_URL: redis://localhost:6379
       JWT_SECRET: conference-ci-verification-secret-at-least-32
       CUSTOMER_OTP_PEPPER: conference-ci-otp-pepper-at-least-32-characters
       CUSTOMER_SESSION_SECRET: conference-ci-session-secret-at-least-32-characters
@@ -188,7 +191,12 @@ jobs:
           pnpm test:security-config
           pnpm test:checkin-load
           pnpm test:tooling
+          pnpm test:batch-registration
           pnpm test:registration-experience
+          pnpm test:payment-resume
+          pnpm test:admin-order-close
+          node --test tooling/invoice-sms-ui-smoke.mjs
+          INVOICE_SMS_GATEWAY_TEST=1 node --test tooling/invoice-sms-gateway-smoke.mjs
           pnpm test:visual
       - name: Dependency audit
         id: dependency_audit

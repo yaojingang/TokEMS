@@ -260,6 +260,7 @@ services:
         VITE_API_BASE: /api/v1
     environment:
       <<: *app-environment
+      BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}
       API_PORT: 4100
       API_BIND_ADDRESS: 0.0.0.0
       API_INTERNAL_CONTAINER: 'true'

@@ -1,3 +1,4 @@
+import { syncLegacyOrderItemState } from '@conference/database';
 import {
   createPrivateKey,
   createPublicKey,
@@ -38,7 +39,12 @@ import {
   notificationDeliveries,
   outboxEvents,
   orderAccessTokens,
+  orderStateLogs,
+  orderItems,
   orders,
+  inventoryReservations,
+  registrations,
+  tickets,
   organizationIntegrations,
   paymentNotificationInbox,
   payments,
@@ -47,9 +53,10 @@ import {
   refundNotificationInbox,
 } from '@conference/database';
 import { resolvePaymentPublicUrl } from '@conference/security';
-import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { ConferenceRepository } from './conference.repository.js';
 import { DatabaseService } from './database.service.js';
+import { OrderItemsService } from './order-items.service.js';
 import { DomainError } from './domain-error.js';
 import {
   decryptIntegrationCredentials,
@@ -144,6 +151,14 @@ type AuthorizedOrder = {
 };
 
 type PaymentAttempt = typeof payments.$inferSelect;
+
+function orderClosureEvidence(order: AuthorizedOrder['order']) {
+  return {
+    updatedAt: order.updatedAt.toISOString(),
+    expiresAt: order.expiresAt.toISOString(),
+    purchaseIntentId: order.purchaseIntentId,
+  };
+}
 
 class PaymentGatewayError extends DomainError {
   constructor(
@@ -726,8 +741,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
         credentials.apiV3Key === previousCredentials?.apiV3Key &&
         credentials.platformPublicKey === previousCredentials?.platformPublicKey &&
         credentials.appSecret === previousCredentials?.appSecret;
-      const preserveVerification =
-        existing?.status === 'verified' && verificationSnapshotUnchanged;
+      const preserveVerification = existing?.status === 'verified' && verificationSnapshotUnchanged;
       const nextStatus = preserveVerification ? 'verified' : 'configured';
       const lastVerifiedAt = preserveVerification ? existing.lastVerifiedAt : null;
       const encryptedPayload: Record<string, string> = {
@@ -1560,6 +1574,11 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
             API_ERROR_CODES.INVALID_STATE_TRANSITION,
             '当前订单已有其他支付通道进行中，请先切换通道',
             HttpStatus.CONFLICT,
+            {
+              reason: 'payment_channel_conflict',
+              activeChannel: existing.channel,
+              requestedChannel: channel,
+            },
           );
         }
         const payload =
@@ -2279,14 +2298,241 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     return this.closeActiveAttemptLocked(authorized);
   }
 
+  /** Closes an unpaid business order after provider reconciliation and a locked state recheck. */
+  async closeUnpaidOrder(
+    orderId: string,
+    eventId: number,
+    organizationId: string,
+    actorId: string,
+    reason: string,
+    expectedExpiresAt: string,
+    actorContext: { actorType: 'staff' | 'customer'; expectedVersion?: number } = { actorType: 'staff' },
+  ): Promise<{ orderId: string; status: 'closed' }> {
+    const scope = and(
+      eq(orders.id, orderId),
+      eq(orders.eventId, eventId),
+      eq(orders.organizationId, organizationId),
+    );
+    const [observed] = await this.db().select().from(orders).where(scope).limit(1);
+    if (!observed)
+      throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
+    const conflict = (message: string): never => {
+      throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION, message, HttpStatus.CONFLICT);
+    };
+    if (observed.status === 'closed') return { orderId, status: 'closed' };
+    if (actorContext.expectedVersion !== undefined && observed.version !== actorContext.expectedVersion)
+      conflict('订单内容已经更新，请刷新后再操作');
+    if (observed.expiresAt.toISOString() !== expectedExpiresAt)
+      conflict('订单支付窗口已更新，请刷新后再操作');
+    if (!['pending_payment', 'processing'].includes(observed.status)) {
+      conflict('仅可关闭未完成支付的订单；已付款订单请通过退款流程处理');
+    }
+    const result = await this.closeActiveAttemptLocked(
+      {
+        order: observed,
+        eventName: '',
+        accessTokenHash: '',
+      },
+      undefined,
+      observed,
+    );
+    if (result.paid) {
+      const confirmed = await this.confirmQueriedPayment(observed, result.paid);
+      conflict(
+        confirmed
+          ? '订单已付款，已同步支付结果，请刷新查看电子票'
+          : '微信已付款，系统正在确认出票，请稍后刷新',
+      );
+    }
+    if (!result.closed) {
+      conflict('支付结果尚未核实，订单保持原状态，请稍后重试');
+    }
+    return this.db().transaction(async (tx) => {
+      // Prepare and re-registration use this same lock before touching the order.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${orderId}`}, 0))`,
+      );
+      const [current] = await tx.select().from(orders).where(scope).for('update').limit(1);
+      if (!current)
+        throw new DomainError(API_ERROR_CODES.NOT_FOUND, '订单不存在', HttpStatus.NOT_FOUND);
+      if (current.status === 'closed') return { orderId, status: 'closed' as const };
+      if (actorContext.expectedVersion !== undefined && current.version !== actorContext.expectedVersion)
+        conflict('订单内容已经更新，请刷新后再操作');
+      if (!['pending_payment', 'processing'].includes(current.status))
+        conflict('订单状态已变化，请刷新后查看支付结果');
+      if (
+        current.updatedAt.getTime() !== observed.updatedAt.getTime() ||
+        current.expiresAt.getTime() !== observed.expiresAt.getTime() ||
+        current.purchaseIntentId !== observed.purchaseIntentId
+      ) {
+        conflict('用户已更新或重新提交订单，请刷新后再操作');
+      }
+      if (current.status === 'processing' && !result.attemptId) {
+        const [closedAttempt] = await tx
+          .select({ id: payments.id })
+          .from(payments)
+          .where(
+            and(
+              eq(payments.orderId, orderId),
+              eq(payments.provider, PROVIDER),
+              eq(payments.status, 'closed'),
+              inArray(payments.wechatTradeState, ['CLOSED', 'REVOKED', 'ORDER_NOT_EXIST']),
+              or(
+                and(
+                  eq(payments.prepayExpiresAt, current.expiresAt),
+                  isNotNull(payments.merchantId),
+                ),
+                sql`${payments.payload}->'adminOrderClosure' = ${JSON.stringify(orderClosureEvidence(current))}::jsonb`,
+              ),
+            ),
+          )
+          .limit(1);
+        if (!closedAttempt) conflict('支付结果尚未核实，订单保持原状态，请稍后重试');
+        result.attemptId = closedAttempt!.id;
+      }
+      const [unsettled] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(
+          and(
+            eq(payments.orderId, orderId),
+            or(
+              notInArray(payments.status, ['closed', 'failed']),
+              isNotNull(payments.succeededAt),
+              eq(payments.wechatTradeState, 'SUCCESS'),
+            ),
+          ),
+        )
+        .limit(1);
+      const [successNotice] = await tx
+        .select({ id: paymentNotificationInbox.id })
+        .from(paymentNotificationInbox)
+        .leftJoin(payments, eq(payments.outTradeNo, paymentNotificationInbox.outTradeNo))
+        .where(
+          and(
+            eq(paymentNotificationInbox.eventType, 'TRANSACTION.SUCCESS'),
+            or(eq(paymentNotificationInbox.orderId, orderId), eq(payments.orderId, orderId)),
+          ),
+        )
+        .limit(1);
+      const [issued] = await tx
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(current.modelVersion === 2
+          ? inArray(tickets.registrationId, tx.select({ id: orderItems.registrationId }).from(orderItems).where(eq(orderItems.orderId, orderId)))
+          : current.registrationId ? eq(tickets.registrationId, current.registrationId) : sql`false`)
+        .limit(1);
+      const [converted] = await tx
+        .select({ id: inventoryReservations.id })
+        .from(inventoryReservations)
+        .where(
+          and(
+            eq(inventoryReservations.orderId, orderId),
+            isNotNull(inventoryReservations.convertedAt),
+          ),
+        )
+        .limit(1);
+      if (unsettled || successNotice || issued || converted) {
+        conflict('订单仍有支付或出票记录需要确认，请刷新支付结果后再操作');
+      }
+      const now = new Date();
+      if (current.modelVersion === 2) {
+        await new OrderItemsService(this.database).cancelUnpaidItems(tx, current, now);
+      } else {
+      if (!current.registrationId) conflict('订单报名关系需要核验');
+      const [registration] = await tx
+        .update(registrations)
+        .set({ status: 'cancelled', updatedAt: now })
+        .where(
+          and(
+            eq(registrations.id, current.registrationId!),
+            eq(registrations.organizationId, organizationId),
+            eq(registrations.eventId, eventId),
+            eq(registrations.status, 'pending_payment'),
+            isNull(registrations.supersededAt),
+          ),
+        )
+        .returning({ id: registrations.id });
+      if (!registration) conflict('报名状态已变化，请刷新后再操作');
+      await syncLegacyOrderItemState(tx, current, 'cancelled', now);
+      }
+      await tx.update(orders).set({ status: 'closed', updatedAt: now }).where(scope);
+      const released = await tx
+        .update(inventoryReservations)
+        .set({ releasedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(inventoryReservations.orderId, orderId),
+            isNull(inventoryReservations.releasedAt),
+            isNull(inventoryReservations.convertedAt),
+          ),
+        )
+        .returning({ id: inventoryReservations.id });
+      await tx
+        .insert(orderStateLogs)
+        .values({ orderId, fromStatus: current.status, toStatus: 'closed', reason, ...(actorContext.actorType === 'staff' ? { actorId } : { metadata: { customerUserId: actorId } }) });
+      await tx.insert(auditLogs).values({
+        organizationId,
+        eventId,
+        actorId,
+        actorType: actorContext.actorType,
+        action: 'order.unpaid.closed',
+        resourceType: 'order',
+        resourceId: orderId,
+        before: { status: current.status },
+        after: { status: 'closed', reason, paymentAttemptId: result.attemptId ?? null },
+        traceId: `admin-order-close:${orderId}:${now.getTime()}`,
+      });
+      for (const reservation of released) {
+        await tx.insert(outboxEvents).values({
+          organizationId,
+          eventId,
+          eventType: 'InventoryReservationExpired',
+          correlationId: `reservation:expired:${reservation.id}`,
+          payload: { reservationId: reservation.id, orderId },
+        });
+      }
+      return { orderId, status: 'closed' as const };
+    });
+  }
+
   /**
    * Marks the active attempt close_pending under an advisory lock.
    *
    * @param orderId - Order UUID.
+   * @param targetChannel - Preserve an attempt already using this switch target.
    * @returns Active attempt snapshot or undefined when none.
    */
-  private async beginCloseAttempt(orderId: string) {
+  private async beginCloseAttempt(
+    orderId: string,
+    targetChannel?: WeChatPaymentChannel,
+    expectedOrder?: AuthorizedOrder['order'],
+  ) {
     return this.db().transaction(async (tx) => {
+      if (expectedOrder) {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:prepare:${orderId}`}, 0))`,
+        );
+        const [current] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, orderId))
+          .for('update')
+          .limit(1);
+        if (
+          !current ||
+          current.status !== expectedOrder.status ||
+          current.updatedAt.getTime() !== expectedOrder.updatedAt.getTime() ||
+          current.expiresAt.getTime() !== expectedOrder.expiresAt.getTime() ||
+          current.purchaseIntentId !== expectedOrder.purchaseIntentId
+        ) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '订单已更新，请刷新后再操作',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`wechatpay:switch:${orderId}`}, 0))`,
       );
@@ -2309,6 +2555,9 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           Date.now() - attempt.updatedAt.getTime() < PREPARE_CLAIM_TTL_MS)
       ) {
         return { busy: true as const };
+      }
+      if (targetChannel && attempt.channel === targetChannel) {
+        return { sameChannel: true as const };
       }
       const claimedAt = new Date();
       const [updated] = await tx
@@ -2380,13 +2629,20 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
    * @param authorized - Authorized order context.
    * @returns Closed attempt metadata or paid result that must be confirmed.
    */
-  private async closeActiveAttemptLocked(authorized: AuthorizedOrder): Promise<{
+  private async closeActiveAttemptLocked(
+    authorized: AuthorizedOrder,
+    targetChannel?: WeChatPaymentChannel,
+    expectedOrder?: AuthorizedOrder['order'],
+  ): Promise<{
     closed: boolean;
     paid?: QueryPaymentSuccess;
     attemptId?: string;
   }> {
     const orderId = authorized.order.id;
-    const attempt = await this.beginCloseAttempt(orderId);
+    const attempt = await this.beginCloseAttempt(orderId, targetChannel, expectedOrder);
+    if (attempt && 'sameChannel' in attempt) {
+      return { closed: false };
+    }
     if (attempt && 'busy' in attempt) {
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -2397,6 +2653,12 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     if (!attempt?.outTradeNo) {
       return { closed: true };
     }
+    const closurePayload = expectedOrder
+      ? {
+          ...attempt.payload,
+          adminOrderClosure: orderClosureEvidence(expectedOrder),
+        }
+      : undefined;
 
     const toPaid = (transaction: WeChatTransaction): QueryPaymentSuccess => {
       const occurredAt = transaction.success_time ? new Date(transaction.success_time) : undefined;
@@ -2451,6 +2713,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
               status: 'closed',
               wechatTradeState: 'ORDER_NOT_EXIST',
               closedAt: new Date(),
+              ...(closurePayload ? { payload: closurePayload } : {}),
               updatedAt: new Date(),
             })
             .where(
@@ -2503,7 +2766,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       });
       throw new DomainError(
         API_ERROR_CODES.INVALID_STATE_TRANSITION,
-        '用户正在支付中，请稍后查询结果后再切换通道',
+        '用户正在支付中，请稍后查询结果后再操作',
         HttpStatus.CONFLICT,
       );
     }
@@ -2568,6 +2831,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
       status: 'closed',
       wechatTradeState: 'CLOSED',
       closedAt: now,
+      ...(closurePayload ? { payload: closurePayload } : {}),
     });
     return { closed: true, attemptId: attempt.id };
   }
@@ -2596,7 +2860,7 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
     });
     this.assertChannelEnabled(config, channel);
 
-    const closeResult = await this.closeActiveAttemptLocked(authorized);
+    const closeResult = await this.closeActiveAttemptLocked(authorized, channel);
     if (closeResult.paid) {
       return { paid: true, payment: closeResult.paid };
     }
@@ -3220,14 +3484,20 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
           sql`exists (
       select 1 from payments settled
       inner join orders paid_order on paid_order.id = settled.order_id
-      inner join tickets issued on issued.registration_id = paid_order.registration_id
       left join lateral (
         select coalesce(sum(r.amount), 0) as amount from refunds r
         where r.payment_id = settled.id and r.order_id = paid_order.id
           and r.organization_id = paid_order.organization_id and r.currency = settled.currency
           and r.status = 'succeeded'
       ) returned on true
-      where paid_order.id = ${paymentNotificationInbox.orderId}
+      where (
+        (paid_order.model_version = 1 and exists (select 1 from tickets issued where issued.registration_id = paid_order.registration_id))
+        or (paid_order.model_version = 2 and paid_order.settled_payment_id = settled.id
+          and (select count(*) from order_items oi where oi.order_id = paid_order.id) = paid_order.quantity
+          and not exists (select 1 from order_items oi where oi.order_id = paid_order.id
+            and not exists (select 1 from tickets issued where issued.registration_id = oi.registration_id)))
+      )
+        and paid_order.id = ${paymentNotificationInbox.orderId}
         and paid_order.organization_id = ${paymentNotificationInbox.organizationId}
         and (
           (paid_order.status = 'paid' and settled.status = 'succeeded')

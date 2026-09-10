@@ -60,7 +60,7 @@ const timeline = computed(() =>
 const canResend = computed(
   () =>
     existingInvoice.value?.status === 'issued' &&
-    Boolean(existingInvoice.value.email) &&
+    Boolean(existingInvoice.value.smsNotification?.canSend) &&
     invoiceDocuments.value.some((document) => !document.voidedAt && document.downloadUrl),
 );
 const canCancelEditing = computed(() => existingInvoice.value?.status === 'pending_review');
@@ -201,7 +201,7 @@ async function resendInvoice() {
     const result = await customer.sendInvoice(orderId.value);
     successMessage.value = result.alreadyQueued
       ? '电子发票已经在发送队列中，请稍后查收'
-      : `电子发票将重新发送至 ${existingInvoice.value.email ?? existingInvoice.value.maskedEmail}`;
+      : `发票短信将发送至 ${result.maskedRecipient ?? existingInvoice.value.smsNotification?.maskedRecipient}`;
     await refreshInvoice();
   } catch (error) {
     const value = error as { data?: { message?: string } };
@@ -499,6 +499,41 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
 
             <section v-if="existingInvoice" class="invoice-aside-actions">
               <strong>当前可用操作</strong>
+              <p v-if="existingInvoice.smsNotification?.maskedRecipient">
+                发票短信接收手机：{{ existingInvoice.smsNotification.maskedRecipient }}
+              </p>
+              <p v-if="existingInvoice.smsNotification?.nextMaskedRecipient">
+                当前接收手机号已更新，下次补发将发送至
+                {{ existingInvoice.smsNotification.nextMaskedRecipient }}。
+              </p>
+              <p v-if="existingInvoice.smsNotification?.reason">
+                {{ existingInvoice.smsNotification.reason }}
+              </p>
+              <p v-if="existingInvoice.smsNotification?.status === 'delivered'">
+                发票短信已送达。
+              </p>
+              <template v-if="existingInvoice.smsNotification?.status === 'delivered'">
+                <p
+                  v-if="
+                    existingInvoice.smsNotification.expiresAt &&
+                      new Date(existingInvoice.smsNotification.expiresAt).getTime() > Date.now()
+                  "
+                >
+                  短信领取链接仍在有效期内。
+                </p>
+                <p v-else>
+                  短信中的领取链接已失效，请在此下载发票。<span v-if="canResend">也可补发短信重新获取链接。</span>
+                </p>
+              </template>
+              <p
+                v-if="
+                  ['accepted', 'unknown', 'sending', 'queued', 'retrying'].includes(
+                    existingInvoice.smsNotification?.status ?? '',
+                  )
+                "
+              >
+                短信正在发送或等待回执，请稍后刷新查看。
+              </p>
               <button
                 v-if="editable && !showForm"
                 class="invoice-primary"
@@ -514,7 +549,7 @@ useHead({ title: computed(() => (existingInvoice.value ? '发票详情' : '申�
                 :disabled="sending"
                 @click="resendInvoice"
               >
-                {{ sending ? '正在加入发送队列' : '重新发送至邮箱' }}
+                {{ sending ? '正在加入发送队列' : '补发发票短信' }}
               </button>
               <p v-if="existingInvoice.status === 'issued'">
                 已开具发票如需更正，请联系大会主办方处理作废与重开。

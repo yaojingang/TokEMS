@@ -1,5 +1,10 @@
-import { orders, registrations } from '@conference/database';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { orderItems, orders, registrations } from '@conference/database';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
+
+/** Resolve a registration's order while old single-seat records retain their compatibility link. */
+export function registrationOrderJoin() {
+  return or(eq(orders.registrationId, registrations.id), sql`exists (select 1 from ${orderItems} related_item where related_item.order_id = ${orders.id} and related_item.registration_id = ${registrations.id})`)!;
+}
 
 export function customerCanManageOrder(
   purchaserCustomerUserId: string | null,

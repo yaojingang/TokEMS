@@ -41,6 +41,13 @@ server {
     return 308 https://www.ailingdaoli.com/pay/hui/;
   }
 
+  location ^~ /pay/hui/api/v1/invoice-files/ {
+    access_log off;
+    error_log /dev/null crit;
+    add_header Referrer-Policy "no-referrer" always;
+    return 404;
+  }
+
   location ^~ /pay/hui/ {
     proxy_pass http://tokems_gateway;
     proxy_http_version 1.1;

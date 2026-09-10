@@ -1,3 +1,5 @@
+import { attendeeOrderEligibleSql, attendeeOrderIsEligible } from './attendee-order-rights.js';
+import { registrationOrderJoin } from './customer-order-ownership.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
@@ -71,7 +73,6 @@ import {
   resolveAttendeeNeedPublicationIdentity,
 } from './attendee-needs-policy.js';
 import {
-  PUBLIC_ORDER_STATUSES,
   PUBLIC_REGISTRATION_STATUSES,
   PUBLIC_TICKET_STATUSES,
 } from './attendee-showcase-policy.js';
@@ -97,11 +98,11 @@ function submissionEligibilitySql() {
     eq(customerUsers.status, 'active'),
     isNull(registrations.supersededAt),
     inArray(registrations.status, [...PUBLIC_REGISTRATION_STATUSES]),
-    inArray(orders.status, [...PUBLIC_ORDER_STATUSES]),
+    attendeeOrderEligibleSql(),
     sql`(${orders.amount} = 0 or exists (
       select 1 from ${payments} attendee_needs_payment
       where attendee_needs_payment.order_id = ${orders.id}
-        and attendee_needs_payment.status = 'succeeded'
+        and attendee_needs_payment.succeeded_at is not null
     ))`,
     and(isNotNull(tickets.id), inArray(tickets.status, [...PUBLIC_TICKET_STATUSES])),
   )!;
@@ -149,7 +150,7 @@ export class AttendeeNeedsService {
       })
       .from(registrations)
       .innerJoin(events, eq(events.id, registrations.eventId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .innerJoin(customerUsers, eq(customerUsers.id, registrations.customerUserId))
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .leftJoin(customerProfiles, eq(customerProfiles.customerUserId, customerUsers.id))
@@ -164,7 +165,7 @@ export class AttendeeNeedsService {
           sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
         ),
       )
-      .leftJoin(payments, and(eq(payments.orderId, orders.id), eq(payments.status, 'succeeded')))
+      .leftJoin(payments, and(eq(payments.orderId, orders.id), inArray(payments.status, ['succeeded', 'refunded'])))
       .where(
         and(
           eq(registrations.id, registrationId),
@@ -199,6 +200,7 @@ export class AttendeeNeedsService {
       customerStatus: row.customer.status,
       registrationStatus: row.registration.status,
       orderStatus: row.order.status,
+      retainedAdmission: attendeeOrderIsEligible(row.order, row.ticket),
       paymentSatisfied: row.order.amount === 0 || Boolean(row.successfulPaymentAt),
       ticketStatus: row.ticket?.status ?? null,
       isPublic,
@@ -773,7 +775,7 @@ export class AttendeeNeedsService {
             eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
           )
           .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-          .innerJoin(orders, eq(orders.registrationId, registrations.id))
+          .innerJoin(orders, registrationOrderJoin())
           .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
           .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
           .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
@@ -791,7 +793,7 @@ export class AttendeeNeedsService {
             eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
           )
           .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-          .innerJoin(orders, eq(orders.registrationId, registrations.id))
+          .innerJoin(orders, registrationOrderJoin())
           .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
           .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
           .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
@@ -925,7 +927,7 @@ export class AttendeeNeedsService {
         eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
       )
       .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
       .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
@@ -945,6 +947,7 @@ export class AttendeeNeedsService {
       customerStatus: row.customer.status,
       registrationStatus: row.registration.status,
       orderStatus: row.order.status,
+      retainedAdmission: attendeeOrderIsEligible(row.order, row.ticket),
       paymentSatisfied: row.paymentSatisfied,
       ticketStatus: row.ticket?.status ?? null,
       isPublic: row.submission.isPublic,
@@ -967,6 +970,7 @@ export class AttendeeNeedsService {
       attendeeName: row.registration.attendee.name,
       registrationStatus: row.registration.status,
       orderStatus: row.order.status,
+      retainedAdmission: attendeeOrderIsEligible(row.order, row.ticket),
       ticketStatus: row.ticket?.status ?? null,
       customerUserId: row.submission.customerUserId,
       content: row.question.content,
@@ -1024,7 +1028,7 @@ export class AttendeeNeedsService {
               eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
             )
             .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-            .innerJoin(orders, eq(orders.registrationId, registrations.id))
+            .innerJoin(orders, registrationOrderJoin())
             .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
             .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
             .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))
@@ -1049,7 +1053,7 @@ export class AttendeeNeedsService {
               eq(attendeeNeedSubmissions.id, attendeeNeedQuestions.submissionId),
             )
             .innerJoin(registrations, eq(registrations.id, attendeeNeedSubmissions.registrationId))
-            .innerJoin(orders, eq(orders.registrationId, registrations.id))
+            .innerJoin(orders, registrationOrderJoin())
             .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
             .innerJoin(customerUsers, eq(customerUsers.id, attendeeNeedSubmissions.customerUserId))
             .innerJoin(events, eq(events.id, attendeeNeedSubmissions.eventId))

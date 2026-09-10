@@ -67,6 +67,7 @@ let pageDisposed = false;
 const editedAnswerKeys = new Set<string>();
 const purchaseContext = ref<EventPurchaseContext | null>(null);
 const purchaseContextReady = ref(false);
+let purchaseContextSequence = 0;
 const answers = reactive<Record<string, string>>({
   name: '',
   mobile: '',
@@ -78,6 +79,11 @@ const answers = reactive<Record<string, string>>({
 const registrationFields = computed(() =>
   (event.value?.registrationForm?.fields ?? []).filter((field) => field.enabled !== false),
 );
+const batchRegistrationStarted = ref(false);
+watch(() => [event.value?.registration.additionalPurchaseEnabled, offerToken.value] as const, ([enabled, offer]) => {
+  if (enabled && !offer) batchRegistrationStarted.value = true;
+});
+const batchRegistrationEnabled = computed(() => Boolean((batchRegistrationStarted.value || event.value?.registration.additionalPurchaseEnabled) && !offerToken.value));
 const experience = computed(() =>
   event.value ? resolveEventExperience(event.value) : resolveEventExperience(DEMO_EVENT),
 );
@@ -209,6 +215,7 @@ function browserRegistrationDraftStorage(kind: 'local' | 'session') {
 }
 
 function currentRegistrationDraftContext(): ActiveRegistrationDraftContext | null {
+  if (batchRegistrationEnabled.value) return null;
   if (!import.meta.client || !event.value || !purchaseIntentId.value) return null;
 
   const session = customer.session.value;
@@ -397,7 +404,7 @@ function applyLoadedEvent(loaded: PublicEvent, ticketFromQuery = '') {
   }
 
   event.value = loaded;
-  if (!loaded.registration.additionalPurchaseEnabled || offerToken.value) {
+  if ((!loaded.registration.additionalPurchaseEnabled && !batchRegistrationStarted.value) || offerToken.value) {
     purchaseFor.value = 'self';
   }
   selectedTicketId.value = loaded.tickets.some((ticket) => ticket.id === ticketFromQuery)
@@ -509,6 +516,10 @@ watch(purchaseFor, (next) => {
 });
 
 async function loadPurchaseContext() {
+  const sequence = ++purchaseContextSequence;
+  const eventId = event.value?.id;
+  const customerId = customer.session.value?.customer.id;
+  const isCurrent = () => !pageDisposed && sequence === purchaseContextSequence && event.value?.id === eventId && customer.session.value?.customer.id === customerId;
   if (!event.value || !customer.session.value) {
     purchaseContext.value = null;
     purchaseContextReady.value = true;
@@ -516,13 +527,20 @@ async function loadPurchaseContext() {
   }
   purchaseContextReady.value = false;
   try {
-    purchaseContext.value = await customer.purchaseContext(event.value.id);
+    const next = await customer.purchaseContext(event.value.id);
+    if (isCurrent()) purchaseContext.value = next;
   } catch {
-    purchaseContext.value = null;
+    if (isCurrent()) purchaseContext.value = null;
   } finally {
-    purchaseContextReady.value = true;
+    if (isCurrent()) purchaseContextReady.value = true;
   }
 }
+watch(() => customer.session.value?.customer.id, () => {
+  purchaseContextSequence += 1;
+  purchaseContext.value = null;
+  purchaseContextReady.value = false;
+  if (event.value && intentReady.value) void loadPurchaseContext();
+}, { flush: 'sync' });
 
 function beginAdditionalPurchase() {
   registrationDraftCompleted = false;
@@ -809,7 +827,20 @@ async function submit() {
           :variant="experience.registrationFlow.progressVariant"
         />
 
+        <BatchRegistrationForm
+          v-if="batchRegistrationEnabled"
+          :event="event"
+          :ticket-type-id="selectedTicketId"
+          :purchase-intent-id="purchaseIntentId"
+          :initial-purchase-for="route.query.purchaseFor === 'other' ? 'other' : purchaseFor"
+          :purchase-context="purchaseContext"
+          :ready="intentReady && !loadError"
+          @ticket="selectedTicketId = $event"
+          @complete="completeRegistrationDraft"
+          @refresh="loadPurchaseContext"
+        />
         <div
+          v-else
           class="flow-grid"
           :class="{ 'is-single-column': !experience.registrationFlow.summaryCardEnabled }"
         >
@@ -853,14 +884,14 @@ async function submit() {
                 <label
                   :class="{
                     'is-selected': purchaseFor === 'other',
-                    'is-disabled': !event.registration.additionalPurchaseEnabled,
+                    'is-disabled': !event.registration.additionalPurchaseEnabled || Boolean(offerToken),
                   }"
                 >
                   <input
                     v-model="purchaseFor"
                     type="radio"
                     value="other"
-                    :disabled="!event.registration.additionalPurchaseEnabled"
+                    :disabled="!event.registration.additionalPurchaseEnabled || Boolean(offerToken)"
                   />
                   <span><strong>为他人购票</strong><small>填写实际参会人的信息，可继续增加名额</small></span>
                 </label>
