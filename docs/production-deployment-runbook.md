@@ -298,7 +298,7 @@ sudo /usr/local/sbin/tokems-deploy deploy \
 
 生产巡检、发布、宝塔面板和故障诊断禁止执行 `docker system df` 及其 `-v` 变体。磁盘门禁使用 `docker info --format '{{.DockerRootDir}}'` 定位 Docker 数据目录，再以 `df -Pk` 或 `df -h` 读取文件系统可用空间；单个镜像证据使用有界的 `docker image inspect`。出现 Docker 异常时先保存 `journalctl -u docker`、内核 OOM 日志、容器状态、进程树和 Docker socket 客户端证据，避免运行全局对象盘点命令。每次发布前同时确认 `pgrep -af 'docker system df'` 没有真实匹配项，并观察 `dockerd` RSS 保持稳定。
 
-标准单命令发布拒绝 `docker-compose.yml` 变化。数据库、缓存、对象存储、卷、端口和服务拓扑变更进入单独评审的基础设施维护窗口。
+标准单命令发布拒绝 `docker-compose.yml` 的基础设施变化。当前只允许一项已评审的应用配置增量：在 API 的环境配置中增加 `BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}`。门禁将目标文件与当前运行提交逐字节比较，除该行在指定位置的增加外，任何其他差异均会阻断发布；开关的默认值变化、删除、其他服务或额外环境项也不在允许范围内。数据库、缓存、对象存储、卷、端口和服务拓扑变更继续进入单独评审的基础设施维护窗口。
 
 每次标准发布都有短暂写冻结窗口：六个候选镜像拉取并验证完成后停止 API 和 Worker，持久化恢复标记，在静止写入状态重新生成最终数据库备份与业务基线，再执行迁移和可选的规范同步。语义验收期间 API 仅允许数据库读取，Worker 暂停消费。只读验收阶段公开浏览恢复；报名、支付回调、后台保存及异步任务会在窗口内失败或重试。脚本在恢复正常 API/Worker、核对持久 ready 身份和数据复验后归档恢复标记并记录成功。选择业务低峰执行，并确认支付渠道具备回调重试。
 
