@@ -1120,6 +1120,74 @@ for (const verifier of ['canonical_snapshot_files_match', 'verify_homepage_file'
   });
 }
 
+test('standard release scope allows only the reviewed API batch switch addition', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-compose-scope-'));
+  const basePath = resolve(directory, 'base.yml');
+  const targetPath = resolve(directory, 'target.yml');
+  const flag = '      BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}\n';
+  const current = readFileSync(resolve(repositoryRoot, 'docker-compose.yml'), 'utf8');
+  assert.equal(current.split(flag).length, 2);
+  const baseline = current.replace(flag, '');
+  const gate = source.slice(
+    source.indexOf('assert_standard_release_scope() {'),
+    source.indexOf('\ncanonical_repair_scope_is_compatible() {'),
+  );
+  function run(base, target, failures = {}) {
+    writeFileSync(basePath, base);
+    writeFileSync(targetPath, target);
+    return spawnSync('bash', ['-c', `
+set -Eeuo pipefail
+release_baseline_sha=baseline
+target_sha=target
+LOCK_DIR="$TEMP_DIR"
+log() { printf '%s\\n' "$*"; }
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+git_as_owner() {
+  case "$1:$2" in
+    diff:--quiet) if [ "\${FAIL_DIFF:-0}" != 0 ]; then return "$FAIL_DIFF"; fi; cmp -s "$BASE" "$TARGET" ;;
+    show:baseline:docker-compose.yml) cat "$BASE"; return "\${FAIL_BASE:-0}" ;;
+    show:target:docker-compose.yml) cat "$TARGET"; return "\${FAIL_TARGET:-0}" ;;
+    *) exit 2 ;;
+  esac
+}
+${gate}
+assert_standard_release_scope
+`], { encoding: 'utf8', env: { ...process.env, BASE: basePath, TARGET: targetPath, TEMP_DIR: directory, ...failures } });
+  }
+  try {
+    for (const [name, base, target, allowed] of [
+      ['unchanged legacy compose', baseline, baseline, true],
+      ['unchanged current compose', current, current, true],
+      ['reviewed API switch', baseline, current, true],
+      ['switch default altered', baseline, current.replace('BATCH_PURCHASE_CREATION_ENABLED:-true', 'BATCH_PURCHASE_CREATION_ENABLED:-false'), false],
+      ['switch under worker', baseline, baseline.replace('  worker:\n', `  worker:\n    environment:\n${flag}`), false],
+      ['switch plus API port change', baseline, current.replace('API_PORT: 4100', 'API_PORT: 4200'), false],
+      ['switch plus volume change', baseline, current.replace('tokems-postgres', 'tokems-postgres-other'), false],
+      ['switch plus another variable', baseline, current.replace(flag, `${flag}      EXTRA_SETTING: true\n`), false],
+      ['switch plus new service', baseline, `${current}\n  unexpected-service:\n    image: example\n`, false],
+      ['switch removal', current, baseline, false],
+      ['unknown baseline layout', baseline.replace('  api:\n', '  different-api:\n'), current, false],
+      ['missing baseline', '', current, false],
+      ['missing target', baseline, '', false],
+    ]) {
+      const result = run(base, target);
+      assert.equal(result.status, allowed ? 0 : 1, `${name}: ${result.stderr}`);
+    }
+    for (const failure of [{ FAIL_DIFF: '128' }, { FAIL_BASE: '128' }, { FAIL_TARGET: '128' }]) {
+      const result = run(baseline, current, failure);
+      assert.equal(result.status, 1, `Git failure with valid output: ${JSON.stringify(failure)}`);
+    }
+    const incomplete = run(
+      baseline.slice(0, baseline.indexOf('\n  worker:\n')),
+      current.slice(0, current.indexOf('\n  worker:\n')),
+      { FAIL_BASE: '128', FAIL_TARGET: '128' },
+    );
+    assert.equal(incomplete.status, 1, 'Partial Git output cannot prove unchanged infrastructure');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('production network calls are bounded and infrastructure reconciliation is isolated', () => {
   assert.doesNotMatch(source, /curl\s+-f/);
   assert.match(source, /readonly -a CURL_ARGS=/);

@@ -2314,9 +2314,62 @@ determine_canonical_sync() {
 }
 
 assert_standard_release_scope() {
-  if ! git_as_owner diff --quiet "$release_baseline_sha" "$target_sha" -- docker-compose.yml; then
-    die 'docker-compose.yml changed; use the reviewed infrastructure maintenance procedure for this release.'
+  local diff_status=0 scope_status=0 baseline_compose target_compose
+  git_as_owner diff --quiet "$release_baseline_sha" "$target_sha" -- docker-compose.yml || diff_status=$?
+  case "$diff_status" in
+    0) return ;;
+    1) ;;
+    *) die 'Cannot read the Compose release diff.' ;;
+  esac
+
+  baseline_compose="$(mktemp "${LOCK_DIR}/compose-baseline.XXXXXX")" || die 'Cannot prepare Compose scope verification.'
+  target_compose="$(mktemp "${LOCK_DIR}/compose-target.XXXXXX")" || {
+    rm -f -- "$baseline_compose"
+    die 'Cannot prepare Compose scope verification.'
+  }
+  if ! git_as_owner show "${release_baseline_sha}:docker-compose.yml" >"$baseline_compose" \
+    || ! git_as_owner show "${target_sha}:docker-compose.yml" >"$target_compose"; then
+    rm -f -- "$baseline_compose" "$target_compose"
+    die 'Cannot read complete Compose release files.'
   fi
+
+  # Accept the reviewed API switch only when every other Compose byte is unchanged.
+  python3 - "$baseline_compose" "$target_compose" <<'PY' || scope_status=$?
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8", newline="") as handle:
+        baseline = handle.read()
+    with open(sys.argv[2], encoding="utf-8", newline="") as handle:
+        target = handle.read()
+except (OSError, UnicodeError):
+    raise SystemExit(1)
+
+api_headers = list(re.finditer(r"(?m)^  api:\n", baseline))
+if len(api_headers) != 1:
+    raise SystemExit(1)
+api = api_headers[0]
+next_service = re.search(r"(?m)^  [A-Za-z0-9_-]+:", baseline[api.end():])
+end = api.end() + next_service.start() if next_service else len(baseline)
+body = baseline[api.start():end]
+before = "    environment:\n      <<: *app-environment\n      API_PORT: 4100\n"
+after = (
+    "    environment:\n      <<: *app-environment\n"
+    "      BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}\n"
+    "      API_PORT: 4100\n"
+)
+if body.count(before) != 1:
+    raise SystemExit(1)
+expected = baseline[:api.start()] + body.replace(before, after, 1) + baseline[end:]
+raise SystemExit(0 if target == expected else 1)
+PY
+  rm -f -- "$baseline_compose" "$target_compose"
+  if [[ "$scope_status" == 0 ]]; then
+    log 'Approved API batch purchase switch addition; Compose infrastructure is unchanged.'
+    return
+  fi
+  die 'docker-compose.yml changed; use the reviewed infrastructure maintenance procedure for this release.'
 }
 
 canonical_repair_scope_is_compatible() {
