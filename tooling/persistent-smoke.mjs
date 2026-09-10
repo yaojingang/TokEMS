@@ -2,6 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { createDatabase } from '../packages/database/dist/index.js';
 import { DEMO_EVENT } from '../packages/contracts/dist/index.js';
 import { createCustomerSession } from './lib/customer-session.mjs';
+import { assertPaymentSummary, readAttendeeTicket } from './lib/attendee-ticket.mjs';
 
 const apiBase = process.env.API_BASE ?? 'http://localhost:8088/api/v1';
 const databaseUrl = process.env.DATABASE_URL;
@@ -29,7 +30,6 @@ async function request(path, init = {}) {
 const runId = crypto.randomUUID();
 const registrationKey = `persistent-registration-${runId}`;
 const paymentExternalId = `persistent-payment-${runId}`;
-const paymentKey = `payment:test-provider:${paymentExternalId}`;
 const attendeeName = `持久化测试-${runId.slice(0, 8)}`;
 const publicEvent = await request(`/events/${DEMO_EVENT.slug}`, {
   headers: { 'X-Organization-Slug': process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference' },
@@ -199,9 +199,9 @@ const paymentTimestamp = String(Date.now());
 const paymentSignature = createHmac('sha256', paymentWebhookSecret)
   .update(`${paymentTimestamp}.${paymentBody}`)
   .digest('hex');
-const paymentRetries = await Promise.all(
-  Array.from({ length: 10 }, () =>
-    request('/payments/webhook/test-provider', {
+const paymentTickets = await Promise.all(
+  Array.from({ length: 10 }, async () => {
+    const completion = await request('/payments/webhook/test-provider', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -209,13 +209,18 @@ const paymentRetries = await Promise.all(
         'X-Payment-Signature': paymentSignature,
       },
       body: paymentBody,
-    }),
-  ),
+    });
+    assertPaymentSummary(completion, firstCheckout.order);
+    return readAttendeeTicket({
+      apiBase,
+      registrationId: firstCheckout.registration.id,
+      headers: customerSession.headers,
+    });
+  }),
 );
-const firstPayment = paymentRetries[0];
-const repeatedPayment = paymentRetries[9];
-assert(firstPayment.order.status === 'paid', '订单未进入已支付状态');
-assert(firstPayment.ticket.code === repeatedPayment.ticket.code, '支付重试签发了不同电子票');
+const firstTicket = paymentTickets[0];
+assert(new Set(paymentTickets.map((ticket) => ticket.id)).size === 1, '支付重试签发了不同电子票');
+assert(new Set(paymentTickets.map((ticket) => ticket.code)).size === 1, '支付重试改变了电子票码');
 
 const invoiceBuyer = {
   buyerType: 'company',
@@ -336,12 +341,12 @@ if (invoiceExportResponse.status === 202) {
 }
 assert(invoiceExportCsv.includes(submittedInvoice.requestNo), '发票导出文件缺少本次申请记录');
 
-const ticket = await request(`/tickets/${firstPayment.ticket.code}`);
+const ticket = await request(`/tickets/${firstTicket.code}`);
 assert(ticket.registrationId === firstCheckout.registration.id, '电子票与报名关联不一致');
 
 const checkInBody = {
   eventId: DEMO_EVENT.id,
-  ticketCode: firstPayment.ticket.code,
+  ticketCode: firstTicket.code,
   checkInListId: 'main-entrance',
   deviceId: `persistent-${runId.slice(0, 8)}`,
 };
@@ -377,24 +382,40 @@ try {
   const invariantRows = await pool.query(
     `select
        (select count(*)::int from registrations where id = $1) as registrations,
-       (select count(*)::int from orders where registration_id = $1) as orders,
+       (select count(*)::int from orders o join order_items oi on oi.order_id = o.id
+        where oi.registration_id = $1 and o.id = $3 and o.model_version = 2 and o.quantity = 1) as orders,
+       (select count(*)::int from order_items where registration_id = $1 and order_id = $3 and state = 'active') as items,
        (select count(*)::int from tickets where registration_id = $1) as tickets,
+       (select count(*)::int from payments where order_id = $3 and succeeded_at is not null) as payments,
+       (select count(*)::int from orders o join payments p on p.id = o.settled_payment_id
+        where o.id = $3 and p.order_id = o.id and p.provider = 'test-provider' and p.external_id = $4
+          and p.status = 'succeeded' and p.amount = o.amount and p.currency = o.currency) as settled_payments,
        (select count(*)::int from checkin_records where ticket_id = $2) as checkins`,
-    [firstCheckout.registration.id, firstPayment.ticket.id],
+    [firstCheckout.registration.id, firstTicket.id, firstCheckout.order.id, paymentExternalId],
   );
   const invariants = invariantRows.rows[0];
   assert(invariants.registrations === 1, '数据库中的报名数量异常');
   assert(invariants.orders === 1, '数据库中的订单数量异常');
+  assert(invariants.items === 1, '订单与报名未关联唯一有效名额');
   assert(invariants.tickets === 1, '数据库中的电子票数量异常');
+  assert(
+    invariants.payments === 1 && invariants.settled_payments === 1,
+    '并发回调未复用唯一结算付款',
+  );
   assert(invariants.checkins === 1, '数据库中的成功核销数量异常');
   const idempotencyRows = await pool.query(
-    `select scope, response_body
-     from idempotency_keys
-     where (scope = 'registration:create' and key = $1)
-        or (scope = 'payment:confirm' and key = $2)`,
-    [registrationKey, paymentKey],
+    `select i.scope, i.response_body
+     from idempotency_keys i
+     join orders o on o.id = $2
+     where i.scope = concat('registration-batch:', o.organization_id, ':', o.purchaser_customer_user_id)
+       and i.key = $1`,
+    [registrationKey, firstCheckout.order.id],
   );
-  assert(idempotencyRows.rows.length === 2, '报名或支付幂等记录缺失');
+  assert(idempotencyRows.rows.length === 1, '报名幂等记录缺失');
+  assert(
+    idempotencyRows.rows[0].response_body.orderId === firstCheckout.order.id,
+    '报名幂等结果指向不同订单',
+  );
   assert(
     idempotencyRows.rows.every(
       (row) =>
@@ -405,20 +426,35 @@ try {
   );
 
   const deadline = Date.now() + 10_000;
+  const requiredEventTypes = [
+    'RegistrationSubmitted',
+    'PaymentSucceeded',
+    'TicketIssued',
+    'CheckInRecorded',
+  ];
   let published = [];
   while (Date.now() < deadline) {
     const result = await pool.query(
       `select event_type, published_at
        from outbox_events
-       where correlation_id in ($1, $2)
-          or payload->>'ticketId' = $3`,
-      [registrationKey, paymentKey, firstPayment.ticket.id],
+       where payload->>'orderId' = $1
+          or payload->>'ticketId' = $2`,
+      [firstCheckout.order.id, firstTicket.id],
     );
     published = result.rows;
-    if (published.length >= 4 && published.every((row) => row.published_at)) break;
+    if (
+      requiredEventTypes.every((type) => published.some((row) => row.event_type === type)) &&
+      published.every((row) => row.published_at)
+    )
+      break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert(published.length >= 4, 'Outbox 未写入完整的报名、支付、票证与核销事件');
+  for (const type of requiredEventTypes) {
+    assert(
+      published.filter((row) => row.event_type === type).length === 1,
+      `Outbox ${type} 事件缺失或重复`,
+    );
+  }
   assert(
     published.every((row) => row.published_at),
     'Worker 未在时限内投递全部 Outbox 事件',
@@ -430,7 +466,7 @@ try {
         health: health.database,
         registrationId: firstCheckout.registration.id,
         orderId: firstCheckout.order.id,
-        ticketCode: firstPayment.ticket.code,
+        ticketCode: firstTicket.code,
         invoice: {
           id: submittedInvoice.id,
           status: attendeeInvoice.status,
@@ -443,7 +479,7 @@ try {
         },
         idempotency: 'pass',
         registrationRetries: checkoutRetries.length,
-        paymentRetries: paymentRetries.length,
+        paymentRetries: paymentTickets.length,
         firstCheckIn: firstCheckIn.result,
         repeatedCheckIn: repeatedCheckIn.result,
         databaseInvariants: invariants,

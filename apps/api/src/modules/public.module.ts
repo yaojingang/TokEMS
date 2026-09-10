@@ -456,6 +456,7 @@ export class EventsController {
     }
     const body = await this.showcases.publicAvatarContent(slug, organizationSlug.data, publicSlug);
     return reply
+      .header('Cross-Origin-Resource-Policy', 'cross-origin')
       .header('Cache-Control', 'private, no-store')
       .header('Content-Type', 'image/webp')
       .send(body);

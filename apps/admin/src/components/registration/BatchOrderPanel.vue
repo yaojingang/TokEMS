@@ -248,7 +248,7 @@ async function refund() {
             type="checkbox"
             :disabled="pending || (!item.canRetain && !item.canRevoke)"
           />{{ item.name }}</label>
-          <label>金额（元）<input
+          <label class="form-field">金额（元）<input
             v-model.number="selected[item.id]!.yuan"
             type="number"
             min="0.01"
@@ -256,7 +256,7 @@ async function refund() {
             :max="item.refundableAmount / 100"
             :disabled="pending || !selected[item.id]!.checked"
           /></label>
-          <label>参会资格<select
+          <label class="form-field">参会资格<select
             v-model="selected[item.id]!.rightsEffect"
             :disabled="pending || !selected[item.id]!.checked"
           >
@@ -277,6 +277,7 @@ async function refund() {
 
 <style scoped>
 .batch-order-panel {
+  min-width: 0;
   margin-block: 20px;
 }
 .batch-order-panel h3,
@@ -296,10 +297,12 @@ async function refund() {
 .batch-refund-row label,
 .event-form > label {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 8px;
 }
 .batch-refund-row label:first-child {
+  min-height: var(--admin-control-height);
   flex-direction: row;
   align-items: center;
 }

@@ -691,6 +691,14 @@ watch([testPhone, testTemplateKey], () => {
 </template>
 
 <style scoped>
+.settings-security-note {
+  font-size: var(--admin-font-caption);
+}
+
+.settings-security-note small {
+  font-size: inherit;
+}
+
 .sms-test-panel {
   border-top: 0;
   border-bottom: 1px solid var(--line);
