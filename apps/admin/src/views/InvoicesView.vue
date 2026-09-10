@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InvoiceSmsStatusPanel from '../components/InvoiceSmsStatusPanel.vue';
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import {
   type InvoiceBatchManifestItem,
@@ -413,8 +414,8 @@ async function sendInvoice() {
   if (!detail.value) return;
   pending.value = true;
   try {
-    await conferenceApi.sendInvoice(detail.value.id, eventId.value);
-    message.value = `发票已加入发送队列，将发送至 ${detail.value.maskedEmail ?? '接收邮箱'}。`;
+    const result = await conferenceApi.sendInvoice(detail.value.id, eventId.value);
+    message.value = `发票已加入发送队列，将发送至 ${result.maskedRecipient}。`;
     await loadDetail();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '发票发送失败';
@@ -869,6 +870,12 @@ onMounted(() => {
           </div>
         </div>
 
+        <InvoiceSmsStatusPanel
+          :invoice="detail"
+          :event-id="detail.eventId"
+          :can-manage="canManage"
+          @refresh="loadDetail"
+        />
         <div class="invoice-detail-layout">
           <section class="invoice-detail-section">
             <header>
@@ -1097,7 +1104,7 @@ onMounted(() => {
             重新开具
           </button>
           <button
-            v-if="detail.status === 'issued'"
+            v-if="detail.status === 'issued' && !detail.smsNotification"
             class="button secondary"
             type="button"
             :disabled="pending"

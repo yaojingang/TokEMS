@@ -10,6 +10,7 @@ import {
   ticketTypes,
   registrations,
   orders,
+  orderItems,
   payments,
   refundRequests,
   refunds,
@@ -73,6 +74,10 @@ persistent('Feishu V2 business metrics in PostgreSQL', () => {
     await connection.db
       .delete(refundRequests)
       .where(eq(refundRequests.organizationId, organizationId));
+    await connection.db
+      .delete(invoiceRequests)
+      .where(eq(invoiceRequests.organizationId, organizationId));
+    await connection.db.delete(orderItems).where(eq(orderItems.organizationId, organizationId));
     await connection.db.delete(organizations).where(eq(organizations.id, organizationId));
   });
   afterAll(async () => {
@@ -106,6 +111,18 @@ persistent('Feishu V2 business metrics in PostgreSQL', () => {
         expiresAt: report,
       })
       .returning();
+    await db.insert(orderItems).values({
+      orderId: order!.id,
+      registrationId: registration!.id,
+      organizationId,
+      eventId,
+      ticketTypeId,
+      position: 1,
+      unitPrice: order!.amount,
+      allocatedAmount: order!.amount,
+      pricingSnapshot: order!.pricingSnapshot,
+      state: 'active',
+    });
     const [payment] = await db
       .insert(payments)
       .values({

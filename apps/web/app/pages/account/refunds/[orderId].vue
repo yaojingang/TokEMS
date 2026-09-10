@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { watch } from 'vue';
+import { navigateTo } from '#imports';
 import type {
   RefundContext,
   RefundApplicationView,
   CustomerRefundApplication,
 } from '@conference/contracts';
 import { useCustomerSession } from '~/composables/useCustomerSession';
+import { useBatchPurchase } from '~/composables/useBatchPurchase';
 
 const route = useRoute();
 const customer = useCustomerSession();
+const batch = useBatchPurchase();
 const orderId = computed(() => String(route.params.orderId));
 const context = ref<RefundContext | null>(null);
 const loading = ref(true);
@@ -68,6 +71,11 @@ async function load() {
     await customer.refresh();
     if (!customer.session.value) {
       customer.openLogin();
+      return;
+    }
+    const order = await batch.detail(orderId.value);
+    if (order.order.modelVersion === 2) {
+      await navigateTo(`/account/orders/${encodeURIComponent(orderId.value)}`, { replace: true });
       return;
     }
     await refresh();

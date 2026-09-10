@@ -1,6 +1,7 @@
 import {
   publicEventScopedPath,
   type CustomerPurchasedOrder,
+  type CustomerRegistrationSummary,
   type EventPurchaseContext,
 } from '@conference/contracts';
 
@@ -9,6 +10,18 @@ export type HomeRegistrationCta = {
   label: string;
   href: string;
 };
+
+export function canResumeRegistrationPayment(
+  registration: CustomerRegistrationSummary | null | undefined,
+): registration is Extract<CustomerRegistrationSummary, { canManageOrder: true }> & {
+  orderStatus: 'pending_payment';
+} {
+  return Boolean(
+    registration?.canManageOrder &&
+    registration.orderId &&
+    registration.orderStatus === 'pending_payment',
+  );
+}
 
 export function resolveSelfRegistrationState(
   context: EventPurchaseContext | null | undefined,

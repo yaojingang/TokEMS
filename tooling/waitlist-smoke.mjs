@@ -4,6 +4,11 @@ import { createDatabase, memberships, users } from '../packages/database/dist/in
 import { DEMO_IDS } from '../packages/contracts/dist/index.js';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
 import { createCustomerSession } from './lib/customer-session.mjs';
+import { assertPaymentSummary, readAttendeeTicket } from './lib/attendee-ticket.mjs';
+import {
+  assertLegacyRefundFixture,
+  prepareLegacyRefundFixture,
+} from './lib/legacy-refund-fixture.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const databaseUrl =
@@ -45,7 +50,7 @@ async function expectStatus(path, status, options = {}) {
     await request(path, options);
   } catch (error) {
     assert(error.status === status, `${path} expected ${status}, received ${error.status}`);
-    return;
+    return error.body;
   }
   throw new Error(`${path} expected ${status}, request succeeded`);
 }
@@ -205,6 +210,12 @@ try {
     },
     body: paymentBody,
   });
+  assertPaymentSummary(providerPayment, firstCheckout.order);
+  const firstTicket = await readAttendeeTicket({
+    apiBase: baseUrl,
+    registrationId: firstCheckout.registration.id,
+    headers: holderSession.headers,
+  });
   const providerPaymentRetry = await request('/payments/webhook/test-provider', {
     method: 'POST',
     headers: {
@@ -213,8 +224,14 @@ try {
     },
     body: paymentBody,
   });
+  assertPaymentSummary(providerPaymentRetry, firstCheckout.order);
+  const repeatedTicket = await readAttendeeTicket({
+    apiBase: baseUrl,
+    registrationId: firstCheckout.registration.id,
+    headers: holderSession.headers,
+  });
   assert(
-    providerPayment.ticket.code === providerPaymentRetry.ticket.code,
+    firstTicket.id === repeatedTicket.id && firstTicket.code === repeatedTicket.code,
     'Provider payment callback is not idempotent',
   );
 
@@ -296,13 +313,52 @@ try {
     }),
   });
 
-  await request(`/admin/orders/${firstCheckout.order.id}/refunds`, {
+  const refundBody = JSON.stringify({
+    amount: firstCheckout.order.amount,
+    reason: '释放库存用于候补递补验收',
+  });
+  const v2RefundRejection = await expectStatus(
+    `/admin/orders/${firstCheckout.order.id}/refunds`,
+    409,
+    {
+      method: 'POST',
+      headers: auth(login.accessToken, {
+        'Idempotency-Key': `waitlist-v2-refund-rejected-${runId}`,
+      }),
+      body: refundBody,
+    },
+  );
+  assert(
+    v2RefundRejection.code === 'INVALID_STATE_TRANSITION',
+    'V2 order was not rejected by the legacy refund guard',
+  );
+  const legacyRefundFixture = await prepareLegacyRefundFixture({
+    databaseUrl: process.env.DATABASE_URL,
+    eventId,
+    eventSlug: slug,
+    checkout: firstCheckout,
+    externalId: `provider-payment-${runId}`,
+    ticketStatus: 'valid',
+  });
+  const refund = await request(`/admin/orders/${firstCheckout.order.id}/refunds`, {
     method: 'POST',
     headers: auth(login.accessToken, { 'Idempotency-Key': `waitlist-refund-${runId}` }),
-    body: JSON.stringify({
-      amount: firstCheckout.order.amount,
-      reason: '释放库存用于候补递补验收',
-    }),
+    body: refundBody,
+  });
+  const repeatedRefund = await request(`/admin/orders/${firstCheckout.order.id}/refunds`, {
+    method: 'POST',
+    headers: auth(login.accessToken, { 'Idempotency-Key': `waitlist-refund-${runId}` }),
+    body: refundBody,
+  });
+  assert(
+    refund.id === repeatedRefund.id && refund.status === 'succeeded',
+    'Legacy full refund was not completed idempotently',
+  );
+  await assertLegacyRefundFixture({
+    databaseUrl: process.env.DATABASE_URL,
+    fixture: legacyRefundFixture,
+    refundedAmount: firstCheckout.order.amount,
+    fullRefund: true,
   });
 
   let invited;
@@ -380,12 +436,18 @@ try {
   const viewerEmail = `viewer-${runId}@example.com`;
   try {
     const storedIdempotency = await pool.query(
-      `select response_body
-       from idempotency_keys
-       where scope = 'registration:create' and key = $1`,
-      [`waitlist-holder-${runId}`],
+      `select i.response_body
+       from idempotency_keys i
+       join orders o on o.id = $2
+       where i.scope = concat('registration-batch:', o.organization_id, ':', o.purchaser_customer_user_id)
+         and i.key = $1`,
+      [`waitlist-holder-${runId}`, firstCheckout.order.id],
     );
     assert(storedIdempotency.rows.length === 1, 'Registration idempotency record is missing');
+    assert(
+      storedIdempotency.rows[0].response_body.orderId === firstCheckout.order.id,
+      'Registration replay points to a different order',
+    );
     assert(
       !JSON.stringify(storedIdempotency.rows[0].response_body).includes(
         firstCheckout.orderAccessToken,

@@ -41,6 +41,8 @@ describe('public analytics route scope', () => {
     '/account/profile',
     '/order/123',
     '/invoice/123',
+    '/invoice/file/TestFileToken000000000000',
+    '/api/v1/invoice-files/TestFileToken000000000000',
     '/ticket/123',
     '/pay/hui/123',
     '/REGISTER',

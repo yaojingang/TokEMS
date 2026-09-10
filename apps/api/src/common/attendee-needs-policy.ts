@@ -172,6 +172,7 @@ export function attendeeNeedsQualification(input: {
   customerStatus: string;
   registrationStatus: string;
   orderStatus: string;
+  retainedAdmission?: boolean;
   paymentSatisfied: boolean;
   ticketStatus: string | null;
   isPublic: boolean;

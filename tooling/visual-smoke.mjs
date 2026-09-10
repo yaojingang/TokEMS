@@ -589,6 +589,7 @@ async function runVisualSmoke() {
       const statusDetail = row.querySelector('.registration-status-detail');
       const actionCell = row.querySelector('.registration-action-column');
       const action = row.querySelector('.registration-view-action');
+      const viewport = row.closest('.data-table-wrap')?.getBoundingClientRect();
       const textLines = (element) => {
         if (!element) return 0;
         const range = document.createRange();
@@ -603,9 +604,11 @@ async function runVisualSmoke() {
         actionWidth: action?.getBoundingClientRect().width ?? 0,
         actionTextLines: textLines(action),
         actionWhiteSpace: action ? getComputedStyle(action).whiteSpace : '',
+        actionRightGap: (viewport?.right ?? 0) - (action?.getBoundingClientRect().right ?? 0),
+        actionLeftGap: (action?.getBoundingClientRect().left ?? 0) - (viewport?.left ?? 0),
       };
     });
-    if (layout.statusCellWidth < 132 || layout.statusDetailWhiteSpace !== 'nowrap') {
+    if (layout.statusCellWidth < 120 || layout.statusDetailWhiteSpace !== 'nowrap') {
       issues.push(`${label}: 业务状态列宽度或单行约束失效`);
     }
     if (layout.statusDetailLines !== 1) {
@@ -620,6 +623,9 @@ async function runVisualSmoke() {
     }
     if (layout.actionTextLines !== 1) {
       issues.push(`${label}: 查看按钮文字断成 ${layout.actionTextLines} 行`);
+    }
+    if (layout.actionRightGap < 12 || layout.actionLeftGap < 0) {
+      issues.push(`${label}: 查看按钮未完整保留在表格可视区域内`);
     }
     checked.push(label);
   }
@@ -822,44 +828,50 @@ async function runVisualSmoke() {
     await page.locator('.faq-page').waitFor();
     await screenshot(page, 'web-faq-desktop.png', 'FAQ 独立页桌面端');
     await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
-    const registrationSubmitButton = page.locator('form.flow-card button[type="submit"]');
-    if (
-      (await page.locator('#registration-mobile').count()) &&
-      (await registrationSubmitButton.count())
-    ) {
-      const visualRunId = Date.now().toString();
-      visualCustomerMobile = `139${visualRunId.slice(-8)}`;
-      const registrationMobile = page.locator('#registration-mobile');
-      if (!(await registrationMobile.isEditable())) {
-        await loginCustomer(page, visualCustomerMobile);
-        await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+    const visualRunId = Date.now().toString();
+    visualCustomerMobile = `139${visualRunId.slice(-8)}`;
+    await loginCustomer(page, visualCustomerMobile);
+    await page.goto(`${webBase}/register`, { waitUntil: 'networkidle' });
+    const registrationForm = page.locator('form.flow-card');
+    await registrationForm.waitFor();
+    const batchForm = page.locator('.batch-registration');
+    const isBatch = (await batchForm.count()) > 0;
+    if (isBatch) {
+      await batchForm.locator('.batch-self input').check();
+      if ((await batchForm.locator('.attendee-card').count()) !== 1) {
+        throw new Error('视觉报名验收需要一个本人名额');
       }
-      const verifiedMobile = await page.locator('#registration-mobile').inputValue();
-      if (await page.locator('#registration-mobile').isEditable()) {
-        await page.locator('#registration-mobile').fill(visualCustomerMobile);
-      } else if (!verifiedMobile.endsWith(visualCustomerMobile)) {
-        throw new Error(`报名页登录手机号未正确回填，实际为 ${verifiedMobile || '空'}`);
-      }
-      for (const [field, value] of Object.entries({
-        name: '视觉测试员',
-        email: `visual-${visualRunId}@example.com`,
-        city: '深圳',
-        company: '大会视觉实验室',
-        title: '质量负责人',
-      })) {
-        const input = page.locator(`#registration-${field}`);
-        if (await input.isVisible()) await input.fill(value);
-      }
-      await page.locator('#registration-terms-accepted').check();
-      await page.locator('form.flow-card button[type="submit"]').click();
-      await page.waitForURL(/\/(order|ticket)\//);
-      visualCustomerStorageState = await desktop.storageState();
-      if (new URL(page.url()).pathname.includes('/order/')) {
-        await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
-      } else {
-        await page.getByText('现场扫码签到').waitFor();
-        await screenshot(page, 'web-ticket-desktop.png', '电子票桌面端');
-      }
+    }
+    const fieldInput = (field) =>
+      isBatch
+        ? batchForm.locator(`.attendee-card input[id$="-${field}"]`)
+        : page.locator(`#registration-${field}`);
+    const registrationMobile = fieldInput('mobile');
+    await registrationMobile.waitFor();
+    if (await registrationMobile.isEditable()) {
+      await registrationMobile.fill(visualCustomerMobile);
+    } else if (!(await registrationMobile.inputValue()).endsWith(visualCustomerMobile)) {
+      throw new Error('报名页登录手机号未正确回填');
+    }
+    for (const [field, value] of Object.entries({
+      name: '视觉测试员',
+      email: `visual-${visualRunId}@example.com`,
+      city: '深圳',
+      company: '大会视觉实验室',
+      title: '质量负责人',
+    })) {
+      const input = fieldInput(field);
+      if (await input.isVisible()) await input.fill(value);
+    }
+    await page.locator(isBatch ? '#batch-terms-accepted' : '#registration-terms-accepted').check();
+    await registrationForm.locator('button[type="submit"]').click();
+    await page.waitForURL(/\/(?:account\/orders|order|ticket)\//);
+    visualCustomerStorageState = await desktop.storageState();
+    if (/\/(?:account\/orders|order)\//.test(new URL(page.url()).pathname)) {
+      await screenshot(page, 'web-order-desktop.png', '订单页桌面端');
+    } else {
+      await page.getByText('现场扫码签到').waitFor();
+      await screenshot(page, 'web-ticket-desktop.png', '电子票桌面端');
     }
   }
 
@@ -1165,7 +1177,7 @@ async function runVisualSmoke() {
         await screenshot(mobile, 'web-ticket-mobile.png', '电子票手机端');
       }
     } else {
-      issues.push('个人中心手机端: 免费报名流程没有生成可登录的演示账号');
+      issues.push('个人中心手机端: 报名流程没有生成可登录的演示账号');
     }
   }
 

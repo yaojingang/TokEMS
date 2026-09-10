@@ -2,15 +2,24 @@
 import type { AttendeeNeedsProfile, CustomerRegistrationDetail } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
-import { customerRegistrationTicketHref } from '~/utils/purchase-journey';
+import {
+  canResumeRegistrationPayment,
+  customerRegistrationTicketHref,
+} from '~/utils/purchase-journey';
 
 const route = useRoute();
 const customer = useCustomerSession();
+const api = useConferenceApi();
 const detail = ref<CustomerRegistrationDetail | null>(null);
 const attendeeNeeds = ref<AttendeeNeedsProfile | null>(null);
 const loading = ref(true);
 const errorMessage = ref('');
-const rendersChildPage = computed(() => /\/(showcase|needs)\/?$/u.test(route.path));
+const paymentError = ref('');
+const resumingPayment = ref(false);
+let pageActive = true;
+let paymentContextRevision = 0;
+const canResumePayment = computed(() => canResumeRegistrationPayment(detail.value));
+const rendersChildPage = computed(() => /\/(showcase|needs|edit)\/?$/u.test(route.path));
 const registrationStatusLabels: Record<string, string> = {
   draft: '草稿',
   pending_review: '待审核',
@@ -58,6 +67,8 @@ const canOpenRefund = computed(() =>
 );
 const hasDetailActions = computed(
   () =>
+    canResumePayment.value ||
+    detail.value?.canEditRegistrationInfo ||
     canOpenShowcase.value ||
     canEditNeeds.value ||
     canOpenTicket.value ||
@@ -71,6 +82,7 @@ const money = (amount: number) =>
 async function load() {
   if (rendersChildPage.value) return;
   loading.value = true;
+  errorMessage.value = '';
   try {
     await customer.refresh();
     if (!customer.session.value) {
@@ -89,7 +101,55 @@ async function load() {
   }
 }
 
+async function resumePayment() {
+  const registration = detail.value;
+  if (!canResumeRegistrationPayment(registration) || resumingPayment.value) return;
+  resumingPayment.value = true;
+  paymentError.value = '';
+  const revision = paymentContextRevision;
+  const owner = customer.session.value?.customer.id;
+  const isCurrent = () =>
+    pageActive &&
+    revision === paymentContextRevision &&
+    customer.session.value?.customer.id === owner;
+  try {
+    const access = await customer.createOrderPaymentAccess(registration.orderId);
+    if (!isCurrent()) return;
+    window.location.assign(
+      api.resolvePaymentCheckoutUrl(
+        registration.orderId,
+        registration.eventSlug,
+        access.orderAccessToken,
+      ),
+    );
+  } catch (error) {
+    if (!isCurrent()) return;
+    const value = error as { data?: { message?: string } };
+    paymentError.value = value.data?.message ?? '支付入口恢复失败，请稍后重试。';
+    const latest = await customer.registration(registration.id).catch(() => registration);
+    if (isCurrent()) detail.value = latest;
+  } finally {
+    if (isCurrent()) resumingPayment.value = false;
+  }
+}
+
+watch(
+  () => [route.fullPath, customer.session.value?.customer.id],
+  () => {
+    paymentContextRevision += 1;
+    resumingPayment.value = false;
+    paymentError.value = '';
+  },
+  { flush: 'sync' },
+);
+onBeforeUnmount(() => {
+  pageActive = false;
+  paymentContextRevision += 1;
+});
 onMounted(() => {
+  if (!rendersChildPage.value) void load();
+});
+watch(() => route.fullPath, () => {
   if (!rendersChildPage.value) void load();
 });
 watch(
@@ -158,7 +218,22 @@ useHead({ title: '报名详情' });
             <dd>{{ detail.attendee.email || '未填写' }}</dd>
           </div>
         </dl>
+        <p v-if="route.query.updated === '1'" class="detail-edit-notice" role="status">报名信息已更新，请核对后继续支付。</p>
+        <div v-if="detail.canEditRegistrationInfo" class="detail-edit-guide">
+          <p>信息填错了？可以先返回修改，保存后继续支付。</p>
+          <NuxtLink class="detail-secondary" :to="`/account/registrations/${detail.id}/edit?event=${encodeURIComponent(detail.eventSlug)}`">返回修改信息</NuxtLink>
+        </div>
+        <p v-if="paymentError" class="detail-payment-error" role="alert">{{ paymentError }}</p>
         <footer v-if="hasDetailActions">
+          <button
+            v-if="canResumePayment"
+            class="detail-primary"
+            type="button"
+            :disabled="resumingPayment"
+            @click="resumePayment"
+          >
+            {{ resumingPayment ? '正在恢复支付…' : '继续支付' }}
+          </button>
           <NuxtLink
             v-if="canOpenShowcase"
             class="detail-primary"
@@ -279,6 +354,7 @@ useHead({ title: '报名详情' });
 }
 .detail-panel footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 20px 30px;
   background: #fafafa;
@@ -297,6 +373,31 @@ useHead({ title: '报名详情' });
   background: var(--conference-primary);
   color: #fff;
 }
+.detail-primary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.detail-payment-error {
+  margin: 0;
+  padding: 16px 30px;
+  color: #be123c;
+}
+.detail-edit-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 30px;
+  border-top: 1px solid var(--conference-line);
+}
+.detail-edit-guide p, .detail-edit-notice {
+  margin: 0;
+  color: var(--conference-ink-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.detail-edit-notice { padding: 16px 30px; color: #166534; }
 .detail-secondary {
   background: #e4e4e7;
   color: #27272a;

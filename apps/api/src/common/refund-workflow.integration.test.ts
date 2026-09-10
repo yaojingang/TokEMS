@@ -8,6 +8,9 @@ import {
   events,
   invoiceRequests,
   orders,
+  orderItems,
+  refundItemAllocations,
+  refundRequestItems,
   organizations,
   organizationIntegrations,
   refundNotificationInbox,
@@ -118,11 +121,19 @@ persistent('customer refund workflow with real PostgreSQL', () => {
     try {
       scheduler.onModuleDestroy();
       await db.update(tickets).set({ refundPausedBy: null }).where(eq(tickets.eventId, eventId));
+      await db
+        .delete(refundItemAllocations)
+        .where(eq(refundItemAllocations.organizationId, organizationId));
+      await db
+        .delete(refundRequestItems)
+        .where(eq(refundRequestItems.organizationId, organizationId));
       await db.delete(refunds).where(eq(refunds.organizationId, organizationId));
       await db.delete(refundRequests).where(eq(refundRequests.organizationId, organizationId));
       await db
         .delete(refundMerchantSchedules)
         .where(eq(refundMerchantSchedules.merchantId, merchantId));
+      await db.delete(invoiceRequests).where(eq(invoiceRequests.organizationId, organizationId));
+      await db.delete(orderItems).where(eq(orderItems.organizationId, organizationId));
       await db.delete(organizations).where(eq(organizations.id, organizationId));
       await db.delete(users).where(eq(users.id, actorId));
     } finally {
@@ -176,6 +187,18 @@ persistent('customer refund workflow with real PostgreSQL', () => {
       currency: 'CNY',
       pricingSnapshot: { refundPolicy: policy },
       expiresAt: new Date(),
+    });
+    await db.insert(orderItems).values({
+      orderId,
+      registrationId,
+      organizationId,
+      eventId,
+      position: 1,
+      ticketTypeId,
+      unitPrice: 39900,
+      allocatedAmount: 39900,
+      pricingSnapshot: { refundPolicy: policy },
+      state: 'active',
     });
     const [payment] = await db
       .insert(payments)

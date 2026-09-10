@@ -36,7 +36,13 @@ const attendeeMaterialsEnabled = computed(
   () => memberProfileEnabled.value || attendeeNeedsEnabled.value,
 );
 
-async function goToCompletion(registrationId: string, ticket?: Ticket) {
+async function goToCompletion(registrationId: string | null, ticket?: Ticket) {
+  if (order.value?.modelVersion === 2) {
+    const destination = api.resolveConferenceUrl(publicEventScopedPath(`/account/orders/${encodeURIComponent(orderId)}`, event.value.slug || String(route.query.event ?? '')));
+    await navigateTo(destination, { external: /^https?:\/\//i.test(destination) });
+    return;
+  }
+  if (!registrationId) return;
   const eventSlug = event.value.slug || String(route.query.event ?? '');
   const path = resolveCheckoutSuccessDestination({
     isProxyPurchase: isProxyPurchase.value,
@@ -55,6 +61,7 @@ const payment = useOrderPayment({
   orderId,
   eventSlug: String(route.query.event ?? ''),
   async onPaid(latest) {
+    if (latest.modelVersion === 2) { await goToCompletion(null); return; }
     if (latest.isProxyPurchase) return;
     if (!payment.accessToken.value) return;
     const ticket = await api
@@ -89,8 +96,10 @@ const {
   switchChannel,
   retry: retryPayment,
 } = payment;
+const isBatchOrder = computed(() => order.value?.modelVersion === 2);
+const batchOrderHref = computed(() => api.resolveConferenceUrl(publicEventScopedPath(`/account/orders/${encodeURIComponent(orderId)}`, event.value.slug || String(route.query.event ?? ''))));
 const isProxyPurchase = computed(
-  () => checkout.value?.isProxyPurchase ?? order.value?.isProxyPurchase ?? false,
+  () => order.value?.isProxyPurchase ?? checkout.value?.isProxyPurchase ?? false,
 );
 
 /**
@@ -142,11 +151,12 @@ const isFreeOrder = computed(
 const awaitingReview = computed(
   () =>
     order.value?.status === 'pending_review' ||
-    checkout.value?.registration.status === 'pending_review',
+    checkout.value?.registration?.status === 'pending_review',
 );
 const canPay = computed(() => paymentCanPay.value);
 const stateTitle = computed(() => {
   if (awaitingReview.value) return '报名已提交，等待大会审核';
+  if (isBatchOrder.value && order.value?.status === 'paid') return `${order.value.quantity ?? 1} 个名额已确认`;
   if (isProxyPurchase.value && order.value?.status === 'paid') return '代购订单已完成';
   if (isProxyPurchase.value && order.value?.status === 'partially_refunded')
     return '代购订单已完成部分退款';
@@ -158,6 +168,7 @@ const stateTitle = computed(() => {
   return '报名已提交，请完成支付';
 });
 const stateLead = computed(() => {
+  if (isBatchOrder.value) return `本订单共 ${order.value?.quantity ?? 1} 个名额，一次支付全部金额。各名额的资料、电子票和退款状态可在订单详情查看。`;
   if (awaitingReview.value)
     return '运营人员将在后台核对报名信息。审核结果会发送到报名邮箱，通过后即可继续支付或领取免费电子票。';
   if (isProxyPurchase.value && ['paid', 'partially_refunded'].includes(order.value?.status ?? ''))
@@ -201,14 +212,14 @@ const ticketHref = computed(() => {
 
 const showcaseHref = computed(() =>
   publicEventScopedPath(
-    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration.id ?? '')}/showcase`,
+    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration?.id ?? '')}/showcase`,
     event.value.slug,
   ),
 );
 
 const needsHref = computed(() =>
   publicEventScopedPath(
-    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration.id ?? '')}/needs`,
+    `/account/registrations/${encodeURIComponent(order.value?.registrationId ?? checkout.value?.registration?.id ?? '')}/needs`,
     event.value.slug,
   ),
 );
@@ -221,6 +232,11 @@ const registerHref = computed(() => {
   const path = publicEventScopedPath('/register', event.value.slug, { restart: '1' });
   return api.resolveConferenceUrl(path);
 });
+const editRegistrationHref = computed(() => api.resolveConferenceUrl(
+  isBatchOrder.value ? batchOrderHref.value : isProxyPurchase.value
+    ? `${publicEventScopedPath('/account', event.value.slug, { order: order.value?.id ?? '' })}#purchases`
+    : publicEventScopedPath(`/account/registrations/${encodeURIComponent(order.value?.registrationId ?? '')}/edit`, event.value.slug),
+));
 
 const conferenceHomeHref = computed(() =>
   api.resolveConferenceUrl(publicEventHomePath(event.value.slug)),
@@ -273,6 +289,7 @@ useHead(() => ({
 onMounted(async () => {
   try {
     checkout.value = api.readCheckout();
+    if (checkout.value?.order.id !== orderId) checkout.value = undefined;
     issuedTicket.value = checkout.value?.isProxyPurchase ? undefined : checkout.value?.ticket;
     if (!paymentSurface.value) {
       await customer.refresh().catch(() => null);
@@ -295,7 +312,7 @@ onMounted(async () => {
     }
     if (
       orderAccessToken.value &&
-      !isProxyPurchase.value &&
+      !isBatchOrder.value && !isProxyPurchase.value &&
       ['paid', 'partially_refunded'].includes(order.value?.status ?? '') &&
       !issuedTicket.value
     ) {
@@ -370,7 +387,8 @@ async function confirmPaymentSimulation() {
       issuedTicket.value = result.ticket;
     }
     if (result.invoice) api.saveInvoiceAccess(result.invoice);
-    if (!isProxyPurchase.value && result.ticket) {
+    if (isBatchOrder.value) await goToCompletion(null);
+    else if (!isProxyPurchase.value && result.ticket) {
       await goToCompletion(result.order.registrationId, result.ticket);
     }
   } catch (error) {
@@ -424,14 +442,14 @@ function switchChannelLabel(channel: string) {
             <span>大会</span><strong>{{ event.name }}</strong>
           </div>
           <div class="summary-row">
-            <span>参会人</span><strong>{{ checkout?.registration.attendee.name ?? '待查询' }}</strong>
+            <span>{{ isBatchOrder ? '购买数量' : '参会人' }}</span><strong>{{ isBatchOrder ? `${order.quantity ?? 1} 个名额` : checkout?.registration?.attendee.name ?? '待查询' }}</strong>
           </div>
           <div class="summary-row">
-            <span>公司 / 组织</span>
-            <strong>{{ checkout?.registration.attendee.company ?? '待查询' }}</strong>
+            <span>{{ isBatchOrder ? '参会资料' : '公司 / 组织' }}</span>
+            <strong>{{ isBatchOrder ? '登录订单详情查看' : checkout?.registration?.attendee.company ?? '待查询' }}</strong>
           </div>
           <div class="summary-row">
-            <span>票种</span><strong>{{ checkout?.registration.ticketType.name ?? '大会门票' }}</strong>
+            <span>票种</span><strong>{{ checkout?.registration?.ticketType.name ?? '大会门票' }}</strong>
           </div>
           <div class="summary-row">
             <span>{{ isFreeOrder ? '报名方式' : '支付方式' }}</span>
@@ -443,7 +461,7 @@ function switchChannelLabel(channel: string) {
           </div>
           <p v-if="displayError && !canPay" class="form-error" role="alert">{{ displayError }}</p>
           <div
-            v-if="orderAccessToken && !paymentSurface && !isProxyPurchase"
+            v-if="orderAccessToken && !paymentSurface && !isProxyPurchase && !isBatchOrder"
             class="order-account-link"
           >
             <p v-if="claimMessage" class="form-success" role="status">{{ claimMessage }}</p>
@@ -463,13 +481,17 @@ function switchChannelLabel(channel: string) {
             </button>
           </div>
           <div v-else-if="orderAccessToken && paymentSurface" class="order-account-link">
-            <a class="flow-action is-secondary" :href="accountClaimHref">返回大会后登录并保存</a>
+            <a class="flow-action is-secondary" :href="isBatchOrder ? batchOrderHref : accountClaimHref">登录后查看订单</a>
           </div>
         </section>
         <aside class="order-payment">
           <template v-if="awaitingReview">
             <p>审核期间无需付款，请留意报名邮箱中的结果通知。</p>
             <a class="flow-action is-secondary is-full" :href="conferenceHomeHref">返回大会首页</a>
+          </template>
+          <template v-else-if="isBatchOrder && ['paid', 'partially_refunded', 'refunded'].includes(order.status)">
+            <p>{{ stateLead }}</p>
+            <a class="flow-action is-full" :href="batchOrderHref">查看全部名额</a>
           </template>
           <template
             v-else-if="isProxyPurchase && ['paid', 'partially_refunded'].includes(order.status)"
@@ -652,11 +674,12 @@ function switchChannelLabel(channel: string) {
 
             <a
               class="flow-action is-secondary is-full"
-              :href="registerHref"
+              :href="editRegistrationHref"
               style="margin-top: 8px"
             >
               返回修改信息
             </a>
+            <p class="flow-meta">信息有误可先返回修改，保存后继续支付。</p>
           </template>
           <template v-else-if="['paid', 'partially_refunded'].includes(order.status)">
             <p v-if="attendeeMaterialsEnabled">
@@ -692,7 +715,15 @@ function switchChannelLabel(channel: string) {
       <div v-else class="flow-card flow-card__body" style="text-align: center">
         <template v-if="displayError">
           <p class="form-error" role="alert">{{ displayError }}</p>
-          <button class="flow-action" type="button" @click="retryOrder">重新读取订单</button>
+          <a class="flow-action" :href="accountClaimHref">返回个人中心继续支付</a>
+          <button
+            v-if="orderAccessToken"
+            class="flow-action is-secondary"
+            type="button"
+            @click="retryOrder"
+          >
+            重新读取订单
+          </button>
         </template>
         <p v-else>正在读取订单…</p>
       </div>

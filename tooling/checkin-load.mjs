@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
 import { createCustomerSession } from './lib/customer-session.mjs';
+import { assertPaymentSummary, readAttendeeTicket } from './lib/attendee-ticket.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const deviceCount = Number(process.env.CHECKIN_DEVICE_COUNT ?? 100);
@@ -147,7 +148,7 @@ try {
 
   const paymentStartedAt = performance.now();
   const payments = await Promise.all(
-    checkouts.map((checkout, index) => {
+    checkouts.map(async (checkout, index) => {
       const paymentBody = JSON.stringify({
         orderId: checkout.order.id,
         externalId: `load-payment-${runId}-${index}`,
@@ -160,7 +161,7 @@ try {
       const paymentSignature = createHmac('sha256', paymentWebhookSecret)
         .update(`${paymentTimestamp}.${paymentBody}`)
         .digest('hex');
-      return request('/payments/webhook/test-provider', {
+      const completion = await request('/payments/webhook/test-provider', {
         method: 'POST',
         headers: {
           'X-Payment-Timestamp': paymentTimestamp,
@@ -168,12 +169,28 @@ try {
         },
         body: paymentBody,
       });
+      assertPaymentSummary(completion, checkout.order);
+      return completion;
     }),
   );
   const paymentDurationMs = Math.round(performance.now() - paymentStartedAt);
+  const attendeeTickets = await Promise.all(
+    checkouts.map((checkout, index) =>
+      readAttendeeTicket({
+        apiBase: baseUrl,
+        registrationId: checkout.registration.id,
+        headers: registrationCustomers[index].headers,
+      }),
+    ),
+  );
   assert(
-    new Set(payments.map((item) => item.ticket.id)).size === deviceCount,
+    payments.length === deviceCount &&
+      new Set(attendeeTickets.map((ticket) => ticket.id)).size === deviceCount,
     'Ticket issuance count is incorrect',
+  );
+  assert(
+    new Set(attendeeTickets.map((ticket) => ticket.code)).size === deviceCount,
+    'Different attendees received the same ticket code',
   );
 
   const devices = await Promise.all(
@@ -189,7 +206,7 @@ try {
     ),
   );
 
-  const batches = payments.map((payment, index) => ({
+  const batches = attendeeTickets.map((ticket, index) => ({
     token: devices[index].token,
     payload: {
       eventId: event.id,
@@ -199,7 +216,7 @@ try {
       records: [
         {
           localId: `local-${runId}-${index}`,
-          ticketCode: payment.ticket.code,
+          ticketCode: ticket.code,
           checkedInAt: new Date().toISOString(),
         },
       ],

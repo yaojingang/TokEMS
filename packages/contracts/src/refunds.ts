@@ -10,7 +10,14 @@ export const EventRefundPolicySchema = z
 
 export const CustomerRefundApplicationSchema = z
   .object({
-    amount: z.number().int().positive(),
+    amount: z.number().int().positive().optional(),
+    selectedItemIds: z
+      .array(z.uuid())
+      .min(1)
+      .max(20)
+      .refine((ids) => new Set(ids).size === ids.length)
+      .optional(),
+    contextVersion: z.string().min(1).max(128).optional(),
     policyVersion: z.string().trim().min(1).max(80),
     reason: z.string().trim().max(1000).default(''),
   })
@@ -25,9 +32,24 @@ export const RefundExecutionModeSchema = z
     reason: z.string().trim().min(2).max(1000),
   })
   .strict();
+export const ExternalRefundAllocationSchema = z
+  .object({
+    orderItemId: z.uuid(),
+    amount: z.number().int().positive(),
+    rightsEffect: z.enum(['retain', 'revoke']),
+  })
+  .strict();
+export const AdminItemRefundSchema = z.object({
+  contextVersion: z.string().min(1).max(128),
+  reason: z.string().trim().min(2).max(1000),
+  allocations: z.array(ExternalRefundAllocationSchema.extend({ version: z.number().int().positive() })).min(1).max(20).refine((items) => new Set(items.map((item) => item.orderItemId)).size === items.length),
+}).strict();
+export type AdminItemRefund = z.infer<typeof AdminItemRefundSchema>;
+export type ExternalRefundAllocation = z.infer<typeof ExternalRefundAllocationSchema>;
 export const VerifyExternalRefundSchema = z
   .object({
     outRefundNo: z.string().regex(/^[A-Za-z0-9_\-|@]{1,64}$/u),
+    allocations: z.array(ExternalRefundAllocationSchema).min(1).max(20).optional(),
   })
   .strict();
 export const RefundApplicationQuerySchema = z.object({
@@ -40,6 +62,7 @@ export const RefundApplicationQuerySchema = z.object({
 });
 
 export const RefundApplicationViewSchema = z.object({
+  selectedItemIds: z.array(z.string()).default([]),
   id: z.string(),
   orderId: z.string(),
   eventId: z.number().int(),
@@ -60,7 +83,20 @@ export const RefundApplicationViewSchema = z.object({
   payerRefund: z.number().int().nullable(),
   discountRefund: z.number().int().nullable(),
 });
+export const RefundContextItemSchema = z.object({
+  id: z.string(),
+  registrationId: z.string(),
+  name: z.string(),
+  ticketName: z.string(),
+  refundableAmount: z.number().int(),
+  eligible: z.boolean(),
+  blockedReason: z.string().nullable(),
+  version: z.number().int(),
+});
 export const RefundContextSchema = z.object({
+  quantity: z.number().int(),
+  contextVersion: z.string(),
+  items: z.array(RefundContextItemSchema),
   orderId: z.string(),
   orderNo: z.string(),
   eventId: z.number().int(),

@@ -1,3 +1,4 @@
+import { attendeeOrderEligibleSql } from './attendee-order-rights.js';
 import { PUBLIC_EVENT_STATUSES, isPublicEventStatus } from '@conference/contracts';
 import {
   attendeeShowcaseProfiles,
@@ -19,6 +20,7 @@ export type AttendeeShowcaseQualificationInput = {
   customerStatus: string;
   registrationStatus: string;
   orderStatus: string;
+  retainedAdmission?: boolean;
   paymentSatisfied: boolean;
   ticketStatus: string | null;
   isPublic: boolean;
@@ -66,7 +68,7 @@ export function attendeeShowcaseQualification(row: AttendeeShowcaseQualification
   if (!PUBLIC_REGISTRATION_STATUSES.includes(row.registrationStatus as never)) {
     return { qualified: false, reason: '报名状态不可公开' };
   }
-  if (!PUBLIC_ORDER_STATUSES.includes(row.orderStatus as never)) {
+  if (!(row.retainedAdmission ?? PUBLIC_ORDER_STATUSES.includes(row.orderStatus as never))) {
     return { qualified: false, reason: '订单尚未完成或已经全额退款' };
   }
   if (!row.paymentSatisfied) return { qualified: false, reason: '支付结果尚未确认' };
@@ -88,11 +90,11 @@ export function attendeeShowcasePublicEligibilitySql(
     eq(customerUsers.status, 'active'),
     ...(options.eventAlreadyValidated ? [] : [inArray(events.status, [...PUBLIC_EVENT_STATUSES])]),
     inArray(registrations.status, [...PUBLIC_REGISTRATION_STATUSES]),
-    inArray(orders.status, [...PUBLIC_ORDER_STATUSES]),
+    attendeeOrderEligibleSql(),
     sql`(${orders.amount} = 0 or exists (
       select 1 from ${payments} attendee_showcase_payment
       where attendee_showcase_payment.order_id = ${orders.id}
-        and attendee_showcase_payment.status = 'succeeded'
+        and attendee_showcase_payment.succeeded_at is not null
     ))`,
     inArray(tickets.status, [...PUBLIC_TICKET_STATUSES]),
   )!;

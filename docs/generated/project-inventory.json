@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 17,
+  "webPages": 19,
   "adminViews": 40,
-  "migrations": 65,
-  "latestMigration": "0064_feishu_manual_request_hash.sql",
-  "databaseTables": 83,
-  "apiControllers": 35,
-  "apiOperations": 292,
-  "testFiles": 192
+  "migrations": 67,
+  "latestMigration": "0066_invoice_sms_direct_download.sql",
+  "databaseTables": 87,
+  "apiControllers": 39,
+  "apiOperations": 307,
+  "testFiles": 214
 }

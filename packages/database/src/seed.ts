@@ -163,7 +163,6 @@ async function ensureCanonicalAssetObject(asset: {
   const response = await fetch(putUrl, {
     method: 'PUT',
     headers: {
-      'Content-Length': String(content.byteLength),
       'Content-Type': asset.mediaType,
       'If-None-Match': '*',
     },

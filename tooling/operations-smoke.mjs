@@ -1,6 +1,11 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { cleanupTestEvents } from './lib/test-event-cleanup.mjs';
 import { createCustomerSession } from './lib/customer-session.mjs';
+import { assertPaymentSummary, readAttendeeTicket } from './lib/attendee-ticket.mjs';
+import {
+  assertLegacyRefundFixture,
+  prepareLegacyRefundFixture,
+} from './lib/legacy-refund-fixture.mjs';
 
 const baseUrl = process.env.API_BASE_URL ?? 'http://localhost:8088/api/v1';
 const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@tokems.local';
@@ -649,21 +654,31 @@ try {
   const paymentSignature = createHmac('sha256', paymentWebhookSecret)
     .update(`${paymentTimestamp}.${paymentBody}`)
     .digest('hex');
-  const callbacks = await Promise.all(
-    Array.from({ length: 10 }, () =>
-      request('/payments/webhook/test-provider', {
+  const callbackTickets = await Promise.all(
+    Array.from({ length: 10 }, async () => {
+      const { body: completion } = await request('/payments/webhook/test-provider', {
         method: 'POST',
         headers: {
           'X-Payment-Timestamp': paymentTimestamp,
           'X-Payment-Signature': paymentSignature,
         },
         body: paymentBody,
-      }),
-    ),
+      });
+      assertPaymentSummary(completion, checkout.order);
+      return readAttendeeTicket({
+        apiBase: baseUrl,
+        registrationId: checkout.registration.id,
+        headers: registrationCustomer.headers,
+      });
+    }),
   );
-  const ticketCodes = new Set(callbacks.map((item) => item.body.ticket.code));
+  const ticketCodes = new Set(callbackTickets.map((ticket) => ticket.code));
   assert(ticketCodes.size === 1, 'Concurrent payment callbacks issued multiple tickets');
-  const ticket = callbacks[0].body.ticket;
+  assert(
+    new Set(callbackTickets.map((ticket) => ticket.id)).size === 1,
+    'Concurrent callbacks changed the ticket identity',
+  );
+  const ticket = callbackTickets[0];
 
   const secondRegistrationKey = `registration-second-${runId}`;
   const secondRegistrationMobile = `139${mobileSuffix}`;
@@ -799,6 +814,23 @@ try {
   }
   assert(deliveryStatus === 'sent', 'Notification worker did not complete delivery');
 
+  const v2RefundRejection = await expectStatus(`/admin/orders/${checkout.order.id}/refunds`, 409, {
+    method: 'POST',
+    headers: authHeaders(token, { 'Idempotency-Key': `v2-legacy-refund-rejected-${runId}` }),
+    body: JSON.stringify({ amount: 1, reason: '新订单禁止使用旧退款入口' }),
+  });
+  assert(
+    v2RefundRejection.code === 'INVALID_STATE_TRANSITION',
+    'V2 order was not rejected by the legacy refund guard',
+  );
+  const legacyRefundFixture = await prepareLegacyRefundFixture({
+    databaseUrl: process.env.DATABASE_URL,
+    eventId,
+    eventSlug: slug,
+    checkout,
+    externalId: paymentExternalId,
+    ticketStatus: 'used',
+  });
   await expectStatus(`/admin/orders/${checkout.order.id}/refunds`, 409, {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': `checked-in-full-refund-${runId}` }),
@@ -821,6 +853,12 @@ try {
     method: 'POST',
     headers: authHeaders(token, { 'Idempotency-Key': refundKey }),
     body: JSON.stringify({ amount: 2, reason: '冲突退款内容' }),
+  });
+  await assertLegacyRefundFixture({
+    databaseUrl: process.env.DATABASE_URL,
+    fixture: legacyRefundFixture,
+    refundedAmount: 1,
+    fullRefund: false,
   });
 
   const { body: csv } = await request(`/admin/events/${eventId}/registrations/export.csv`, {
@@ -950,7 +988,15 @@ try {
   assert(freeCheckout.order.amount === 0, 'Free checkout created a non-zero order');
   assert(freeCheckout.order.status === 'paid', 'Free checkout order was not completed');
   assert(freeCheckout.registration.status === 'confirmed', 'Free registration was not confirmed');
-  assert(freeCheckout.ticket?.code, 'Free registration did not issue a ticket');
+  assert(
+    !Object.hasOwn(freeCheckout, 'ticket'),
+    'Free checkout exposed a ticket outside the attendee route',
+  );
+  const freeTicket = await readAttendeeTicket({
+    apiBase: baseUrl,
+    registrationId: freeCheckout.registration.id,
+    headers: freeRegistrationCustomer.headers,
+  });
 
   await request(`/admin/events/${eventId}/ticket-types/${temporaryTicket.id}/restore`, {
     method: 'POST',
@@ -1007,7 +1053,7 @@ try {
         eventId,
         releaseVersions: [release1.version, release2.version],
         formVersion: publishedForm.version,
-        paymentCallbacks: callbacks.length,
+        paymentCallbacks: callbackTickets.length,
         ticketCount: ticketCodes.size,
         offlineSync: { accepted: syncResult.accepted, cached: cachedSync.cached },
         ai: { draft: aiDraft.id, approved: true },
@@ -1021,7 +1067,7 @@ try {
         freeRegistration: {
           eventId: freeEvent.id,
           orderStatus: freeCheckout.order.status,
-          ticket: freeCheckout.ticket.code,
+          ticket: freeTicket.code,
         },
         auditEvents: auditLogs.length,
       },

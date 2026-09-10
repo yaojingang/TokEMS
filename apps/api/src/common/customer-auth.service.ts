@@ -813,6 +813,7 @@ export class CustomerAuthService {
         API_ERROR_CODES.FORBIDDEN,
         '页面安全校验已失效，请刷新后重试',
         HttpStatus.FORBIDDEN,
+        { reason: 'customer_csrf_invalid' },
       );
     }
   }

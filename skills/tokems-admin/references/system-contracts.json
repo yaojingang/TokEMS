@@ -2194,6 +2194,28 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/orders/:orderId/item-refund-context",
+      "handler": "AdminRefundController.itemContext",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/orders/:orderId/items",
+      "handler": "AdminBatchOrdersController.detail",
+      "actionId": null,
+      "exclusion": "Batch order operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/refund-exceptions",
       "handler": "AdminRefundController.exceptions",
       "actionId": null,
@@ -2356,6 +2378,17 @@
       "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
       "requiredAnyGrants": [
         "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/integrations/aliyun-sms/invoice-ready/tests/:deliveryId",
+      "handler": "OrganizationEventsController.invoiceSmsTestStatus",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "org.settings.manage"
       ],
       "requiredAllGrants": []
     },
@@ -3224,6 +3257,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/revoke-access",
+      "handler": "InvoiceController.revokeAccess",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [],
+      "requiredAllGrants": [
+        "event.read",
+        "org.invoice.manage"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/admin/events/:eventId/invoices/:invoiceId/send",
       "handler": "InvoiceController.send",
       "actionId": null,
@@ -3257,6 +3302,39 @@
         "event.read",
         "org.invoice.export"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/orders/:orderId/close",
+      "handler": "AdminController.closeUnpaidOrder",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/orders/:orderId/item-refunds",
+      "handler": "AdminRefundController.createItems",
+      "actionId": null,
+      "exclusion": "Refund workflow operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.order.refund"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/orders/:orderId/review",
+      "handler": "AdminBatchOrdersController.review",
+      "actionId": null,
+      "exclusion": "Batch order operations require human review until explicitly catalogued",
+      "requiredAnyGrants": [
+        "event.registration.manage"
+      ],
+      "requiredAllGrants": []
     },
     {
       "method": "POST",

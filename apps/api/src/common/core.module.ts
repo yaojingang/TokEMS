@@ -1,4 +1,9 @@
 import { Global, Module } from '@nestjs/common';
+import { BatchRegistrationService } from './batch-registration.service.js';
+import { OrderItemsService } from './order-items.service.js';
+import { BatchPaymentService } from './batch-payment.service.js';
+import { BatchOrderManagementService } from './batch-order-management.service.js';
+import { BatchClaimInvitationService } from './batch-claim-invitation.service.js';
 import { RefundWorkflowService } from './refund-workflow.service.js';
 import { WeChatRefundService } from './wechat-refund.service.js';
 import { AuthGuard } from './auth.guard.js';
@@ -35,6 +40,11 @@ import { AttendeeServiceHubService } from './attendee-service-hub.service.js';
 @Global()
 @Module({
   providers: [
+    BatchRegistrationService,
+    OrderItemsService,
+    BatchPaymentService,
+    BatchOrderManagementService,
+    BatchClaimInvitationService,
     RefundWorkflowService,
     WeChatRefundService,
     DatabaseService,
@@ -69,6 +79,11 @@ import { AttendeeServiceHubService } from './attendee-service-hub.service.js';
     AttendeeServiceHubService,
   ],
   exports: [
+    BatchOrderManagementService,
+    BatchClaimInvitationService,
+    BatchRegistrationService,
+    OrderItemsService,
+    BatchPaymentService,
     RefundWorkflowService,
     DatabaseService,
     ConferenceRepository,

@@ -1,3 +1,4 @@
+import { InvoiceSmsSendSchema, InvoiceAccessRevokeSchema } from '@conference/contracts';
 import {
   Body,
   Controller,
@@ -1316,18 +1317,22 @@ class InvoiceController {
 
   @Post(':invoiceId/send')
   @RequireAllGrants('event.read', 'org.invoice.manage')
-  send(
-    @Param('eventId', EventIdPipe) eventId: EventId,
-    @Param('invoiceId') invoiceId: string,
-    @Headers('idempotency-key') key: string | undefined,
-    @Req() request: AuthenticatedRequest,
-  ) {
-    return this.idempotency.execute(
-      `invoice:send:${request.user.organizationId}:${eventId}:${invoiceId}`,
-      requireIdempotencyKey(key),
-      { invoiceId },
-      () => this.invoices.send(request.user.organizationId, invoiceId, request.user.sub, eventId),
-    );
+  send(@Param('eventId', EventIdPipe) eventId:EventId,@Param('invoiceId') invoiceId:string,
+    @Headers('idempotency-key') key:string|undefined,@Req() request:AuthenticatedRequest,@Body() body:unknown) {
+    const input=parse(InvoiceSmsSendSchema,body??{});
+    const requestKey=requireIdempotencyKey(key);
+    return this.idempotency.execute(`invoice:send:${request.user.organizationId}:${eventId}:${invoiceId}`,requestKey,input,
+      () => this.invoices.send(request.user.organizationId,invoiceId,request.user.sub,eventId,{...input,requestKey}));
+  }
+
+  @Post(':invoiceId/revoke-access')
+  @RequireAllGrants('event.read','org.invoice.manage')
+  revokeAccess(@Param('eventId',EventIdPipe) eventId:EventId,@Param('invoiceId') invoiceId:string,
+    @Headers('idempotency-key') key:string|undefined,@Req() request:AuthenticatedRequest,@Body() body:unknown) {
+    const input=parse(InvoiceAccessRevokeSchema,body);
+    const requestKey=requireIdempotencyKey(key);
+    return this.idempotency.execute(`invoice:revoke:${request.user.organizationId}:${eventId}:${invoiceId}`,requestKey,input,
+      () => this.invoices.revokeAccess(request.user.organizationId,invoiceId,request.user.sub,eventId,input,requestKey));
   }
 
   @Post(':invoiceId/details-reminder')

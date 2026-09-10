@@ -1,3 +1,5 @@
+import { attendeeOrderEligibleSql, attendeeOrderIsEligible } from './attendee-order-rights.js';
+import { registrationOrderJoin } from './customer-order-ownership.js';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type {
@@ -47,7 +49,6 @@ import {
   attendeeShowcaseQualification,
   attendeeShowcasePublicEligibilitySql,
   attendeeShowcaseVersionMatches,
-  PUBLIC_ORDER_STATUSES,
   PUBLIC_REGISTRATION_STATUSES,
   PUBLIC_TICKET_STATUSES,
 } from './attendee-showcase-policy.js';
@@ -240,7 +241,7 @@ export class AttendeeShowcaseService {
       })
       .from(registrations)
       .innerJoin(events, eq(events.id, registrations.eventId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .innerJoin(customerUsers, eq(customerUsers.id, registrations.customerUserId))
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .leftJoin(customerProfiles, eq(customerProfiles.customerUserId, customerUsers.id))
@@ -252,7 +253,7 @@ export class AttendeeShowcaseService {
         customerMediaAssets,
         eq(customerMediaAssets.id, attendeeShowcaseProfiles.avatarAssetId),
       )
-      .leftJoin(payments, and(eq(payments.orderId, orders.id), eq(payments.status, 'succeeded')))
+      .leftJoin(payments, and(eq(payments.orderId, orders.id), inArray(payments.status, ['succeeded', 'refunded'])))
       .where(
         and(
           eq(registrations.id, registrationId),
@@ -287,7 +288,7 @@ export class AttendeeShowcaseService {
     if (row.showcase) return { profile: row.showcase, created: false };
     if (
       !PUBLIC_REGISTRATION_STATUSES.includes(row.registration.status as never) ||
-      !PUBLIC_ORDER_STATUSES.includes(row.order.status as never) ||
+      !attendeeOrderIsEligible(row.order, row.ticket) ||
       !row.ticket ||
       !PUBLIC_TICKET_STATUSES.includes(row.ticket.status as never) ||
       (row.order.amount > 0 && !row.successfulPaymentAt)
@@ -302,26 +303,26 @@ export class AttendeeShowcaseService {
     const [position] = await this.db()
       .select({ value: count(registrations.id) })
       .from(registrations)
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
       .where(
         and(
           eq(registrations.eventId, row.registration.eventId),
           isNull(registrations.supersededAt),
           inArray(registrations.status, [...PUBLIC_REGISTRATION_STATUSES]),
-          inArray(orders.status, [...PUBLIC_ORDER_STATUSES]),
+          attendeeOrderEligibleSql(),
           inArray(tickets.status, [...PUBLIC_TICKET_STATUSES]),
           sql`(${orders.amount} = 0 or exists (
             select 1 from ${payments} attendee_sequence_payment
             where attendee_sequence_payment.order_id = ${orders.id}
-              and attendee_sequence_payment.status = 'succeeded'
+              and attendee_sequence_payment.succeeded_at is not null
           ))`,
           sql`(
             coalesce(
               (select min(attendee_sequence_paid.succeeded_at)
                 from ${payments} attendee_sequence_paid
                 where attendee_sequence_paid.order_id = ${orders.id}
-                  and attendee_sequence_paid.status = 'succeeded'),
+                  and attendee_sequence_paid.succeeded_at is not null),
               ${orders.updatedAt},
               ${orders.createdAt}
             ),
@@ -377,6 +378,7 @@ export class AttendeeShowcaseService {
       customerStatus: row.customer.status,
       registrationStatus: row.registration.status,
       orderStatus: row.order.status,
+      retainedAdmission: attendeeOrderIsEligible(row.order, row.ticket),
       paymentSatisfied: row.order.amount === 0 || Boolean(row.successfulPaymentAt),
       ticketStatus: row.ticket?.status ?? null,
       isPublic: profile?.isPublic ?? false,
@@ -893,7 +895,7 @@ export class AttendeeShowcaseService {
         .select({ value: count(attendeeShowcaseProfiles.id) })
         .from(attendeeShowcaseProfiles)
         .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
-        .innerJoin(orders, eq(orders.registrationId, registrations.id))
+        .innerJoin(orders, registrationOrderJoin())
         .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
         .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
         .where(baseCondition),
@@ -904,7 +906,7 @@ export class AttendeeShowcaseService {
         })
         .from(attendeeShowcaseProfiles)
         .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
-        .innerJoin(orders, eq(orders.registrationId, registrations.id))
+        .innerJoin(orders, registrationOrderJoin())
         .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
         .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
         .where(
@@ -931,7 +933,7 @@ export class AttendeeShowcaseService {
         .select({ value: count(attendeeShowcaseProfiles.id) })
         .from(attendeeShowcaseProfiles)
         .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
-        .innerJoin(orders, eq(orders.registrationId, registrations.id))
+        .innerJoin(orders, registrationOrderJoin())
         .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
         .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
         .where(listCondition)
@@ -940,7 +942,7 @@ export class AttendeeShowcaseService {
         .select({ profile: attendeeShowcaseProfiles, avatar: customerMediaAssets })
         .from(attendeeShowcaseProfiles)
         .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
-        .innerJoin(orders, eq(orders.registrationId, registrations.id))
+        .innerJoin(orders, registrationOrderJoin())
         .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
         .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
         .leftJoin(
@@ -1010,7 +1012,7 @@ export class AttendeeShowcaseService {
       .select({ profile: attendeeShowcaseProfiles, avatar: customerMediaAssets })
       .from(attendeeShowcaseProfiles)
       .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .innerJoin(tickets, eq(tickets.registrationId, registrations.id))
       .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
       .leftJoin(
@@ -1127,7 +1129,7 @@ export class AttendeeShowcaseService {
       .from(attendeeShowcaseProfiles)
       .innerJoin(registrations, eq(registrations.id, attendeeShowcaseProfiles.registrationId))
       .innerJoin(events, eq(events.id, attendeeShowcaseProfiles.eventId))
-      .innerJoin(orders, eq(orders.registrationId, registrations.id))
+      .innerJoin(orders, registrationOrderJoin())
       .innerJoin(customerUsers, eq(customerUsers.id, attendeeShowcaseProfiles.customerUserId))
       .leftJoin(tickets, eq(tickets.registrationId, registrations.id))
       .leftJoin(customerProfiles, eq(customerProfiles.customerUserId, customerUsers.id))
@@ -1135,7 +1137,7 @@ export class AttendeeShowcaseService {
         customerMediaAssets,
         eq(customerMediaAssets.id, attendeeShowcaseProfiles.avatarAssetId),
       )
-      .leftJoin(payments, and(eq(payments.orderId, orders.id), eq(payments.status, 'succeeded')))
+      .leftJoin(payments, and(eq(payments.orderId, orders.id), inArray(payments.status, ['succeeded', 'refunded'])))
       .where(
         and(
           eq(attendeeShowcaseProfiles.organizationId, organizationId),

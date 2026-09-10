@@ -202,8 +202,8 @@ export async function loadFeishuDigestSnapshot(
           ),
         await snapshotDb
           .select({
-            paidOrders: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded'))::int`,
-            paidSeats: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded') and ${registrations.status} <> 'cancelled' and ${registrations.supersededAt} is null)::int`,
+            paidOrders: sql<number>`count(*) filter (where ${orders.status} in ('paid', 'partially_refunded', 'refunded'))::int`,
+            paidSeats: sql<number>`coalesce(sum(case when ${orders.modelVersion} = 2 then (select count(*) from order_items oi where oi.order_id = ${orders.id} and oi.state = 'active') when ${orders.status} in ('paid', 'partially_refunded') and ${registrations.status} <> 'cancelled' and ${registrations.supersededAt} is null then 1 else 0 end),0)::int`,
             netRevenue: sql<string>`coalesce(sum(
           case when ${orders.status} in ('paid', 'partially_refunded', 'refunded')
             then greatest(
@@ -212,6 +212,7 @@ export async function loadFeishuDigestSnapshot(
                 from ${refunds} successful_refund
                 where successful_refund.order_id = ${orders.id}
                   and successful_refund.status = 'succeeded'
+                      and (${orders.modelVersion} = 1 or successful_refund.payment_id = ${orders.settledPaymentId})
               ), 0),
               0
             )
@@ -220,7 +221,7 @@ export async function loadFeishuDigestSnapshot(
         ), 0)`,
           })
           .from(orders)
-          .innerJoin(registrations, eq(registrations.id, orders.registrationId))
+          .leftJoin(registrations, eq(registrations.id, orders.registrationId))
           .where(and(eq(orders.organizationId, organizationId), eq(orders.eventId, eventId))),
         await snapshotDb
           .select({

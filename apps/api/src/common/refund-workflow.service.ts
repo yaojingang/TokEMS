@@ -1,3 +1,4 @@
+import { invalidateInvoiceFileAccess } from '@conference/database';
 import { refundAttentionCondition, refundCurrentExecutionCondition } from '@conference/database';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
@@ -8,14 +9,21 @@ import {
   type RefundApplicationView,
   type RefundApplicationQuery,
   type RefundContext,
+  type ExternalRefundAllocation,
+  type AdminItemRefund,
 } from '@conference/contracts';
 import {
+  ACTIVE_WECHAT_PAYMENT_STATUSES,
   auditLogs,
   events,
   idempotencyKeys,
   invoiceRequests,
   invoiceStateLogs,
   orders,
+  orderItems,
+  inventoryReservations,
+  refundRequestItems,
+  refundItemAllocations,
   orderStateLogs,
   outboxEvents,
   payments,
@@ -27,6 +35,15 @@ import {
   ticketTypes,
 } from '@conference/database';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  allocateApprovedRefund,
+  fulfillRefundItems,
+  itemRefunded,
+  itemRefundReason,
+  refundFingerprint,
+  refundItemLedger,
+  refundRights,
+} from './batch-refund-items.js';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { customerCanManageOrder } from './customer-order-ownership.js';
@@ -95,55 +112,43 @@ export class RefundWorkflowService {
       .where(and(eq(orders.id, orderId), eq(orders.organizationId, organizationId)))
       .limit(1);
     if (!order) missing();
-    const ticketQuery = db
-      .select()
-      .from(tickets)
-      .where(
-        and(eq(tickets.registrationId, order.registrationId), eq(tickets.eventId, order.eventId)),
-      )
-      .limit(1);
-    const [ticket] = await (lock ? ticketQuery.for('update') : ticketQuery);
-    const registrationQuery = db
-      .select()
-      .from(registrations)
-      .where(
-        and(
-          eq(registrations.id, order.registrationId),
-          eq(registrations.organizationId, organizationId),
-        ),
-      )
-      .limit(1);
-    const [registration] = await (lock ? registrationQuery.for('update') : registrationQuery);
+    const rights = await refundRights(db, order, lock);
+    const registration = rights.registrations.find((row) => row.id === order.registrationId);
+    const ticket = rights.tickets.find((row) => row.registrationId === registration?.id);
+    const ticketType = rights.ticketTypes.find((row) => row.id === registration?.ticketTypeId);
     const [event] = await db
       .select()
       .from(events)
       .where(and(eq(events.id, order.eventId), eq(events.organizationId, organizationId)))
       .limit(1);
-    if (!registration || !event) missing();
-    const [ticketType] = await db
-      .select()
-      .from(ticketTypes)
-      .where(eq(ticketTypes.id, registration.ticketTypeId))
-      .limit(1);
+    if (!event || (order.modelVersion === 1 && !registration)) missing();
     const paid = await db
       .select()
       .from(payments)
       .where(
         and(eq(payments.orderId, orderId), inArray(payments.status, ['succeeded', 'refunded'])),
       );
-    const applications = await db
+    const applicationQuery = db
       .select()
       .from(refundRequests)
       .where(eq(refundRequests.orderId, orderId))
       .orderBy(desc(refundRequests.createdAt));
-    const executions = await db
+    const applications = await (lock ? applicationQuery.for('update') : applicationQuery);
+    const executionQuery = db
       .select()
       .from(refunds)
       .where(eq(refunds.orderId, orderId))
       .orderBy(desc(refunds.createdAt));
-    const payment = paid.length === 1 ? paid[0] : undefined;
+    const executions = await (lock ? executionQuery.for('update') : executionQuery);
+    const ledger = await refundItemLedger(db, orderId, lock);
+    const payment =
+      order.modelVersion === 2
+        ? paid.find((row) => row.id === order.settledPaymentId)
+        : paid.length === 1
+          ? paid[0]
+          : undefined;
     const totalRefunded = executions
-      .filter((row) => row.status === 'succeeded')
+      .filter((row) => row.status === 'succeeded' && (order.modelVersion !== 2 || row.paymentId === order.settledPaymentId))
       .reduce((total, row) => total + row.amount, 0);
     const reserved = applications
       .filter((row) => !row.terminatedAt)
@@ -155,7 +160,7 @@ export class RefundWorkflowService {
     const deadline = refundDeadline(payment?.succeededAt ?? null, policy.windowDays);
     const remaining = Math.max(0, (payment?.amount ?? order.amount) - totalRefunded);
     let blockedReason: string | null = null;
-    if (!currentPolicy.enabled) blockedReason = '本活动尚未开放自助退款，请联系主办方';
+    if (!policy.enabled) blockedReason = '本活动尚未开放自助退款，请联系主办方';
     else if (order.refundExecutionMode !== 'automatic')
       blockedReason = '该订单正在由财务核验，请联系主办方';
     else if (
@@ -170,12 +175,84 @@ export class RefundWorkflowService {
       blockedReason = '订单没有可退金额';
     else if (applications.some((row) => !row.terminatedAt))
       blockedReason = '已有退款申请，请查看处理进度';
-    else if (ticket?.status === 'used' || registration.status === 'checked_in')
+    else if (
+      order.modelVersion === 1 &&
+      (ticket?.status === 'used' || registration?.status === 'checked_in')
+    )
       blockedReason = '票券已使用，请联系主办方核验';
-    else if (registration.supersededAt || ticket?.refundPausedBy)
+    else if (order.modelVersion === 1 && (registration?.supersededAt || ticket?.refundPausedBy))
       blockedReason = '参会资格正在变更，请联系主办方';
     else if (Date.now() > deadline.getTime()) blockedReason = '已超过购票后 7 天自助退款期限';
+    if (
+      !blockedReason &&
+      (order.entitlementsOnHold ||
+        !this.externalSafe(executions) ||
+        executions.some((row) => row.fulfillmentAttention && row.protectionScope === 'order'))
+    )
+      blockedReason = '订单资金或权益需要人工核验';
+    if (
+      !blockedReason &&
+      order.modelVersion === 2 &&
+      (rights.items.length !== order.quantity ||
+        rights.items.reduce((sum, item) => sum + item.allocatedAmount, 0) !== order.amount)
+    )
+      blockedReason = '订单名额明细需要人工核验';
+    const contextItems = [...rights.items]
+      .sort((a, b) => a.position - b.position)
+      .map((item) => {
+        const refundableAmount = Math.max(0, item.allocatedAmount - itemRefunded(ledger, item.id));
+        const itemReason =
+          blockedReason ??
+          itemRefundReason(rights, item) ??
+          (refundableAmount <= 0 ? '该名额没有可退金额' : null);
+        return {
+          id: item.id,
+          registrationId: item.registrationId,
+          name:
+            rights.registrations.find((row) => row.id === item.registrationId)?.attendee.name ?? '',
+          ticketName: rights.ticketTypes.find((row) => row.id === item.ticketTypeId)?.name ?? '',
+          refundableAmount,
+          eligible: itemReason === null,
+          blockedReason: itemReason,
+          version: item.version,
+        };
+      });
+    if (!blockedReason && order.modelVersion === 2 && !contextItems.some((item) => item.eligible))
+      blockedReason = '当前没有可退款名额';
+    const contextVersion = refundFingerprint({
+      order: [
+        order.id,
+        order.version,
+        order.settledPaymentId,
+        order.status,
+        order.refundExecutionMode,
+        order.entitlementsOnHold,
+      ],
+      policy,
+      deadline,
+      payment: payment?.id,
+      items: rights.items.map((item) => [item.id, item.version, item.state, item.allocatedAmount]),
+      registrations: rights.registrations.map((row) => [
+        row.id,
+        row.updatedAt,
+        row.status,
+        row.supersededAt,
+      ]),
+      tickets: rights.tickets.map((row) => [
+        row.id,
+        row.status,
+        row.refundPausedBy,
+        row.ticketTypeId,
+      ]),
+      allocations: ledger.allocations.map((row) => [row.id, row.amount]),
+      applications: applications.map((row) => [row.id, row.version, row.terminatedAt]),
+      executions: executions.map((row) => [row.id, row.status, row.amount]),
+    });
     return {
+      rights,
+      ledger,
+      contextItems,
+      contextVersion,
       order,
       ticket,
       ticketType,
@@ -202,7 +279,7 @@ export class RefundWorkflowService {
       !customerCanManageOrder(
         state.order.purchaserCustomerUserId,
         state.order.purchaseIntentId,
-        state.registration.customerUserId,
+        state.order.modelVersion === 1 ? (state.registration?.customerUserId ?? null) : null,
         customer.customerUserId,
       )
     )
@@ -221,6 +298,9 @@ export class RefundWorkflowService {
     const current = related.find((execution) => execution.currentAttempt) ?? related[0];
     return {
       id: row.id,
+      selectedItemIds: (
+        (row.businessSnapshot.items as Array<{ id: string }> | undefined) ?? []
+      ).map((item) => item.id),
       orderId: row.orderId,
       eventId: row.eventId,
       amount: row.amount,
@@ -257,13 +337,24 @@ export class RefundWorkflowService {
     this.requirePurchaser(state, customer);
     return {
       orderId,
+      quantity: state.order.quantity,
+      contextVersion: state.contextVersion,
+      items: state.contextItems,
       orderNo: state.order.orderNo,
       eventId: state.event.id,
       eventName: state.event.name,
-      ticketName: state.ticketType?.name ?? '',
-      attendeeName: state.registration.attendee.name,
+      ticketName:
+        state.ticketType?.name ??
+        [...new Set(state.rights.ticketTypes.map((row) => row.name))].join(' / '),
+      attendeeName:
+        state.order.quantity > 1
+          ? `${state.order.quantity} 位参会人`
+          : (state.registration?.attendee.name ?? ''),
       paymentMethod: state.payment?.provider === 'wechatpay' ? '微信支付' : '其他支付方式',
-      paidAmount: state.paid.reduce((sum, row) => sum + row.amount, 0),
+      paidAmount:
+        state.order.modelVersion === 2
+          ? (state.payment?.amount ?? 0)
+          : state.paid.reduce((sum, row) => sum + row.amount, 0),
       payerTotal: state.payment
         ? (state.executions.find(
             (row) => row.paymentId === state.payment!.id && row.payerTotal !== null,
@@ -293,7 +384,7 @@ export class RefundWorkflowService {
     organizationId: string,
     orderId: string,
     key: string,
-    input: CustomerRefundApplication,
+    input: CustomerRefundApplication & { adminAllocations?: AdminItemRefund['allocations'] },
     customerUserId?: string,
     actorId?: string,
     funding?: Funding,
@@ -322,7 +413,7 @@ export class RefundWorkflowService {
           return this.view(cached, state.executions);
         }
         if (customerUserId && state.blockedReason) conflict(state.blockedReason);
-        if (!refundPolicy(state.event.settings).enabled) conflict('本活动尚未启用微信退款');
+        if (customerUserId && !state.policy.enabled) conflict('购票时未开放自助退款，请联系主办方');
         if (state.order.refundExecutionMode !== 'automatic') conflict('财务核验期间暂停提交退款');
         if (state.applications.some((row) => !row.terminatedAt))
           conflict('该订单已有未结束的退款申请');
@@ -335,6 +426,41 @@ export class RefundWorkflowService {
           state.payment.currency !== 'CNY'
         )
           conflict('原支付记录需要人工核验');
+        const batch = state.order.modelVersion === 2;
+        if (batch && !customerUserId && !input.adminAllocations?.length)
+          conflict('多人订单退款需要明确名额及权益处理方式，请使用逐名额退款申请');
+        if (
+          batch &&
+          (!input.selectedItemIds?.length || input.contextVersion !== state.contextVersion)
+        )
+          conflict('请选择退款名额并刷新最新退款信息');
+        const selected = batch
+          ? state.rights.items.filter((item) => input.selectedItemIds!.includes(item.id))
+          : [];
+        if (
+          batch &&
+          (selected.length !== input.selectedItemIds!.length ||
+            new Set(input.selectedItemIds).size !== selected.length)
+        )
+          conflict('退款名额不属于此订单或重复');
+        if (
+          batch &&
+          customerUserId && selected.some((item) => !state.contextItems.find((row) => row.id === item.id)?.eligible)
+        )
+          conflict('所选名额状态已变化，暂不能退款');
+        const allocations = input.adminAllocations;
+        if (batch && allocations) {
+          for (const allocation of allocations) {
+            const item = selected.find((row) => row.id === allocation.orderItemId);
+            if (!item || allocation.version !== item.version || allocation.amount > item.allocatedAmount - itemRefunded(state.ledger, item.id)) conflict('补偿名额、版本或可退金额已变化');
+            const reason = itemRefundReason(state.rights, item);
+            if (reason && !(allocation.rightsEffect === 'retain' && reason === '该票券已使用')) conflict(reason);
+          }
+        }
+        const amount = batch
+          ? allocations ? allocations.reduce((sum, row) => sum + row.amount, 0) : selected.reduce((sum, item) => sum + item.allocatedAmount - itemRefunded(state.ledger, item.id), 0)
+          : input.amount;
+        if (amount === undefined || (input.amount !== undefined && input.amount !== amount)) conflict('退款金额与所选名额不一致');
         const currentFunding = await this.wechat.refundConfiguration(organizationId, tx);
         if (
           (state.payment.merchantId && state.payment.merchantId !== currentFunding.merchantId) ||
@@ -346,22 +472,23 @@ export class RefundWorkflowService {
           conflict('微信支付配置已变化，请刷新并重新核验原支付商户');
         if (
           !['paid', 'partially_refunded'].includes(state.order.status) ||
-          input.amount > state.remaining ||
-          input.amount <= 0
+          amount > state.remaining ||
+          amount <= 0
         )
           conflict('退款金额或订单状态已变化，请刷新后重新确认');
         if (
           customerUserId &&
-          (input.amount !== state.remaining || input.policyVersion !== state.policy.version)
+          ((!batch && amount !== state.remaining) || input.policyVersion !== state.policy.version)
         )
           conflict('退款金额或规则已变化，请刷新后重新确认');
-        const fullRefund = input.amount === state.remaining;
+        const fullRefund = amount === state.remaining;
         if (
+          !batch &&
           fullRefund &&
-          (state.ticket?.status === 'used' || state.registration.status === 'checked_in')
+          (state.ticket?.status === 'used' || state.registration?.status === 'checked_in')
         )
           conflict('票券已使用，无法批准全额退款');
-        if (state.registration.supersededAt) conflict('报名已变更，需要人工核验');
+        if (!batch && state.registration?.supersededAt) conflict('报名已变更，需要人工核验');
         const now = new Date();
         const [application] = await tx
           .insert(refundRequests)
@@ -373,8 +500,8 @@ export class RefundWorkflowService {
             source: customerUserId ? 'customer' : 'admin',
             customerUserId,
             requestedBy: actorId,
-            amount: input.amount,
-            reservedAmount: input.amount,
+            amount,
+            reservedAmount: amount,
             currency: state.order.currency,
             reason: input.reason,
             policySnapshot: {
@@ -384,11 +511,26 @@ export class RefundWorkflowService {
             },
             businessSnapshot: {
               fullRefund,
+              ...(batch
+                ? {
+                    modelVersion: 2,
+                    contextVersion: state.contextVersion,
+                    items: selected.map((item) => ({
+                      id: item.id,
+                      version: item.version,
+                      registrationId: item.registrationId,
+                      ticketTypeId: item.ticketTypeId,
+                      ticketId: state.rights.tickets.find(
+                        (row) => row.registrationId === item.registrationId,
+                      )?.id,
+                    })),
+                  }
+                : {}),
               ticketId: state.ticket?.id ?? null,
-              registrationId: state.registration.id,
-              ticketTypeId: state.ticket?.ticketTypeId ?? state.registration.ticketTypeId,
+              registrationId: state.registration?.id ?? null,
+              ticketTypeId: state.ticket?.ticketTypeId ?? state.registration?.ticketTypeId,
               inventoryOwned:
-                state.ticket?.status === 'valid' && state.registration.status !== 'cancelled',
+                state.ticket?.status === 'valid' && state.registration?.status !== 'cancelled',
             },
             idempotencyKey: scopedKey,
             requestHash,
@@ -403,12 +545,26 @@ export class RefundWorkflowService {
           })
           .returning();
         if (!application) throw new Error('Refund application was not persisted');
+        if (batch)
+          await tx.insert(refundRequestItems).values(
+            selected.map((item) => ({
+              refundRequestId: application.id,
+              paymentId: state.payment!.id,
+              orderId,
+              orderItemId: item.id,
+              organizationId,
+              eventId: state.event.id,
+              requestedAmount: allocations?.find((row) => row.orderItemId === item.id)?.amount ?? item.allocatedAmount - itemRefunded(state.ledger, item.id),
+              rightsEffect: allocations?.find((row) => row.orderItemId === item.id)?.rightsEffect ?? 'revoke' as const,
+              version: item.version,
+            })),
+          );
         if (actorId && funding)
-          await this.approveExecution(tx, application, state, actorId, currentFunding);
+          await this.approveExecution(tx, application, batch ? await this.state(tx, organizationId, orderId, true) : state, actorId, currentFunding);
         await this.audit(tx, application, actorId ?? null, 'refund.request', {
           source: application.source,
           customerUserId,
-          amount: input.amount,
+          amount,
         });
         const executions = actorId
           ? await tx.select().from(refunds).where(eq(refunds.requestId, application.id))
@@ -416,6 +572,25 @@ export class RefundWorkflowService {
         return this.view(application, executions);
       }),
     );
+  }
+
+  async adminItemContext(organizationId: string, eventId: number, orderId: string) {
+    const state = await this.state(this.db(), organizationId, orderId);
+    if (state.event.id !== eventId || state.order.modelVersion !== 2) missing();
+    return { orderId, quantity: state.order.quantity, contextVersion: state.contextVersion, currency: state.order.currency, remaining: state.remaining, items: state.contextItems.map((row) => {
+      const item = state.rights.items.find((item) => item.id === row.id)!;
+      const reason = itemRefundReason(state.rights, item);
+      const moneyAvailable = row.refundableAmount > 0 && !state.order.entitlementsOnHold && state.order.refundExecutionMode === 'automatic' && !state.applications.some((application) => !application.terminatedAt);
+      return { ...row, version: item.version, canRetain: moneyAvailable && (!reason || reason === '该票券已使用'), canRevoke: moneyAvailable && !reason };
+    }) };
+  }
+
+  async createAdminItems(organizationId: string, eventId: number, orderId: string, actorId: string, key: string, input: AdminItemRefund) {
+    const state = await this.state(this.db(), organizationId, orderId);
+    if (state.event.id !== eventId || state.order.modelVersion !== 2 || !state.payment) missing();
+    await this.wechat.verifyRefundPayment(organizationId, state.payment.id);
+    const funding = await this.wechat.refundConfiguration(organizationId);
+    return this.create(organizationId, orderId, key, { reason: input.reason, policyVersion: state.policy.version, contextVersion: input.contextVersion, selectedItemIds: input.allocations.map((row) => row.orderItemId), adminAllocations: input.allocations }, undefined, actorId, funding);
   }
 
   async createAdmin(
@@ -530,7 +705,6 @@ export class RefundWorkflowService {
           )
             conflict('退款申请已更新，请刷新后确认');
           if (action === 'approve') {
-            if (!refundPolicy(state.event.settings).enabled) conflict('本活动尚未启用新的退款审批');
             const currentFunding = await this.wechat.refundConfiguration(organizationId, tx);
             if (
               funding!.merchantId !== currentFunding.merchantId ||
@@ -592,20 +766,75 @@ export class RefundWorkflowService {
       conflict('原支付商户、时间或流水需要核验');
     if (application.amount > state.remaining || state.reserved > state.remaining)
       conflict('可退金额与申请不符，需要核验外部退款');
-    if (state.registration.supersededAt) conflict('报名已变更，需要人工核验');
-    const fullRefund = application.businessSnapshot.fullRefund === true;
-    if (
-      fullRefund &&
-      (state.ticket?.status === 'used' || state.registration.status === 'checked_in')
-    )
-      conflict('参会人已签到或电子票已使用，无法批准全额退款');
-    if (state.ticket?.refundPausedBy && state.ticket.refundPausedBy !== application.id)
-      conflict('票券已有其他退款暂停');
-    if (fullRefund && state.ticket)
-      await tx
-        .update(tickets)
-        .set({ refundPausedBy: application.id, updatedAt: new Date() })
-        .where(eq(tickets.id, state.ticket.id));
+    if (state.order.modelVersion === 2) {
+      if (
+        (application.source === 'customer' && (
+          !state.deadline || !state.policy.enabled ||
+          application.policySnapshot.paidAt !== state.payment.succeededAt.toISOString() ||
+          application.createdAt > state.deadline
+        )) ||
+        state.order.entitlementsOnHold ||
+        !this.externalSafe(state.executions)
+      )
+        conflict('退款期限或资金状态已变化，请人工核验');
+      const targets = state.ledger.requestItems.filter(
+        (row) => row.refundRequestId === application.id,
+      );
+      if (
+        !targets.length ||
+        targets.reduce((sum, row) => sum + row.requestedAmount, 0) !== application.amount
+      )
+        conflict('退款申请名额需要核验');
+      for (const target of targets) {
+        const item = state.rights.items.find((row) => row.id === target.orderItemId);
+        if (
+          !item ||
+          target.version !== item.version ||
+          target.paymentId !== state.payment.id ||
+          (application.source === 'customer' ? target.requestedAmount !== item.allocatedAmount - itemRefunded(state.ledger, item.id) : target.requestedAmount > item.allocatedAmount - itemRefunded(state.ledger, item.id))
+        )
+          conflict('退款名额或金额已更新，请重新申请');
+        const reason = itemRefundReason(state.rights, item, application.id);
+        if (reason && !(application.source === 'admin' && target.rightsEffect === 'retain' && reason === '该票券已使用')) conflict(reason);
+        const snapshot = (
+          application.businessSnapshot.items as
+            Array<{ id: string; ticketId: string; ticketTypeId: string }> | undefined
+        )?.find((row) => row.id === item.id);
+        const ticket = state.rights.tickets.find(
+          (row) => row.registrationId === item.registrationId,
+        )!;
+        if (
+          !snapshot ||
+          snapshot.ticketId !== ticket.id ||
+          snapshot.ticketTypeId !== item.ticketTypeId
+        )
+          conflict('退款票券历史已变化，请重新核验');
+        await tx
+          .update(refundRequestItems)
+          .set({ approvedAmount: target.requestedAmount, updatedAt: new Date() })
+          .where(eq(refundRequestItems.id, target.id));
+        if (target.rightsEffect === 'revoke')
+          await tx
+            .update(tickets)
+            .set({ refundPausedBy: application.id, updatedAt: new Date() })
+            .where(eq(tickets.id, ticket.id));
+      }
+    } else {
+      if (state.registration?.supersededAt) conflict('报名已变更，需要人工核验');
+      const fullRefund = application.businessSnapshot.fullRefund === true;
+      if (
+        fullRefund &&
+        (state.ticket?.status === 'used' || state.registration?.status === 'checked_in')
+      )
+        conflict('参会人已签到或电子票已使用，无法批准全额退款');
+      if (state.ticket?.refundPausedBy && state.ticket.refundPausedBy !== application.id)
+        conflict('票券已有其他退款暂停');
+      if (fullRefund && state.ticket)
+        await tx
+          .update(tickets)
+          .set({ refundPausedBy: application.id, updatedAt: new Date() })
+          .where(eq(tickets.id, state.ticket.id));
+    }
     await this.insertExecution(tx, application, state.payment, actorId, funding);
   }
 
@@ -632,6 +861,7 @@ export class RefundWorkflowService {
       paymentId: payment.id,
       requestId: application.id,
       source: 'wechat_api',
+      protectionScope: application.businessSnapshot.modelVersion === 2 ? 'items' : 'order',
       refundNo,
       outRefundNo: refundNo,
       merchantId: funding.merchantId,
@@ -996,6 +1226,12 @@ export class RefundWorkflowService {
     );
   }
 
+  private batchPaymentRightsSafe(state: Awaited<ReturnType<RefundWorkflowService['state']>>) {
+    if (state.order.modelVersion !== 2) return true;
+    if (!state.order.settledPaymentId || !state.payment || state.payment.amount !== state.order.amount || state.rights.items.length !== state.order.quantity || state.rights.items.some((item) => !state.rights.tickets.some((ticket) => ticket.registrationId === item.registrationId))) return false;
+    return state.paid.filter((payment) => payment.id !== state.order.settledPaymentId).every((payment) => state.executions.filter((execution) => execution.paymentId === payment.id && execution.status === 'succeeded').reduce((sum, execution) => sum + execution.amount, 0) === payment.amount);
+  }
+
   async executionMode(
     organizationId: string,
     orderId: string,
@@ -1008,6 +1244,19 @@ export class RefundWorkflowService {
       return this.once(tx, `refund:mode:${orderId}:${actorId}`, key, input, async () => {
         const state = await this.state(tx, organizationId, orderId);
         if (input.mode === 'automatic') {
+          const [activePayment] = await tx.select({ id: payments.id }).from(payments).where(and(eq(payments.orderId, orderId), inArray(payments.status, [...ACTIVE_WECHAT_PAYMENT_STATUSES]))).limit(1);
+          if (!this.batchPaymentRightsSafe(state) || (state.order.modelVersion === 2 && activePayment)) conflict('仍有未结清的付款或出票异常，不能恢复自动退款或解除名额保护');
+          if (
+            state.order.modelVersion === 2 &&
+            state.executions.some(
+              (row) =>
+                row.status === 'succeeded' && row.paymentId === state.order.settledPaymentId &&
+                state.ledger.allocations
+                  .filter((allocation) => allocation.refundId === row.id)
+                  .reduce((sum, allocation) => sum + allocation.amount, 0) !== row.amount,
+            )
+          )
+            conflict('存在尚未归属名额的退款资金，请先完成财务核验');
           if (
             !this.externalSafe(state.executions) ||
             state.reserved > state.remaining ||
@@ -1035,6 +1284,7 @@ export class RefundWorkflowService {
           .update(orders)
           .set({
             refundExecutionMode: input.mode,
+            ...(input.mode === 'automatic' ? { entitlementsOnHold: false } : {}),
             refundExecutionReason: input.reason,
             refundExecutionUpdatedBy: actorId,
             updatedAt: new Date(),
@@ -1064,6 +1314,7 @@ export class RefundWorkflowService {
     actorId: string,
     key: string,
     outRefundNo: string,
+    allocations?: ExternalRefundAllocation[],
   ) {
     const state = await this.state(this.db(), organizationId, orderId);
     if (state.order.refundExecutionMode !== 'external_hold')
@@ -1089,7 +1340,7 @@ export class RefundWorkflowService {
         tx,
         `refund:external:${orderId}:${actorId}`,
         key,
-        { outRefundNo },
+        { outRefundNo, allocations },
         async () => {
           const latest = await this.state(tx, organizationId, orderId);
           if (latest.order.refundExecutionMode !== 'external_hold') conflict('订单处理方式已变化');
@@ -1116,7 +1367,7 @@ export class RefundWorkflowService {
               eventId: state.event.id,
               orderId,
               paymentId: state.payment!.id,
-              requestId: approved?.id,
+              requestId: latest.order.modelVersion === 2 ? null : approved?.id,
               source: 'external',
               refundNo: `RF${randomUUID().replaceAll('-', '')}`,
               outRefundNo,
@@ -1147,7 +1398,256 @@ export class RefundWorkflowService {
         },
       );
     });
-    return this.observe(organizationId, provenance.merchantId, outcome);
+    const result = await this.observe(organizationId, provenance.merchantId, outcome);
+    if (allocations)
+      return this.assignExternalItems(
+        organizationId,
+        orderId,
+        actorId,
+        key,
+        outRefundNo,
+        allocations,
+      );
+    return result;
+  }
+
+  /** Attribute an already verified external cash fact; this path never submits a channel refund. */
+  private async assignExternalItems(
+    organizationId: string,
+    orderId: string,
+    actorId: string,
+    key: string,
+    outRefundNo: string,
+    allocations: ExternalRefundAllocation[],
+  ) {
+    return this.db().transaction(async (tx) => {
+      await this.lockOrder(tx, organizationId, orderId);
+      return this.once(
+        tx,
+        `refund:allocation:${orderId}:${actorId}`,
+        key,
+        { outRefundNo, allocations },
+        async () => {
+          const state = await this.state(tx, organizationId, orderId, true);
+          const execution = state.executions.find((row) => row.outRefundNo === outRefundNo);
+          if (
+            state.order.modelVersion !== 2 ||
+            state.order.refundExecutionMode !== 'external_hold' ||
+            !execution ||
+            execution.source !== 'external' ||
+            execution.status !== 'succeeded' ||
+            execution.paymentId !== state.order.settledPaymentId ||
+            execution.currency !== state.order.currency
+          )
+            conflict('请先核验该订单的外部退款成功记录');
+          if (
+            !allocations.length ||
+            allocations.length > 20 ||
+            new Set(allocations.map((row) => row.orderItemId)).size !== allocations.length ||
+            allocations.some(
+              (row) =>
+                !Number.isSafeInteger(row.amount) ||
+                row.amount <= 0 ||
+                !['retain', 'revoke'].includes(row.rightsEffect),
+            ) ||
+            allocations.reduce((sum, row) => sum + row.amount, 0) !== execution.amount
+          )
+            conflict('请逐名额完整分配该笔已确认退款金额');
+          if (state.ledger.allocations.some((row) => row.refundId === execution.id))
+            conflict('该退款已归属名额，请刷新查看');
+          for (const allocation of allocations) {
+            const item = state.rights.items.find((row) => row.id === allocation.orderItemId);
+            if (
+              !item ||
+              allocation.amount > item.allocatedAmount - itemRefunded(state.ledger, item.id)
+            )
+              conflict('退款归属名额或剩余金额不符');
+          }
+          let application = state.applications.find(
+            (row) =>
+              row.reviewStatus === 'approved' &&
+              !row.terminatedAt &&
+              row.paymentId === execution.paymentId,
+          );
+          const now = new Date();
+          if (application) {
+            for (const allocation of allocations) {
+              const target = state.ledger.requestItems.find(
+                (row) =>
+                  row.refundRequestId === application!.id &&
+                  row.orderItemId === allocation.orderItemId,
+              );
+              const completed = state.ledger.allocations
+                .filter((row) => row.refundRequestItemId === target?.id)
+                .reduce((sum, row) => sum + row.amount, 0);
+              if (
+                !target ||
+                target.rightsEffect !== allocation.rightsEffect ||
+                target.approvedAmount === null ||
+                allocation.amount > target.approvedAmount - completed
+              )
+                conflict('外部退款与当前已批准名额不符，请先核验原申请');
+            }
+          } else {
+            [application] = await tx
+              .insert(refundRequests)
+              .values({
+                organizationId,
+                eventId: state.order.eventId,
+                orderId,
+                paymentId: execution.paymentId!,
+                source: 'admin',
+                requestedBy: actorId,
+                reviewedBy: actorId,
+                amount: execution.amount,
+                reservedAmount: 0,
+                completedAmount: execution.amount,
+                currency: execution.currency,
+                reviewStatus: 'approved',
+                fulfillmentStatus: 'completed',
+                reason: '已核验外部退款名额归属',
+                policySnapshot: state.policy,
+                businessSnapshot: { modelVersion: 2, externalAllocation: true, fullRefund: false },
+                idempotencyKey: refundFingerprint({
+                  executionId: execution.id,
+                  operation: 'external_allocation',
+                }),
+                requestHash: idempotencyRequestHash(allocations),
+                reviewedAt: now,
+                terminatedAt: now,
+              })
+              .returning();
+            await tx.insert(refundRequestItems).values(
+              allocations.map((allocation) => ({
+                refundRequestId: application!.id,
+                paymentId: execution.paymentId!,
+                orderId,
+                orderItemId: allocation.orderItemId,
+                organizationId,
+                eventId: state.order.eventId,
+                requestedAmount: allocation.amount,
+                approvedAmount: allocation.amount,
+                rightsEffect: allocation.rightsEffect,
+                version: state.rights.items.find((item) => item.id === allocation.orderItemId)!
+                  .version,
+              })),
+            );
+          }
+          await tx
+            .update(refunds)
+            .set({ requestId: application!.id, protectionScope: 'items', updatedAt: now })
+            .where(eq(refunds.id, execution.id));
+          const targets = await tx
+            .select()
+            .from(refundRequestItems)
+            .where(eq(refundRequestItems.refundRequestId, application!.id));
+          for (const allocation of allocations) {
+            const target = targets.find((row) => row.orderItemId === allocation.orderItemId)!;
+            await tx.insert(refundItemAllocations).values({
+              refundId: execution.id,
+              paymentId: execution.paymentId!,
+              orderId,
+              orderItemId: allocation.orderItemId,
+              refundRequestItemId: target.id,
+              organizationId,
+              eventId: state.order.eventId,
+              amount: allocation.amount,
+              basis: 'admin_verified_external_allocation',
+            });
+            if (target.rightsEffect === 'revoke') {
+              const item = state.rights.items.find((row) => row.id === allocation.orderItemId)!;
+              const ticket = state.rights.tickets.find(
+                (row) => row.registrationId === item.registrationId,
+              );
+              if (ticket && item.state !== 'cancelled') {
+                await tx
+                  .update(tickets)
+                  .set({ refundPausedBy: application!.id, updatedAt: now })
+                  .where(eq(tickets.id, ticket.id));
+                ticket.refundPausedBy = application!.id;
+              }
+            }
+          }
+          const updatedExecution = {
+            ...execution,
+            requestId: application!.id,
+            protectionScope: 'items' as const,
+          };
+          let attention: string | null;
+          try {
+            attention = await tx.transaction((savepoint) =>
+              this.fulfill(savepoint, state, updatedExecution, application, state.totalRefunded),
+            );
+          } catch {
+            attention = '已完成退款名额归属，权益或发票同步未完成，请重试权益同步';
+          }
+          await tx
+            .update(refunds)
+            .set({ fulfillmentAttention: attention, updatedAt: now })
+            .where(eq(refunds.id, execution.id));
+          const ledger = await refundItemLedger(tx, orderId);
+          const targetIds = targets.map((row) => row.id);
+          const completedAmount = ledger.allocations
+            .filter((row) => row.refundRequestItemId && targetIds.includes(row.refundRequestItemId))
+            .reduce((sum, row) => sum + row.amount, 0);
+          const complete = completedAmount >= application!.amount;
+          await tx
+            .update(refundRequests)
+            .set({
+              completedAmount,
+              reservedAmount: Math.max(0, application!.amount - completedAmount),
+              fulfillmentStatus: complete ? 'completed' : 'manual_required',
+              terminatedAt: complete ? now : null,
+              attentionReason:
+                attention ?? (complete ? null : '外部退款已改变原执行金额，请核验后继续剩余退款'),
+              version: sql`${refundRequests.version} + 1`,
+              updatedAt: now,
+            })
+            .where(eq(refundRequests.id, application!.id));
+          // The original channel attempt stays query-only until the operator confirms its unused identity.
+          for (const prior of state.executions.filter(
+            (row) =>
+              row.id !== execution.id && row.requestId === application!.id && row.currentAttempt,
+          )) {
+            if (
+              ['queued', 'waiting_funds', 'failed', 'superseded'].includes(prior.status) &&
+              !prior.leaseUntil
+            )
+              await tx
+                .update(refunds)
+                .set({
+                  status: prior.lastSubmittedAt ? 'query_pending' : 'superseded',
+                  currentAttempt: !complete || Boolean(prior.lastSubmittedAt),
+                  nextAttemptAt: prior.lastSubmittedAt ? now : null,
+                  lastError: '外部退款已改变申请金额，核验后确认剩余退款',
+                  updatedAt: now,
+                })
+                .where(eq(refunds.id, prior.id));
+          }
+          const unresolved = state.executions.some(
+            (row) =>
+              row.id !== execution.id &&
+              ((row.protectionScope === 'order' && row.fulfillmentAttention) ||
+                row.status === 'abnormal' ||
+                (row.status === 'succeeded' &&
+                  ledger.allocations
+                    .filter((allocation) => allocation.refundId === row.id)
+                    .reduce((sum, allocation) => sum + allocation.amount, 0) !== row.amount)),
+          );
+          if (!unresolved && this.batchPaymentRightsSafe(state))
+            await tx
+              .update(orders)
+              .set({ entitlementsOnHold: false, updatedAt: now })
+              .where(eq(orders.id, orderId));
+          await this.audit(tx, application!, actorId, 'refund.external_items_allocated', {
+            refundId: execution.id,
+            allocations,
+            fulfillmentAttention: attention,
+          });
+          return { status: 'succeeded', allocated: true, fulfillmentAttention: attention };
+        },
+      );
+    });
   }
 
   async emitOverdueAlerts() {
@@ -1194,6 +1694,11 @@ export class RefundWorkflowService {
     application: Application | undefined,
     totalRefunded: number,
   ) {
+    if (state.order.modelVersion === 2) {
+      const attention = await fulfillRefundItems(tx, state.order, state.rights, execution);
+      await this.adjustInvoice(tx, state, execution, totalRefunded);
+      return attention;
+    }
     if (state.paid.length !== 1 || state.paid[0]?.amount !== state.order.amount)
       return '退款资金已确认，订单存在多笔或异常支付，需要财务核验后处理票券、库存和发票';
     const fullRefund = totalRefunded >= state.order.amount;
@@ -1202,16 +1707,16 @@ export class RefundWorkflowService {
     const now = new Date();
     if (
       fullRefund &&
-      (state.registration.supersededAt ||
+      (state.registration!.supersededAt ||
         state.ticket?.status === 'used' ||
-        state.registration.status === 'checked_in' ||
+        state.registration!.status === 'checked_in' ||
         (snapshot?.ticketId && snapshot.ticketId !== state.ticket?.id) ||
         (snapshot?.ticketTypeId && snapshot.ticketTypeId !== state.ticket?.ticketTypeId))
     ) {
       fulfillmentAttention = '退款已确认，报名或票券存在变更，需要人工核对权益和库存';
     }
     if (fullRefund && !fulfillmentAttention) {
-      if (state.ticket?.status === 'valid' && state.registration.status !== 'cancelled') {
+      if (state.ticket?.status === 'valid' && state.registration!.status !== 'cancelled') {
         const inventoryId =
           typeof snapshot?.ticketTypeId === 'string'
             ? snapshot.ticketTypeId
@@ -1229,8 +1734,22 @@ export class RefundWorkflowService {
       await tx
         .update(registrations)
         .set({ status: 'cancelled', updatedAt: now })
-        .where(eq(registrations.id, state.registration.id));
+        .where(eq(registrations.id, state.registration!.id));
+      const endedItems = await tx.update(orderItems).set({ state: 'cancelled', cancelledAt: now, inventoryReleasedAt: now, version: sql`${orderItems.version} + 1`, updatedAt: now }).where(and(eq(orderItems.orderId, state.order.id), eq(orderItems.registrationId, state.registration!.id), sql`${orderItems.state} <> 'cancelled'`)).returning({ id: orderItems.id });
+      if (endedItems.length) await tx.update(inventoryReservations).set({ releasedAt: now, updatedAt: now }).where(and(eq(inventoryReservations.orderId, state.order.id), inArray(inventoryReservations.orderItemId, endedItems.map((item) => item.id)), isNull(inventoryReservations.releasedAt)));
     }
+    await this.adjustInvoice(tx, state, execution, totalRefunded);
+    return fulfillmentAttention;
+  }
+
+  private async adjustInvoice(
+    tx: Tx,
+    state: Awaited<ReturnType<RefundWorkflowService['state']>>,
+    execution: Execution,
+    totalRefunded: number,
+  ) {
+    if (state.order.modelVersion === 2 && execution.paymentId !== state.order.settledPaymentId) return;
+    const now = new Date();
     const [invoice] = await tx
       .select()
       .from(invoiceRequests)
@@ -1247,8 +1766,9 @@ export class RefundWorkflowService {
             : invoice.status;
       await tx
         .update(invoiceRequests)
-        .set({ netPaidAmount: net, amount: Math.min(invoice.amount, net), status, updatedAt: now })
+        .set({ netPaidAmount: net, ...(['issued', 'adjustment_required', 'voided'].includes(invoice.status) ? {} : { amount: Math.min(invoice.amount, net) }), status, updatedAt: now })
         .where(eq(invoiceRequests.id, invoice.id));
+      if (status !== invoice.status) await invalidateInvoiceFileAccess(tx, invoice.id);
       if (status !== invoice.status)
         await tx.insert(invoiceStateLogs).values({
           invoiceRequestId: invoice.id,
@@ -1258,7 +1778,6 @@ export class RefundWorkflowService {
           metadata: { refundId: execution.id },
         });
     }
-    return fulfillmentAttention;
   }
 
   async repairFulfillment(organizationId: string, executionId: string) {
@@ -1280,16 +1799,28 @@ export class RefundWorkflowService {
       const current = state.executions.find((row) => row.id === executionId)!;
       if (!current.fulfillmentAttention) return { repaired: false };
       const application = state.applications.find((row) => row.id === current.requestId);
-      const attention = await this.fulfill(tx, state, current, application, state.totalRefunded);
+      const surplusPaymentRefund = state.order.modelVersion === 2 && state.order.settledPaymentId !== null && current.paymentId !== state.order.settledPaymentId;
+      const allocationAttention =
+        (state.order.modelVersion === 2 && !surplusPaymentRefund) ||
+        (state.rights.items.length === 1 &&
+          state.paid.length === 1 &&
+          state.paid[0]?.amount === state.order.amount)
+          ? await allocateApprovedRefund(tx, state.order, state.rights, current)
+          : null;
+      const attention = surplusPaymentRefund ? null :
+        allocationAttention ??
+        (await this.fulfill(tx, state, current, application, state.totalRefunded));
       await tx
         .update(refunds)
         .set({ fulfillmentAttention: attention, updatedAt: new Date() })
         .where(eq(refunds.id, current.id));
-      if (application)
-        await tx
-          .update(refundRequests)
-          .set({ attentionReason: attention, updatedAt: new Date() })
-          .where(eq(refundRequests.id, application.id));
+      if (application) {
+        const ledger = state.order.modelVersion === 2 ? await refundItemLedger(tx, current.orderId) : null;
+        const targetIds = ledger?.requestItems.filter((item) => item.refundRequestId === application.id).map((item) => item.id) ?? [];
+        const completedAmount = Math.min(application.amount, ledger ? ledger.allocations.filter((allocation) => allocation.refundRequestItemId && targetIds.includes(allocation.refundRequestItemId)).reduce((sum, allocation) => sum + allocation.amount, 0) : application.completedAmount);
+        const complete = completedAmount === application.amount;
+        await tx.update(refundRequests).set({ completedAmount, reservedAmount: Math.max(0, application.amount - completedAmount), fulfillmentStatus: attention ? 'manual_required' : complete ? 'completed' : 'open', terminatedAt: complete ? (application.terminatedAt ?? new Date()) : null, attentionReason: attention, version: application.version + 1, updatedAt: new Date() }).where(eq(refundRequests.id, application.id));
+      }
       if (!attention) {
         await tx.insert(outboxEvents).values({
           organizationId,
@@ -1299,7 +1830,8 @@ export class RefundWorkflowService {
           payload: {
             orderId: current.orderId,
             refundId: current.id,
-            fullRefund: state.totalRefunded >= state.order.amount,
+            fullRefund: state.order.modelVersion === 1 && state.totalRefunded >= state.order.amount,
+            modelVersion: state.order.modelVersion,
           },
         });
         await tx.insert(auditLogs).values({
@@ -1344,6 +1876,7 @@ export class RefundWorkflowService {
         .set({
           refundExecutionMode: 'external_hold',
           refundExecutionReason: '发现系统外退款，自动提交已暂停，请财务核验',
+          entitlementsOnHold: scope.order.modelVersion === 2,
           updatedAt: new Date(),
         })
         .where(eq(orders.id, scope.order.id));
@@ -1366,7 +1899,7 @@ export class RefundWorkflowService {
         eventId: scope.order.eventId,
         orderId: scope.order.id,
         paymentId: scope.payment.id,
-        requestId: application?.id,
+        requestId: scope.order.modelVersion === 2 ? null : application?.id,
         source: 'external',
         refundNo: `RF${randomUUID().replaceAll('-', '')}`,
         outRefundNo: outcome.out_refund_no,
@@ -1396,7 +1929,7 @@ export class RefundWorkflowService {
         eventType: 'RefundAttentionRequired',
         correlationId: `external-refund:${outcome.out_refund_no}`,
         payload: {
-          requestId: application?.id,
+          requestId: scope.order.modelVersion === 2 ? null : application?.id,
           orderId: scope.order.id,
           amount: outcome.amount.refund,
           kind: 'external_discovered',
@@ -1443,6 +1976,7 @@ export class RefundWorkflowService {
           payment?.externalId === outcome.transaction_id &&
           payment?.outTradeNo === outcome.out_trade_no &&
           payment.amount === outcome.amount.total &&
+          payment.currency === outcome.amount.currency &&
           execution.amount === outcome.amount.refund &&
           execution.currency === outcome.amount.currency;
         const now = new Date();
@@ -1497,6 +2031,7 @@ export class RefundWorkflowService {
             .set({
               refundExecutionMode: 'external_hold',
               refundExecutionReason: attention,
+              entitlementsOnHold: state.order.modelVersion === 2,
               updatedAt: now,
             })
             .where(eq(orders.id, initial.orderId));
@@ -1530,8 +2065,12 @@ export class RefundWorkflowService {
             return { emitted: true };
           });
         if (next !== 'succeeded') return { status: next };
-        const totalRefunded = state.totalRefunded + execution.amount;
-        const ambiguousPayments = state.paid.length !== 1 || payment?.amount !== state.order.amount;
+        const surplusPaymentRefund = state.order.modelVersion === 2 && state.order.settledPaymentId !== null && execution.paymentId !== state.order.settledPaymentId;
+        const totalRefunded = state.totalRefunded + (surplusPaymentRefund ? 0 : execution.amount);
+        const ambiguousPayments =
+          state.order.modelVersion === 2
+            ? payment?.id !== state.order.settledPaymentId || payment?.amount !== state.order.amount
+            : state.paid.length !== 1 || payment?.amount !== state.order.amount;
         const paymentRefunded = state.executions
           .filter((row) => row.paymentId === execution.paymentId && row.status === 'succeeded')
           .reduce((sum, row) => sum + row.amount, execution.amount);
@@ -1557,11 +2096,29 @@ export class RefundWorkflowService {
             .update(payments)
             .set({ status: 'refunded', updatedAt: now })
             .where(eq(payments.id, payment.id));
+        let allocationAttention: string | null = null;
+        if (
+          (state.order.modelVersion === 2 && !surplusPaymentRefund) ||
+          (state.order.modelVersion === 1 && state.rights.items.length === 1 &&
+            state.paid.length === 1 &&
+            payment?.amount === state.order.amount)
+        ) {
+          try {
+            allocationAttention = await tx.transaction((savepoint) =>
+              allocateApprovedRefund(savepoint, state.order, state.rights, execution),
+            );
+          } catch {
+            allocationAttention = '退款资金已确认，名额金额归属写入未完成，请重试核验';
+          }
+        }
         let fulfillmentAttention: string | null;
         try {
-          fulfillmentAttention = await tx.transaction((savepoint) =>
-            this.fulfill(savepoint, state, execution, application, totalRefunded),
-          );
+          fulfillmentAttention = surplusPaymentRefund ? null :
+            allocationAttention ??
+            (await tx.transaction((savepoint) =>
+              this.fulfill(savepoint, state, execution, application, totalRefunded),
+            ));
+          if (allocationAttention) await tx.transaction((savepoint) => this.adjustInvoice(savepoint, state, execution, totalRefunded));
         } catch {
           fulfillmentAttention = '退款已确认，权益或发票同步未完成，系统将重试';
         }
@@ -1570,19 +2127,33 @@ export class RefundWorkflowService {
             .update(refunds)
             .set({ fulfillmentAttention })
             .where(eq(refunds.id, execution.id));
-          await tx
-            .update(orders)
-            .set({
-              refundExecutionMode: 'external_hold',
-              refundExecutionReason: fulfillmentAttention,
-              updatedAt: now,
-            })
-            .where(eq(orders.id, execution.orderId));
+          if (state.order.modelVersion === 1 || allocationAttention)
+            await tx
+              .update(orders)
+              .set({
+                entitlementsOnHold: state.order.modelVersion === 2,
+                refundExecutionMode: 'external_hold',
+                refundExecutionReason: fulfillmentAttention,
+                updatedAt: now,
+              })
+              .where(eq(orders.id, execution.orderId));
         }
         if (application) {
+          const currentLedger =
+            state.order.modelVersion === 2 ? await refundItemLedger(tx, state.order.id) : null;
+          const targetIds =
+            currentLedger?.requestItems
+              .filter((row) => row.refundRequestId === application.id)
+              .map((row) => row.id) ?? [];
           const completedAmount = Math.min(
             application.amount,
-            application.completedAmount + execution.amount,
+            currentLedger
+              ? currentLedger.allocations
+                  .filter(
+                    (row) => row.refundRequestItemId && targetIds.includes(row.refundRequestItemId),
+                  )
+                  .reduce((sum, row) => sum + row.amount, 0)
+              : application.completedAmount + execution.amount,
           );
           const complete = completedAmount === application.amount;
           const executionChanged =
@@ -1632,7 +2203,7 @@ export class RefundWorkflowService {
             })
             .where(eq(refundRequests.id, application.id));
         }
-        if (!application) {
+        if (!application && !surplusPaymentRefund) {
           const pending = state.applications.find(
             (row) => row.reviewStatus === 'pending_review' && !row.terminatedAt,
           );
@@ -1664,7 +2235,8 @@ export class RefundWorkflowService {
             refundId: execution.id,
             orderId: execution.orderId,
             amount: execution.amount,
-            fullRefund: fullRefund && !fulfillmentAttention,
+            fullRefund: state.order.modelVersion === 1 && fullRefund && !fulfillmentAttention,
+            modelVersion: state.order.modelVersion,
             recipientRole: 'purchaser',
             suppressNotification: execution.source === 'external',
           },

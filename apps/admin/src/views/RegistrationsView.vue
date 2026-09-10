@@ -292,39 +292,65 @@ watch(
   <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
 
   <section class="admin-panel registration-list-panel reveal is-visible">
-    <div class="data-table-wrap">
+    <div class="registration-list-summary">
+      <span>
+        <strong>{{ totalRecords }}</strong> 条报名记录 · 每位参会人单独一行
+      </span>
+      <span class="registration-scroll-hint">左右滑动查看完整信息</span>
+    </div>
+    <div
+      class="data-table-wrap registration-table-scroll"
+      role="region"
+      aria-label="报名记录与关联订单"
+      tabindex="0"
+      :aria-busy="loading"
+    >
       <table class="data-table registration-table">
         <caption class="sr-only">
           报名记录与关联订单
         </caption>
+        <colgroup>
+          <col class="registration-purchaser-column" />
+          <col class="registration-attendee-column" />
+          <col class="registration-ticket-column" />
+          <col class="registration-status-column" />
+          <col class="registration-payment-column" />
+          <col class="registration-invoice-column" />
+          <col class="registration-updated-column" />
+          <col class="registration-action-column" />
+        </colgroup>
         <thead>
           <tr>
-            <th>购票人</th>
-            <th>参会人</th>
-            <th class="registration-contact-column">联系方式</th>
-            <th class="registration-ticket-column">票种</th>
-            <th class="registration-status-column">业务状态</th>
-            <th>支付与退款</th>
-            <th>发票</th>
-            <th>最近更新</th>
-            <th class="registration-action-column"><span class="sr-only">操作</span></th>
+            <th scope="col">购票人</th>
+            <th scope="col">参会人 / 联系方式</th>
+            <th scope="col">票种</th>
+            <th scope="col">业务状态</th>
+            <th scope="col">支付与退款</th>
+            <th scope="col">发票</th>
+            <th scope="col">最近更新</th>
+            <th scope="col" class="registration-action-column">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td>
-              <span class="row-title">{{ row.purchaserName || '未填写姓名' }}</span>
-              <span class="row-sub">{{ row.purchaserMobile }}</span>
-              <span v-if="row.isProxyPurchase" class="status-badge draft">代购</span>
+              <div class="registration-person-heading">
+                <span class="row-title">{{ row.purchaserName || '未填写姓名' }}</span>
+                <span v-if="row.isProxyPurchase" class="status-badge draft">代购</span>
+              </div>
+              <span class="row-sub registration-mobile">{{ row.purchaserMobile }}</span>
             </td>
             <td>
               <span class="row-title">{{ row.attendee.name }}</span>
-              <span class="row-sub">{{ row.attendee.company }} · {{ row.attendee.title }}</span>
+              <span class="row-sub registration-mobile">{{ row.attendee.mobile }}</span>
+              <span
+                v-if="row.attendee.company || row.attendee.title"
+                class="row-sub registration-person-meta"
+              >
+                {{ [row.attendee.company, row.attendee.title].filter(Boolean).join(' · ') }}
+              </span>
             </td>
-            <td class="registration-contact-column">
-              <span>{{ row.attendee.mobile }}</span>
-            </td>
-            <td class="registration-ticket-column">{{ row.ticketType.name }}</td>
+            <td>{{ row.ticketType.name }}</td>
             <td class="registration-status-column">
               <span class="status-badge" :class="statusClass(row.businessStatus)">
                 {{ statusLabel(row.businessStatus) }}
@@ -336,11 +362,15 @@ watch(
             <td>
               <template v-if="row.order">
                 <span class="row-sub order-reference">
-                  {{ row.order.orderNo }} · {{ paymentMethodLabel(row.order.paymentMethod) }}
+                  {{ row.order.orderNo }}
                 </span>
-                <span class="row-sub">
-                  实付 {{ money(row.paidAmount) }} · 已退 {{ money(row.refundedAmount) }}
-                </span>
+                <span class="row-sub registration-payment-method">{{
+                  paymentMethodLabel(row.order.paymentMethod)
+                }}</span>
+                <div class="registration-payment-amounts">
+                  <span>实付 <strong>{{ money(row.paidAmount) }}</strong></span>
+                  <span>已退 {{ money(row.refundedAmount) }}</span>
+                </div>
               </template>
               <span v-else class="status-badge muted">未生成</span>
             </td>
@@ -348,11 +378,19 @@ watch(
               <span class="status-badge" :class="statusClass(row.invoiceSummary.status)">
                 {{ statusLabel(row.invoiceSummary.status) }}
               </span>
-              <span v-if="row.invoiceSummary.requestNo" class="row-sub">
+              <span
+                v-if="row.invoiceSummary.requestNo"
+                class="row-sub registration-invoice-reference"
+              >
                 {{ row.invoiceSummary.requestNo }}
               </span>
             </td>
-            <td>{{ dateTime(row.lastBusinessAt) }}</td>
+            <td>
+              <time class="registration-updated" :datetime="row.lastBusinessAt">
+                <span>{{ dateTime(row.lastBusinessAt).split(' ')[0] }}</span>
+                <span class="row-sub">{{ dateTime(row.lastBusinessAt).split(' ')[1] }}</span>
+              </time>
+            </td>
             <td class="registration-action-column">
               <div class="row-actions">
                 <RouterLink
@@ -560,27 +598,130 @@ watch(
 }
 
 .registration-list-panel {
+  container: registration-list / inline-size;
+  min-width: 0;
   overflow: hidden;
 }
 
-.registration-table {
-  min-width: 1180px;
+.registration-list-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--admin-font-caption);
 }
 
-.registration-contact-column {
+.registration-list-summary strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.registration-scroll-hint {
+  display: none;
+}
+
+.registration-table-scroll {
+  position: relative;
+  isolation: isolate;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline-end: 96px;
+}
+
+.registration-table-scroll:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.registration-table {
+  min-width: 1080px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.registration-table th,
+.registration-table td {
+  padding-inline: 12px;
+}
+
+.registration-table td {
+  overflow-wrap: anywhere;
+  background: #fff;
+}
+
+.registration-table tbody tr:hover td,
+.registration-table tbody tr:focus-within td {
+  background: #f6f8fb;
+}
+
+.registration-table .row-title {
+  display: block;
+  line-height: 1.6;
+}
+
+.registration-table .row-sub {
+  line-height: 1.7;
+}
+
+.registration-purchaser-column {
   width: 156px;
-  min-width: 156px;
+}
+
+.registration-attendee-column {
+  width: 180px;
+}
+
+.registration-person-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.registration-person-heading .status-badge {
+  min-height: 20px;
+  padding: 2px 6px;
+  flex: 0 0 auto;
+}
+
+.registration-table .registration-mobile {
+  color: #44515d;
+  font-size: var(--admin-font-caption);
   white-space: nowrap;
 }
 
+.registration-table .registration-person-meta {
+  font-family: inherit;
+  font-size: var(--admin-font-caption);
+}
+
 .registration-ticket-column {
-  width: 176px;
-  min-width: 176px;
+  width: 88px;
 }
 
 .registration-status-column {
-  width: 132px;
-  min-width: 132px;
+  width: 120px;
+}
+
+.registration-payment-column {
+  width: 212px;
+}
+
+.registration-invoice-column {
+  width: 144px;
+}
+
+.registration-updated-column {
+  width: 96px;
+}
+
+.registration-updated {
+  display: block;
+  font-size: var(--admin-font-caption);
+  white-space: nowrap;
 }
 
 .registration-status-detail {
@@ -589,9 +730,22 @@ watch(
 
 .registration-action-column {
   width: 84px;
-  min-width: 84px;
-  padding-inline: 12px;
   text-align: center;
+}
+
+.registration-table th.registration-action-column,
+.registration-table td.registration-action-column {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow:
+    -1px 0 var(--line),
+    -5px 0 10px rgb(23 34 51 / 3%);
+}
+
+.registration-table th.registration-action-column {
+  z-index: 2;
+  background: var(--paper);
 }
 
 .registration-action-column .row-actions {
@@ -605,11 +759,43 @@ watch(
   white-space: nowrap;
 }
 
-.order-reference {
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: clip;
+.registration-table .order-reference {
+  margin-top: 0;
+  color: var(--ink);
+  font-size: var(--admin-font-caption);
+}
+
+.registration-table .registration-payment-method {
+  font-family: inherit;
+}
+
+.registration-payment-amounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--admin-font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.registration-payment-amounts > span {
   white-space: nowrap;
+}
+
+.registration-payment-amounts strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.registration-invoice-reference {
+  overflow-wrap: anywhere;
+}
+
+@container registration-list (max-width: 1079px) {
+  .registration-scroll-hint {
+    display: inline;
+  }
 }
 
 .registration-pagination {

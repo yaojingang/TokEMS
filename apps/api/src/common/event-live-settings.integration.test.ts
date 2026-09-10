@@ -10,6 +10,7 @@ import {
   eventReleases,
   events,
   inventoryReservations,
+  orderItems,
   orders,
   organizations,
   payments,
@@ -24,6 +25,7 @@ import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import { DatabaseService } from './database.service.js';
 import { EventOperationsService } from './event-operations.service.js';
 import { EventReleaseActivationService } from './event-release-activation.service.js';
+import { OrderItemsService } from './order-items.service.js';
 
 const describePersistent = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -36,6 +38,14 @@ describePersistent('live event settings activation', () => {
   const slug = `live-settings-${randomUUID().slice(0, 8)}`;
   let eventId: EventId;
   let organizationSlug: string;
+
+  async function deleteOrderFixture(orderId: string) {
+    await database.db!.transaction(async (tx) => {
+      await tx.delete(inventoryReservations).where(eq(inventoryReservations.orderId, orderId));
+      await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
+      await tx.delete(orders).where(eq(orders.id, orderId));
+    });
+  }
 
   beforeAll(async () => {
     const [template] = await database
@@ -696,7 +706,7 @@ describePersistent('live event settings activation', () => {
     ).toBe(saved.version);
   });
 
-  it('protects registration ownership and resumes a closed order with the same intent and business IDs', async () => {
+  it('protects ownership and preserves closed purchase intents while replacing ended seats', async () => {
     const currentEvent = await repository.getAdminEvent(eventId, DEMO_IDS.organization);
     if (currentEvent.status === 'configuring') {
       await repository.updateEvent(
@@ -829,6 +839,8 @@ describePersistent('live event settings activation', () => {
     };
     let orderId: string | undefined;
     let registrationId: string | undefined;
+    const fixtureOrderIds = new Set<string>();
+    const fixtureRegistrationIds = new Set<string>();
     try {
       const concurrentCheckouts = await Promise.all(
         Array.from({ length: 10 }, (_, index) =>
@@ -842,6 +854,8 @@ describePersistent('live event settings activation', () => {
       const checkout = concurrentCheckouts[0]!;
       orderId = checkout.order.id;
       registrationId = checkout.registration.id;
+      fixtureOrderIds.add(orderId);
+      fixtureRegistrationIds.add(registrationId);
       await db
         .update(registrations)
         .set({ attendeeMobileE164: otherMobile, updatedAt: new Date() })
@@ -854,9 +868,20 @@ describePersistent('live event settings activation', () => {
           otherCustomer,
         ),
       ).rejects.toMatchObject({
-        response: { code: 'REGISTRATION_IDENTITY_CONFLICT' },
+        response: {
+          code: 'INVALID_STATE_TRANSITION',
+          details: { clientId: input.purchaseIntentId, field: 'mobile' },
+        },
         status: 409,
       });
+      const [protectedRegistration] = await db
+        .select()
+        .from(registrations)
+        .where(eq(registrations.id, registrationId));
+      expect(protectedRegistration).toMatchObject({ customerUserId: ownerId, supersededAt: null });
+      expect(
+        await db.select().from(orders).where(eq(orders.purchaserCustomerUserId, otherCustomerId)),
+      ).toHaveLength(0);
 
       await db
         .update(orders)
@@ -940,17 +965,17 @@ describePersistent('live event settings activation', () => {
         .where(eq(payments.id, oldPayment!.id));
 
       await db
-        .update(orders)
-        .set({ status: 'closed', updatedAt: new Date() })
-        .where(eq(orders.id, orderId));
-      await db
         .update(registrations)
-        .set({ status: 'cancelled', attendeeMobileE164: ownerMobile, updatedAt: new Date() })
+        .set({ attendeeMobileE164: ownerMobile, updatedAt: new Date() })
         .where(eq(registrations.id, registrationId));
-      await db
-        .update(inventoryReservations)
-        .set({ releasedAt: new Date(), updatedAt: new Date() })
-        .where(eq(inventoryReservations.orderId, orderId));
+      await db.transaction(async (tx) => {
+        const [lockedOrder] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, orderId!))
+          .for('update');
+        await new OrderItemsService(database).cancelUnpaidItems(tx, lockedOrder!);
+      });
 
       const closedContext = await account.purchaseContext(owner, eventId);
       expect(closedContext).toMatchObject({
@@ -963,6 +988,8 @@ describePersistent('live event settings activation', () => {
 
       const blockingRegistrationId = randomUUID();
       const blockingOrderId = randomUUID();
+      fixtureRegistrationIds.add(blockingRegistrationId);
+      fixtureOrderIds.add(blockingOrderId);
       await db.insert(registrations).values({
         id: blockingRegistrationId,
         organizationId: DEMO_IDS.organization,
@@ -999,90 +1026,137 @@ describePersistent('live event settings activation', () => {
       });
       const blockedContext = await account.purchaseContext(owner, eventId);
       expect(blockedContext.recommendedActions).not.toContain('register_self');
-      await db.delete(orders).where(eq(orders.id, blockingOrderId));
+      const replacementInput = { ...input, purchaseIntentId: randomUUID() };
+      await expect(
+        repository.createCheckout(replacementInput, `blocked-replacement-${suffix}`, owner),
+      ).rejects.toMatchObject({ response: { code: 'INVALID_STATE_TRANSITION' }, status: 409 });
+      await deleteOrderFixture(blockingOrderId);
       await db.delete(registrations).where(eq(registrations.id, blockingRegistrationId));
 
-      const resumed = await repository.createCheckout(
+      const replayedClosed = await repository.createCheckout(
         input,
         `registration-owner-create-${suffix}-0`,
         owner,
       );
-      expect(resumed.registration.id).toBe(registrationId);
-      expect(resumed.order.id).toBe(orderId);
-      expect(resumed.order.orderNo).toBe(checkout.order.orderNo);
-      expect(resumed.order.status).toBe('pending_payment');
-      expect(new Date(resumed.order.expiresAt).getTime()).toBeGreaterThan(Date.now());
-      await expect(repository.getOrder(orderId, checkout.orderAccessToken!)).rejects.toMatchObject({
-        response: { code: 'UNAUTHORIZED' },
-        status: 401,
+      expect(replayedClosed.registration.id).toBe(registrationId);
+      expect(replayedClosed.order).toMatchObject({
+        id: orderId,
+        orderNo: checkout.order.orderNo,
+        status: 'closed',
       });
+      expect(new Date(replayedClosed.order.expiresAt).getTime()).toBeLessThan(Date.now());
+      const replacements = await Promise.all(
+        Array.from({ length: 3 }, (_, index) =>
+          repository.createCheckout(replacementInput, `replacement-${suffix}-${index}`, owner),
+        ),
+      );
+      const replacement = replacements[0]!;
+      fixtureOrderIds.add(replacement.order.id);
+      fixtureRegistrationIds.add(replacement.registration.id);
+      expect(new Set(replacements.map((result) => result.order.id))).toHaveLength(1);
+      expect(new Set(replacements.map((result) => result.registration.id))).toHaveLength(1);
+      expect(replacement.order.id).not.toBe(orderId);
+      expect(replacement.registration.id).not.toBe(registrationId);
+      expect(replacement.order.orderNo).not.toBe(checkout.order.orderNo);
+      expect(replacement.order.status).toBe('pending_payment');
+      expect(new Date(replacement.order.expiresAt).getTime()).toBeGreaterThan(Date.now());
+      const [endedRegistration] = await db
+        .select()
+        .from(registrations)
+        .where(eq(registrations.id, registrationId));
+      expect(endedRegistration).toMatchObject({
+        customerUserId: ownerId,
+        status: 'cancelled',
+        supersededAt: expect.any(Date),
+        supersededByRegistrationId: replacement.registration.id,
+      });
+      const [endedOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
+      expect(endedOrder).toMatchObject({
+        status: 'closed',
+        purchaseIntentId: input.purchaseIntentId,
+        purchaserCustomerUserId: ownerId,
+      });
+      expect(await db.select().from(payments).where(eq(payments.id, oldPayment!.id))).toMatchObject(
+        [{ orderId, status: 'closed' }],
+      );
+      await expect(repository.getOrder(orderId, checkout.orderAccessToken!)).resolves.toMatchObject(
+        { id: orderId, status: 'closed' },
+      );
       await expect(
-        repository.getOrder(orderId, resumed.orderAccessToken!),
+        repository.getOrder(replacement.order.id, checkout.orderAccessToken!),
+      ).rejects.toMatchObject({ response: { code: 'UNAUTHORIZED' }, status: 401 });
+      await expect(
+        repository.getOrder(replacement.order.id, replacement.orderAccessToken!),
       ).resolves.not.toHaveProperty('paymentUrl');
       const [activeReservationCount] = await db
         .select({ value: sql<number>`count(*)::int` })
         .from(inventoryReservations)
         .where(
           and(
-            eq(inventoryReservations.orderId, orderId),
+            sql`${inventoryReservations.orderId} in (${orderId}, ${replacement.order.id})`,
             isNull(inventoryReservations.releasedAt),
             isNull(inventoryReservations.convertedAt),
           ),
         );
       expect(Number(activeReservationCount?.value ?? 0)).toBe(1);
-      const resumedContext = await account.purchaseContext(owner, eventId);
-      expect(resumedContext).toMatchObject({
-        myAttendance: { registrationId, registrationStatus: 'pending_payment' },
+      const replacementContext = await account.purchaseContext(owner, eventId);
+      expect(replacementContext).toMatchObject({
+        myAttendance: {
+          registrationId: replacement.registration.id,
+          registrationStatus: 'pending_payment',
+        },
         selfRegistrationState: 'active',
-        resumePaymentOrderId: orderId,
+        resumePaymentOrderId: replacement.order.id,
+        myPurchases: { pendingCount: 1, activeSeatCount: 1 },
       });
-      expect(resumedContext.recommendedActions).toContain('resume_payment');
-      expect(resumedContext.recommendedActions).not.toContain('register_self');
+      expect(replacementContext.recommendedActions).toContain('resume_payment');
+      expect(replacementContext.recommendedActions).not.toContain('register_self');
 
       const paid = await repository.confirmMockPayment(
-        orderId,
+        replacement.order.id,
         `registration-owner-paid-${suffix}`,
       );
       expect(paid.order.status).toBe('paid');
       await db.update(events).set({ status: 'prepublished' }).where(eq(events.id, eventId));
 
       const repeatedPaid = await repository.createCheckout(
-        input,
+        replacementInput,
         `registration-owner-paid-repeat-${suffix}`,
         owner,
       );
-      expect(repeatedPaid.registration.id).toBe(registrationId);
-      expect(repeatedPaid.order.id).toBe(orderId);
+      expect(repeatedPaid.registration.id).toBe(replacement.registration.id);
+      expect(repeatedPaid.order.id).toBe(replacement.order.id);
       expect(repeatedPaid.order.status).toBe('paid');
 
-      await db
-        .update(registrations)
-        .set({ supersededAt: new Date(), updatedAt: new Date() })
-        .where(eq(registrations.id, registrationId));
       await expect(
-        repository.createCheckout(input, `registration-owner-paid-repeat-${suffix}`, owner),
-      ).rejects.toMatchObject({ status: 409 });
+        repository.createCheckout(input, `closed-history-${suffix}`, owner),
+      ).resolves.toMatchObject({
+        registration: { id: registrationId, status: 'cancelled' },
+        order: { id: orderId, status: 'closed' },
+      });
       await expect(
-        repository.getOrder(orderId!, repeatedPaid.orderAccessToken!),
-      ).rejects.toMatchObject({ status: 404 });
+        repository.getOrder(orderId, repeatedPaid.orderAccessToken!),
+      ).rejects.toMatchObject({ status: 401 });
 
       const eventRegistrations = await db
-        .select({ id: registrations.id })
+        .select({ id: registrations.id, supersededAt: registrations.supersededAt })
         .from(registrations)
         .where(and(eq(registrations.eventId, eventId), eq(registrations.customerUserId, ownerId)));
-      expect(eventRegistrations).toHaveLength(1);
+      expect(eventRegistrations).toHaveLength(2);
+      expect(eventRegistrations.filter((row) => !row.supersededAt)).toEqual([
+        { id: replacement.registration.id, supersededAt: null },
+      ]);
     } finally {
-      if (orderId) await db.delete(orders).where(eq(orders.id, orderId));
-      if (registrationId) {
-        await db.delete(registrations).where(eq(registrations.id, registrationId));
-      }
+      for (const id of fixtureOrderIds) await deleteOrderFixture(id);
+      for (const id of fixtureRegistrationIds)
+        await db.delete(registrations).where(eq(registrations.id, id));
       await db
         .delete(customerUsers)
         .where(sql`${customerUsers.id} in (${ownerId}, ${otherCustomerId})`);
     }
   });
 
-  it('lets the original purchaser resume a claimed proxy order after payment expiry', async () => {
+  it('replaces an ended legacy claimed proxy seat without transferring its claim to the new purchase', async () => {
     const currentEvent = await repository.getAdminEvent(eventId, DEMO_IDS.organization);
     if (currentEvent.status !== 'registration_open') {
       await repository.updateEvent(
@@ -1162,29 +1236,55 @@ describePersistent('live event settings activation', () => {
         city: null,
       },
     };
-    let orderId: string | undefined;
-    let registrationId: string | undefined;
+    const orderId = randomUUID();
+    const registrationId = randomUUID();
+    let replacementOrderId: string | undefined;
+    let replacementRegistrationId: string | undefined;
     try {
-      const checkout = await repository.createCheckout(
-        input,
-        `claimed-proxy-create-${suffix}`,
-        purchaser,
-      );
-      orderId = checkout.order.id;
-      registrationId = checkout.registration.id;
       const expiredAt = new Date(Date.now() - 60_000);
-      await db
-        .update(orders)
-        .set({ status: 'closed', expiresAt: expiredAt, updatedAt: new Date() })
-        .where(eq(orders.id, orderId));
-      await db
-        .update(registrations)
-        .set({ customerUserId: attendeeId, status: 'cancelled', updatedAt: new Date() })
-        .where(eq(registrations.id, registrationId));
-      await db
-        .update(inventoryReservations)
-        .set({ releasedAt: new Date(), updatedAt: new Date() })
-        .where(eq(inventoryReservations.orderId, orderId));
+      // Legacy checkout allowed claiming before payment; migration preserves that ended ownership.
+      await db.insert(registrations).values({
+        id: registrationId,
+        organizationId: DEMO_IDS.organization,
+        eventId,
+        ticketTypeId: ticket.id,
+        customerUserId: attendeeId,
+        registrationCode: `LEGACY-CLAIM-${suffix}`,
+        status: 'cancelled',
+        attendee: input.attendee,
+        attendeeMobileE164: attendeeMobile,
+        attendeeEmailNormalized: input.attendee.email,
+        consentSnapshot: { purchaseFor: 'other', proxyAuthorizationAccepted: true },
+      });
+      await db.insert(orders).values({
+        id: orderId,
+        organizationId: DEMO_IDS.organization,
+        eventId,
+        registrationId,
+        purchaserCustomerUserId: purchaserId,
+        purchaseIntentId: input.purchaseIntentId,
+        modelVersion: 1,
+        orderNo: `LEGACY-CLAIM-${suffix}`,
+        status: 'closed',
+        amount: ticket.price,
+        currency: ticket.currency,
+        pricingSnapshot: {},
+        expiresAt: expiredAt,
+      });
+      await db.insert(orderItems).values({
+        orderId,
+        registrationId,
+        organizationId: DEMO_IDS.organization,
+        eventId,
+        ticketTypeId: ticket.id,
+        position: 1,
+        unitPrice: ticket.price,
+        allocatedAmount: ticket.price,
+        pricingSnapshot: {},
+        state: 'cancelled',
+        cancelledAt: expiredAt,
+        inventoryReleasedAt: expiredAt,
+      });
 
       const claimedAttendeeContext = await account.purchaseContext(
         {
@@ -1194,26 +1294,76 @@ describePersistent('live event settings activation', () => {
         eventId,
       );
       expect(claimedAttendeeContext.selfRegistrationState).toBe('closed');
-      expect(claimedAttendeeContext.recommendedActions).not.toContain('register_self');
+      expect(claimedAttendeeContext.recommendedActions).toContain('register_self');
+      expect(claimedAttendeeContext.resumePaymentOrderId).toBeNull();
 
-      const resumed = await repository.createCheckout(
-        { ...input, purchaseIntentId: randomUUID() },
-        `claimed-proxy-resume-${suffix}`,
+      const replacementInput = { ...input, purchaseIntentId: randomUUID() };
+      const replacement = await repository.createCheckout(
+        replacementInput,
+        `claimed-proxy-replacement-${suffix}`,
         purchaser,
       );
-      expect(resumed.registration.id).toBe(registrationId);
-      expect(resumed.order.id).toBe(orderId);
-      expect(resumed.order.status).toBe('pending_payment');
+      replacementOrderId = replacement.order.id;
+      replacementRegistrationId = replacement.registration.id;
+      expect(replacementRegistrationId).not.toBe(registrationId);
+      expect(replacementOrderId).not.toBe(orderId);
+      expect(replacement.order.status).toBe('pending_payment');
       const [persistedRegistration] = await db
-        .select({ customerUserId: registrations.customerUserId })
+        .select()
         .from(registrations)
         .where(eq(registrations.id, registrationId))
         .limit(1);
-      expect(persistedRegistration?.customerUserId).toBe(attendeeId);
+      expect(persistedRegistration).toMatchObject({
+        customerUserId: attendeeId,
+        status: 'cancelled',
+        supersededAt: expect.any(Date),
+        supersededByRegistrationId: replacementRegistrationId,
+      });
+      const [newRegistration] = await db
+        .select()
+        .from(registrations)
+        .where(eq(registrations.id, replacementRegistrationId));
+      expect(newRegistration).toMatchObject({
+        customerUserId: null,
+        status: 'pending_payment',
+        supersededAt: null,
+      });
+      expect(await db.select().from(orders).where(eq(orders.id, orderId))).toMatchObject([
+        {
+          modelVersion: 1,
+          status: 'closed',
+          purchaserCustomerUserId: purchaserId,
+          purchaseIntentId: input.purchaseIntentId,
+        },
+      ]);
+      expect(await db.select().from(orders).where(eq(orders.id, replacementOrderId))).toMatchObject(
+        [
+          {
+            modelVersion: 2,
+            status: 'pending_payment',
+            purchaserCustomerUserId: purchaserId,
+            purchaseIntentId: replacementInput.purchaseIntentId,
+          },
+        ],
+      );
+      await expect(
+        new OrderItemsService(database).detail(replacementOrderId, {
+          organizationId: DEMO_IDS.organization,
+          customerUserId: attendeeId,
+        }),
+      ).rejects.toMatchObject({ status: 404 });
+      await expect(
+        repository.createCheckout(replacementInput, `claimed-proxy-replay-${suffix}`, purchaser),
+      ).resolves.toMatchObject({
+        registration: { id: replacementRegistrationId },
+        order: { id: replacementOrderId },
+      });
     } finally {
-      if (orderId) await db.delete(orders).where(eq(orders.id, orderId));
-      if (registrationId)
-        await db.delete(registrations).where(eq(registrations.id, registrationId));
+      if (replacementOrderId) await deleteOrderFixture(replacementOrderId);
+      await deleteOrderFixture(orderId);
+      if (replacementRegistrationId)
+        await db.delete(registrations).where(eq(registrations.id, replacementRegistrationId));
+      await db.delete(registrations).where(eq(registrations.id, registrationId));
       await db
         .delete(customerUsers)
         .where(sql`${customerUsers.id} in (${purchaserId}, ${attendeeId})`);
@@ -1225,14 +1375,12 @@ describePersistent('live event settings activation', () => {
     const mobile = `+86135${String(Date.now()).slice(-8)}`;
     let orderId: string | undefined;
     let registrationId: string | undefined;
-    await db
-      .insert(customerUsers)
-      .values({
-        id: customerId,
-        organizationId: DEMO_IDS.organization,
-        mobileE164: mobile,
-        verifiedAt: new Date(),
-      });
+    await db.insert(customerUsers).values({
+      id: customerId,
+      organizationId: DEMO_IDS.organization,
+      mobileE164: mobile,
+      verifiedAt: new Date(),
+    });
     const actor = {
       customerUserId: customerId,
       organizationId: DEMO_IDS.organization,
@@ -1325,7 +1473,7 @@ describePersistent('live event settings activation', () => {
       expect(stored).toMatchObject({ email: '', notificationChannel: 'sms', mobileE164: mobile });
     } finally {
       await db.delete(waitlistEntries).where(eq(waitlistEntries.customerUserId, customerId));
-      if (orderId) await db.delete(orders).where(eq(orders.id, orderId));
+      if (orderId) await deleteOrderFixture(orderId);
       if (registrationId)
         await db.delete(registrations).where(eq(registrations.id, registrationId));
       await db.delete(customerUsers).where(eq(customerUsers.id, customerId));

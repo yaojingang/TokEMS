@@ -4,6 +4,7 @@ import {
   initialOrderPaymentAction,
   interpretWeixinPayResult,
   isPaidSwitchResult,
+  isPaymentChannelConflict,
   isTransientPaymentFailure,
   manualSwitchChannels,
   paymentErrorMessage,
@@ -190,5 +191,26 @@ describe('isPaidSwitchResult', () => {
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }),
     ).toBe(false);
+  });
+});
+
+describe('isPaymentChannelConflict', () => {
+  const conflict = {
+    statusCode: 409,
+    data: { code: 'INVALID_STATE_TRANSITION', details: { reason: 'payment_channel_conflict' } },
+  };
+
+  it('recovers only the server-reported channel conflict', () => {
+    expect(isPaymentChannelConflict(conflict)).toBe(true);
+    expect(isPaymentChannelConflict({ response: { status: 409 }, data: conflict.data })).toBe(true);
+    expect(isPaymentChannelConflict({ ...conflict, statusCode: 403 })).toBe(false);
+    expect(
+      isPaymentChannelConflict({ statusCode: 409, data: { code: 'INVALID_STATE_TRANSITION' } }),
+    ).toBe(false);
+    expect(
+      isPaymentChannelConflict({ ...conflict, data: { ...conflict.data, code: 'UNAUTHORIZED' } }),
+    ).toBe(false);
+    expect(isPaymentChannelConflict(new TypeError('Failed to fetch'))).toBe(false);
+    expect(isPaymentChannelConflict(null)).toBe(false);
   });
 });

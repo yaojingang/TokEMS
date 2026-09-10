@@ -1,4 +1,6 @@
+import { InvoiceFileModule } from './modules/invoice-file.module.js';
 import { Module } from '@nestjs/common';
+import { BatchOrdersModule } from './modules/batch-orders.module.js';
 import { RefundModule } from './modules/refund.module.js';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
@@ -63,7 +65,9 @@ if (
     AdminModule,
     OperationsModule,
     TemplateInvoiceModule,
+    InvoiceFileModule,
     CustomerModule,
+    BatchOrdersModule,
     RefundModule,
     AgentModule,
     HealthModule,

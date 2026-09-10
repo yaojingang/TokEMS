@@ -16,6 +16,8 @@ async function fixture(options = {}) {
   const page = await context.newPage();
   page.setDefaultTimeout(8_000);
   const event = structuredClone(DEMO_EVENT);
+  event.slug = 'registration-browser-fixture';
+  event.registration.additionalPurchaseEnabled = false;
   event.registrationForm.fields.forEach((field) => {
     field.enabled = true;
     field.required = field.key === 'mobile';
@@ -135,6 +137,7 @@ async function fixture(options = {}) {
     const response = page.waitForResponse(
       (item) => item.request().method() === 'POST' && item.url().endsWith('/registrations'),
     );
+    await page.locator('#registration-terms-accepted').check();
     await page.locator('form.flow-card button[type="submit"]').click();
     await response;
   }
@@ -159,6 +162,20 @@ test('edits made while the account loads take precedence over an older saved dra
   let release;
   try {
     await f.open();
+    assert.equal(await f.page.locator('#registration-terms-accepted').isChecked(), true);
+    await f.page.locator('#registration-terms-accepted').uncheck();
+    await f.page.locator('form.flow-card button[type="submit"]').click();
+    assert.equal(
+      await f.page
+        .locator('#registration-terms-accepted')
+        .evaluate((input) => input.validity.valueMissing),
+      true,
+    );
+    assert.equal(
+      await f.page.evaluate(() => document.activeElement?.id),
+      'registration-terms-accepted',
+    );
+    assert.equal(f.submissions.length, 0);
     await f.page.locator('#registration-name').fill('旧草稿姓名');
     await f.page.locator('#registration-title').fill('旧草稿职位');
     await f.page.locator('#registration-company').fill('旧草稿公司');

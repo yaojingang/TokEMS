@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
   DEFAULT_REGISTRATION_TERMS,
+  DEFAULT_REGISTRATION_TERMS_VERSION,
   type EventStatus,
   type RegistrationField,
   type RegistrationForm,
@@ -28,7 +29,7 @@ const currentForm = computed(() => versions.value.find((form) => form.active) ??
 const savedFormDiffers = computed(() => versions.value[0]?.version !== currentForm.value?.version);
 const editor = reactive({
   name: '标准参会报名表',
-  termsVersion: new Date().toISOString().slice(0, 10),
+  termsVersion: DEFAULT_REGISTRATION_TERMS_VERSION,
   termsContent: DEFAULT_REGISTRATION_TERMS,
   fields: [] as RegistrationField[],
 });
@@ -219,9 +220,13 @@ onMounted(() => void load());
           <p v-if="currentForm">当前生效表单：第 {{ currentForm.version }} 版</p>
           <p>历史报名继续保留当时确认的字段、条款和同意时间</p>
           <p>手机号码保持开启并必填。其他字段可设为选填、关闭或删除；关闭后保留字段配置。</p>
-          <p v-if="savedFormDiffers" role="status">
+          <p v-if="savedFormDiffers" class="saved-form-notice" role="status">
             另有第 {{ versions[0]?.version }} 版保存内容尚未用于当前报名。
-            <button type="button" class="row-action" @click="editForm(versions[0]!)">
+            <button
+              type="button"
+              class="button secondary compact form-text-action"
+              @click="editForm(versions[0]!)"
+            >
               载入该版内容
             </button>
           </p>
@@ -236,7 +241,20 @@ onMounted(() => void load());
             <label for="registration-terms-version">条款版本</label><input id="registration-terms-version" v-model="editor.termsVersion" required />
           </div>
           <div class="form-field full">
-            <label for="registration-terms-content">条款正文</label><textarea
+            <div class="terms-editor-header">
+              <label for="registration-terms-content">条款正文</label>
+              <button
+                class="button secondary compact form-text-action"
+                type="button"
+                @click="
+                  editor.termsVersion = DEFAULT_REGISTRATION_TERMS_VERSION;
+                  editor.termsContent = DEFAULT_REGISTRATION_TERMS;
+                "
+              >
+                载入多人购票条款范本
+              </button>
+            </div>
+            <textarea
               id="registration-terms-content"
               v-model="editor.termsContent"
               required
@@ -369,3 +387,22 @@ onMounted(() => void load());
     @confirm="save"
   />
 </template>
+
+<style scoped>
+.terms-editor-header,
+.saved-form-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.terms-editor-header {
+  justify-content: space-between;
+}
+
+.form-text-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+</style>

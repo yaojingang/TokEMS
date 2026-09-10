@@ -1,3 +1,4 @@
+import { InvoiceSmsPolicySchema, type InvoiceSmsPolicy } from '@conference/contracts';
 import { createRequire } from 'node:module';
 import type {
   QuerySendDetailsRequest,
@@ -117,8 +118,8 @@ export const ALIYUN_SMS_TEMPLATE_META: Record<
     variables: ['eventName', 'expiresAt', 'url'],
   },
   invoiceReady: {
-    label: '电子发票已开具',
-    variables: ['eventName', 'expiresAt', 'url'],
+    label: '发票短信通知',
+    variables: ['eventName', 'expiresAt', 'fileToken'],
   },
   eventReminder: {
     label: '大会提醒',
@@ -127,6 +128,7 @@ export const ALIYUN_SMS_TEMPLATE_META: Record<
 };
 
 export type AliyunSmsStoredConfiguration = {
+  invoiceSms: InvoiceSmsPolicy;
   enabled: boolean;
   signName: string;
   endpoint: typeof ALIYUN_SMS_ENDPOINT;
@@ -144,6 +146,7 @@ export type AliyunSmsStoredConfiguration = {
 
 export function emptyAliyunSmsConfiguration(): AliyunSmsStoredConfiguration {
   return {
+    invoiceSms: InvoiceSmsPolicySchema.parse({}),
     enabled: false,
     signName: '',
     endpoint: ALIYUN_SMS_ENDPOINT,
@@ -171,6 +174,7 @@ export function readAliyunSmsConfiguration(
       ? (value.templates as Record<string, unknown>)
       : {};
   return {
+    invoiceSms: InvoiceSmsPolicySchema.parse(value.invoiceSms ?? {}),
     enabled: value.enabled === true,
     signName: typeof value.signName === 'string' ? value.signName : '',
     endpoint: ALIYUN_SMS_ENDPOINT,

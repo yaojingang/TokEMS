@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BatchOrderPanel from '../components/registration/BatchOrderPanel.vue';
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import type { OrderStatus, Refund } from '@conference/contracts';
 import { conferenceApi, session, type AdminOrderRow } from '../lib/api';
@@ -117,6 +118,7 @@ async function load(resetPage = false) {
 }
 
 async function openRefund(row: AdminOrderRow) {
+  if (row.modelVersion === 2) { selected.value = row; return; }
   refundTarget.value = row;
   refundForm.amountYuan =
     Math.max(
@@ -318,7 +320,7 @@ onMounted(load);
             <th>订单号</th>
             <th>购票人</th>
             <th>参会人</th>
-            <th>票种</th>
+            <th>名额</th><th>票种</th>
             <th>支付方式</th>
             <th>状态</th>
             <th class="number">金额</th>
@@ -339,7 +341,7 @@ onMounted(load);
             <td>
               <span class="row-title">{{ row.attendeeName }}</span><span class="row-sub">{{ row.attendeeCompany }} · {{ row.attendeeMobile }}</span>
             </td>
-            <td>{{ row.ticketTypeName }}</td>
+            <td>{{ row.quantity ?? 1 }}</td><td>{{ row.ticketTypeName }}</td>
             <td>{{ row.paymentMethod === 'wechat' ? '微信支付' : row.paymentMethod }}</td>
             <td>
               <span class="status-badge" :class="statusClass(row.status)">{{
@@ -417,6 +419,7 @@ onMounted(load);
         关闭
       </button>
     </header>
+    <BatchOrderPanel v-if="selected.modelVersion === 2" :order-id="selected.id" @changed="load()" />
     <div class="checkin-result">
       <div class="summary-row">
         <span>订单标识</span><strong class="mono-code">{{ selected.id }}</strong>

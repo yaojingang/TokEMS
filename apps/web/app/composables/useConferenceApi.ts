@@ -3,6 +3,10 @@ import {
   DEMO_EVENT,
   type CreateCooperationRequest,
   type CreateRegistration,
+  type CreateRegistrationBatch,
+  type RegistrationBatchCheckout,
+  type RegistrationBatchQuote,
+  type RegistrationBatchQuoteInput,
   type CustomerOrderAccess,
   type Order,
   type PublicSiteConfiguration,
@@ -50,6 +54,7 @@ export function useConferenceApi() {
   const config = useRuntimeConfig();
   const baseURL = import.meta.server ? config.apiInternalBase : config.public.apiBase;
   const organizationSlug = config.public.organizationSlug;
+  const customerSession = useState<import('@conference/contracts').CustomerSession | null>('customer-session', () => null);
   const eventState = useState<PublicEvent>('conference.public-event', () =>
     structuredClone(DEMO_EVENT),
   );
@@ -233,6 +238,7 @@ export function useConferenceApi() {
         headers: {
           'Idempotency-Key': key,
           'X-Organization-Slug': organizationSlug,
+          ...(customerSession.value?.csrfToken ? { 'X-CSRF-Token': customerSession.value.csrfToken } : {}),
         },
         body: input,
       });
@@ -240,6 +246,22 @@ export function useConferenceApi() {
       if (import.meta.dev && isNetworkFailure(error)) return createLocalCheckout(input);
       throw error;
     }
+  }
+
+  function quoteRegistrationBatch(input: RegistrationBatchQuoteInput) {
+    return $fetch<RegistrationBatchQuote>('/registration-batches/quote', {
+      method: 'POST', baseURL, credentials: 'include', retry: 0, timeout: 6_000,
+      headers: { 'X-Organization-Slug': organizationSlug, ...(customerSession.value?.csrfToken ? { 'X-CSRF-Token': customerSession.value.csrfToken } : {}) },
+      body: input,
+    });
+  }
+
+  function createRegistrationBatch(input: CreateRegistrationBatch, key = `batch-registration-${input.purchaseIntentId}`) {
+    return $fetch<RegistrationBatchCheckout>('/registration-batches', {
+      method: 'POST', baseURL, credentials: 'include', retry: 0, timeout: 15_000,
+      headers: { 'X-Organization-Slug': organizationSlug, 'Idempotency-Key': key, ...(customerSession.value?.csrfToken ? { 'X-CSRF-Token': customerSession.value.csrfToken } : {}) },
+      body: input,
+    });
   }
 
   async function createCooperationRequest(
@@ -301,7 +323,7 @@ export function useConferenceApi() {
 
   async function confirmPayment(
     order: Order,
-    registrationId: string,
+    registrationId: string | null,
     accessToken: string,
   ): Promise<PaymentResult> {
     try {
@@ -314,7 +336,7 @@ export function useConferenceApi() {
         },
       });
     } catch (error) {
-      if (!import.meta.dev || !isNetworkFailure(error)) throw error;
+      if (!import.meta.dev || !isNetworkFailure(error) || !registrationId || order.modelVersion === 2) throw error;
       const ticketIdentity = createLocalTicketIdentity(DEMO_EVENT.id);
       const checkout = readCheckout();
       const ticket: Ticket = {
@@ -441,11 +463,15 @@ export function useConferenceApi() {
     orderId: string,
     accessToken: string,
     channel: WeChatPaymentChannel,
+    oauthSessionToken?: string,
   ): Promise<WeChatPaymentSwitchResult> {
     return $fetch<WeChatPaymentSwitchResult>(`/payments/wechat/${orderId}/switch`, {
       method: 'POST',
       baseURL,
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(oauthSessionToken ? { 'X-WeChat-OAuth-Session': oauthSessionToken } : {}),
+      },
       body: { channel },
     });
   }
@@ -706,6 +732,8 @@ export function useConferenceApi() {
     getSpeakerByCode,
     getSiteConfiguration,
     createRegistration,
+    quoteRegistrationBatch,
+    createRegistrationBatch,
     createCooperationRequest,
     joinWaitlist,
     confirmPayment,

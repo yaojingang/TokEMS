@@ -1,3 +1,5 @@
+import { orderItems } from '@conference/database';
+import { registrationOrderJoin } from './customer-order-ownership.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
@@ -640,9 +642,10 @@ export class EngagementOperationsService {
     const db = this.db();
     const actorPublicId = await requirePublicUserId(db, 'staff', actorId);
     const rows = await db
-      .select({ registration: registrations, order: orders })
+      .select({ registration: registrations, order: orders, item: orderItems })
       .from(registrations)
-      .leftJoin(orders, eq(orders.registrationId, registrations.id))
+      .leftJoin(orders, registrationOrderJoin())
+      .leftJoin(orderItems, eq(orderItems.registrationId, registrations.id))
       .where(
         and(
           eq(registrations.organizationId, organizationId),

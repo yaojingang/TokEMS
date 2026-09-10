@@ -394,6 +394,12 @@ export class OrganizationEventsController {
     );
   }
 
+  @Get('integrations/aliyun-sms/invoice-ready/tests/:deliveryId')
+  @RequireGrant('org.settings.manage')
+  invoiceSmsTestStatus(@Param('deliveryId') deliveryId:string,@Req() request:AuthenticatedRequest) {
+    return this.aliyunSms.invoiceTestStatus(request.user.organizationId,deliveryId);
+  }
+
   @Post('integrations/aliyun-sms/test')
   @RequireGrant('org.settings.manage')
   @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } })
