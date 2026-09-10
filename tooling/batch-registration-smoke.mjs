@@ -9,7 +9,12 @@ import {
 
 // All API traffic is intercepted. This suite never creates real orders or payments.
 const base = process.env.WEB_BASE_URL ?? 'http://localhost:3095';
-if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname))
+const paymentBase = process.env.PAYMENT_WEB_BASE_URL;
+if (
+  [base, paymentBase]
+    .filter(Boolean)
+    .some((url) => !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname))
+)
   throw new Error('Batch browser tests require a local preview');
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 after(() => browser.close());
@@ -24,6 +29,21 @@ async function fixture(options = {}) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(12_000);
+  if (options.paymentSurface && !paymentBase) {
+    // Exercise the payment app's absolute return links against the local test server.
+    await page.route(`**/order/${orderId}?**`, async (route) => {
+      const response = await route.fetch();
+      const html = await response.text();
+      assert.match(html, /paymentSurface:(?:true|false)/);
+      assert.match(html, /conferenceOrigin:"[^"]*"/);
+      await route.fulfill({
+        response,
+        body: html
+          .replace(/paymentSurface:(?:true|false)/, 'paymentSurface:true')
+          .replace(/conferenceOrigin:"[^"]*"/, `conferenceOrigin:${JSON.stringify(base)}`),
+      });
+    });
+  }
   const event = structuredClone(DEMO_EVENT);
   event.status = 'registration_open';
   event.registration.registrationOpen = true;
@@ -267,6 +287,21 @@ async function fixture(options = {}) {
       return route.fulfill({ json: detail });
     }
     if (path.endsWith(`/customer/orders/${orderId}`)) return route.fulfill({ json: detail });
+    if (path.endsWith(`/orders/${orderId}`))
+      return route.fulfill({ json: { ...detail.order, isProxyPurchase: detail.isProxyPurchase } });
+    if (path.endsWith(`/payments/mock/${orderId}/capability`))
+      return route.fulfill({ json: { allowed: false } });
+    if (path.endsWith(`/payments/wechat/${orderId}/native`))
+      return route.fulfill({
+        json: {
+          orderId,
+          channel: 'native',
+          attemptId: 'batch-qr-fixture',
+          outTradeNo: 'batch-qr-fixture',
+          codeUrl: 'weixin://wxpay/bizpayurl?pr=batch-fixture',
+          expiresAt: detail.order.expiresAt,
+        },
+      });
     if (path.endsWith('/refund-context')) return route.fulfill({ json: refundContext });
     if (path.endsWith('/refund-requests') && request.method() === 'POST') {
       const body = request.postDataJSON();
@@ -447,6 +482,46 @@ async function fixture(options = {}) {
       signedIn = false;
     },
   };
+}
+
+for (const paymentSurface of [false, true]) {
+  for (const people of [1, 3]) {
+    test(`batch payment returns from the QR code to editable order details: paymentSurface=${paymentSurface}, people=${people}`, async () => {
+      const f = await fixture({ pending: true, people, paymentSurface });
+      try {
+        await f.page.goto(
+          `${paymentSurface ? (paymentBase ?? base) : base}/order/${orderId}?event=${f.event.slug}#access=batch-payment-fixture-token`,
+          { waitUntil: 'domcontentloaded' },
+        );
+        await f.page.locator('svg[aria-label="微信支付二维码"]').waitFor();
+        const link = f.page.getByRole('link', { name: '返回修改信息', exact: true });
+        const path = `/account/orders/${orderId}?event=${f.event.slug}`;
+        assert.equal(await link.getAttribute('href'), paymentSurface ? `${base}${path}` : path);
+        if (process.env.BATCH_SCREENSHOT_DIR)
+          await f.page.screenshot({
+            path: `${screenshots}/payment-return-${paymentSurface}-${people}-qr.png`,
+            fullPage: true,
+          });
+        await link.click();
+        await f.page.waitForURL(`${base}${path}`);
+        await f.page.locator('#order-attendees-title').waitFor();
+        const cards = f.page.locator('.order-person');
+        assert.equal(await cards.count(), people);
+        assert.equal(
+          await cards.first().getByRole('link', { name: '修改参会资料', exact: true }).isVisible(),
+          true,
+        );
+        if (people > 1) {
+          await cards.nth(1).getByRole('button', { name: '修改参会资料', exact: true }).click();
+          await cards.nth(1).locator('input[id$="-name"]').waitFor();
+        }
+        assert.equal(new URL(f.page.url()).hash, '');
+        assert.deepEqual(f.errors, []);
+      } finally {
+        await f.context.close();
+      }
+    });
+  }
 }
 
 test('default terms can be unchecked to block a five-person order while preserving attendee IDs', async () => {

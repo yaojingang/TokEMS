@@ -232,11 +232,13 @@ const registerHref = computed(() => {
   const path = publicEventScopedPath('/register', event.value.slug, { restart: '1' });
   return api.resolveConferenceUrl(path);
 });
-const editRegistrationHref = computed(() => api.resolveConferenceUrl(
-  isBatchOrder.value ? batchOrderHref.value : isProxyPurchase.value
+const editRegistrationHref = computed(() => {
+  if (isBatchOrder.value) return batchOrderHref.value;
+  const path = isProxyPurchase.value
     ? `${publicEventScopedPath('/account', event.value.slug, { order: order.value?.id ?? '' })}#purchases`
-    : publicEventScopedPath(`/account/registrations/${encodeURIComponent(order.value?.registrationId ?? '')}/edit`, event.value.slug),
-));
+    : publicEventScopedPath(`/account/registrations/${encodeURIComponent(order.value?.registrationId ?? '')}/edit`, event.value.slug);
+  return api.resolveConferenceUrl(path);
+});
 
 const conferenceHomeHref = computed(() =>
   api.resolveConferenceUrl(publicEventHomePath(event.value.slug)),
