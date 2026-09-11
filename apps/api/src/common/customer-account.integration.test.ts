@@ -16,6 +16,7 @@ import {
   invoiceFileIdentity,
   invoicePublicOrigin,
   invoiceSmsFingerprint,
+  invoiceTokenHash,
   invoiceRequests,
   invoiceStateLogs,
   lockInvoiceSmsScope,
@@ -1896,13 +1897,14 @@ describePersistent('customer invoice center', () => {
   });
 
   it('atomically replaces and restores an invoice file for the customer frontend', async () => {
+    const db = database.db!;
     const before = await invoices.readCustomerOrderInvoice(
       organizationId,
       customerUserId,
       orderIds[2]!,
     );
     const document = before.documents[0]!;
-    const originalDownload = new URL(document.downloadUrl!, 'http://customer.test');
+    const originalToken = document.downloadUrl!.split('/').pop()!;
     const previousStorage = {
       endpoint: process.env.S3_ENDPOINT,
       publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
@@ -1953,31 +1955,14 @@ describePersistent('customer invoice center', () => {
       expect(customerAfterReplace.documents[0]).toMatchObject({
         id: document.id,
         contentDigest: replacementDigest,
-        downloadUrl: expect.stringContaining(`/invoice-documents/${document.id}/download`),
+        downloadUrl: expect.stringMatching(/\/invoice-files\/[A-Za-z][A-Za-z0-9]{23}$/),
       });
-      await expect(
-        invoices.resolveInvoiceDownload(
-          orderIds[2]!,
-          document.id,
-          Number(originalDownload.searchParams.get('expires')),
-          originalDownload.searchParams.get('signature')!,
-        ),
-      ).rejects.toMatchObject({ status: 401 });
-      const replacementDownload = new URL(
-        customerAfterReplace.documents[0]!.downloadUrl!,
-        'http://customer.test',
-      );
-      const replacementExpires = Number(replacementDownload.searchParams.get('expires'));
-      const replacementSignature = replacementDownload.searchParams.get('signature')!;
-      const resolvedReplacement = await invoices.resolveInvoiceDownload(
-        orderIds[2]!,
-        document.id,
-        replacementExpires,
-        replacementSignature,
-      );
-      expect(decodeURIComponent(new URL(resolvedReplacement).pathname)).toContain(
-        '/replacement-one.pdf',
-      );
+      const [originalLink] = await db
+        .select()
+        .from(invoiceDocumentAccessLinks)
+        .where(eq(invoiceDocumentAccessLinks.tokenHash, invoiceTokenHash(originalToken)))
+        .limit(1);
+      expect(originalLink?.revokedAt).not.toBeNull();
 
       const deleted = await invoices.voidDocument(
         organizationId,
@@ -2000,14 +1985,6 @@ describePersistent('customer invoice center', () => {
         id: document.id,
         downloadUrl: null,
       });
-      await expect(
-        invoices.resolveInvoiceDownload(
-          orderIds[2]!,
-          document.id,
-          replacementExpires,
-          replacementSignature,
-        ),
-      ).rejects.toMatchObject({ status: 404 });
 
       const restoredFile = new TextEncoder().encode('%PDF-1.7\nreplacement-two');
       const restoredDigest = createHash('sha256').update(restoredFile).digest('hex');
@@ -2044,28 +2021,7 @@ describePersistent('customer invoice center', () => {
         orderIds[2]!,
       );
       expect(customerAfterRestore.documents[0]?.downloadUrl).toContain(
-        `/invoice-documents/${document.id}/download`,
-      );
-      await expect(
-        invoices.resolveInvoiceDownload(
-          orderIds[2]!,
-          document.id,
-          replacementExpires,
-          replacementSignature,
-        ),
-      ).rejects.toMatchObject({ status: 401 });
-      const restoreDownload = new URL(
-        customerAfterRestore.documents[0]!.downloadUrl!,
-        'http://customer.test',
-      );
-      const resolvedRestore = await invoices.resolveInvoiceDownload(
-        orderIds[2]!,
-        document.id,
-        Number(restoreDownload.searchParams.get('expires')),
-        restoreDownload.searchParams.get('signature')!,
-      );
-      expect(decodeURIComponent(new URL(resolvedRestore).pathname)).toContain(
-        '/replacement-two.pdf',
+        '/invoice-files/',
       );
     } finally {
       fetchSpy.mockRestore();

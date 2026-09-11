@@ -101,6 +101,47 @@ function requireAccessToken(authorization: string | undefined) {
   return value;
 }
 
+function invoiceDocumentActionIdempotencyScope(
+  action: string,
+  organizationId: string,
+  eventId: EventId,
+  invoiceId: string,
+  documentId: string,
+) {
+  const identity = [organizationId, eventId, invoiceId, documentId].join(':');
+  return `invoice:document:${action}:${createHash('sha256').update(identity).digest('hex')}`;
+}
+
+export function invoiceDocumentReplaceIdempotencyScope(
+  organizationId: string,
+  eventId: EventId,
+  invoiceId: string,
+  documentId: string,
+) {
+  return invoiceDocumentActionIdempotencyScope(
+    'replace-file',
+    organizationId,
+    eventId,
+    invoiceId,
+    documentId,
+  );
+}
+
+export function invoiceDocumentVoidIdempotencyScope(
+  organizationId: string,
+  eventId: EventId,
+  invoiceId: string,
+  documentId: string,
+) {
+  return invoiceDocumentActionIdempotencyScope(
+    'void',
+    organizationId,
+    eventId,
+    invoiceId,
+    documentId,
+  );
+}
+
 const ArchiveSchema = z.object({ revision: z.number().int().nonnegative() });
 const DuplicateSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -1273,7 +1314,12 @@ class InvoiceController {
   ) {
     const input = parse(InvoiceActionSchema, body);
     return this.idempotency.execute(
-      `invoice:document:void:${request.user.organizationId}:${eventId}:${invoiceId}:${documentId}`,
+      invoiceDocumentVoidIdempotencyScope(
+        request.user.organizationId,
+        eventId,
+        invoiceId,
+        documentId,
+      ),
       requireIdempotencyKey(key),
       input,
       () =>
@@ -1300,7 +1346,12 @@ class InvoiceController {
   ) {
     const input = parse(ReplaceInvoiceDocumentFileSchema, body);
     return this.idempotency.execute(
-      `invoice:document:replace-file:${request.user.organizationId}:${eventId}:${invoiceId}:${documentId}`,
+      invoiceDocumentReplaceIdempotencyScope(
+        request.user.organizationId,
+        eventId,
+        invoiceId,
+        documentId,
+      ),
       requireIdempotencyKey(key),
       input,
       () =>

@@ -77,6 +77,11 @@ export function customerInvoicePrimaryAction(item: CustomerInvoiceCenterItem) {
   return '查看详情';
 }
 
+export function customerInvoiceDownloadUrl(path: string, apiBase: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${String(apiBase).replace(/\/$/u, '')}/${path.replace(/^\//u, '')}`;
+}
+
 export function invoiceMoney(amount: number, currency = 'CNY') {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',

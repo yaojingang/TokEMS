@@ -377,6 +377,7 @@ export async function invoiceSmsSummary(
     .where(
       and(
         eq(invoiceDocumentAccessLinks.organizationId, scope.invoice.organizationId),
+        eq(invoiceDocumentAccessLinks.purpose, 'invoice'),
         eq(invoiceDocumentAccessLinks.invoiceRequestId, invoiceId),
         eq(invoiceDocumentAccessLinks.documentIdentity, identity),
         isNull(invoiceDocumentAccessLinks.revokedAt),

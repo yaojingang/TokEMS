@@ -5,6 +5,9 @@ import {
   invalidateInvoiceFileAccess,
   lockInvoiceSmsScope,
   advanceInvoiceAccessVersion,
+  invoiceDocumentAccessLinks,
+  invoiceFileIdentity,
+  invoiceTokenHash,
 } from '@conference/database';
 import { INVOICE_ACTIONABLE_STATUSES } from '@conference/contracts';
 import { guardRefundWrite } from './refund-write-guard.js';
@@ -2341,7 +2344,12 @@ export class InvoiceOperationsService {
         HttpStatus.NOT_FOUND,
       );
     }
-    const detail = await this.customerInvoiceDetail(organizationId, orderId, invoice.id);
+    const detail = await this.customerInvoiceDetail(
+      organizationId,
+      orderId,
+      invoice.id,
+      customerUserId,
+    );
     await this.db().insert(auditLogs).values({
       organizationId,
       eventId: detail.eventId,
@@ -2356,17 +2364,34 @@ export class InvoiceOperationsService {
     return detail;
   }
 
-  private async customerInvoiceDetail(organizationId: string, orderId: string, invoiceId: string) {
+  private async customerInvoiceDetail(
+    organizationId: string,
+    orderId: string,
+    invoiceId: string,
+    customerUserId?: string,
+  ) {
     const detail = await this.detail(organizationId, invoiceId);
     const expires = Date.now() + 10 * 60_000;
-    return CustomerInvoiceDetailSchema.parse({
-      ...detail,
-      documents: detail.documents.map(({ storageKey, ...document }) => ({
+    const documents = await Promise.all(
+      detail.documents.map(async ({ storageKey, ...document }) => ({
         ...document,
         downloadUrl: document.voidedAt
           ? null
-          : `/orders/${encodeURIComponent(orderId)}/invoice-documents/${encodeURIComponent(document.id)}/download?expires=${expires}&signature=${this.downloadSignature(orderId, { ...document, storageKey }, expires)}`,
+          : customerUserId
+            ? await this.createCustomerInvoiceFileLink(
+                organizationId,
+                customerUserId,
+                orderId,
+                detail.eventId,
+                detail.id,
+                { ...document, storageKey },
+              )
+            : `/orders/${encodeURIComponent(orderId)}/invoice-documents/${encodeURIComponent(document.id)}/download?expires=${expires}&signature=${this.downloadSignature(orderId, { ...document, storageKey }, expires)}`,
       })),
+    );
+    return CustomerInvoiceDetailSchema.parse({
+      ...detail,
+      documents,
       timeline: detail.logs.map((log) => {
         const copy = CUSTOMER_INVOICE_STATUS_COPY[log.toStatus];
         const description =
@@ -2385,6 +2410,52 @@ export class InvoiceOperationsService {
         };
       }),
     });
+  }
+
+  private async createCustomerInvoiceFileLink(
+    organizationId: string,
+    customerUserId: string,
+    orderId: string,
+    eventId: EventId,
+    invoiceId: string,
+    document: Pick<
+      typeof invoiceDocuments.$inferSelect,
+      'id' | 'storageKey' | 'contentDigest'
+    > & { issuedAt: Date | string },
+  ) {
+    const identity = invoiceFileIdentity({ ...document, issuedAt: new Date(document.issuedAt) });
+    const bucket = Math.floor(Date.now() / 60_000);
+    const expiresAt = new Date((bucket + 10) * 60_000);
+    const secret =
+      process.env.INVOICE_DOWNLOAD_SIGNING_SECRET ??
+      process.env.JWT_SECRET ??
+      'conference-invoice-download-development-secret';
+    const tokenSuffix = createHmac('sha256', secret)
+      .update(
+        `account:${organizationId}:${customerUserId}:${invoiceId}:${document.id}:${identity}:${bucket}`,
+      )
+      .digest('base64url')
+      .replace(/[-_]/gu, 'A')
+      .slice(0, 23);
+    const token = `A${tokenSuffix}`;
+    await this.db().transaction(async (tx) => {
+      await tx
+        .insert(invoiceDocumentAccessLinks)
+        .values({
+          organizationId,
+          eventId,
+          orderId,
+          invoiceRequestId: invoiceId,
+          invoiceDocumentId: document.id,
+          documentIdentity: identity,
+          purpose: 'account',
+          recipientHash: invoiceTokenHash(`account:${customerUserId}`),
+          tokenHash: invoiceTokenHash(token),
+          expiresAt,
+        })
+        .onConflictDoNothing();
+    });
+    return `/invoice-files/${token}`;
   }
 
   private async applyInvoiceBuyer(
@@ -2658,7 +2729,7 @@ export class InvoiceOperationsService {
       }
       return invoice!.id;
     });
-    return this.customerInvoiceDetail(organizationId, orderId, invoiceId);
+    return this.customerInvoiceDetail(organizationId, orderId, invoiceId, customerUserId);
   }
 
   async sendCustomerOrderInvoice(

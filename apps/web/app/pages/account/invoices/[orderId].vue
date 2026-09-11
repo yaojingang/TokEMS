@@ -5,8 +5,10 @@ import {
   type CustomerInvoiceOrderContext,
 } from '@conference/contracts';
 import { watch } from 'vue';
+import { useRuntimeConfig } from '#imports';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import {
+  customerInvoiceDownloadUrl,
   customerInvoiceStatusCopy,
   invoiceDate,
   invoiceDocumentType,
@@ -16,6 +18,7 @@ import {
 
 const route = useRoute();
 const customer = useCustomerSession();
+const runtimeConfig = useRuntimeConfig();
 const orderId = computed(() => String(route.params.orderId));
 const existingInvoice = ref<CustomerInvoiceDetail | null>(null);
 const orderContext = ref<CustomerInvoiceOrderContext | null>(null);
@@ -182,8 +185,12 @@ async function downloadDocument(documentId: string) {
     if (!document?.downloadUrl || document.voidedAt) {
       throw new Error('当前发票文件已失效，请刷新后重试');
     }
-    if (downloadWindow) downloadWindow.location.href = document.downloadUrl;
-    else window.location.href = document.downloadUrl;
+    const downloadUrl = customerInvoiceDownloadUrl(
+      document.downloadUrl,
+      String(runtimeConfig.public.apiBase),
+    );
+    if (downloadWindow) downloadWindow.location.href = downloadUrl;
+    else window.location.href = downloadUrl;
   } catch (error) {
     downloadWindow?.close();
     errorMessage.value = error instanceof Error ? error.message : '电子发票下载失败';
