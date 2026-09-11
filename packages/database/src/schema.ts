@@ -2819,7 +2819,7 @@ export const invoiceDocumentAccessLinks = pgTable('invoice_document_access_links
   uniqueIndex('invoice_file_access_token_unique').on(table.tokenHash),
   index('invoice_file_access_invoice_idx').on(table.invoiceRequestId, table.createdAt),
   check('invoice_file_access_scope', sql`(
-    ${table.purpose} = 'invoice' and ${table.eventId} is not null and ${table.orderId} is not null
+    ${table.purpose} in ('invoice', 'account') and ${table.eventId} is not null and ${table.orderId} is not null
     and ${table.invoiceRequestId} is not null and ${table.invoiceDocumentId} is not null and ${table.documentIdentity} is not null
   ) or (
     ${table.purpose} = 'test' and ${table.eventId} is null and ${table.orderId} is null

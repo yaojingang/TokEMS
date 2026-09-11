@@ -126,6 +126,8 @@ export class InvoiceFileService {
         mediaType: 'application/pdf',
       };
     if (!link.invoiceRequestId) throw new InvoiceSmsError('领取链接已失效', 404);
+    if (link.purpose !== 'invoice' && link.purpose !== 'account')
+      throw new InvoiceSmsError('领取链接已失效', 404);
     const scope = await invoiceSmsScope(db, link.invoiceRequestId);
     if (
       !scope.document ||

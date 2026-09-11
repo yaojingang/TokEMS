@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CustomerInvoiceCenterItem } from '@conference/contracts';
 import {
+  customerInvoiceDownloadUrl,
   customerInvoicePrimaryAction,
   invoiceDocumentType,
   invoiceFileSize,
@@ -29,6 +30,17 @@ const item: CustomerInvoiceCenterItem = {
 };
 
 describe('customer invoice presentation', () => {
+  it('resolves relative invoice download paths against the public API base', () => {
+    expect(
+      customerInvoiceDownloadUrl(
+        '/orders/order-1/invoice-documents/document-1/download?expires=123&signature=test',
+        '/api/v1',
+      ),
+    ).toBe(
+      '/api/v1/orders/order-1/invoice-documents/document-1/download?expires=123&signature=test',
+    );
+  });
+
   it('chooses the primary action from server-provided capabilities', () => {
     expect(customerInvoicePrimaryAction(item)).toBe('申请发票');
     expect(

@@ -470,6 +470,13 @@
       "when": 1789009086305,
       "tag": "0066_invoice_sms_direct_download",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1789115673720,
+      "tag": "0067_majestic_songbird",
+      "breakpoints": true
     }
   ]
 }
