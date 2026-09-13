@@ -23,7 +23,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "zod": "4.5.4"
+    "zod": "4.6.1"
   },
   "devDependencies": {
     "typescript": "6.0.3",
