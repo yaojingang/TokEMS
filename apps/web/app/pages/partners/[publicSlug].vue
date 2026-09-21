@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { nextTick, watch } from 'vue';
+import { renderPersonalEventPoster } from '~/utils/personal-event-poster';
 import { useAsyncData, useRequestURL } from '#imports';
 import { publicEventHomePath } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
@@ -17,12 +19,34 @@ const { data: partner, error } = await useAsyncData(
 const identity = computed(() =>
   [partner.value?.company, partner.value?.title].filter(Boolean).join(' · '),
 );
-const posterIdentity = computed(() =>
-  [
-    partner.value?.posterFields.company ? partner.value.company : '',
-    partner.value?.posterFields.title ? partner.value.title : '',
-  ].filter(Boolean).join(' · '),
-);
+const publicPoster = ref<HTMLCanvasElement | null>(null);
+const publicQr = ref<HTMLElement | null>(null);
+const publicPosterError = ref('');
+async function renderPublicPoster() {
+  await nextTick();
+  const value = partner.value;
+  const qr = publicQr.value?.querySelector('canvas');
+  if (!value || !publicPoster.value || !qr) return;
+  try {
+    await renderPersonalEventPoster(publicPoster.value, qr, {
+      variant: 'partner', eventName: value.event.name, eventMark: value.event.name,
+      eventLine: `${new Date(value.event.startsAt).toLocaleDateString('zh-CN')} · ${value.event.city}`, location: value.event.city,
+      content: {
+        invitation: value.posterCopy?.invitation || null,
+        callToAction: value.posterCopy?.callToAction || null,
+        scanHint: value.posterCopy?.scanHint || null,
+        displayName: value.posterFields.displayName ? value.displayName : null,
+        company: value.posterFields.company ? value.company : null,
+        title: value.posterFields.title ? value.title : null,
+        industryLabel: value.posterFields.industry ? value.industry : null,
+        businessIntro: value.posterCopy?.introduction || (value.posterFields.businessIntro ? value.businessIntro : null),
+        avatarUrl: value.posterFields.avatar ? value.avatarUrl : null,
+      },
+    });
+  } catch { publicPosterError.value = '海报暂时无法生成，请刷新重试'; }
+}
+onMounted(renderPublicPoster);
+watch(partner, renderPublicPoster, { flush: 'post' });
 const hasContacts = computed(() => Boolean(
   partner.value?.businessUrl || partner.value?.contactPhone || partner.value?.contactEmail || partner.value?.wechatId,
 ));
@@ -66,7 +90,7 @@ useHead(() => ({
             <section v-if="hasContacts" class="profile-section"><div class="section-heading"><span>CONNECT</span><h2>公开联系方式</h2></div><dl class="contact-list"><div v-if="partner.businessUrl"><dt>项目网址</dt><dd><a :href="partner.businessUrl" target="_blank" rel="nofollow ugc noopener noreferrer">{{ partner.businessUrl }}</a></dd></div><div v-if="partner.contactPhone"><dt>联系电话</dt><dd>{{ partner.contactPhone }}</dd></div><div v-if="partner.contactEmail"><dt>联系邮箱</dt><dd>{{ partner.contactEmail }}</dd></div><div v-if="partner.wechatId"><dt>微信号</dt><dd>{{ partner.wechatId }}</dd></div></dl></section>
           </article>
           <aside class="partner-poster">
-            <div class="poster-art"><p>TOKEMS PARTNER</p><div class="poster-name"><span>{{ partner.posterFields.industry ? (partner.industry || '合作伙伴') : '大会合作伙伴' }}</span><strong>{{ partner.posterFields.displayName ? partner.displayName : '大会合作伙伴' }}</strong><small v-if="posterIdentity">{{ posterIdentity }}</small></div><div class="poster-event"><span>MEET AT THE EVENT</span><b>{{ partner.event.name }}</b><small>{{ partner.event.city }}·{{ new Date(partner.event.startsAt).toLocaleDateString('zh-CN') }}</small></div><div class="poster-qr"><QRCode :value="referralUrl" :size="118" level="M" render-as="svg" /><span>扫码通过我报名</span></div></div>
+            <canvas ref="publicPoster" width="1080" height="1440" style="width:100%;height:auto" aria-label="合作伙伴推广海报" /><p v-if="publicPosterError" role="alert">{{ publicPosterError }}</p><div ref="publicQr" style="position:absolute;left:-10000px" aria-hidden="true"><QRCode :value="referralUrl" :size="360" level="M" render-as="canvas" /></div>
             <div class="profile-actions"><a class="primary-action" :href="partner.referralPath">通过我报名</a><button type="button" @click="share">{{ copied ? '链接已复制' : '分享海报与链接' }}</button><NuxtLink :to="publicEventHomePath(partner.event.slug)">查看大会主页</NuxtLink></div>
           </aside>
         </section>

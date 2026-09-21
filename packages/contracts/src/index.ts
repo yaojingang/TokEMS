@@ -1237,7 +1237,10 @@ export const SessionSchema = z.object({
   kind: z.enum(['talk', 'break', 'workshop']),
 });
 
-export { DEFAULT_REGISTRATION_TERMS, DEFAULT_REGISTRATION_TERMS_VERSION } from './registration-terms.js';
+export {
+  DEFAULT_REGISTRATION_TERMS,
+  DEFAULT_REGISTRATION_TERMS_VERSION,
+} from './registration-terms.js';
 
 export const RegistrationFieldSchema = z.object({
   key: z
@@ -1571,13 +1574,21 @@ export const CreateRegistrationBatchSchema = RegistrationBatchQuoteInputSchema.e
   waitlistOfferToken: z.string().min(32).max(200).optional(),
 }).superRefine((input, context) => {
   if (input.quantity !== input.attendees.length) {
-    context.addIssue({ code: 'custom', path: ['attendees'], message: '购买数量与参会人数量必须一致' });
+    context.addIssue({
+      code: 'custom',
+      path: ['attendees'],
+      message: '购买数量与参会人数量必须一致',
+    });
   }
   const ids = new Set<string>();
   let selfCount = 0;
   for (const [index, attendee] of input.attendees.entries()) {
     if (ids.has(attendee.clientId)) {
-      context.addIssue({ code: 'custom', path: ['attendees', index, 'clientId'], message: '参会人卡片标识不能重复' });
+      context.addIssue({
+        code: 'custom',
+        path: ['attendees', index, 'clientId'],
+        message: '参会人卡片标识不能重复',
+      });
     }
     ids.add(attendee.clientId);
     if (attendee.isSelf) selfCount += 1;
@@ -1586,10 +1597,18 @@ export const CreateRegistrationBatchSchema = RegistrationBatchQuoteInputSchema.e
     context.addIssue({ code: 'custom', path: ['attendees'], message: '本人只能占用一个参会名额' });
   }
   if (input.attendees.some((attendee) => !attendee.isSelf) && !input.proxyAuthorizationAccepted) {
-    context.addIssue({ code: 'custom', path: ['proxyAuthorizationAccepted'], message: '请确认已获得其他参会人的代报名授权' });
+    context.addIssue({
+      code: 'custom',
+      path: ['proxyAuthorizationAccepted'],
+      message: '请确认已获得其他参会人的代报名授权',
+    });
   }
   if (input.waitlistOfferToken && (input.quantity !== 1 || !input.attendees[0]?.isSelf)) {
-    context.addIssue({ code: 'custom', path: ['waitlistOfferToken'], message: '候补购买资格仅限本人一个名额' });
+    context.addIssue({
+      code: 'custom',
+      path: ['waitlistOfferToken'],
+      message: '候补购买资格仅限本人一个名额',
+    });
   }
 });
 
@@ -1626,7 +1645,10 @@ export const PurchasedOrderItemSchema = z.object({
   refundedAmount: z.number().int().nonnegative(),
   isSelf: z.boolean(),
   attendeeClaimed: z.boolean(),
-  registration: RegistrationSchema.extend({ formVersion: z.number().int().positive().optional(), termsVersion: z.string().optional() }),
+  registration: RegistrationSchema.extend({
+    formVersion: z.number().int().positive().optional(),
+    termsVersion: z.string().optional(),
+  }),
   registrationEditVersion: z.string(),
   registrationEditFields: z.array(RegistrationFieldSchema).optional(),
   registrationFields: z.array(RegistrationFieldSchema).optional(),
@@ -1648,7 +1670,9 @@ export const RegistrationBatchCheckoutSchema = z.object({
   ticket: TicketSchema.optional(),
 });
 
-export const CustomerOrderDetailSchema = RegistrationBatchCheckoutSchema.omit({ orderAccessToken: true }).extend({
+export const CustomerOrderDetailSchema = RegistrationBatchCheckoutSchema.omit({
+  orderAccessToken: true,
+}).extend({
   eventId: EventIdSchema,
   eventName: z.string(),
   eventSlug: z.string(),
@@ -1657,23 +1681,33 @@ export const CustomerOrderDetailSchema = RegistrationBatchCheckoutSchema.omit({ 
   invoiceId: z.string().nullable(),
 });
 
-export const CancelCustomerOrderSchema = z.object({
-  expectedVersion: z.number().int().positive(),
-}).strict();
+export const CancelCustomerOrderSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+  })
+  .strict();
 
-export const SelectedOrderItemsSchema = z.object({
-  expectedVersion: z.number().int().positive(),
-  items: z.array(z.object({ id: z.uuid(), version: z.number().int().positive() }).strict()).min(1).max(20),
-}).strict().superRefine((input, context) => {
-  if (new Set(input.items.map((item) => item.id)).size !== input.items.length) {
-    context.addIssue({ code: 'custom', path: ['items'], message: '请勿重复选择同一名额' });
-  }
-});
+export const SelectedOrderItemsSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    items: z
+      .array(z.object({ id: z.uuid(), version: z.number().int().positive() }).strict())
+      .min(1)
+      .max(20),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (new Set(input.items.map((item) => item.id)).size !== input.items.length) {
+      context.addIssue({ code: 'custom', path: ['items'], message: '请勿重复选择同一名额' });
+    }
+  });
 
-export const GenerateClaimInvitationSchema = z.object({
-  expectedVersion: z.number().int().positive(),
-  notify: z.boolean().default(false),
-}).strict();
+export const GenerateClaimInvitationSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    notify: z.boolean().default(false),
+  })
+  .strict();
 
 export const ClaimInvitationResultSchema = z.object({
   itemId: z.string(),
@@ -1683,13 +1717,17 @@ export const ClaimInvitationResultSchema = z.object({
   replayAvailable: z.boolean(),
 });
 
-export const ReviewBatchOrderSchema = z.object({
-  expectedVersion: z.number().int().positive(),
-  decision: z.enum(['approve', 'reject']),
-  reason: z.string().trim().max(500).default(''),
-}).strict().refine((input) => input.decision !== 'reject' || input.reason.length >= 2, {
-  path: ['reason'], message: '拒绝报名时需要填写原因',
-});
+export const ReviewBatchOrderSchema = z
+  .object({
+    expectedVersion: z.number().int().positive(),
+    decision: z.enum(['approve', 'reject']),
+    reason: z.string().trim().max(500).default(''),
+  })
+  .strict()
+  .refine((input) => input.decision !== 'reject' || input.reason.length >= 2, {
+    path: ['reason'],
+    message: '拒绝报名时需要填写原因',
+  });
 
 export const ReviewRegistrationSchema = z
   .object({
@@ -2581,7 +2619,7 @@ export const VerifyCustomerOtpSchema = z.object({
     .regex(/^\d{6}$/),
   termsVersion: z.string().trim().max(40).default(''),
   privacyVersion: z.string().trim().max(40).default(''),
-  consentAccepted: z.literal(true),
+  consentAccepted: z.boolean().default(false),
 });
 
 export const CustomerSessionSchema = z.object({
@@ -2888,7 +2926,10 @@ export const AttendeeClaimInputSchema = z.object({
 
 export const UpdatePurchasedOrderAttendeeSchema = z
   .object({
-    expectedRegistrationVersion: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+    expectedRegistrationVersion: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
     name: z.string().trim().max(120).optional(),
     mobile: MainlandMobileSchema.optional(),
     email: z.union([z.email(), z.literal('')]).optional(),
@@ -3706,7 +3747,6 @@ export const UpdateAliyunSmsConfigurationSchema = z
         });
       }
     }
-
   });
 
 export const TestAliyunSmsConfigurationSchema = z
@@ -4413,26 +4453,37 @@ export const AdminRegistrationCapabilitySchema = z.object({
   reasonCode: z.string().optional(),
 });
 
-export const AdminRegistrationBatchReviewSchema = z.object({
-  orderId: z.string().uuid(),
-  version: z.number().int().positive(),
-  status: OrderStatusSchema,
-  quantity: z.number().int().min(1).max(20),
-  items: z.array(z.object({
-    registrationId: z.string().uuid(),
-    position: z.number().int().positive(),
-    registrationCode: z.string(),
-    attendee: CustomerRegistrationAttendeeSchema,
-    fields: z.array(RegistrationFieldSchema),
-    formAnswers: RegistrationAnswersSchema,
-  }).strict()).min(1).max(20),
-}).strict();
+export const AdminRegistrationBatchReviewSchema = z
+  .object({
+    orderId: z.string().uuid(),
+    version: z.number().int().positive(),
+    status: OrderStatusSchema,
+    quantity: z.number().int().min(1).max(20),
+    items: z
+      .array(
+        z
+          .object({
+            registrationId: z.string().uuid(),
+            position: z.number().int().positive(),
+            registrationCode: z.string(),
+            attendee: CustomerRegistrationAttendeeSchema,
+            fields: z.array(RegistrationFieldSchema),
+            formAnswers: RegistrationAnswersSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(20),
+  })
+  .strict();
 
-export const ReviewBatchOrderResultSchema = z.object({
-  orderId: z.string().uuid(),
-  status: OrderStatusSchema,
-  version: z.number().int().positive(),
-}).strict();
+export const ReviewBatchOrderResultSchema = z
+  .object({
+    orderId: z.string().uuid(),
+    status: OrderStatusSchema,
+    version: z.number().int().positive(),
+  })
+  .strict();
 
 export const AdminRegistrationOperationsDetailSchema = z.object({
   snapshotAt: z.string(),

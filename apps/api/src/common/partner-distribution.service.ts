@@ -46,7 +46,7 @@ import {
   publicUserIds,
   ticketTypes,
 } from '@conference/database';
-import { normalizeMainlandMobile, sealSecret } from '@conference/security';
+import { normalizeMainlandMobile, openSecret, sealSecret } from '@conference/security';
 import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, sum } from 'drizzle-orm';
 import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import { DatabaseService } from './database.service.js';
@@ -54,6 +54,12 @@ import { DomainError } from './domain-error.js';
 import { matchesDeclaredMediaType, readUploadWithinLimit } from './object-storage-verification.js';
 import { RedisService } from './redis.service.js';
 import { lockPartnerSettlement } from './partner-settlement-guard.js';
+import {
+  readCustomerPartnerInquiries,
+  mapCustomerPartnerInquiry,
+  customerPayoutChannels,
+} from './partner-customer-views.js';
+import { readPartnerPromotionStats } from './partner-promotion-stats.js';
 
 export const PARTNER_REFERRAL_COOKIE = 'tokems_partner_referral';
 export const PARTNER_REFERRAL_COOKIE_SECONDS = 30 * 24 * 60 * 60;
@@ -125,7 +131,7 @@ function serializeProgram(program: ProgramRow | undefined | null) {
 
 function profileAvatarUrl(eventSlug: string, publicSlug: string, profile: ProfileRow) {
   return profile.visibleFields.avatar && profile.avatarAssetId
-    ? `/api/v1/events/${encodeURIComponent(eventSlug)}/partners/${encodeURIComponent(publicSlug)}/avatar`
+    ? `/events/${encodeURIComponent(eventSlug)}/partners/${encodeURIComponent(publicSlug)}/avatar`
     : null;
 }
 
@@ -151,6 +157,7 @@ function serializeProfile(eventId: number, profile: ProfileRow) {
     publicStatus: profile.publicStatus,
     visibleFields: profile.visibleFields,
     posterFields: profile.posterFields,
+    posterCopy: profile.posterCopy,
     searchIndexingEnabled: profile.searchIndexingEnabled,
   };
 }
@@ -167,13 +174,14 @@ function publicProfile(profile: ProfileRow, eventSlug: string, publicSlug: strin
     avatarUrl: visible.avatar ? profileAvatarUrl(eventSlug, publicSlug, profile) : null,
     searchIndexingEnabled: profile.searchIndexingEnabled,
     posterFields: profile.posterFields,
+    posterCopy: { invitation: profile.posterCopy?.invitation ?? '', introduction: profile.posterCopy?.introduction ?? '', callToAction: profile.posterCopy?.callToAction ?? '', scanHint: profile.posterCopy?.scanHint ?? '' },
     ...(visible.businessUrl && profile.businessUrl ? { businessUrl: profile.businessUrl } : {}),
     ...(visible.contactPhone && profile.contactPhone ? { contactPhone: profile.contactPhone } : {}),
     ...(visible.contactEmail && profile.contactEmail ? { contactEmail: profile.contactEmail } : {}),
     ...(visible.wechatId && profile.wechatId ? { wechatId: profile.wechatId } : {}),
     gallery: visible.gallery
       ? profile.gallery.map((item) => ({
-          url: `/api/v1/events/${encodeURIComponent(eventSlug)}/partners/${encodeURIComponent(publicSlug)}/media/${encodeURIComponent(item.assetId)}`,
+          url: `/events/${encodeURIComponent(eventSlug)}/partners/${encodeURIComponent(publicSlug)}/media/${encodeURIComponent(item.assetId)}`,
           alt: item.alt,
         }))
       : [],
@@ -1075,6 +1083,8 @@ export class PartnerDistributionService {
         recoveryDue: balances.recovery_due ?? 0,
         currency: 'CNY' as const,
       },
+      promotion: await readPartnerPromotionStats(db, organizationId, row.event.id, partnerId),
+      directoryEnabled: Boolean(program?.publicDirectoryEnabled),
       profile: serializeProfile(row.event.id, row.profile),
       version: row.partner.version,
     };
@@ -1280,6 +1290,19 @@ export class PartnerDistributionService {
         input.avatarAssetId === undefined ? profile.avatarAssetId : input.avatarAssetId,
       gallery: input.gallery,
       actorType: 'customer' as const,
+      actorId: session.customerUserId,
+    }));
+  }
+
+  async updateOwnPosterCopy(
+    session: AuthenticatedCustomer,
+    eventId: number,
+    input: { expectedVersion: number; posterCopy: { invitation: string; introduction: string; callToAction?: string | undefined; scanHint?: string | undefined } },
+  ) {
+    return this.writeProfile(session, eventId, input.expectedVersion, (profile) => ({
+      ...profile,
+      posterCopy: input.posterCopy,
+      actorType: 'customer',
       actorId: session.customerUserId,
     }));
   }
@@ -1652,7 +1675,12 @@ export class PartnerDistributionService {
         )
         .orderBy(desc(partnerPayoutDocuments.createdAt)),
     ]);
-    return { requests, recipients, documents };
+    return {
+      requests,
+      recipients,
+      documents,
+      channels: customerPayoutChannels(await this.getTransferConfiguration(session.organizationId)),
+    };
   }
 
   async createPayoutDocumentAccessToken(
@@ -2083,6 +2111,16 @@ export class PartnerDistributionService {
     return updated;
   }
 
+  async inquiryList(session: AuthenticatedCustomer, eventId: number) {
+    const partner = await this.ownPartner(session, eventId);
+    return readCustomerPartnerInquiries(this.db(), {
+      organizationId: session.organizationId,
+      eventId,
+      partnerId: partner.id,
+      customerUserId: session.customerUserId,
+    });
+  }
+
   async createInquiry(
     session: AuthenticatedCustomer,
     eventId: number,
@@ -2109,7 +2147,7 @@ export class PartnerDistributionService {
         evidenceAssetIds: input.evidenceAssetIds,
       })
       .returning();
-    return inquiry!;
+    return mapCustomerPartnerInquiry(inquiry!);
   }
 
   async resolveInquiry(
@@ -2389,17 +2427,17 @@ export class PartnerDistributionService {
         .groupBy(eventPartners.qualificationStatus),
       this.db()
         .select({
-          status: partnerCommissions.status,
-          value: sum(partnerCommissions.commissionAmount),
+          status: partnerLedgerEntries.balanceBucket,
+          value: sum(partnerLedgerEntries.amount),
         })
-        .from(partnerCommissions)
+        .from(partnerLedgerEntries)
         .where(
           and(
-            eq(partnerCommissions.organizationId, organizationId),
-            eq(partnerCommissions.eventId, eventId),
+            eq(partnerLedgerEntries.organizationId, organizationId),
+            eq(partnerLedgerEntries.eventId, eventId),
           ),
         )
-        .groupBy(partnerCommissions.status),
+        .groupBy(partnerLedgerEntries.balanceBucket),
       this.db()
         .select({
           status: partnerPayoutRequests.status,
@@ -2415,6 +2453,7 @@ export class PartnerDistributionService {
         .groupBy(partnerPayoutRequests.status),
     ]);
     return {
+      promotion: await readPartnerPromotionStats(this.db(), organizationId, eventId),
       program: serializeProgram(await this.activeProgram(organizationId, eventId)),
       partnerCounts: Object.fromEntries(partnerCounts.map((item) => [item.status, item.value])),
       commissionTotals: Object.fromEntries(
@@ -2950,6 +2989,57 @@ export class PartnerDistributionService {
         traceId: randomUUID(),
       });
     return rows;
+  }
+
+  async recipientDetails(
+    organizationId: string,
+    eventId: number,
+    recipientId: string,
+    actorId: string,
+  ) {
+    return this.db().transaction(async (tx) => {
+      const [recipient] = await tx
+        .select({ recipient: partnerPayoutRecipients })
+        .from(partnerPayoutRecipients)
+        .innerJoin(eventPartners, eq(eventPartners.id, partnerPayoutRecipients.partnerId))
+        .where(
+          and(
+            eq(partnerPayoutRecipients.id, recipientId),
+            eq(partnerPayoutRecipients.organizationId, organizationId),
+            eq(eventPartners.organizationId, organizationId),
+            eq(eventPartners.eventId, eventId),
+            eq(partnerPayoutRecipients.channel, 'manual_bank'),
+          ),
+        )
+        .limit(1);
+      if (!recipient) fail(API_ERROR_CODES.NOT_FOUND, '人工结算收款人不存在', HttpStatus.NOT_FOUND);
+      const row = recipient.recipient;
+      const secret = payoutDataSecret();
+      const displayName = openSecret(row.displayNameCiphertext, secret);
+      const accountReference = openSecret(row.accountReferenceCiphertext, secret);
+      await tx.insert(auditLogs).values({
+        organizationId,
+        eventId,
+        actorId,
+        actorType: 'staff',
+        action: 'partner.payout_recipient.details_accessed',
+        resourceType: 'partner_payout_recipient',
+        resourceId: row.id,
+        before: {},
+        after: { channel: row.channel, recipientVersion: row.version },
+        traceId: randomUUID(),
+      });
+      return {
+        id: row.id,
+        partnerId: row.partnerId,
+        type: row.type,
+        channel: row.channel,
+        status: row.status,
+        version: row.version,
+        displayName,
+        accountReference,
+      };
+    });
   }
 
   async verifyRecipient(
@@ -3549,11 +3639,14 @@ export class PartnerDistributionService {
           '该合作伙伴存在待追偿金额，当前申请暂停执行',
         );
       }
-      if (
-        request.batch.approvedBy === actorId ||
-        request.request.version !== input.expectedVersion
-      ) {
-        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '人工结算需要复核管理员执行并使用最新版本');
+      if (request.batch.approvedBy === actorId) {
+        fail(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '批次复核人与到账登记人需为不同管理员，请交由另一位有出款权限的管理员登记',
+        );
+      }
+      if (request.request.version !== input.expectedVersion) {
+        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '提现申请已更新，请刷新后重试');
       }
       if (input.documentAssetId) {
         const [document] = await tx

@@ -3333,6 +3333,18 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/distribution/recipients/:recipientId/details",
+      "handler": "AdminPartnerController.recipientDetails",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.payout.review",
+        "event.payout.execute"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/admin/events/:eventId/distribution/recipients/:recipientId/verify",
       "handler": "AdminPartnerController.verifyRecipient",
       "actionId": null,

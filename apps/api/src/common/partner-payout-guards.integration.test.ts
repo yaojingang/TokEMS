@@ -3,6 +3,7 @@ import { setTimeout as pollDelay } from 'node:timers/promises';
 import { API_ERROR_CODES, PartnerTransferConfigurationSchema } from '@conference/contracts';
 import {
   createDatabase,
+  auditLogs,
   customerUsers,
   eventPartnerProgramVersions,
   eventPartners,
@@ -200,6 +201,100 @@ persistent('partner payout guards with real PostgreSQL', () => {
 
   type Fixture = Awaited<ReturnType<typeof fixture>>;
 
+  it('reports ledger balances before and after withdrawal instead of commission status totals', async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const before = await f.service.adminOverview(f.organizationId, f.eventId);
+    expect(before.commissionTotals.available).toBe(10_000);
+    await f.service.createPayout(f.session, f.eventId, {
+      amount: 5_000,
+      recipientId: f.recipientId,
+      idempotencyKey: randomUUID(),
+    });
+    const after = await f.service.adminOverview(f.organizationId, f.eventId);
+    expect(after.commissionTotals.available).toBe(5_000);
+    expect(after.commissionTotals.reserved).toBe(5_000);
+    expect(
+      (await other.service.adminOverview(other.organizationId, other.eventId)).commissionTotals
+        .available,
+    ).toBe(10_000);
+  });
+
+  it('reveals manual recipient details only in scope and records a redacted audit', async () => {
+    const f = await fixture();
+    const secret = randomUUID();
+    const previous = process.env.PARTNER_PAYOUT_DATA_SECRET;
+    process.env.PARTNER_PAYOUT_DATA_SECRET = secret;
+    try {
+      await connection.db
+        .update(partnerPayoutRecipients)
+        .set({
+          displayNameCiphertext: sealSecret('测试收款人', secret),
+          accountReferenceCiphertext: sealSecret('TEST-ACCOUNT-12345', secret),
+        })
+        .where(eq(partnerPayoutRecipients.id, f.recipientId));
+      const details = await f.service.recipientDetails(
+        f.organizationId,
+        f.eventId,
+        f.recipientId,
+        f.actorId,
+      );
+      expect(details).toMatchObject({
+        displayName: '测试收款人',
+        accountReference: 'TEST-ACCOUNT-12345',
+        channel: 'manual_bank',
+      });
+      expect(Object.keys(details).sort()).toEqual(
+        [
+          'id',
+          'partnerId',
+          'type',
+          'channel',
+          'status',
+          'version',
+          'displayName',
+          'accountReference',
+        ].sort(),
+      );
+      const logs = await connection.db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.resourceId, f.recipientId));
+      const access = logs.filter(
+        (log) => log.action === 'partner.payout_recipient.details_accessed',
+      );
+      expect(access).toHaveLength(1);
+      expect(access[0]).toMatchObject({
+        actorId: f.actorId,
+        organizationId: f.organizationId,
+        eventId: f.eventId,
+      });
+      expect(JSON.stringify(access)).not.toContain('TEST-ACCOUNT-12345');
+      expect(JSON.stringify(access)).not.toContain('测试收款人');
+      await expect(
+        f.service.recipientDetails(randomUUID(), f.eventId, f.recipientId, f.actorId),
+      ).rejects.toMatchObject({ code: API_ERROR_CODES.NOT_FOUND });
+      await expect(
+        f.service.recipientDetails(
+          f.organizationId,
+          f.eventId + 1_000_000,
+          f.recipientId,
+          f.actorId,
+        ),
+      ).rejects.toMatchObject({ code: API_ERROR_CODES.NOT_FOUND });
+      await connection.db
+        .update(partnerPayoutRecipients)
+        .set({ channel: 'wechat_transfer' })
+        .where(eq(partnerPayoutRecipients.id, f.recipientId));
+      await expect(
+        f.service.recipientDetails(f.organizationId, f.eventId, f.recipientId, f.actorId),
+      ).rejects.toMatchObject({ code: API_ERROR_CODES.NOT_FOUND });
+    } finally {
+      if (previous === undefined) delete process.env.PARTNER_PAYOUT_DATA_SECRET;
+      else process.env.PARTNER_PAYOUT_DATA_SECRET = previous;
+    }
+  });
+
   async function payout(f: Fixture, status: 'submitted' | 'approved' = 'submitted') {
     const request = await f.service.createPayout(f.session, f.eventId, {
       amount: 8_000,
@@ -318,6 +413,59 @@ persistent('partner payout guards with real PostgreSQL', () => {
           .where(eq(partnerPayoutBatches.id, created.id))
       )[0]?.status,
     ).toBe('draft');
+  });
+
+  it('explains manual settlement separation of duties and never books a duplicate payout', async () => {
+    const f = await fixture();
+    const request = await payout(f, 'approved');
+    const created = await batch(f, request.id);
+    await f.service.approvePayoutBatch(f.organizationId, f.eventId, created.id, f.reviewerId, {
+      expectedVersion: created.version,
+      decision: 'approve',
+      reason: '测试第二管理员复核',
+    });
+    const [batched] = await connection.db
+      .select()
+      .from(partnerPayoutRequests)
+      .where(eq(partnerPayoutRequests.id, request.id));
+    const input = {
+      expectedVersion: batched!.version,
+      externalReference: `TEST-${randomUUID()}`,
+      paidAt: new Date().toISOString(),
+      documentAssetId: null,
+    };
+    await expect(
+      f.service.completeManualPayout(f.organizationId, f.eventId, request.id, f.reviewerId, input),
+    ).rejects.toMatchObject({
+      code: API_ERROR_CODES.INVALID_STATE_TRANSITION,
+      message: '批次复核人与到账登记人需为不同管理员，请交由另一位有出款权限的管理员登记',
+    });
+    await expect(
+      f.service.completeManualPayout(f.organizationId, f.eventId, request.id, f.actorId, {
+        ...input,
+        expectedVersion: input.expectedVersion - 1,
+      }),
+    ).rejects.toMatchObject({ message: '提现申请已更新，请刷新后重试' });
+    expect(await balances(f)).toMatchObject({ available: 2_000, reserved: 8_000, paid: 0 });
+    await f.service.completeManualPayout(f.organizationId, f.eventId, request.id, f.actorId, input);
+    await expect(
+      f.service.completeManualPayout(f.organizationId, f.eventId, request.id, f.actorId, input),
+    ).rejects.toMatchObject({ code: API_ERROR_CODES.INVALID_STATE_TRANSITION });
+    expect(await balances(f)).toMatchObject({ available: 2_000, reserved: 0, paid: 8_000 });
+    expect(
+      await connection.db
+        .select()
+        .from(partnerPayoutExecutions)
+        .where(eq(partnerPayoutExecutions.payoutRequestId, request.id)),
+    ).toHaveLength(1);
+    expect(
+      (
+        await connection.db
+          .select()
+          .from(partnerPayoutBatches)
+          .where(eq(partnerPayoutBatches.id, created.id))
+      )[0]?.status,
+    ).toBe('completed');
   });
 
   it('blocks manual settlement after an approved batch is paused', async () => {

@@ -1,5 +1,8 @@
 import type {
   CustomerRefundApplication,
+  CustomerPartnerInquiryList,
+  CustomerPartnerInquiryView,
+  CustomerPartnerPayoutList,
   RefundApplicationView,
   RefundContext,
   AttendeeClaimInput,
@@ -102,23 +105,49 @@ export function useCustomerSession() {
     });
   }
 
+  type ConsentRequired = {
+    consentRequired: true;
+    policy: { termsVersion: string; privacyVersion: string; termsUrl: string; privacyUrl: string };
+    configurationIncomplete: boolean;
+  };
   async function verifyOtp(input: {
     challengeId: string;
     mobile: string;
     code: string;
     termsVersion: string;
     privacyVersion: string;
+    consentAccepted?: boolean;
   }) {
-    session.value = await $fetch<CustomerSession>('/customer-auth/verify', {
+    const result = await $fetch<CustomerSession | ConsentRequired>('/customer-auth/verify', {
       method: 'POST',
       baseURL,
       credentials: 'include',
       headers: headers(),
-      body: { ...input, consentAccepted: true },
+      body: { ...input, consentAccepted: input.consentAccepted ?? false },
     });
+    if ('consentRequired' in result) return result;
+    session.value = result;
     refreshFailed.value = false;
     loaded.value = true;
-    return session.value;
+    return result;
+  }
+  async function confirmConsent(input: {
+    termsVersion: string;
+    privacyVersion: string;
+    consentAccepted: boolean;
+  }) {
+    const result = await $fetch<CustomerSession | ConsentRequired>('/customer-auth/consent', {
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: { ...headers(), 'X-Consent-Confirmation': 'true' },
+      body: input,
+    });
+    if ('consentRequired' in result) return result;
+    session.value = result;
+    refreshFailed.value = false;
+    loaded.value = true;
+    return result;
   }
 
   async function logout(all = false) {
@@ -193,21 +222,45 @@ export function useCustomerSession() {
     eventId: number,
     input: { programVersionId: string; expectedPartnerVersion: number },
   ) {
-    return $fetch<PartnerRelationshipView>(
-      `/customer/partnerships/${eventId}/rule-acceptances`,
-      { method: 'POST', baseURL, credentials: 'include', headers: headers(true), body: input },
-    );
+    return $fetch<PartnerRelationshipView>(`/customer/partnerships/${eventId}/rule-acceptances`, {
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
+    });
   }
 
   function updatePartnerProfile(eventId: number, input: UpdatePartnerProfile) {
     return $fetch<PartnerRelationshipView>(`/customer/partnerships/${eventId}/profile`, {
-      method: 'PATCH', baseURL, credentials: 'include', headers: headers(true), body: input,
+      method: 'PATCH',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
+    });
+  }
+
+  function updatePartnerPosterCopy(
+    eventId: number,
+    input: { expectedVersion: number; posterCopy: { invitation: string; introduction: string; callToAction?: string; scanHint?: string } },
+  ) {
+    return $fetch<PartnerRelationshipView>(`/customer/partnerships/${eventId}/poster-copy`, {
+      method: 'PATCH',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
     });
   }
 
   function updatePartnerPrivacy(eventId: number, input: UpdatePartnerPrivacy) {
     return $fetch<PartnerRelationshipView>(`/customer/partnerships/${eventId}/privacy`, {
-      method: 'PATCH', baseURL, credentials: 'include', headers: headers(true), body: input,
+      method: 'PATCH',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
     });
   }
 
@@ -219,14 +272,11 @@ export function useCustomerSession() {
   }
 
   function partnerPayouts(eventId: number) {
-    return $fetch<{
-      requests: Array<Record<string, unknown>>;
-      recipients: Array<Record<string, unknown>>;
-      documents: Array<Record<string, unknown>>;
-    }>(
-      `/customer/partnerships/${eventId}/payouts`,
-      { baseURL, credentials: 'include', headers: headers() },
-    );
+    return $fetch<CustomerPartnerPayoutList>(`/customer/partnerships/${eventId}/payouts`, {
+      baseURL,
+      credentials: 'include',
+      headers: headers(),
+    });
   }
 
   async function downloadPartnerPayoutDocument(eventId: number, documentId: string) {
@@ -241,7 +291,11 @@ export function useCustomerSession() {
 
   function bindPartnerRecipient(eventId: number, input: Record<string, unknown>) {
     return $fetch<Record<string, unknown>>(`/customer/partnerships/${eventId}/recipients`, {
-      method: 'POST', baseURL, credentials: 'include', headers: headers(true), body: input,
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
     });
   }
 
@@ -273,7 +327,11 @@ export function useCustomerSession() {
 
   function createPartnerPayout(eventId: number, input: Record<string, unknown>) {
     return $fetch<Record<string, unknown>>(`/customer/partnerships/${eventId}/payouts`, {
-      method: 'POST', baseURL, credentials: 'include', headers: headers(true), body: input,
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
     });
   }
 
@@ -294,9 +352,21 @@ export function useCustomerSession() {
     );
   }
 
+  function partnerInquiries(eventId: number) {
+    return $fetch<CustomerPartnerInquiryList>(`/customer/partnerships/${eventId}/inquiries`, {
+      baseURL,
+      credentials: 'include',
+      headers: headers(),
+    });
+  }
+
   function createPartnerInquiry(eventId: number, input: Record<string, unknown>) {
-    return $fetch<Record<string, unknown>>(`/customer/partnerships/${eventId}/inquiries`, {
-      method: 'POST', baseURL, credentials: 'include', headers: headers(true), body: input,
+    return $fetch<CustomerPartnerInquiryView>(`/customer/partnerships/${eventId}/inquiries`, {
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: input,
     });
   }
 
@@ -329,7 +399,9 @@ export function useCustomerSession() {
   }
 
   async function uploadPartnerMedia(eventId: number, kind: 'avatar' | 'gallery', file: File) {
-    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))]
+    const digest = [
+      ...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())),
+    ]
       .map((value) => value.toString(16).padStart(2, '0'))
       .join('');
     const prepared = await $fetch<{
@@ -337,14 +409,33 @@ export function useCustomerSession() {
       uploadUrl: string;
       headers: Record<string, string>;
     }>(`/customer/partnerships/${eventId}/media-uploads`, {
-      method: 'POST', baseURL, credentials: 'include', headers: headers(true),
-      body: { kind, fileName: file.name, mediaType: file.type, size: file.size, contentDigest: digest },
+      method: 'POST',
+      baseURL,
+      credentials: 'include',
+      headers: headers(true),
+      body: {
+        kind,
+        fileName: file.name,
+        mediaType: file.type,
+        size: file.size,
+        contentDigest: digest,
+      },
     });
-    const uploaded = await fetch(prepared.uploadUrl, { method: 'PUT', headers: prepared.headers, body: file });
+    const uploaded = await fetch(prepared.uploadUrl, {
+      method: 'PUT',
+      headers: prepared.headers,
+      body: file,
+    });
     if (!uploaded.ok) throw new Error('图片上传失败，请重试');
     return $fetch<{ assetId: string; status: 'processing' }>(
       `/customer/partnerships/${eventId}/media-confirmations`,
-      { method: 'POST', baseURL, credentials: 'include', headers: headers(true), body: { uploadToken: prepared.uploadToken, contentDigest: digest } },
+      {
+        method: 'POST',
+        baseURL,
+        credentials: 'include',
+        headers: headers(true),
+        body: { uploadToken: prepared.uploadToken, contentDigest: digest },
+      },
     );
   }
 
@@ -720,6 +811,7 @@ export function useCustomerSession() {
     refresh,
     requestOtp,
     verifyOtp,
+    confirmConsent,
     logout,
     updateProfile,
     registrations,
@@ -727,6 +819,7 @@ export function useCustomerSession() {
     partnership,
     acceptPartnerProgram,
     updatePartnerProfile,
+    updatePartnerPosterCopy,
     updatePartnerPrivacy,
     partnerCommissions,
     partnerPayouts,
@@ -737,6 +830,7 @@ export function useCustomerSession() {
     createPartnerPayout,
     confirmPartnerPayoutSettlement,
     createPartnerInquiry,
+    partnerInquiries,
     partnerPayoutConfirmation,
     markPartnerPayoutConfirmed,
     uploadPartnerMedia,

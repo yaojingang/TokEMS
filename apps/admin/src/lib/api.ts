@@ -2324,6 +2324,12 @@ export const conferenceApi = {
       { method: 'POST', body: JSON.stringify(input) },
     );
   },
+  getPartnerRecipientDetails(recipientId: string, eventId?: EventId) {
+    return request<Record<string, unknown>>(
+      `/admin/events/${eventScope(eventId)}/distribution/recipients/${encodeURIComponent(recipientId)}/details`,
+      { method: 'POST' },
+    );
+  },
   verifyPartnerRecipient(recipientId: string, eventId?: EventId) {
     return request<Record<string, unknown>>(
       `/admin/events/${eventScope(eventId)}/distribution/recipients/${encodeURIComponent(recipientId)}/verify`,

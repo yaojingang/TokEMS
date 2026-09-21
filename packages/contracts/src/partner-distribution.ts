@@ -108,6 +108,34 @@ export const PartnerGalleryItemSchema = z.object({
   alt: z.string().trim().min(1).max(120),
 });
 
+const PosterText = (limit: number) =>
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) =>
+        Array.from(value).length <= limit && !/[<>]/u.test(value) && Array.from(value).every(char => { const code = char.codePointAt(0)!; return code >= 32 && code !== 127 || code === 10; }),
+      { message: '文案超出字数限制或包含不支持的字符' },
+    );
+export const PARTNER_POSTER_DEFAULT_COPY = {
+  invitation: '期待在大会现场与你见面',
+  introduction: '正在寻找行业伙伴、业务交流与新的合作机会。',
+  callToAction: '现场见，一起聊聊',
+  scanHint: '扫码查看大会信息，通过我报名',
+} as const;
+
+export const PartnerPosterCopySchema = z.object({
+  invitation: PosterText(32),
+  introduction: PosterText(80),
+  callToAction: PosterText(20).refine(value => !value.includes('\n'), '引导标题请使用单行文案').optional(),
+  scanHint: PosterText(32).refine(value => !value.includes('\n'), '引导说明请使用单行文案').optional(),
+});
+export const UpdatePartnerPosterCopySchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  posterCopy: PartnerPosterCopySchema,
+});
+export type PartnerPosterCopy = z.infer<typeof PartnerPosterCopySchema>;
+
 export const UpdatePartnerProfileSchema = z.object({
   expectedVersion: z.number().int().positive(),
   displayName: z.string().trim().min(1).max(80),
@@ -528,6 +556,7 @@ export interface PartnerProgramVersionView extends PartnerProgramDraft {
 }
 
 export interface PartnerProfileView {
+  posterCopy?: PartnerPosterCopy;
   version: number;
   displayName: string;
   company: string;
@@ -546,7 +575,17 @@ export interface PartnerProfileView {
   searchIndexingEnabled: boolean;
 }
 
+export interface PartnerPromotionStats {
+  visits: number;
+  uniqueDailyVisits: number;
+  paidOrders: number;
+  netSalesAmount: number;
+  netCommissionAmount: number;
+}
+
 export interface PartnerRelationshipView {
+  promotion?: PartnerPromotionStats;
+  directoryEnabled?: boolean;
   id: string;
   eventId: number;
   eventSlug: string;
@@ -594,6 +633,7 @@ export interface PublicPartnerSummary {
 }
 
 export interface PublicPartnerDetail extends PublicPartnerSummary {
+  posterCopy?: PartnerPosterCopy;
   businessUrl?: string;
   contactPhone?: string;
   contactEmail?: string;
@@ -602,4 +642,37 @@ export interface PublicPartnerDetail extends PublicPartnerSummary {
   posterFields: PartnerVisibleFields;
   referralPath: string;
   event: { id: number; slug: string; name: string; startsAt: string; endsAt: string; city: string };
+}
+
+export interface CustomerPartnerInquiryView {
+  id: string;
+  type: 'missing_order' | 'amount_dispute';
+  status: 'open' | 'under_review' | 'resolved' | 'rejected';
+  orderReference: string;
+  purchasedAt: string | null;
+  description: string;
+  decision: string | null;
+  decisionReason: string | null;
+  adjustmentAmount: number | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerPartnerInquiryList {
+  items: CustomerPartnerInquiryView[];
+  hasMore: boolean;
+}
+
+export interface PartnerPayoutChannelAvailability {
+  channel: 'manual_bank' | 'wechat_transfer';
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface CustomerPartnerPayoutList {
+  requests: Array<Record<string, unknown>>;
+  recipients: Array<Record<string, unknown>>;
+  documents: Array<Record<string, unknown>>;
+  channels: PartnerPayoutChannelAvailability[];
 }

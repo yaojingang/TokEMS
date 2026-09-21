@@ -8,3 +8,6 @@
 423ed024b1f7b67d63e8ee9d44c8e5484166ba8f:packages/contracts/src/auth-login.test.ts:generic-api-key:77
 423ed024b1f7b67d63e8ee9d44c8e5484166ba8f:packages/contracts/src/auth-login.test.ts:generic-api-key:82
 423ed024b1f7b67d63e8ee9d44c8e5484166ba8f:packages/contracts/src/auth-login.test.ts:generic-api-key:83
+
+# Historical test-only encryption fixture; current tests generate the key at runtime.
+e3ec35428c16aedad81b21a6c79b56902b8aa345:apps/api/src/common/partner-payout-guards.integration.test.ts:generic-api-key:225

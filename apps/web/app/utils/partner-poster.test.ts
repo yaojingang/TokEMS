@@ -48,6 +48,9 @@ const profile: PartnerProfileView = {
 describe('partner poster authorization', () => {
   it('includes only the member-style poster fields', () => {
     expect(resolvePartnerPosterContent(profile)).toEqual({
+      invitation: null,
+      callToAction: null,
+      scanHint: null,
       displayName: '合作伙伴',
       company: '示例公司',
       title: '负责人',
@@ -65,6 +68,9 @@ describe('partner poster authorization', () => {
         [scope]: Object.fromEntries(Object.keys(profile[scope]).map((key) => [key, false])),
       };
       expect(resolvePartnerPosterContent(source)).toEqual({
+        invitation: null,
+      callToAction: null,
+      scanHint: null,
         displayName: null,
         company: null,
         title: null,
@@ -74,6 +80,13 @@ describe('partner poster authorization', () => {
       });
     },
   );
+
+  it('uses explicitly authored sharing copy while keeping profile authorization separate', () => {
+    const source = { ...profile, posterCopy: { invitation: '欢迎同行', introduction: '定制合作介绍' } };
+    expect(resolvePartnerPosterContent(source).invitation).toBe('欢迎同行');
+    expect(resolvePartnerPosterContent(source).businessIntro).toBe('定制合作介绍');
+    expect(resolvePartnerPosterContent({ ...source, posterFields: { ...source.posterFields, businessIntro: false } }).businessIntro).toBe('定制合作介绍');
+  });
 
   it('keeps an unshared name out of the download filename', () => {
     expect(partnerPosterFilename(null, 'GEO / AI 大会')).toBe(

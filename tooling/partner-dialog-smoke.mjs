@@ -116,7 +116,7 @@ for (const [width, height] of [
     await assertCentered(invitation, width, height);
     await invitation.locator('input[type=tel]').fill('13800138000');
     await invitation.getByRole('button', { name: '邀请并开通' }).click();
-    const editor = page.locator('.partner-edit-dialog');
+    const editor = page.getByRole('dialog', { name: '编辑合作伙伴', exact: true });
     await assertCentered(editor, width, height);
     assert.equal(await page.locator('dialog[open]').count(), 1);
     await editor
@@ -154,7 +154,7 @@ test('business URL, server field errors and retries identify the affected input'
     .locator('.partner-directory-table')
     .getByRole('button', { name: '编辑', exact: true })
     .click();
-  const editor = page.locator('.partner-edit-dialog');
+  const editor = page.getByRole('dialog', { name: '编辑合作伙伴', exact: true });
   await editor.getByLabel('业务链接').fill('ftp://example.com');
   await editor.getByRole('button', { name: '保存修改' }).click();
   await editor.locator('.partner-form-feedback').waitFor();

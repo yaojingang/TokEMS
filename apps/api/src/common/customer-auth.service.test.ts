@@ -94,6 +94,7 @@ describe('CustomerAuthService memory flow', () => {
       termsVersion: '',
       privacyVersion: '',
     });
+    if (!('session' in verified)) throw new Error('Expected authenticated result');
     expect(verified.token.length).toBeGreaterThanOrEqual(32);
     expect(verified.session.customer.mobile).toBe('+8613800138000');
     expect(verified.session.csrfToken.length).toBeGreaterThanOrEqual(32);
@@ -132,6 +133,7 @@ describe('CustomerAuthService memory flow', () => {
       termsVersion: '',
       privacyVersion: '',
     });
+    if (!('session' in verified)) throw new Error('Expected authenticated result');
     const lifetime = new Date(verified.session.expiresAt).getTime() - startedAt;
 
     expect(lifetime).toBeGreaterThanOrEqual(CUSTOMER_SESSION_LIFETIME_SECONDS * 1_000);
@@ -198,6 +200,7 @@ describe('CustomerAuthService memory flow', () => {
       privacyVersion: '',
     };
     const verified = await service.verifyOtp(request(), input);
+    if (!('session' in verified)) throw new Error('Expected authenticated result');
     await expect(service.verifyOtp(request(), input)).rejects.toMatchObject({
       status: 401,
     });
@@ -210,4 +213,16 @@ describe('CustomerAuthService memory flow', () => {
       await service.optionalSession(request({ [CUSTOMER_SESSION_COOKIE]: verified.token })),
     ).toBeNull();
   });
+  it('requires explicit consent after OTP and consumes the continuation once', async () => {
+    const service = new CustomerAuthService(new DatabaseService());
+    const challenge = await service.requestOtp(request(), '13800138111');
+    const pending = await service.verifyOtp(request(), { challengeId: challenge.challengeId, mobile: '13800138111', code: challenge.developmentCode!, consentAccepted: false, termsVersion: '', privacyVersion: '' });
+    if (!('consentRequired' in pending)) throw new Error('Expected consent step');
+    expect(await service.optionalSession(request())).toBeNull();
+    await expect(service.completeConsent(request(), pending.consentToken, { termsVersion: '', privacyVersion: '', consentAccepted: false })).rejects.toMatchObject({ status: 401 });
+    const authenticated = await service.completeConsent(request(), pending.consentToken, { termsVersion: '', privacyVersion: '', consentAccepted: true });
+    expect('session' in authenticated).toBe(true);
+    await expect(service.completeConsent(request(), pending.consentToken, { termsVersion: '', privacyVersion: '', consentAccepted: true })).rejects.toMatchObject({ status: 401 });
+  });
+
 });

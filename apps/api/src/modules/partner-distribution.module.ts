@@ -51,6 +51,7 @@ import {
   StartPartnerWechatRecipientBindingSchema,
   UpdatePartnerPrivacySchema,
   UpdatePartnerProfileSchema,
+  UpdatePartnerPosterCopySchema,
   UpdatePartnerTransferConfigurationSchema,
 } from '@conference/contracts';
 import {
@@ -279,6 +280,19 @@ class CustomerPartnerController {
     );
   }
 
+  @Patch(':eventId/poster-copy')
+  posterCopy(
+    @Req() request: CustomerRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Body() body: unknown,
+  ) {
+    return this.partners.updateOwnPosterCopy(
+      request.customerSession,
+      eventId,
+      parse(UpdatePartnerPosterCopySchema, body, '海报文案校验失败'),
+    );
+  }
+
   @Patch(':eventId/privacy')
   privacy(
     @Req() request: CustomerRequest,
@@ -464,6 +478,16 @@ class CustomerPartnerController {
       requestId,
       input.expectedVersion,
     );
+  }
+
+  @Get(':eventId/inquiries')
+  inquiries(
+    @Req() request: CustomerRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store');
+    return this.partners.inquiryList(request.customerSession, eventId);
   }
 
   @Post(':eventId/inquiries')
@@ -892,6 +916,24 @@ export class AdminPartnerController {
       requestId,
       request.user.sub,
       input,
+    );
+  }
+
+  @Post('recipients/:recipientId/details')
+  @HttpCode(HttpStatus.OK)
+  @RequireGrant('event.payout.review', 'event.payout.execute')
+  recipientDetails(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('recipientId', ParseUUIDPipe) recipientId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    return this.partners.recipientDetails(
+      request.user.organizationId,
+      eventId,
+      recipientId,
+      request.user.sub,
     );
   }
 

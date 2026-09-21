@@ -96,9 +96,9 @@ const session = {
     },
   },
 };
-async function fixtures(page, { empty = false, unauthenticated = false, profile = {} } = {}) {
+async function fixtures(page, { empty = false, unauthenticated = false, profile = {}, directoryEnabled = false } = {}) {
   const writes = [];
-  const state = { partner: structuredClone(partner), reject: false };
+  const state = { partner: { ...structuredClone(partner), directoryEnabled }, reject: false };
   Object.assign(state.partner.profile, profile);
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request();
@@ -109,6 +109,7 @@ async function fixtures(page, { empty = false, unauthenticated = false, profile 
       writes.push({ path, body: req.postDataJSON() });
       if (state.reject)
         return route.fulfill({ status: 400, json: { message: '资料保存失败，请检查姓名后重试' } });
+      if (path.endsWith('/poster-copy')) { state.partner.profile.posterCopy = req.postDataJSON().posterCopy; return route.fulfill({ json: state.partner }); }
       if (path.endsWith('/profile')) {
         Object.assign(state.partner.profile, req.postDataJSON());
         return route.fulfill({ json: state.partner });
@@ -203,7 +204,7 @@ async function setup(t, width = 1440, options = {}) {
       return fillText.call(this, text, ...args);
     };
   });
-  await page.goto(`${base}/account/partnerships/101`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}/account/partnerships/101?tab=profile`, { waitUntil: 'networkidle' });
   await page.getByRole('textbox', { name: /^公开姓名/ }).waitFor();
   t.after(() => assert.deepEqual(errors, []));
   return { page, ...data };
@@ -219,6 +220,7 @@ async function selectModule(page, label) {
   } else {
     await page.locator('.account-nav--desktop').getByRole('button', { name: label }).click();
   }
+  await page.waitForFunction(expected => document.querySelector('#partner-module-title')?.textContent?.trim() === expected, label);
   assert.equal(await page.locator('#partner-module-title').innerText(), label);
 }
 async function assertFits(page) {
@@ -262,9 +264,9 @@ for (const width of [1440, 1024, 375, 320]) {
     assert.equal(await page.locator('.mobile-partner-status').isVisible(), width <= 1000);
     await page.getByLabel('公司', { exact: true }).fill('尚未保存的公司');
     for (const [id, label] of [
-      ['profile', '资料与公开设置'],
+      ['profile', '资料设置'],
       ['promotion', '推广素材'],
-      ['earnings', '收益明细'],
+      ['earnings', '推广收益'],
       ['payouts', '提现与结算'],
       ['inquiries', '佣金申诉'],
     ]) {
@@ -272,7 +274,7 @@ for (const width of [1440, 1024, 375, 320]) {
       await assertFits(page);
       await page.screenshot({ path: `${output}/${id}-${width}.png`, fullPage: true });
     }
-    await selectModule(page, '资料与公开设置');
+    await selectModule(page, '资料设置');
     assert.equal(await page.getByLabel('公司', { exact: true }).inputValue(), '尚未保存的公司');
     if (width <= 1000) {
       await page.locator('.account-mobile-trigger').click();
@@ -335,7 +337,7 @@ test('profile validation, save feedback and privacy controls preserve their beha
 
 test('payouts, inquiries and empty records retain usable entry points', async (t) => {
   const { page, writes } = await setup(t, 375, { empty: true });
-  await selectModule(page, '收益明细');
+  await selectModule(page, '推广收益');
   await page.getByRole('heading', { name: '还没有佣金记录' }).waitFor();
   await page.getByRole('button', { name: '查看推广素材' }).click();
   await page.getByRole('heading', { name: '专属推广链接' }).waitFor();
@@ -356,7 +358,7 @@ test('payouts, inquiries and empty records retain usable entry points', async (t
 });
 
 test('public partner preview crosses the account boundary with a new document', async (t) => {
-  const { page } = await setup(t);
+  const { page } = await setup(t, 1440, { directoryEnabled: true, profile: { publicStatus: 'published' } });
   await selectModule(page, '推广素材');
   await page.route('**/partners/test-partner?event=tokems26', (route) =>
     route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<h1>公开详情测试页</h1>' }),
@@ -479,7 +481,7 @@ test('poster renders uploaded avatars, tolerates long copy and refreshes after a
   );
   await assertFits(page);
   await page.locator('.poster-preview').screenshot({ path: `${output}/poster-long-copy.png` });
-  await selectModule(page, '资料与公开设置');
+  await selectModule(page, '资料设置');
   await page.getByRole('textbox', { name: /^公开姓名/ }).fill('更新后的伙伴');
   await page.getByRole('button', { name: '保存资料' }).click();
   await page.getByRole('status').filter({ hasText: '合作伙伴资料已保存' }).waitFor();
@@ -489,4 +491,97 @@ test('poster renders uploaded avatars, tolerates long copy and refreshes after a
   await selectModule(page, '推广素材');
   await canvas.waitFor({ state: 'visible' });
   assert.ok((await page.evaluate(() => window.__posterText.join(''))).includes('更新后的伙伴'));
+});
+
+
+test('unpublished partner profiles and disabled directories do not offer a broken public preview', async (t) => {
+  const { page } = await setup(t, 375, { profile: { publicStatus: 'published' } });
+  await selectModule(page, '推广素材');
+  assert.equal(await page.getByRole('link', { name: '预览公开详情' }).count(), 0);
+  await page.getByText(/主办方尚未开放公开目录/).waitFor();
+  await selectModule(page, '提现与结算');
+  assert.equal(await page.getByRole('combobox', { name: /^结算渠道/ }).inputValue(), 'manual_bank');
+  assert.equal(await page.getByRole('combobox', { name: /^结算渠道/ }).getByRole('option', { name: '微信商家转账', exact: true }).count(), 0);
+});
+
+
+test('earnings is the default homepage and summary appears only there', async (t) => {
+  const { page } = await setup(t);
+  await page.goto(`${base}/account/partnerships/101`, { waitUntil: 'networkidle' });
+  assert.equal(await page.locator('#partner-module-title').innerText(), '推广收益');
+  assert.equal(await page.locator('.balance-strip').count(), 1);
+  assert.equal(await page.getByRole('heading', { name: '推广效果', exact: true }).count(), 1);
+  await selectModule(page, '推广素材');
+  assert.equal(await page.locator('.balance-strip').count(), 0);
+  assert.equal(await page.getByRole('heading', { name: '推广效果', exact: true }).count(), 0);
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.locator('#partner-module-title').innerText(), '推广素材');
+});
+
+test('poster draft survives avatar navigation and saved copy survives reload', async (t) => {
+  const { page, writes } = await setup(t);
+  await selectModule(page, '推广素材');
+  await page.getByLabel(/^邀请语/).fill('期待与你交流');
+  await page.getByRole('button', { name: '修改头像', exact: true }).click();
+  await page.getByRole('button', { name: '保存资料', exact: true }).click();
+  await page.getByRole('heading', { name: '推广素材', exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/^邀请语/).inputValue(), '期待与你交流');
+  await page.getByRole('button', { name: '保存文案', exact: true }).click();
+  await page.getByText('海报文案已保存', { exact: true }).waitFor();
+  assert.ok(writes.some(w => w.path.endsWith('/poster-copy') && w.body.posterCopy.invitation === '期待与你交流'));
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.getByLabel(/^邀请语/).inputValue(), '期待与你交流');
+});
+
+test('partner default invitation stays visible alongside company and title', async (t) => {
+  const { page } = await setup(t, 375, {
+    profile: { company: '合作公司', title: '负责人', posterCopy: { invitation: '', introduction: '' } },
+  });
+  await selectModule(page, '推广素材');
+  await page.getByLabel('合作伙伴推广海报预览').waitFor({ state: 'visible' });
+  assert.ok((await page.evaluate(() => window.__posterText.join(''))).includes('期待在大会现场与你见面'));
+});
+
+test('poster controls stay locked while a save is pending', async (t) => {
+  const { page } = await setup(t);
+  await selectModule(page, '推广素材');
+  await page.getByLabel(/^邀请语/).fill('保存中的邀请语');
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/poster-copy', async route => { await gate; await route.fallback(); });
+  try {
+    await page.getByRole('button', { name: '保存文案', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.promotion-tip input')?.disabled);
+    assert.equal(await page.getByLabel(/^邀请语/).isDisabled(), true);
+    assert.equal(await page.getByLabel(/^合作介绍/).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '恢复默认文案' }).isDisabled(), true);
+  } finally { release(); }
+  await page.getByText('海报文案已保存', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/^邀请语/).inputValue(), '保存中的邀请语');
+});
+
+
+test('all three poster areas have defaults and custom scan copy survives reload', async (t) => {
+  const { page, writes } = await setup(t, 375);
+  await selectModule(page, '推广素材');
+  assert.equal(await page.getByLabel(/^邀请语/).inputValue(), '期待在大会现场与你见面');
+  assert.equal(await page.getByLabel(/^合作介绍/).inputValue(), '正在寻找行业伙伴、业务交流与新的合作机会。');
+  assert.equal(await page.getByLabel(/^扫码引导标题/).inputValue(), '现场见，一起聊聊');
+  await page.getByLabel(/^合作介绍/).fill('欢迎共同探索新的合作机会');
+  await page.getByLabel(/^扫码引导标题/).fill('扫码一起参加大会');
+  await page.getByLabel(/^扫码引导说明/).fill('期待与你相聚深圳');
+  await page.getByRole('button', { name: '保存文案', exact: true }).click();
+  await page.getByText('海报文案已保存', { exact: true }).waitFor();
+  assert.ok(writes.some(w => w.body?.posterCopy?.callToAction === '扫码一起参加大会'));
+  await page.reload({ waitUntil: 'networkidle' });
+  assert.equal(await page.getByLabel(/^扫码引导说明/).inputValue(), '期待与你相聚深圳');
+  await page.getByLabel('合作伙伴推广海报预览').waitFor({ state: 'visible' });
+  const text = await page.evaluate(() => window.__posterText.join(''));
+  assert.ok(text.includes('欢迎共同探索新的合作机会'));
+  assert.ok(text.includes('扫码一起参加大会'));
+  assert.ok(text.includes('期待与你相聚深圳'));
+  await page.getByRole('button', { name: '恢复默认文案' }).click();
+  assert.equal(await page.getByLabel(/^扫码引导标题/).inputValue(), '现场见，一起聊聊');
+  await assertFits(page);
+  await page.screenshot({ path: `${output}/poster-three-defaults-375.png`, fullPage: true });
 });

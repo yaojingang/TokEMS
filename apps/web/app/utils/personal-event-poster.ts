@@ -1,6 +1,10 @@
+import { PARTNER_POSTER_DEFAULT_COPY } from '@conference/contracts';
 import { attendeeAvatarInitial } from './attendee-poster';
 
 export type PersonalPosterContent = {
+  invitation?: string | null;
+  callToAction?: string | null;
+  scanHint?: string | null;
   displayName: string | null;
   company: string | null;
   title: string | null;
@@ -242,13 +246,17 @@ export async function renderPersonalEventPoster(
   context.font = '600 29px "Arial Narrow", "PingFang SC", sans-serif';
   const identity =
     [options.content.company, options.content.title].filter(Boolean).join('  /  ') ||
-    '期待在大会现场与你见面';
-  wrapText(context, identity, 72, 750, 610, 44, 2);
+    (isPartner ? '' : '期待在大会现场与你见面');
+  wrapText(context, identity, 72, isPartner ? 700 : 750, 610, isPartner ? 32 : 44, 2);
+  if (isPartner) {
+    context.font = '500 24px "PingFang SC", sans-serif';
+    wrapText(context, options.content.invitation || PARTNER_POSTER_DEFAULT_COPY.invitation, 72, 780, 900, 30, 2);
+  }
   await drawAvatar(context, 736, 412, 272, options.content, options.variant);
 
   const industry = options.content.industryLabel;
   if (industry) {
-    drawPill(context, industry, 72, 824, {
+    drawPill(context, industry, 72, isPartner ? 864 : 824, {
       background: '#173266',
       color: '#dbe5ff',
     });
@@ -264,7 +272,7 @@ export async function renderPersonalEventPoster(
   context.font = '800 18px "Arial Narrow", "PingFang SC", sans-serif';
   context.fillText('LOOKING TO CONNECT  /  我在做的事', 72, 980);
   context.fillStyle = '#eef2f8';
-  context.font = '650 33px "Arial Narrow", "PingFang SC", sans-serif';
+  context.font = `650 ${isPartner && Array.from(options.content.businessIntro || '').length > 50 ? 24 : 33}px "Arial Narrow", "PingFang SC", sans-serif`;
   wrapText(
     context,
     options.content.businessIntro || '正在寻找行业伙伴、业务交流与新的合作机会。',
@@ -284,11 +292,12 @@ export async function renderPersonalEventPoster(
   context.fillText('SCAN TO CONNECT', 72, 1236);
   context.fillStyle = '#f3f5f8';
   context.font = '700 28px "Arial Narrow", "PingFang SC", sans-serif';
-  context.fillText('现场见，一起聊聊', 72, 1282);
+  wrapText(context, isPartner ? options.content.callToAction || PARTNER_POSTER_DEFAULT_COPY.callToAction : '现场见，一起聊聊', 72, 1282, 650, 32, 1);
   context.fillStyle = '#8fa1bf';
   context.font = '500 19px "Arial Narrow", "PingFang SC", sans-serif';
+  context.font = `500 ${isPartner && Array.from(options.content.scanHint || '').length > 26 ? 16 : 19}px "PingFang SC", sans-serif`;
   context.fillText(
-    isPartner ? '扫码查看大会信息，通过我报名' : '扫码查看大会信息与我的参会名片',
+    isPartner ? options.content.scanHint || PARTNER_POSTER_DEFAULT_COPY.scanHint : '扫码查看大会信息与我的参会名片',
     72,
     1321,
   );

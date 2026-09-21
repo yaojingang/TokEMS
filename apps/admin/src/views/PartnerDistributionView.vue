@@ -21,6 +21,18 @@ const payoutRequests = ref<MoneyRow[]>([]);
 const payoutBatches = ref<MoneyRow[]>([]);
 const inquiries = ref<MoneyRow[]>([]);
 const recipients = ref<MoneyRow[]>([]);
+const recipientDetail = ref<Record<string, unknown> | null>(null);
+const recipientDialog = ref<HTMLDialogElement>();
+async function viewRecipient(item: MoneyRow) {
+  await run(async () => {
+    recipientDetail.value = await conferenceApi.getPartnerRecipientDetails(String(item.id));
+    await nextTick();
+    recipientDialog.value?.showModal();
+  }, '');
+}
+function closeRecipientDetails() { recipientDialog.value?.close(); recipientDetail.value = null; }
+function partnerName(id: unknown) { return partners.value.find((item) => item.id === id)?.profile.displayName ?? String(id ?? ''); }
+
 const payoutDocuments = ref<MoneyRow[]>([]);
 const reconciliations = ref<MoneyRow[]>([]);
 const payoutSettings = ref<Record<string, unknown>>({});
@@ -121,7 +133,7 @@ const counts = computed(() => (overview.value.partnerCounts ?? {}) as Record<str
 const commissionTotals = computed(
   () => (overview.value.commissionTotals ?? {}) as Record<string, number>,
 );
-const payoutTotals = computed(() => (overview.value.payoutTotals ?? {}) as Record<string, number>);
+const promotion = computed(() => (overview.value.promotion ?? {}) as Record<string, number>);
 const enableRateValid = computed(() => {
   if (!enableForm.ratePercent.trim()) return true;
   const value = Number(enableForm.ratePercent);
@@ -172,6 +184,11 @@ function label(value: unknown) {
     under_review: '待复核',
     resolved: '已解决',
     failed: '失败',
+    verified: '已验证',
+    matched: '核对一致',
+    mismatched: '存在差异',
+    partially_reversed: '部分冲正',
+    reversed: '已冲正',
   };
   return labels[String(value)] ?? String(value ?? '—');
 }
@@ -685,12 +702,15 @@ function verifyRecipient(item: MoneyRow) {
 }
 
 function resolveInquiry(item: MoneyRow, decision: 'explained' | 'rejected') {
+  const reason = window.prompt('处理说明（合作伙伴可见，至少 5 个字）');
+  if (reason === null) return;
+  if (reason.trim().length < 5) { errorMessage.value = '请填写至少 5 个字的处理说明。'; return; }
   return run(
     () =>
       conferenceApi.resolvePartnerInquiry(String(item.id), {
         expectedVersion: Number(item.version),
         decision,
-        reason: decision === 'explained' ? '订单与佣金明细已核对并向合作伙伴说明' : '申诉证据不足',
+        reason: reason.trim(),
       }),
     '佣金申诉已处理。',
   );
@@ -856,14 +876,24 @@ onMounted(() => void load());
         <span>有效合作伙伴</span><strong>{{ counts.active ?? 0 }}</strong><small>待确认 {{ counts.pending_confirmation ?? 0 }} 人</small>
       </article>
       <article>
-        <span>等待释放佣金</span><strong>{{ money(commissionTotals.pending) }}</strong><small>默认等待 7 天及退款窗口</small>
+        <span>等待释放佣金</span><strong>{{ money(commissionTotals.pending) }}</strong><small>按当前结算等待期及退款窗口释放</small>
       </article>
       <article>
-        <span>可提现佣金</span><strong>{{ money(commissionTotals.available) }}</strong><small>税前满 10 元可申请</small>
+        <span>可提现佣金</span><strong>{{ money(commissionTotals.available) }}</strong><small>税前满 {{ money(program?.minimumPayoutAmount ?? 1000) }} 可申请</small>
       </article>
       <article>
-        <span>提现待处理</span><strong>{{ money((payoutTotals.submitted ?? 0) + (payoutTotals.approved ?? 0)) }}</strong><small>默认每周组批</small>
+        <span>提现待处理</span><strong>{{ money(commissionTotals.reserved) }}</strong><small>包含审核、确认金额、组批及出款中的占用</small>
       </article>
+    </section>
+    <section class="partner-panel" aria-label="推广效果统计">
+      <div class="panel-heading"><div><p class="eyebrow">PROMOTION RESULTS</p><h2>推广效果</h2></div><span>本大会累计</span></div>
+      <dl class="rule-grid">
+        <div><dt>推广访问次数</dt><dd>{{ promotion.visits ?? 0 }}</dd></div>
+        <div><dt>每日去重访问人次</dt><dd>{{ promotion.uniqueDailyVisits ?? 0 }}</dd></div>
+        <div><dt>有效推广订单</dt><dd>{{ promotion.paidOrders ?? 0 }}</dd></div>
+        <div><dt>有效推广成交额</dt><dd>{{ money(promotion.netSalesAmount) }}</dd></div>
+      </dl>
+      <p class="field-hint">仅统计专属推广入口访问；去重访问按日累计，同一人跨日可重复计数。成交额扣除退款和不计佣明细，自购不计入。</p>
     </section>
     <section class="partner-panel">
       <div class="panel-heading program-heading">
@@ -961,7 +991,7 @@ onMounted(() => void load());
                 </small>
                 <small>{{ mobileDisplay(item.loginMobile) }}</small>
               </td>
-              <td data-label="公开资料">{{ label(item.profile.publicStatus) }}</td>
+              <td data-label="公开资料">{{ item.profile.publicStatus === 'published' ? '已公开' : item.profile.publicStatus === 'hidden' ? '已隐藏' : '草稿' }}</td>
               <td data-label="佣金比例">
                 <strong>{{
                   (item.personalRateBps ?? item.currentProgram?.fixedRateBps ?? 0) / 100
@@ -1066,14 +1096,14 @@ onMounted(() => void load());
           <tbody>
             <tr v-for="item in commissions" :key="String(item.id)">
               <td>
-                <code>{{ String(item.orderId ?? '').slice(0, 12) }}</code>
+                <code style="overflow-wrap: anywhere">{{ item.orderId }}</code><small>{{ partnerName(item.partnerId) }}</small>
               </td>
               <td>{{ money(item.eligibleAmount) }}</td>
               <td>{{ Number(item.rateBps ?? 0) / 100 }}%</td>
-              <td>{{ money(item.commissionAmount) }}</td>
+              <td>{{ money(Number(item.commissionAmount ?? 0) - Number(item.reversedAmount ?? 0)) }}<small v-if="Number(item.reversedAmount ?? 0)">已冲正 {{ money(item.reversedAmount) }}</small></td>
               <td>{{ money(item.reversedAmount) }}</td>
               <td>
-                <span class="status-badge">{{ label(item.status) }}</span>
+                <span class="status-badge">{{ item.status === 'available' ? '已过等待期' : label(item.status) }}</span>
               </td>
               <td>{{ dateTime(item.createdAt) }}</td>
             </tr>
@@ -1176,6 +1206,7 @@ onMounted(() => void load());
           <thead>
             <tr>
               <th>选择</th>
+              <th>合作伙伴</th>
               <th>申请金额</th>
               <th>税额</th>
               <th>净额</th>
@@ -1194,11 +1225,12 @@ onMounted(() => void load());
                   :value="String(item.id)"
                 />
               </td>
+              <td><strong>{{ partnerName(item.partnerId) }}</strong></td>
               <td>{{ money(item.grossAmount) }}</td>
               <td>{{ money(item.taxAmount) }}</td>
               <td>{{ money(item.netAmount) }}</td>
               <td>
-                <span class="status-badge">{{ label(item.status) }}</span>
+                <span class="status-badge">{{ item.status === 'under_review' ? '待伙伴确认金额' : label(item.status) }}</span>
               </td>
               <td>{{ dateTime(item.createdAt) }}</td>
               <td>
@@ -1234,18 +1266,19 @@ onMounted(() => void load());
                       item.status === 'batched' &&
                         payoutBatch(item)?.channel === 'manual_bank' &&
                         payoutBatch(item)?.status === 'approved' &&
+                        payoutBatch(item)?.approvedBy !== session.user.value?.id &&
                         canExecutePayouts
                     "
                     type="button"
                     @click="completeManualPayout(item)"
                   >
                     登记到账
-                  </button>
+                  </button><small v-if="item.status === 'batched' && payoutBatch(item)?.status === 'approved' && payoutBatch(item)?.approvedBy === session.user.value?.id">已由你复核，请另一位出款管理员登记到账。</small>
                 </div>
               </td>
             </tr>
             <tr v-if="!payoutRequests.length">
-              <td colspan="7" class="admin-empty">暂无提现申请。</td>
+              <td colspan="8" class="admin-empty">暂无提现申请。</td>
             </tr>
           </tbody>
         </table>
@@ -1263,7 +1296,7 @@ onMounted(() => void load());
         <table class="data-table">
           <thead>
             <tr>
-              <th>伙伴编号</th>
+              <th>合作伙伴</th>
               <th>主体</th>
               <th>渠道</th>
               <th>状态</th>
@@ -1274,13 +1307,14 @@ onMounted(() => void load());
           <tbody>
             <tr v-for="item in recipients" :key="String(item.id)">
               <td>
-                <code>{{ String(item.partnerId ?? '').slice(0, 12) }}</code>
+                <strong>{{ partnerName(item.partnerId) }}</strong>
               </td>
               <td>{{ item.type === 'organization' ? '企业' : '自然人' }}</td>
               <td>{{ item.channel === 'wechat_transfer' ? '微信商家转账' : '人工结算' }}</td>
-              <td>{{ label(item.status) }}</td>
+              <td>{{ item.status === 'pending' ? '待验证' : label(item.status) }}</td>
               <td>{{ dateTime(item.createdAt) }}</td>
               <td>
+                <button v-if="item.channel === 'manual_bank' && canReviewPayouts" type="button" :disabled="pending" @click="viewRecipient(item)">查看收款信息</button>
                 <button
                   v-if="item.status === 'pending' && canReviewPayouts"
                   type="button"
@@ -1319,7 +1353,7 @@ onMounted(() => void load());
           </thead>
           <tbody>
             <tr v-for="item in payoutBatches" :key="String(item.id)">
-              <td>{{ item.channel === 'wechat_transfer' ? '微信商家转账' : '人工对公结算' }}</td>
+              <td>{{ item.channel === 'wechat_transfer' ? '微信商家转账' : '人工银行结算' }}</td>
               <td>{{ item.requestCount }}</td>
               <td>{{ money(item.netAmount) }}</td>
               <td>
@@ -1547,6 +1581,19 @@ onMounted(() => void load());
     </section>
   </template>
 
+  <Teleport to="body">
+    <dialog ref="recipientDialog" class="partner-dialog partner-edit-dialog recipient-details-dialog" aria-labelledby="recipient-detail-title" @close="recipientDetail = null" @cancel.prevent="closeRecipientDetails">
+      <header class="partner-edit-head"><h2 id="recipient-detail-title">核对人工收款信息</h2><p>仅供财务核验，本次查看已记录访问审计。请核对后再操作转账。</p></header>
+      <div v-if="recipientDetail" class="partner-edit-body">
+        <dl class="rule-grid">
+          <div><dt>合作伙伴</dt><dd>{{ partnerName(recipientDetail.partnerId) }}</dd></div>
+          <div><dt>收款人名称</dt><dd>{{ recipientDetail.displayName }}</dd></div>
+          <div><dt>收款账户信息</dt><dd style="white-space: pre-wrap; overflow-wrap: anywhere">{{ recipientDetail.accountReference }}</dd></div>
+        </dl>
+      </div>
+      <footer class="partner-edit-footer"><button class="button secondary" type="button" @click="closeRecipientDetails">关闭</button></footer>
+    </dialog>
+  </Teleport>
   <Teleport to="body">
     <dialog
       ref="partnerInvitation"
@@ -1925,6 +1972,11 @@ onMounted(() => void load());
 </template>
 
 <style scoped>
+.recipient-details-dialog .partner-edit-head { display: block; }
+.recipient-details-dialog .partner-edit-head h2 { margin: 0 0 12px; }
+.recipient-details-dialog .rule-grid { grid-template-columns: 1fr; }
+.recipient-details-dialog .rule-grid dd { margin-top: 8px; overflow-wrap: anywhere; }
+
 .partner-tabs {
   display: flex;
   gap: 8px;

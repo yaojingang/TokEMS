@@ -177,5 +177,13 @@ persistent('partner profile versioning with real PostgreSQL', () => {
       .orderBy(asc(eventPartnerProfileVersions.version));
     expect(concurrentVersions.map((item) => item.version)).toEqual([1, 2, 3, 4]);
     expect(new Set(concurrentVersions.map((item) => item.id)).size).toBe(4);
+    const [current] = await db.select().from(eventPartners).where(eq(eventPartners.id, partnerId));
+    const copy = { invitation: '期待见面', introduction: '合作介绍', callToAction: '扫码参加大会', scanHint: '期待相聚深圳' };
+    const updatedCopy = await service.updateOwnPosterCopy(session, event!.id, { expectedVersion: current!.version, posterCopy: copy });
+    expect(updatedCopy.profile.posterCopy).toEqual(copy);
+    await expect(service.updateOwnPosterCopy(session, event!.id, { expectedVersion: current!.version, posterCopy: copy })).rejects.toMatchObject({ message: expect.stringContaining('请刷新后重试') });
+    const preserved = await service.updateOwnPrivacy(session, event!.id, { expectedVersion: updatedCopy.version, publicStatus: 'published', visibleFields: DEFAULT_PARTNER_VISIBLE_FIELDS, posterFields: DEFAULT_PARTNER_POSTER_FIELDS, searchIndexingEnabled: false });
+    expect(preserved.profile.posterCopy).toEqual(copy);
+
   });
 });
