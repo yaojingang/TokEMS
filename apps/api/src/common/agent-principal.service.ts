@@ -94,7 +94,7 @@ export class AgentPrincipalService {
     const decoded = this.jwt.decode(token, { complete: true });
     const kid =
       decoded && typeof decoded === 'object' && 'header' in decoded
-        ? String((decoded.header as Record<string, unknown>).kid ?? '')
+        ? String((decoded.header as unknown as Record<string, unknown>).kid ?? '')
         : '';
     const secrets = accessTokenSecrets();
     const key =
