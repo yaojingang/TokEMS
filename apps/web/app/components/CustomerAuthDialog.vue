@@ -24,10 +24,19 @@ const clock = ref(Date.now());
 const pending = ref(false);
 const errorMessage = ref('');
 const consentAccepted = ref(false);
+const consentPolicy = ref<{
+  termsVersion: string;
+  privacyVersion: string;
+  termsUrl: string;
+  privacyUrl: string;
+} | null>(null);
+const configurationIncomplete = ref(false);
 const dialogElement = ref<HTMLElement>();
 let openerElement: HTMLElement | null = null;
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
-const step = computed(() => (challengeId.value ? 'verify' : 'mobile'));
+const step = computed(() =>
+  consentPolicy.value ? 'consent' : challengeId.value ? 'verify' : 'mobile',
+);
 const retrySecondsRemaining = computed(() =>
   customerOtpRetrySeconds(resendAvailableAt.value, clock.value),
 );
@@ -71,6 +80,7 @@ function updateMobile(event: Event) {
 
 function resetChallenge() {
   stopCountdown();
+  consentPolicy.value = null;
   challengeId.value = '';
   code.value = '';
   developmentCode.value = '';
@@ -117,23 +127,36 @@ async function resendCode() {
 
 async function verifyCode() {
   errorMessage.value = '';
-  if (!/^\d{6}$/.test(code.value.trim())) {
+  if (!consentPolicy.value && !/^\d{6}$/.test(code.value.trim())) {
     errorMessage.value = '请输入 6 位验证码';
     return;
   }
-  if (!consentAccepted.value) {
+  if (consentPolicy.value && !consentAccepted.value) {
     errorMessage.value = '请先同意用户协议和隐私政策';
     return;
   }
   pending.value = true;
   try {
-    await customer.verifyOtp({
-      challengeId: challengeId.value,
-      mobile: mobile.value,
-      code: code.value,
-      termsVersion: siteConfiguration.value?.customerAccounts.termsVersion ?? '',
-      privacyVersion: siteConfiguration.value?.customerAccounts.privacyVersion ?? '',
-    });
+    const result = consentPolicy.value
+      ? await customer.confirmConsent({
+          ...consentPolicy.value,
+          consentAccepted: consentAccepted.value,
+        })
+      : await customer.verifyOtp({
+          challengeId: challengeId.value,
+          mobile: mobile.value,
+          code: code.value,
+          termsVersion: siteConfiguration.value?.customerAccounts.termsVersion ?? '',
+          privacyVersion: siteConfiguration.value?.customerAccounts.privacyVersion ?? '',
+        });
+    if ('consentRequired' in result) {
+      consentPolicy.value = result.policy;
+      configurationIncomplete.value = result.configurationIncomplete;
+      consentAccepted.value = false;
+      await nextTick();
+      dialogElement.value?.querySelector<HTMLInputElement>('.auth-consent input')?.focus();
+      return;
+    }
     resetDialog();
     customer.authDialogOpen.value = false;
     emit('authenticated');
@@ -227,12 +250,14 @@ onBeforeUnmount(() => {
           </button>
           <p class="auth-dialog__eyebrow">ACCOUNT ACCESS</p>
           <h2 id="customer-auth-title">
-            {{ step === 'mobile' ? '手机号登录 / 注册' : '输入验证码' }}
+            {{
+              step === 'mobile' ? '手机号登录 / 注册' : consentPolicy ? '确认协议' : '输入验证码'
+            }}
           </h2>
           <p class="auth-dialog__lead">
             {{
               step === 'mobile'
-                ? '验证手机号后即可继续，首次使用会自动创建账号。'
+                ? '验证手机号并确认协议后即可继续，首次使用会创建账号。'
                 : `验证码已发送至 ${maskedMobile}`
             }}
           </p>
@@ -254,13 +279,14 @@ onBeforeUnmount(() => {
                 />
               </span>
             </label>
+            <p class="field-hint">手机号用于身份验证和账户服务。<a v-if="siteConfiguration?.customerAccounts.privacyUrl" :href="siteConfiguration.customerAccounts.privacyUrl" target="_blank" rel="noreferrer">查看隐私政策</a></p>
             <button class="auth-primary" type="submit" :disabled="pending">
               {{ pending ? '正在发送…' : '获取验证码' }}
             </button>
           </form>
 
           <form v-else @submit.prevent="verifyCode">
-            <label class="auth-field">
+            <label v-if="!consentPolicy" class="auth-field">
               <span>验证码</span>
               <input
                 v-model="code"
@@ -273,24 +299,28 @@ onBeforeUnmount(() => {
                 placeholder="6 位验证码"
               />
             </label>
-            <p v-if="developmentCode" class="auth-development-code">
+            <p v-if="developmentCode && !consentPolicy" class="auth-development-code">
               演示环境验证码：<strong>{{ developmentCode }}</strong>
             </p>
-            <label class="auth-consent">
+            <p v-if="consentPolicy" role="status">请阅读并确认当前用户协议和隐私政策后继续。</p>
+            <p v-if="consentPolicy && configurationIncomplete" class="auth-development-code">
+              本地演示的协议版本尚未配置，本次确认不会免除下次登录确认。
+            </p>
+            <label v-if="consentPolicy" class="auth-consent">
               <input v-model="consentAccepted" type="checkbox" />
               <span>
                 我已阅读并同意
                 <a
-                  v-if="siteConfiguration?.customerAccounts.termsUrl"
-                  :href="siteConfiguration.customerAccounts.termsUrl"
+                  v-if="consentPolicy?.termsUrl"
+                  :href="consentPolicy.termsUrl"
                   target="_blank"
                   rel="noreferrer"
                 >用户协议</a>
                 <span v-else>用户协议</span>
                 和
                 <a
-                  v-if="siteConfiguration?.customerAccounts.privacyUrl"
-                  :href="siteConfiguration.customerAccounts.privacyUrl"
+                  v-if="consentPolicy?.privacyUrl"
+                  :href="consentPolicy.privacyUrl"
                   target="_blank"
                   rel="noreferrer"
                 >隐私政策</a>
@@ -298,9 +328,18 @@ onBeforeUnmount(() => {
               </span>
             </label>
             <button class="auth-primary" type="submit" :disabled="pending">
-              {{ pending ? '正在验证…' : '验证并继续' }}
+              {{ pending ? '正在处理…' : consentPolicy ? '同意并继续' : '验证并继续' }}
             </button>
-            <div class="auth-code-actions">
+            <button
+              v-if="consentPolicy"
+              type="button"
+              class="auth-secondary"
+              :disabled="pending"
+              @click="resetMobile"
+            >
+              重新验证 / 更换手机号
+            </button>
+            <div v-if="!consentPolicy" class="auth-code-actions">
               <button
                 class="auth-secondary"
                 type="button"

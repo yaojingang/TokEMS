@@ -83,6 +83,7 @@ async function bootstrap() {
       'X-Payment-Timestamp',
       'X-Payment-Signature',
       'X-CSRF-Token',
+      'X-Consent-Confirmation',
       'X-Wechat-OAuth-Session',
       'X-Payment-Channel',
     ],

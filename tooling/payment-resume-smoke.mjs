@@ -444,7 +444,7 @@ test('an editor entered from an expired detail session asks for login and recove
     await dialog.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
     await dialog.getByRole('button', { name: '获取验证码', exact: true }).click();
     await dialog.getByPlaceholder('6 位验证码').fill('123456');
-    await dialog.getByRole('checkbox').check();
+
     await dialog.getByRole('button', { name: '验证并继续', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
     assert.equal(await f.page.getByLabel('公司', { exact: true }).inputValue(), '原测试公司');
@@ -765,7 +765,7 @@ for (const scenario of ['account-leave', 'detail-leave', 'detail-editor', 'accou
           await dialog.getByPlaceholder('请输入 11 位手机号').fill('13900139000');
           await dialog.getByRole('button', { name: '获取验证码', exact: true }).click();
           await dialog.getByPlaceholder('6 位验证码').fill('123456');
-          await dialog.getByRole('checkbox').check();
+
           await dialog.getByRole('button', { name: '验证并继续', exact: true }).click();
           await dialog.waitFor({ state: 'hidden' });
           await f.page.locator('.account-pass__primary').waitFor();
@@ -846,7 +846,7 @@ for (const loginOther of [false, true]) {
       await dialog.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
       await dialog.getByRole('button', { name: '获取验证码', exact: true }).click();
       await dialog.getByPlaceholder('6 位验证码').fill('123456');
-      await dialog.getByRole('checkbox').check();
+
       await dialog.getByRole('button', { name: '验证并继续', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
       if (loginOther) {

@@ -51,6 +51,7 @@ import {
   StartPartnerWechatRecipientBindingSchema,
   UpdatePartnerPrivacySchema,
   UpdatePartnerProfileSchema,
+  UpdatePartnerPosterCopySchema,
   UpdatePartnerTransferConfigurationSchema,
 } from '@conference/contracts';
 import {
@@ -279,6 +280,19 @@ class CustomerPartnerController {
     );
   }
 
+  @Patch(':eventId/poster-copy')
+  posterCopy(
+    @Req() request: CustomerRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Body() body: unknown,
+  ) {
+    return this.partners.updateOwnPosterCopy(
+      request.customerSession,
+      eventId,
+      parse(UpdatePartnerPosterCopySchema, body, '海报文案校验失败'),
+    );
+  }
+
   @Patch(':eventId/privacy')
   privacy(
     @Req() request: CustomerRequest,
@@ -467,8 +481,11 @@ class CustomerPartnerController {
   }
 
   @Get(':eventId/inquiries')
-  inquiries(@Req() request: CustomerRequest, @Param('eventId', ParseIntPipe) eventId: number,
-    @Res({ passthrough: true }) reply: FastifyReply) {
+  inquiries(
+    @Req() request: CustomerRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
     reply.header('Cache-Control', 'private, no-store');
     return this.partners.inquiryList(request.customerSession, eventId);
   }

@@ -644,8 +644,17 @@ async function runVisualSmoke() {
     const code = codeText?.match(/\d{6}/u)?.[0];
     if (!code) throw new Error('个人中心手机端: 演示环境未返回可用验证码');
     await page.getByPlaceholder('6 位验证码').fill(code);
-    await page.locator('.auth-consent input').check();
+
     await page.getByRole('button', { name: '验证并继续' }).click();
+    const consent = page.locator('.auth-consent input[type="checkbox"]');
+    const consentRequired = await consent
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (consentRequired) {
+      await consent.check();
+      await page.getByRole('button', { name: '同意并继续' }).click();
+    }
     await page.locator('.auth-dialog').waitFor({ state: 'detached' });
     await page.getByRole('heading', { name: '个人中心', level: 1 }).waitFor();
   }

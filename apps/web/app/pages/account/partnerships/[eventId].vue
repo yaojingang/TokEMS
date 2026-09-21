@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { navigateTo } from '#app';
+import { definePageMeta } from '#imports';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
+import { PartnerPosterCopySchema } from '@conference/contracts';
 import type {
   PartnerRelationshipView,
   CustomerPartnerInquiryView,
@@ -8,7 +12,7 @@ import type {
 } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import { renderPersonalEventPoster } from '~/utils/personal-event-poster';
-import { partnerPosterFilename, resolvePartnerPosterContent } from '~/utils/partner-poster';
+import { partnerPosterFilename, resolvePartnerPosterContent, resolvePartnerPosterCopy } from '~/utils/partner-poster';
 import { nextTick, watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { copyPlainText } from '~/utils/copy-text';
@@ -16,6 +20,7 @@ import { copyPlainText } from '~/utils/copy-text';
 type Tab = 'profile' | 'promotion' | 'earnings' | 'payouts' | 'inquiries';
 type FinanceRow = Record<string, unknown> & { id?: string; status?: string; version?: number };
 
+definePageMeta({ key: route => String(route.params.eventId) });
 const route = useRoute();
 const customer = useCustomerSession();
 const conferenceApi = useConferenceApi();
@@ -33,11 +38,23 @@ const payouts = ref<FinanceRow[]>([]);
 const inquiryHistory = ref<CustomerPartnerInquiryView[]>([]);
 const inquiriesHasMore = ref(false);
 const payoutChannels = ref<PartnerPayoutChannelAvailability[]>([]);
-const wechatPayoutEnabled = computed(() => payoutChannels.value.some((item) => item.channel === 'wechat_transfer' && item.enabled));
-const minimumPayout = computed(() => (partner.value?.currentProgram?.minimumPayoutAmount ?? 1000) / 100);
+const wechatPayoutEnabled = computed(() =>
+  payoutChannels.value.some((item) => item.channel === 'wechat_transfer' && item.enabled),
+);
+const minimumPayout = computed(
+  () => (partner.value?.currentProgram?.minimumPayoutAmount ?? 1000) / 100,
+);
 const recipients = ref<FinanceRow[]>([]);
 const payoutDocuments = ref<FinanceRow[]>([]);
-const activeTab = ref<Tab>('profile');
+const activeTab = computed<Tab>({
+  get: () =>
+    ['profile', 'promotion', 'earnings', 'payouts', 'inquiries'].includes(String(route.query.tab))
+      ? (route.query.tab as Tab)
+      : 'earnings',
+  set: (tab) => {
+    void navigateTo({ query: { ...route.query, tab } });
+  },
+});
 const mobileNavOpen = ref(false);
 const mobileNav = ref<HTMLElement | null>(null);
 const mobileNavTrigger = ref<HTMLButtonElement | null>(null);
@@ -101,10 +118,10 @@ const inquiryForm = reactive({ type: 'missing_order', orderReference: '', descri
 
 const tabs: Array<{ id: Tab; label: string; caption: string; description: string }> = [
   {
-    id: 'profile',
-    label: '资料与公开设置',
-    caption: 'PROFILE & PRIVACY',
-    description: '完善大会名片，选择你愿意公开的信息。',
+    id: 'earnings',
+    label: '推广收益',
+    caption: 'EARNINGS',
+    description: '查看每笔订单的佣金和结算进度。',
   },
   {
     id: 'promotion',
@@ -113,10 +130,10 @@ const tabs: Array<{ id: Tab; label: string; caption: string; description: string
     description: '分享专属链接与海报，邀请朋友通过你报名。',
   },
   {
-    id: 'earnings',
-    label: '收益明细',
-    caption: 'EARNINGS',
-    description: '查看每笔订单的佣金和结算进度。',
+    id: 'profile',
+    label: '资料设置',
+    caption: 'PROFILE & PRIVACY',
+    description: '完善大会名片，选择你愿意公开的信息。',
   },
   {
     id: 'payouts',
@@ -207,8 +224,52 @@ const confirmed = computed(() =>
 const verifiedRecipients = computed(() =>
   recipients.value.filter((item) => item.status === 'verified'),
 );
+const posterDraft = reactive({ invitation: '', introduction: '', callToAction: '', scanHint: '' });
+const posterDirty = computed(() => {
+  if (!partner.value) return false;
+  const saved = resolvePartnerPosterCopy(partner.value.profile);
+  return (Object.keys(posterDraft) as Array<keyof typeof posterDraft>).some(key => posterDraft[key] !== saved[key]);
+});
+const returnFromAvatar = ref(false);
+async function editPosterAvatar() {
+  returnFromAvatar.value = true;
+  await navigateTo({ query: { ...route.query, tab: 'profile', focus: 'avatar' } });
+  await nextTick();
+  document.querySelector<HTMLElement>('.avatar-editor input')?.focus();
+  document.querySelector('.avatar-editor')?.scrollIntoView({ block: 'center' });
+}
+function savePosterCopy() {
+  if (!partner.value) return;
+  const validation = PartnerPosterCopySchema.safeParse(posterDraft);
+  if (!validation.success) {
+    const issue = validation.error.issues[0]!;
+    const labels: Record<string, string> = { invitation: '邀请语', introduction: '合作介绍', callToAction: '扫码引导标题', scanHint: '扫码引导说明' };
+    errorMessage.value = `${labels[String(issue.path[0])] ?? '海报文案'}：${issue.message}`;
+    return;
+  }
+  return run(async () => {
+    const value = await customer.updatePartnerPosterCopy(eventId.value, {
+      expectedVersion: partner.value!.version,
+      posterCopy: { ...posterDraft },
+    });
+    hydrate(value);
+    Object.assign(posterDraft, resolvePartnerPosterCopy(value.profile));
+  }, '海报文案已保存');
+}
+onBeforeRouteLeave(() => !posterDirty.value || window.confirm('海报文案尚未保存，确定离开？'));
+onBeforeRouteUpdate((to, from) => to.params.eventId === from.params.eventId || !posterDirty.value || window.confirm('海报文案尚未保存，确定切换大会？'));
+function confirmPosterUnload(event: BeforeUnloadEvent) {
+  if (posterDirty.value) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', confirmPosterUnload));
+onBeforeUnmount(() => window.removeEventListener('beforeunload', confirmPosterUnload));
 const posterContent = computed(() =>
-  partner.value ? resolvePartnerPosterContent(partner.value.profile) : null,
+  partner.value
+    ? resolvePartnerPosterContent({ ...partner.value.profile, posterCopy: { ...posterDraft } })
+    : null,
 );
 const posterEventLine = computed(() => {
   const value = posterEvent.value;
@@ -249,6 +310,8 @@ function dateTime(value: unknown) {
   return typeof value === 'string' && value ? new Date(value).toLocaleString('zh-CN') : '暂无';
 }
 function hydrate(value: PartnerRelationshipView) {
+  if (!partner.value || !posterDirty.value)
+    Object.assign(posterDraft, resolvePartnerPosterCopy(value.profile));
   partner.value = value;
   Object.assign(profileForm, value.profile);
   Object.assign(visibility, value.profile.visibleFields);
@@ -342,6 +405,10 @@ function saveProfile() {
         gallery: gallery.value.map(({ assetId, alt }) => ({ assetId, alt })),
       }),
     );
+    if (returnFromAvatar.value) {
+      returnFromAvatar.value = false;
+      await navigateTo({ query: { tab: 'promotion' } });
+    }
   }, '合作伙伴资料已保存');
 }
 function savePrivacy() {
@@ -433,13 +500,13 @@ function downloadPoster() {
   }, '推广海报下载已开始');
 }
 watch(
-  [activeTab, partner, posterEvent, referralUrl],
+  [loading, activeTab, partner, posterEvent, referralUrl, () => JSON.stringify(posterDraft)],
   async () => {
     ++posterRenderVersion;
     posterReady.value = false;
     posterRendering.value = false;
     posterError.value = '';
-    if (activeTab.value !== 'promotion') return;
+    if (loading.value || activeTab.value !== 'promotion') return;
     await nextTick();
     await renderPoster();
   },
@@ -696,20 +763,7 @@ useHead({ title: '合作伙伴中心' });
                 确认规则并开通推广 <span aria-hidden="true">→</span>
               </button>
             </section>
-            <section class="balance-strip" aria-label="合作收益概览">
-              <div>
-                <span>可提现收益</span><strong>{{ money(partner.balances.available) }}</strong><small>税前可提现金额</small>
-              </div>
-              <div>
-                <span>待结算</span><strong>{{ money(partner.balances.pending) }}</strong><small>等待结算期结束</small>
-              </div>
-              <div>
-                <span>提现处理中</span><strong>{{ money(partner.balances.reserved) }}</strong><small>已申请的提现金额</small>
-              </div>
-              <div>
-                <span>已结算</span><strong>{{ money(partner.balances.paid) }}</strong><small>累计完成结算</small>
-              </div>
-            </section>
+
             <section
               id="partner-module"
               ref="moduleSection"
@@ -731,7 +785,7 @@ useHead({ title: '合作伙伴中心' });
                     <p>用于当前大会的合作伙伴名片与介绍页。</p>
                   </div>
                   <div class="account-form">
-                    <div class="avatar-editor wide">
+                    <div class="avatar-editor wide" tabindex="-1">
                       <div class="profile-avatar">
                         <img
                           v-if="avatarPreview"
@@ -923,19 +977,56 @@ useHead({ title: '合作伙伴中心' });
                       rel="noopener"
                       class="account-secondary"
                     >测试推广入口 ↗</a><a
-                      v-if="partner.directoryEnabled && partner.profile.publicStatus === 'published' && partner.qualificationStatus === 'active'"
+                      v-if="
+                        partner.directoryEnabled &&
+                          partner.profile.publicStatus === 'published' &&
+                          partner.qualificationStatus === 'active'
+                      "
                       :href="`/partners/${partner.publicSlug}?event=${partner.eventSlug}`"
                       class="account-secondary"
                     >预览公开详情 ↗</a>
                   </div>
-                  <p v-if="!partner.directoryEnabled" class="field-hint">主办方尚未开放公开目录，个人详情暂不可访问；专属推广链接确认规则后仍可使用。</p>
-                  <p v-else-if="partner.profile.publicStatus !== 'published'" class="field-hint">请在资料与公开设置中选择公开发布后查看个人详情。</p>
-                  <div class="promotion-tip">
-                    <h3>推广效果</h3>
-                    <div class="data-list"><article><span>推广访问次数</span><strong>{{ partner.promotion?.visits ?? 0 }}</strong></article><article><span>每日去重访问人次</span><strong>{{ partner.promotion?.uniqueDailyVisits ?? 0 }}</strong></article><article><span>有效推广订单</span><strong>{{ partner.promotion?.paidOrders ?? 0 }}</strong></article><article><span>有效推广成交额</span><strong>{{ money(partner.promotion?.netSalesAmount) }}</strong></article></div>
-                    <p class="field-hint">累计数据，仅统计专属入口。访问按日去重后累计；成交额扣除退款和不计佣明细，自购不计入。</p>
-                  </div>
-                  <div class="promotion-tip">
+                  <p v-if="!partner.directoryEnabled" class="field-hint">
+                    主办方尚未开放公开目录，个人详情暂不可访问；专属推广链接确认规则后仍可使用。
+                  </p>
+                  <p v-else-if="partner.profile.publicStatus !== 'published'" class="field-hint">
+                    请在资料设置中选择公开发布后查看个人详情。
+                  </p>
+
+                  <div class="promotion-tip poster-copy-editor">
+                    <h3>海报文案设置</h3>
+                    <label>邀请语 <small>{{ Array.from(posterDraft.invitation).length }}/32</small><input v-model="posterDraft.invitation" :disabled="pending" placeholder="期待在大会现场与你见面" /></label>
+                    <label>合作介绍 <small>{{ Array.from(posterDraft.introduction).length }}/80</small><textarea
+                      v-model="posterDraft.introduction"
+                      :disabled="pending"
+                      rows="3"
+                      placeholder="留空使用已授权的资料介绍或默认文案"
+                    />
+                    </label>
+                    <p class="field-hint">
+                      保存的文案将用于分享海报。姓名、公司和头像请在资料设置修改。
+                    </p>
+                    <label>扫码引导标题 <small>{{ Array.from(posterDraft.callToAction).length }}/20</small><input v-model="posterDraft.callToAction" :disabled="pending" /></label>
+                    <label>扫码引导说明 <small>{{ Array.from(posterDraft.scanHint).length }}/32</small><input v-model="posterDraft.scanHint" :disabled="pending" /></label>
+                    <p class="field-hint">以上三个区域已提供大会海报默认文案，可直接修改。保存后用于分享海报，二维码仍指向你的专属报名链接。</p>
+                    <p v-if="posterDirty" role="status">文案尚未保存，保存后可下载。</p>
+                    <div class="inline-actions">
+                      <button
+                        type="button"
+                        class="account-primary"
+                        :disabled="pending || !posterDirty"
+                        @click="savePosterCopy"
+                      >
+                        保存文案
+                      </button><button
+                        type="button"
+                        class="account-secondary"
+                        :disabled="pending"
+                        @click="Object.assign(posterDraft, resolvePartnerPosterCopy({ ...partner.profile, posterCopy: undefined }))"
+                      >
+                        恢复默认文案
+                      </button>
+                    </div>
                     <h3>分享你的大会名片</h3>
                     <p class="hint">
                       完善个人资料并保存公开设置，再下载专属海报，方便朋友扫码报名。
@@ -943,7 +1034,7 @@ useHead({ title: '合作伙伴中心' });
                     <button
                       type="button"
                       class="account-secondary"
-                      :disabled="!posterReady || posterRendering || pending"
+                      :disabled="!posterReady || posterRendering || pending || posterDirty"
                       @click="downloadPoster"
                     >
                       下载 1080 × 1440 海报 ↓
@@ -956,7 +1047,9 @@ useHead({ title: '合作伙伴中心' });
                       <span class="section-index">PERSONAL POSTER</span>
                       <h3>我的推广海报</h3>
                     </div>
-                    <span class="poster-ratio">社交分享版 · 3:4</span>
+                    <button type="button" class="account-secondary" :disabled="pending" @click="editPosterAvatar">
+                      修改头像
+                    </button>
                   </div>
                   <canvas
                     v-show="posterReady"
@@ -1000,21 +1093,60 @@ useHead({ title: '合作伙伴中心' });
                 </figure>
               </div>
 
-              <article v-else-if="activeTab === 'earnings'" class="account-surface">
+              <article v-else-if="activeTab === 'earnings'" class="account-surface earnings-surface">
+                <section class="balance-strip" aria-label="合作收益概览">
+                  <div>
+                    <span>可提现收益</span><strong>{{ money(partner.balances.available) }}</strong><small>税前可提现金额</small>
+                  </div>
+                  <div>
+                    <span>待结算</span><strong>{{ money(partner.balances.pending) }}</strong><small>等待结算期结束</small>
+                  </div>
+                  <div>
+                    <span>提现处理中</span><strong>{{ money(partner.balances.reserved) }}</strong><small>已申请的提现金额</small>
+                  </div>
+                  <div>
+                    <span>已结算</span><strong>{{ money(partner.balances.paid) }}</strong><small>累计完成结算</small>
+                  </div>
+                </section>
+                <div class="promotion-tip">
+                  <h3>推广效果</h3>
+                  <div class="data-list">
+                    <article>
+                      <span>推广访问次数</span><strong>{{ partner.promotion?.visits ?? 0 }}</strong>
+                    </article>
+                    <article>
+                      <span>每日去重访问人次</span><strong>{{ partner.promotion?.uniqueDailyVisits ?? 0 }}</strong>
+                    </article>
+                    <article>
+                      <span>有效推广订单</span><strong>{{ partner.promotion?.paidOrders ?? 0 }}</strong>
+                    </article>
+                    <article>
+                      <span>有效推广成交额</span><strong>{{ money(partner.promotion?.netSalesAmount) }}</strong>
+                    </article>
+                  </div>
+                  <p class="field-hint">
+                    累计数据，仅统计专属入口。访问按日去重后累计；成交额扣除退款和不计佣明细，自购不计入。
+                  </p>
+                </div>
                 <div class="surface-heading section-row">
                   <div>
                     <h3>佣金记录</h3>
-                    <p>展示每笔订单扣除冲正后的佣金。可提现余额以页面顶部为准，到账进度见提现与结算记录。</p>
+                    <p>
+                      展示每笔订单扣除冲正后的佣金。可提现余额以页面顶部为准，到账进度见提现与结算记录。
+                    </p>
                   </div>
                   <span class="record-count">{{ commissions.length }} 条记录</span>
                 </div>
                 <div v-if="commissions.length" class="data-list">
                   <article v-for="item in commissions" :key="String(item.id)">
                     <div>
-                      <strong style="overflow-wrap:anywhere">订单 {{ String(item.orderId ?? '') }}</strong><small>{{ dateTime(item.createdAt) }}</small>
+                      <strong style="overflow-wrap: anywhere">订单 {{ String(item.orderId ?? '') }}</strong><small>{{ dateTime(item.createdAt) }}</small>
                     </div>
                     <div>
-                      <b>{{ money(Number(item.commissionAmount ?? 0) - Number(item.reversedAmount ?? 0)) }}</b><small v-if="Number(item.reversedAmount ?? 0)">原佣金 {{ money(item.commissionAmount) }} · 已冲正 {{ money(item.reversedAmount) }}</small><span
+                      <b>{{
+                        money(Number(item.commissionAmount ?? 0) - Number(item.reversedAmount ?? 0))
+                      }}</b><small v-if="Number(item.reversedAmount ?? 0)">原佣金 {{ money(item.commissionAmount) }} · 已冲正
+                        {{ money(item.reversedAmount) }}</small><span
                         class="status-badge"
                         :class="{
                           'is-success': item.status === 'available' || item.status === 'paid',
@@ -1077,7 +1209,10 @@ useHead({ title: '合作伙伴中心' });
                   <form class="account-surface" @submit.prevent="bindRecipient">
                     <div class="surface-heading">
                       <h3>收款信息</h3>
-                      <p>选择与你实际收款身份一致的信息。</p><p v-if="!wechatPayoutEnabled" class="field-hint">主办方暂未开通微信转账，请使用银行账户结算。</p>
+                      <p>选择与你实际收款身份一致的信息。</p>
+                      <p v-if="!wechatPayoutEnabled" class="field-hint">
+                        主办方暂未开通微信转账，请使用银行账户结算。
+                      </p>
                     </div>
                     <div class="stack-form">
                       <label>收款主体<select v-model="recipientForm.type">
@@ -1159,7 +1294,14 @@ useHead({ title: '合作伙伴中心' });
                         >
                           确认结算金额
                         </button><button
-                          v-if="item.status === 'executing' && recipients.some((recipient) => recipient.id === item.recipientId && recipient.channel === 'wechat_transfer')"
+                          v-if="
+                            item.status === 'executing' &&
+                              recipients.some(
+                                (recipient) =>
+                                  recipient.id === item.recipientId &&
+                                  recipient.channel === 'wechat_transfer',
+                              )
+                          "
                           type="button"
                           class="account-secondary"
                           :disabled="pending"
@@ -1213,9 +1355,33 @@ useHead({ title: '合作伙伴中心' });
                   </form>
                 </div>
                 <article class="account-surface">
-                  <div class="surface-heading"><h3>我的申诉记录</h3><p>查看核查进度及大会运营人员的处理说明。</p></div>
-                  <div v-if="inquiryHistory.length" class="data-list"><article v-for="item in inquiryHistory" :key="item.id"><div><strong style="overflow-wrap:anywhere">订单 {{ item.orderReference }}</strong><small>{{ dateTime(item.createdAt) }}</small><p>{{ item.description }}</p><p v-if="item.decisionReason">处理说明：{{ item.decisionReason }}</p><small v-if="item.adjustmentAmount !== null">佣金调整 {{ money(item.adjustmentAmount) }}</small></div><span class="status-badge">{{ item.status === 'open' ? '待核查' : item.status === 'under_review' ? '复核中' : item.status === 'resolved' ? '已处理' : '已驳回' }}</span></article></div>
-                  <p v-else class="field-hint">还没有申诉记录，提交后可在这里跟进。</p><p v-if="inquiriesHasMore" class="field-hint">当前显示最近 100 条记录，较早记录请联系大会运营人员查询。</p>
+                  <div class="surface-heading">
+                    <h3>我的申诉记录</h3>
+                    <p>查看核查进度及大会运营人员的处理说明。</p>
+                  </div>
+                  <div v-if="inquiryHistory.length" class="data-list">
+                    <article v-for="item in inquiryHistory" :key="item.id">
+                      <div>
+                        <strong style="overflow-wrap: anywhere">订单 {{ item.orderReference }}</strong><small>{{ dateTime(item.createdAt) }}</small>
+                        <p>{{ item.description }}</p>
+                        <p v-if="item.decisionReason">处理说明：{{ item.decisionReason }}</p>
+                        <small v-if="item.adjustmentAmount !== null">佣金调整 {{ money(item.adjustmentAmount) }}</small>
+                      </div>
+                      <span class="status-badge">{{
+                        item.status === 'open'
+                          ? '待核查'
+                          : item.status === 'under_review'
+                            ? '复核中'
+                            : item.status === 'resolved'
+                              ? '已处理'
+                              : '已驳回'
+                      }}</span>
+                    </article>
+                  </div>
+                  <p v-else class="field-hint">还没有申诉记录，提交后可在这里跟进。</p>
+                  <p v-if="inquiriesHasMore" class="field-hint">
+                    当前显示最近 100 条记录，较早记录请联系大会运营人员查询。
+                  </p>
                 </article>
               </div>
             </section>
@@ -1460,6 +1626,23 @@ useHead({ title: '合作伙伴中心' });
   border-radius: 10px;
   background: var(--account-surface);
 }
+.earnings-surface .balance-strip {
+  padding-inline: clamp(20px, 3vw, 30px);
+  border-top: 0;
+  margin: 0;
+}
+.earnings-surface .promotion-tip {
+  margin: 0;
+  padding: 26px clamp(20px, 3vw, 30px);
+  border-top: 0;
+  border-bottom: 1px solid var(--account-line-soft);
+}
+.earnings-surface .promotion-tip h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.earnings-surface .promotion-tip .data-list { padding: 0; }
 .balance-strip {
   display: grid;
   padding: 0;
@@ -1844,6 +2027,14 @@ button:active:not(:disabled),
   padding-top: 26px;
   border-top: 1px solid var(--account-line-soft);
 }
+.poster-copy-editor { display: grid; gap: 16px; }
+.poster-copy-editor h3, .poster-copy-editor p { margin: 0; }
+.poster-copy-editor label { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.poster-copy-editor label small { color: var(--account-muted); font-weight: 400; }
+.poster-copy-editor input, .poster-copy-editor textarea { grid-column: 1 / -1; }
+.poster-copy-editor .inline-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.poster-copy-editor .inline-actions + h3 { margin-top: 12px; padding-top: 24px; border-top: 1px solid var(--account-line-soft); }
+.poster-copy-editor > button { justify-self: start; }
 .poster-preview {
   min-width: 0;
   margin: 0;

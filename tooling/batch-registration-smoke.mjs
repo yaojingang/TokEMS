@@ -807,7 +807,7 @@ test('anonymous edits survive mobile login without copying another customer draf
     await f.page.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
     await f.page.getByRole('button', { name: '获取验证码', exact: true }).click();
     await f.page.getByPlaceholder('6 位验证码').fill('123456');
-    await f.page.locator('.auth-consent input').check();
+
     await f.page.getByRole('button', { name: '验证并继续', exact: true }).click();
     await f.page.waitForFunction(() => !document.querySelector('.auth-dialog'));
     assert.deepEqual(
@@ -1172,7 +1172,7 @@ test('an expired quote session asks for login and restores that buyer draft afte
     await f.page.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
     await f.page.getByRole('button', { name: '获取验证码', exact: true }).click();
     await f.page.getByPlaceholder('6 位验证码').fill('123456');
-    await f.page.locator('.auth-consent input').check();
+
     await f.page.getByRole('button', { name: '验证并继续', exact: true }).click();
     await f.page.waitForFunction(
       () =>

@@ -74,6 +74,8 @@ interface MemoryChallenge {
   expiresAt: Date;
   attempts: number;
   consumed: boolean;
+  consentTokenHash?: string;
+  consentExpiresAt?: Date;
 }
 
 interface MemorySession {
@@ -432,10 +434,66 @@ export class CustomerAuthService {
     };
   }
 
+  async completeConsent(
+    request: FastifyRequest,
+    token: string,
+    input: { termsVersion: string; privacyVersion: string; consentAccepted: boolean },
+  ) {
+    const organization = await this.resolveOrganization(request);
+    const digest = sha256(token);
+    const db = this.database.db;
+    const challenge = db
+      ? (
+          await db
+            .select()
+            .from(customerAuthChallenges)
+            .where(
+              and(
+                eq(customerAuthChallenges.consentTokenHash, digest),
+                eq(customerAuthChallenges.organizationId, organization.id),
+              ),
+            )
+            .limit(1)
+        )[0]
+      : [...this.memoryChallenges.values()].find(
+          (c) => c.consentTokenHash === digest && c.organizationId === organization.id,
+        );
+    if (!challenge || !input.consentAccepted)
+      throw new DomainError(
+        API_ERROR_CODES.UNAUTHORIZED,
+        '确认已失效，请重新验证手机号',
+        HttpStatus.UNAUTHORIZED,
+      );
+    return this.verifyOtp(
+      request,
+      {
+        challengeId: challenge.id,
+        mobile: 'mobileE164' in challenge ? challenge.mobileE164 : challenge.mobile,
+        code: '000000',
+        ...input,
+      },
+      token,
+    );
+  }
+
   async verifyOtp(
     request: FastifyRequest,
     input: VerifyCustomerOtp,
-  ): Promise<{ session: CustomerSession; token: string }> {
+    continuation?: string,
+  ): Promise<
+    | { session: CustomerSession; token: string }
+    | {
+        consentRequired: true;
+        consentToken: string;
+        policy: {
+          termsVersion: string;
+          privacyVersion: string;
+          termsUrl: string;
+          privacyUrl: string;
+        };
+        configurationIncomplete: boolean;
+      }
+  > {
     const organization = await this.resolveOrganization(request);
     let mobile: string;
     try {
@@ -447,6 +505,33 @@ export class CustomerAuthService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    const accountSettings =
+      (organization.settings as { customerAccounts?: Record<string, unknown> }).customerAccounts ??
+      {};
+    const policy = {
+      termsVersion: String(accountSettings.termsVersion ?? ''),
+      privacyVersion: String(accountSettings.privacyVersion ?? ''),
+      termsUrl: String(accountSettings.termsUrl ?? ''),
+      privacyUrl: String(accountSettings.privacyUrl ?? ''),
+    };
+    const configured = Object.values(policy).every(Boolean);
+    if (!configured && process.env.DEPLOYMENT_MODE === 'production')
+      throw new DomainError(
+        API_ERROR_CODES.INVALID_STATE_TRANSITION,
+        '主办方尚未完成协议配置，请联系主办方',
+        HttpStatus.CONFLICT,
+      );
+    const accepted =
+      input.consentAccepted &&
+      input.termsVersion === policy.termsVersion &&
+      input.privacyVersion === policy.privacyVersion;
+    const pendingToken = createOpaqueToken();
+    const awaitingConsent = () => ({
+      consentRequired: true as const,
+      consentToken: pendingToken,
+      policy,
+      configurationIncomplete: !configured,
+    });
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
     const rawToken = createOpaqueToken();
@@ -457,14 +542,20 @@ export class CustomerAuthService {
     if (!db) {
       const challenge = this.memoryChallenges.get(input.challengeId);
       const expected = hmacDigest(this.otpPepper(), `${input.challengeId}:${mobile}:${input.code}`);
+      const continuing = Boolean(
+        continuation &&
+        challenge?.consentTokenHash === sha256(continuation) &&
+        challenge.consentExpiresAt &&
+        challenge.consentExpiresAt > now,
+      );
       if (
         !challenge ||
         challenge.organizationId !== organization.id ||
         challenge.mobile !== mobile ||
-        challenge.consumed ||
-        challenge.expiresAt <= now ||
+        (challenge.consumed && !continuing) ||
+        (!continuing && challenge.expiresAt <= now) ||
         challenge.attempts >= OTP_MAX_ATTEMPTS ||
-        !secureDigestEquals(challenge.digest, expected)
+        (!continuing && !secureDigestEquals(challenge.digest, expected))
       ) {
         if (challenge) challenge.attempts += 1;
         throw new DomainError(
@@ -474,6 +565,12 @@ export class CustomerAuthService {
         );
       }
       challenge.consumed = true;
+      if (!accepted) {
+        challenge.consentTokenHash = sha256(pendingToken);
+        challenge.consentExpiresAt = new Date(now.getTime() + OTP_LIFETIME_MS);
+        return awaitingConsent();
+      }
+      delete challenge.consentTokenHash;
       const customerKey = `${organization.id}:${mobile}`;
       let customer = this.memoryCustomers.get(customerKey);
       if (!customer) {
@@ -550,13 +647,19 @@ export class CustomerAuthService {
           this.otpPepper(),
           `${input.challengeId}:${mobile}:${input.code}`,
         );
+        const continuing = Boolean(
+          continuation &&
+          challenge?.consentTokenHash === sha256(continuation) &&
+          challenge.consentExpiresAt &&
+          challenge.consentExpiresAt > now,
+        );
         if (
           !challenge ||
-          challenge.consumedAt ||
+          (challenge.consumedAt && !continuing) ||
           challenge.invalidatedAt ||
-          challenge.expiresAt <= now ||
+          (!continuing && challenge.expiresAt <= now) ||
           challenge.attempts >= OTP_MAX_ATTEMPTS ||
-          !secureDigestEquals(challenge.codeDigest, expected)
+          (!continuing && !secureDigestEquals(challenge.codeDigest, expected))
         ) {
           if (challenge) {
             await tx
@@ -572,7 +675,7 @@ export class CustomerAuthService {
         }
         await tx
           .update(customerAuthChallenges)
-          .set({ consumedAt: now, updatedAt: now })
+          .set({ consumedAt: now, consentTokenHash: null, consentExpiresAt: null, updatedAt: now })
           .where(eq(customerAuthChallenges.id, challenge.id));
 
         let [user] = await tx
@@ -586,6 +689,33 @@ export class CustomerAuthService {
           )
           .for('update')
           .limit(1);
+        if (user && user.status !== 'active')
+          throw new DomainError(
+            API_ERROR_CODES.FORBIDDEN,
+            '账号当前无法登录，请联系大会主办方',
+            HttpStatus.FORBIDDEN,
+          );
+        const consents =
+          user && configured
+            ? await tx
+                .select()
+                .from(customerConsents)
+                .where(eq(customerConsents.customerUserId, user.id))
+            : [];
+        const alreadyAccepted =
+          configured &&
+          consents.some((c) => c.consentType === 'terms' && c.version === policy.termsVersion) &&
+          consents.some((c) => c.consentType === 'privacy' && c.version === policy.privacyVersion);
+        if (!alreadyAccepted && !accepted) {
+          await tx
+            .update(customerAuthChallenges)
+            .set({
+              consentTokenHash: sha256(pendingToken),
+              consentExpiresAt: new Date(now.getTime() + OTP_LIFETIME_MS),
+            })
+            .where(eq(customerAuthChallenges.id, challenge.id));
+          return awaitingConsent();
+        }
         if (!user) {
           [user] = await tx
             .insert(customerUsers)
@@ -631,28 +761,8 @@ export class CustomerAuthService {
           )
           .limit(1);
         if (!publicIdRow) throw new Error('用户缺少数字用户 ID');
-        const accountSettings =
-          organization.settings &&
-          typeof organization.settings === 'object' &&
-          'customerAccounts' in organization.settings &&
-          organization.settings.customerAccounts &&
-          typeof organization.settings.customerAccounts === 'object'
-            ? (organization.settings.customerAccounts as Record<string, unknown>)
-            : {};
-        const expectedTerms = String(accountSettings.termsVersion ?? '');
-        const expectedPrivacy = String(accountSettings.privacyVersion ?? '');
-        if (
-          (expectedTerms && input.termsVersion !== expectedTerms) ||
-          (expectedPrivacy && input.privacyVersion !== expectedPrivacy)
-        ) {
-          throw new DomainError(
-            API_ERROR_CODES.INVALID_STATE_TRANSITION,
-            '用户协议或隐私政策已经更新，请刷新后重新确认',
-            HttpStatus.CONFLICT,
-          );
-        }
         const consentRows = [
-          ...(input.termsVersion
+          ...(configured && accepted && input.termsVersion
             ? [
                 {
                   customerUserId: user!.id,
@@ -663,7 +773,7 @@ export class CustomerAuthService {
                 },
               ]
             : []),
-          ...(input.privacyVersion
+          ...(configured && accepted && input.privacyVersion
             ? [
                 {
                   customerUserId: user!.id,
@@ -707,6 +817,7 @@ export class CustomerAuthService {
           HttpStatus.UNAUTHORIZED,
         );
       }
+      if ('consentRequired' in verified) return verified;
       authenticated = verified;
     }
 
