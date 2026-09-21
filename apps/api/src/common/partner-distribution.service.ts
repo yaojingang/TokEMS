@@ -54,7 +54,11 @@ import { DomainError } from './domain-error.js';
 import { matchesDeclaredMediaType, readUploadWithinLimit } from './object-storage-verification.js';
 import { RedisService } from './redis.service.js';
 import { lockPartnerSettlement } from './partner-settlement-guard.js';
-import { readCustomerPartnerInquiries, mapCustomerPartnerInquiry, customerPayoutChannels } from './partner-customer-views.js';
+import {
+  readCustomerPartnerInquiries,
+  mapCustomerPartnerInquiry,
+  customerPayoutChannels,
+} from './partner-customer-views.js';
 import { readPartnerPromotionStats } from './partner-promotion-stats.js';
 
 export const PARTNER_REFERRAL_COOKIE = 'tokems_partner_referral';
@@ -153,6 +157,7 @@ function serializeProfile(eventId: number, profile: ProfileRow) {
     publicStatus: profile.publicStatus,
     visibleFields: profile.visibleFields,
     posterFields: profile.posterFields,
+    posterCopy: profile.posterCopy,
     searchIndexingEnabled: profile.searchIndexingEnabled,
   };
 }
@@ -169,6 +174,7 @@ function publicProfile(profile: ProfileRow, eventSlug: string, publicSlug: strin
     avatarUrl: visible.avatar ? profileAvatarUrl(eventSlug, publicSlug, profile) : null,
     searchIndexingEnabled: profile.searchIndexingEnabled,
     posterFields: profile.posterFields,
+    posterCopy: { invitation: profile.posterCopy?.invitation ?? '', introduction: profile.posterCopy?.introduction ?? '', callToAction: profile.posterCopy?.callToAction ?? '', scanHint: profile.posterCopy?.scanHint ?? '' },
     ...(visible.businessUrl && profile.businessUrl ? { businessUrl: profile.businessUrl } : {}),
     ...(visible.contactPhone && profile.contactPhone ? { contactPhone: profile.contactPhone } : {}),
     ...(visible.contactEmail && profile.contactEmail ? { contactEmail: profile.contactEmail } : {}),
@@ -1288,6 +1294,19 @@ export class PartnerDistributionService {
     }));
   }
 
+  async updateOwnPosterCopy(
+    session: AuthenticatedCustomer,
+    eventId: number,
+    input: { expectedVersion: number; posterCopy: { invitation: string; introduction: string; callToAction?: string | undefined; scanHint?: string | undefined } },
+  ) {
+    return this.writeProfile(session, eventId, input.expectedVersion, (profile) => ({
+      ...profile,
+      posterCopy: input.posterCopy,
+      actorType: 'customer',
+      actorId: session.customerUserId,
+    }));
+  }
+
   async updateOwnPrivacy(
     session: AuthenticatedCustomer,
     eventId: number,
@@ -1656,7 +1675,12 @@ export class PartnerDistributionService {
         )
         .orderBy(desc(partnerPayoutDocuments.createdAt)),
     ]);
-    return { requests, recipients, documents, channels: customerPayoutChannels(await this.getTransferConfiguration(session.organizationId)) };
+    return {
+      requests,
+      recipients,
+      documents,
+      channels: customerPayoutChannels(await this.getTransferConfiguration(session.organizationId)),
+    };
   }
 
   async createPayoutDocumentAccessToken(
@@ -2090,7 +2114,9 @@ export class PartnerDistributionService {
   async inquiryList(session: AuthenticatedCustomer, eventId: number) {
     const partner = await this.ownPartner(session, eventId);
     return readCustomerPartnerInquiries(this.db(), {
-      organizationId: session.organizationId, eventId, partnerId: partner.id,
+      organizationId: session.organizationId,
+      eventId,
+      partnerId: partner.id,
       customerUserId: session.customerUserId,
     });
   }
@@ -2400,9 +2426,17 @@ export class PartnerDistributionService {
         )
         .groupBy(eventPartners.qualificationStatus),
       this.db()
-        .select({ status: partnerLedgerEntries.balanceBucket, value: sum(partnerLedgerEntries.amount) })
+        .select({
+          status: partnerLedgerEntries.balanceBucket,
+          value: sum(partnerLedgerEntries.amount),
+        })
         .from(partnerLedgerEntries)
-        .where(and(eq(partnerLedgerEntries.organizationId, organizationId), eq(partnerLedgerEntries.eventId, eventId)))
+        .where(
+          and(
+            eq(partnerLedgerEntries.organizationId, organizationId),
+            eq(partnerLedgerEntries.eventId, eventId),
+          ),
+        )
         .groupBy(partnerLedgerEntries.balanceBucket),
       this.db()
         .select({
@@ -3606,7 +3640,10 @@ export class PartnerDistributionService {
         );
       }
       if (request.batch.approvedBy === actorId) {
-        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '批次复核人与到账登记人需为不同管理员，请交由另一位有出款权限的管理员登记');
+        fail(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '批次复核人与到账登记人需为不同管理员，请交由另一位有出款权限的管理员登记',
+        );
       }
       if (request.request.version !== input.expectedVersion) {
         fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '提现申请已更新，请刷新后重试');

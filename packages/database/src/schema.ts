@@ -377,6 +377,8 @@ export const customerAuthChallenges = pgTable(
     deliveryId: uuid('delivery_id'),
     attempts: integer('attempts').notNull().default(0),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consentTokenHash: varchar('consent_token_hash', { length: 64 }),
+    consentExpiresAt: timestamp('consent_expires_at', { withTimezone: true }),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
     invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
     ...timestamps,
@@ -3487,6 +3489,10 @@ export const eventPartnerProfileVersions = pgTable(
     organizationId: uuid('organization_id').notNull(),
     eventId: integer('event_id').notNull(),
     version: integer('version').notNull(),
+    posterCopy: jsonb('poster_copy')
+      .$type<{ invitation: string; introduction: string; callToAction?: string | undefined; scanHint?: string | undefined }>()
+      .notNull()
+      .default({ invitation: '', introduction: '' }),
     displayName: varchar('display_name', { length: 80 }).notNull(),
     company: varchar('company', { length: 160 }).notNull().default(''),
     title: varchar('title', { length: 100 }).notNull().default(''),

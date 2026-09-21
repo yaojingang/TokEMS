@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "webPages": 23,
   "adminViews": 41,
-  "migrations": 71,
-  "latestMigration": "0070_partner_distribution_scope_guards.sql",
+  "migrations": 72,
+  "latestMigration": "0071_account_partner_experience.sql",
   "databaseTables": 105,
   "apiControllers": 46,
-  "apiOperations": 363,
-  "testFiles": 230
+  "apiOperations": 365,
+  "testFiles": 231
 }

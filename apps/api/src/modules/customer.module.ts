@@ -18,6 +18,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { isLoopbackHostname } from '@conference/security';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
@@ -124,6 +125,68 @@ class CustomerAuthController {
   ) {
     const input = parse(VerifyCustomerOtpSchema, body, '手机号或验证码信息校验失败');
     const result = await this.customerAuth.verifyOtp(request, input);
+    return this.finishAuthentication(reply, result);
+  }
+
+  @Post('consent')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async consent(
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const allowedOrigin =
+      process.env.PUBLIC_ORIGIN ??
+      process.env.PUBLIC_WEB_URL ??
+      `${request.protocol}://${request.headers.host}`;
+    let originMatches = request.headers.origin === allowedOrigin;
+    if (!originMatches && process.env.DEPLOYMENT_MODE !== 'production' && request.headers.origin) {
+      try {
+        const incoming = new URL(request.headers.origin);
+        const expected = new URL(allowedOrigin);
+        originMatches =
+          isLoopbackHostname(incoming.hostname) &&
+          isLoopbackHostname(expected.hostname) &&
+          incoming.port === expected.port &&
+          incoming.protocol === expected.protocol;
+      } catch {
+        originMatches = false;
+      }
+    }
+    if (!originMatches || request.headers['x-consent-confirmation'] !== 'true')
+      throw new ForbiddenException('请求来源校验失败');
+    const input = parse(
+      VerifyCustomerOtpSchema.pick({
+        termsVersion: true,
+        privacyVersion: true,
+        consentAccepted: true,
+      }),
+      body,
+      '请确认用户协议和隐私政策',
+    );
+    const token = request.cookies?.conference_customer_consent;
+    if (!token || token.length > 500) throw new ForbiddenException('确认已失效，请重新验证手机号');
+    return this.finishAuthentication(
+      reply,
+      await this.customerAuth.completeConsent(request, token, input),
+    );
+  }
+
+  private finishAuthentication(
+    reply: FastifyReply,
+    result: Awaited<ReturnType<CustomerAuthService['verifyOtp']>>,
+  ) {
+    reply.header('Cache-Control', 'no-store');
+    const options = { ...customerCookieOptions(), path: '/api/v1/customer-auth', maxAge: 300 };
+    if ('consentRequired' in result) {
+      reply.setCookie('conference_customer_consent', result.consentToken, options);
+      return {
+        consentRequired: true,
+        policy: result.policy,
+        configurationIncomplete: result.configurationIncomplete,
+      };
+    }
+    reply.clearCookie('conference_customer_consent', options);
     reply.setCookie(CUSTOMER_SESSION_COOKIE, result.token, customerCookieOptions());
     return result.session;
   }

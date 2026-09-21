@@ -62,9 +62,14 @@ async function fixture(options = {}) {
         },
       });
     if (path.endsWith('/customer-auth/verify')) {
+      if (options.needsConsent) {
+        assert.equal(route.request().postDataJSON().consentAccepted, false);
+        return route.fulfill({ json: { consentRequired: true, policy: { termsVersion: 'v1', privacyVersion: 'v1', termsUrl: 'https://example.org/terms', privacyUrl: 'https://example.org/privacy' }, configurationIncomplete: false } });
+      }
       signedIn = true;
       return route.fulfill({ json: session });
     }
+    if (path.endsWith('/customer-auth/consent')) { assert.equal(route.request().postDataJSON().consentAccepted, true); signedIn = true; return route.fulfill({ json: session }); }
     if (path.endsWith(`/events/${event.slug}`) || path.endsWith('/homepage')) {
       eventRequests += 1;
       if (options.eventGate) await options.eventGate;
@@ -290,7 +295,7 @@ test('anonymous draft login prefills untouched fields and preserves explicitly c
     await dialog.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
     await dialog.getByRole('button', { name: '获取验证码', exact: true }).click();
     await f.page.getByPlaceholder('6 位验证码').fill('123456');
-    await f.page.locator('.auth-consent input').check();
+
     await f.page.getByRole('button', { name: '验证并继续' }).click();
     await f.page.getByRole('link', { name: '前往个人中心' }).waitFor();
     assert.equal(await f.page.locator('#registration-email').inputValue(), 'profile@example.com');
@@ -324,3 +329,24 @@ for (const storageFailure of ['quota', 'denied']) {
     }
   });
 }
+
+
+test('verified new user explicitly confirms agreements without requesting another OTP', async () => {
+  const f = await fixture({ signedIn: false, needsConsent: true });
+  try {
+    await f.page.goto(`${base}/register/registration-browser-fixture`, { waitUntil: 'networkidle' });
+    await f.page.getByPlaceholder('请输入 11 位手机号').fill('13800138000');
+    await f.page.getByRole('button', { name: '获取验证码', exact: true }).click();
+    assert.equal(await f.page.locator('.auth-consent').count(), 0);
+    await f.page.getByPlaceholder('6 位验证码').fill('123456');
+    await f.page.getByRole('button', { name: '验证并继续', exact: true }).click();
+    await f.page.getByRole('heading', { name: '确认协议', exact: true }).waitFor();
+    assert.equal(await f.page.locator('.auth-consent input').isChecked(), false);
+    await f.page.getByRole('button', { name: '同意并继续', exact: true }).click();
+    await f.page.getByText('请先同意用户协议和隐私政策', { exact: true }).waitFor();
+    await f.page.locator('.auth-consent input').check();
+    await f.page.getByRole('button', { name: '同意并继续', exact: true }).click();
+    await f.page.waitForFunction(() => !document.querySelector('.auth-dialog'));
+    assert.deepEqual(f.errors, []);
+  } finally { await f.context.close(); }
+});
