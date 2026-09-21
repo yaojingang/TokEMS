@@ -84,6 +84,7 @@ import {
 } from '@conference/integrations';
 import {
   decryptIntegrationCredentials,
+  normalizeMainlandMobile,
   openSecret,
   resolveDeploymentOrigins,
   resolvePaymentPublicUrl,
@@ -111,7 +112,10 @@ import {
 } from 'drizzle-orm';
 import type { ConferenceDatabase } from '@conference/database';
 import { consumeAttendeeClaimInvitation } from './attendee-claim-invitation.worker.js';
-import { financialNotificationRecipient } from './financial-notification-recipient.js';
+import {
+  financialNotificationMobile,
+  financialNotificationRecipient,
+} from './financial-notification-recipient.js';
 import {
   createFeishuRateGate,
   recoverFeishuDigestDeliveries,
@@ -2105,7 +2109,40 @@ async function deliverOrderAccessNotification(
   );
   if (!recipient) throw new Error(`${eventType} purchaser recipient is unavailable`);
   const channel = recipient.includes('@') ? 'email' : 'sms';
+  const purchaserMobileCandidate = financialNotificationMobile(scope.order, {
+    email: scope.attendee?.email ?? '',
+    mobile: scope.attendeeMobileE164 ?? '',
+  });
+  const purchaserMobile = (() => {
+    if (!purchaserMobileCandidate) return '';
+    try {
+      return normalizeMainlandMobile(purchaserMobileCandidate);
+    } catch {
+      return '';
+    }
+  })();
   const renewal = eventType === 'OrderAccessLinkRequested';
+  const deliverRegistrationSuccess = async () => {
+    if (renewal || !purchaserMobile) return;
+    const successDeliveryId = deterministicUuid(`registration-success-notification:${correlationId}`);
+    await db
+      .insert(notificationDeliveries)
+      .values({
+        id: successDeliveryId,
+        organizationId: scope.order.organizationId,
+        eventId: scope.order.eventId,
+        registrationId: scope.order.registrationId,
+        channel: 'sms',
+        recipient: purchaserMobile,
+        subject: `${scope.event.name} 报名成功`,
+        body: '报名成功提醒通过已配置的短信模板发送。',
+      })
+      .onConflictDoNothing();
+    await deliverNotification(db, successDeliveryId, jobId, undefined, {
+      templateKey: 'registrationSuccess',
+      parameters: {},
+    });
+  };
   const deliveryId = deterministicUuid(`order-access-notification:${correlationId}`);
   const prepared = await db.transaction(async (tx) => {
     await tx.execute(
@@ -2246,7 +2283,10 @@ async function deliverOrderAccessNotification(
       .where(eq(notificationDeliveries.id, deliveryId));
     return { accessToken, expiresAt };
   });
-  if (!prepared) return;
+  if (!prepared) {
+    await deliverRegistrationSuccess();
+    return;
+  }
   const accessUrl = paymentOrderAccessUrl(orderId, scope.event.slug, prepared.accessToken);
   const expiresAtLabel = prepared.expiresAt.toLocaleString('zh-CN', {
     timeZone: scope.event.timezone,
@@ -2281,6 +2321,8 @@ async function deliverOrderAccessNotification(
     await revokeTerminalNotificationAccessToken(db, deliveryId);
     throw error;
   }
+
+  await deliverRegistrationSuccess();
 }
 
 async function deliverAttendeeClaimInvitation(

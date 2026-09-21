@@ -2827,6 +2827,9 @@ export const invoiceDocumentAccessLinks = pgTable(
     purpose: varchar('purpose', { length: 32 }).notNull(),
     recipientHash: varchar('recipient_hash', { length: 64 }).notNull(),
     tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    // The SMS provider only accepts short link parameters. Keep this separate
+    // from the high-entropy internal token used by legacy links and storage.
+    publicTokenHash: varchar('public_token_hash', { length: 64 }),
     sealedToken: text('sealed_token'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
@@ -2834,6 +2837,7 @@ export const invoiceDocumentAccessLinks = pgTable(
   },
   (table) => [
     uniqueIndex('invoice_file_access_token_unique').on(table.tokenHash),
+    uniqueIndex('invoice_file_access_public_token_unique').on(table.publicTokenHash),
     index('invoice_file_access_invoice_idx').on(table.invoiceRequestId, table.createdAt),
     check(
       'invoice_file_access_scope',

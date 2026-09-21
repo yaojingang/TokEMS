@@ -9,6 +9,18 @@ interface FinancialNotificationAttendee {
   mobile: string;
 }
 
+export function financialNotificationMobile(
+  order: FinancialNotificationOrder,
+  attendee: FinancialNotificationAttendee,
+) {
+  return (
+    order.purchaserSnapshot?.mobile ||
+    (order.purchaserCustomerUserId === null && order.purchaseIntentId === null
+      ? attendee.mobile
+      : '')
+  );
+}
+
 export function financialNotificationRecipient(
   order: FinancialNotificationOrder,
   attendee: FinancialNotificationAttendee,

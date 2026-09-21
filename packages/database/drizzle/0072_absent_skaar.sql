@@ -1,0 +1,2 @@
+ALTER TABLE "invoice_document_access_links" ADD COLUMN "public_token_hash" varchar(64);--> statement-breakpoint
+CREATE UNIQUE INDEX "invoice_file_access_public_token_unique" ON "invoice_document_access_links" USING btree ("public_token_hash");

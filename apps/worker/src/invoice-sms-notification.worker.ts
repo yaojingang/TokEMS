@@ -133,12 +133,8 @@ export async function deliverInvoiceSms(
       )
         reason = '发票短信启用批次已变化';
     }
-    let eventName = '短信连接测试';
-    let timezone = 'Asia/Shanghai';
     if (!test && delivery.invoiceRequestId) {
       const scope = await invoiceSmsScope(tx, delivery.invoiceRequestId);
-      eventName = scope.event.shortName || scope.event.name;
-      timezone = scope.event.timezone;
       if (
         scope.invoice.organizationId !== delivery.organizationId ||
         scope.invoice.eventId !== delivery.eventId ||
@@ -184,8 +180,6 @@ export async function deliverInvoiceSms(
       test,
       token,
       link,
-      eventName,
-      timezone,
       signName: String(integration.config.signName),
       templateCode: invoiceSmsTemplate(integration).templateCode,
     };
@@ -200,9 +194,6 @@ export async function deliverInvoiceSms(
     client,
     test,
     token,
-    link,
-    eventName,
-    timezone,
     signName,
     templateCode,
   } = prepared;
@@ -257,16 +248,6 @@ export async function deliverInvoiceSms(
       templateCode,
       outId: deliveryId,
       templateParameters: {
-        eventName,
-        expiresAt: new Intl.DateTimeFormat('zh-CN', {
-          timeZone: timezone,
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hourCycle: 'h23',
-          month: '2-digit',
-          day: '2-digit',
-        }).format(link.expiresAt),
         fileToken: token,
       },
     });

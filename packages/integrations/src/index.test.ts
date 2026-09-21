@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { aliyunDomesticPhone, readAliyunSmsConfiguration } from './index.js';
+import {
+  ALIYUN_SMS_TEMPLATE_META,
+  aliyunDomesticPhone,
+  readAliyunSmsConfiguration,
+} from './index.js';
 
 describe('Aliyun SMS helpers', () => {
   it('normalizes mainland mobile numbers for SendSms', () => {
@@ -35,5 +39,13 @@ describe('Aliyun SMS helpers', () => {
       lastVerifiedAt: null,
       lastError: null,
     });
+    expect(configuration.templates.registrationSuccess).toEqual({
+      enabled: false,
+      templateCode: '',
+      status: 'unverified',
+      lastVerifiedAt: null,
+      lastError: null,
+    });
+    expect(ALIYUN_SMS_TEMPLATE_META.registrationSuccess.variables).toEqual([]);
   });
 });

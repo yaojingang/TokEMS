@@ -3622,6 +3622,7 @@ export const WeChatOAuthSessionSchema = z.object({
 export const AliyunSmsTemplateKeySchema = z.enum([
   'customerOtp',
   'registrationSubmitted',
+  'registrationSuccess',
   'registrationApproved',
   'registrationRejected',
   'paymentSucceeded',
@@ -3646,6 +3647,7 @@ const AliyunSmsTemplateConfigurationSchema = z.object({
 const AliyunSmsTemplatesSchema = z.object({
   customerOtp: AliyunSmsTemplateConfigurationSchema,
   registrationSubmitted: AliyunSmsTemplateConfigurationSchema,
+  registrationSuccess: AliyunSmsTemplateConfigurationSchema,
   registrationApproved: AliyunSmsTemplateConfigurationSchema,
   registrationRejected: AliyunSmsTemplateConfigurationSchema,
   paymentSucceeded: AliyunSmsTemplateConfigurationSchema,
@@ -3723,6 +3725,7 @@ export const UpdateAliyunSmsConfigurationSchema = z
     templates: z.object({
       customerOtp: UpdateAliyunSmsTemplateConfigurationSchema,
       registrationSubmitted: UpdateAliyunSmsTemplateConfigurationSchema,
+      registrationSuccess: UpdateAliyunSmsTemplateConfigurationSchema,
       registrationApproved: UpdateAliyunSmsTemplateConfigurationSchema,
       registrationRejected: UpdateAliyunSmsTemplateConfigurationSchema,
       paymentSucceeded: UpdateAliyunSmsTemplateConfigurationSchema,

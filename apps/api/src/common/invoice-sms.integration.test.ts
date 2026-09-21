@@ -10,6 +10,7 @@ import {
   createDatabase,
   invoiceDocumentAccessLinks,
   invoiceTokenHash,
+  invoiceFilePublicToken,
   newInvoiceFileToken,
   organizationIntegrations,
   invoiceSmsFingerprint,
@@ -586,6 +587,17 @@ integration('invoice SMS settings and anonymous PDF HTTP contract', () => {
       expect((await app.inject({ method: 'HEAD', url: f.url })).statusCode).toBe(200);
     expect((await app.inject({ url: f.url })).rawPayload.equals(f.bytes)).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('resolves the eight-character public token used by Aliyun invoice SMS', async () => {
+    const f = await fixture();
+    const publicToken = invoiceFilePublicToken(f.token);
+    await f.db
+      .update(invoiceDocumentAccessLinks)
+      .set({ publicTokenHash: invoiceTokenHash(publicToken) })
+      .where(eq(invoiceDocumentAccessLinks.id, f.link.id));
+    const response = await app.inject({ url: `/api/v1/invoice-files/${publicToken}` });
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload.equals(f.bytes)).toBe(true);
   });
   it('rejects revoked, expired, guessed and replaced capabilities without exposing token paths', async () => {
     const f = await fixture();

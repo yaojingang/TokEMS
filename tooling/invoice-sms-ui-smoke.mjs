@@ -424,6 +424,34 @@ for (const width of [1280, 375, 320]) {
   });
 }
 
+test('registration success uses the approved no-variable template', async () => {
+  const f = await fixture();
+  try {
+    const code = f.page.locator('#sms-template-registrationSuccess');
+    const row = f.page.locator('.sms-template-row').filter({ has: code });
+    await row.getByRole('checkbox').check();
+    await code.fill('SMS_512336186');
+    await f.page.getByRole('button', { name: '保存短信配置', exact: true }).click();
+    await f.page.getByText('短信配置已加密保存。', { exact: false }).waitFor();
+    await f.page.getByLabel('测试场景', { exact: true }).selectOption('registrationSuccess');
+    await f.page.getByLabel('接收手机号', { exact: true }).fill('13800138000');
+    await f.page.getByLabel('我确认将向上述手机号发送真实短信，并可能产生费用。').check();
+    await f.page.getByRole('button', { name: '发送并验证', exact: true }).click();
+    await f.page
+      .locator('.sms-test-result')
+      .getByText('短信平台已受理', { exact: true })
+      .waitFor();
+    assert.equal(f.calls.at(-1).templates.registrationSuccess.templateCode, 'SMS_512336186');
+    assert.equal(f.calls.at(-1).templates.registrationSuccess.enabled, true);
+    assert.deepEqual(f.testCalls.map((x) => x.body), [
+      { phoneNumber: '13800138000', templateKey: 'registrationSuccess' },
+    ]);
+    assert.deepEqual(f.errors, []);
+  } finally {
+    await f.context.close();
+  }
+});
+
 for (const scenario of [
   { testFailure: true, expected: 'isv.SMS_SIGNATURE_ILLEGAL · 签名未通过审核' },
   { requestFailure: true, expected: '测试短信发送过于频繁，请稍后再试' },
