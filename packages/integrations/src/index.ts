@@ -65,6 +65,7 @@ function runtimeOptions() {
 export const ALIYUN_SMS_TEMPLATE_KEYS = [
   'customerOtp',
   'registrationSubmitted',
+  'registrationSuccess',
   'registrationApproved',
   'registrationRejected',
   'paymentSucceeded',
@@ -89,6 +90,7 @@ export const ALIYUN_SMS_TEMPLATE_META: Record<
     label: '报名已提交',
     variables: ['eventName', 'url', 'expiresAt'],
   },
+  registrationSuccess: { label: '报名成功提醒', variables: [] },
   registrationApproved: {
     label: '报名审核通过',
     variables: ['eventName', 'url'],
@@ -120,7 +122,7 @@ export const ALIYUN_SMS_TEMPLATE_META: Record<
   },
   invoiceReady: {
     label: '发票短信通知',
-    variables: ['eventName', 'expiresAt', 'fileToken'],
+    variables: ['fileToken'],
   },
   eventReminder: {
     label: '大会提醒',
@@ -262,7 +264,9 @@ export class AliyunSmsClient {
         phoneNumbers: aliyunDomesticPhone(input.phoneNumber),
         signName: input.signName,
         templateCode: input.templateCode,
-        templateParam: JSON.stringify(input.templateParameters),
+        ...(Object.keys(input.templateParameters).length > 0
+          ? { templateParam: JSON.stringify(input.templateParameters) }
+          : {}),
         outId: input.outId,
       }),
       runtimeOptions(),

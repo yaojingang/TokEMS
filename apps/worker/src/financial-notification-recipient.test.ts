@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { financialNotificationRecipient } from './financial-notification-recipient.js';
+import {
+  financialNotificationMobile,
+  financialNotificationRecipient,
+} from './financial-notification-recipient.js';
 
 describe('financial notification recipient', () => {
+  it('uses the purchaser mobile for an additional SMS reminder', () => {
+    expect(
+      financialNotificationMobile(
+        {
+          purchaserCustomerUserId: 'purchaser-1',
+          purchaseIntentId: 'intent-1',
+          purchaserSnapshot: { email: 'buyer@example.com', mobile: '+8613800138000' },
+        },
+        { email: 'attendee@example.com', mobile: '+8613900139000' },
+      ),
+    ).toBe('+8613800138000');
+    expect(
+      financialNotificationMobile(
+        { purchaserCustomerUserId: null, purchaseIntentId: null, purchaserSnapshot: null },
+        { email: 'legacy@example.com', mobile: '+8613900139000' },
+      ),
+    ).toBe('+8613900139000');
+  });
+
   it('uses the purchaser snapshot for a proxy purchase', () => {
     expect(
       financialNotificationRecipient(

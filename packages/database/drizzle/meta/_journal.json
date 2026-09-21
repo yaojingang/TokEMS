@@ -505,6 +505,13 @@
       "when": 1789605859249,
       "tag": "0071_account_partner_experience",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1789958496360,
+      "tag": "0072_absent_skaar",
+      "breakpoints": true
     }
   ]
 }

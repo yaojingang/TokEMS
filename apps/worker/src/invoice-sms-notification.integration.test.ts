@@ -11,6 +11,7 @@ import {
   invoiceSmsFingerprint,
   invoiceSmsPolicy,
   invoiceSmsIntegration,
+  invoiceTokenHash,
   queueInvoiceSms,
   invoiceSmsSummary,
   invalidateInvoiceFileAccess,
@@ -232,7 +233,7 @@ integration('invoice SMS durable delivery (isolated PostgreSQL)', () => {
     expect(f.send).toHaveBeenCalledTimes(1);
     const argument = f.send.mock.calls[0]![0];
     expect(argument.phoneNumber).toBe('+8613800138000');
-    expect(argument.templateParameters.fileToken).toMatch(/^[A-Za-z][A-Za-z0-9]{23}$/);
+    expect(argument.templateParameters.fileToken).toMatch(/^[A-Za-z][A-Za-z0-9]{7}$/);
     expect(argument.templateParameters.url).toBeUndefined();
     expect((await f.delivery(queued[0]!.deliveryId)).status).toBe('accepted');
     const [link] = await f.db
@@ -241,6 +242,7 @@ integration('invoice SMS durable delivery (isolated PostgreSQL)', () => {
       .where(eq(invoiceDocumentAccessLinks.invoiceRequestId, f.invoice));
     expect(link!.expiresAt.getTime() - Date.now()).toBeGreaterThan(29 * 86400000);
     expect(link!.tokenHash).not.toContain(argument.templateParameters.fileToken);
+    expect(link!.publicTokenHash).toBe(invoiceTokenHash(argument.templateParameters.fileToken));
   });
   it('does not resend uncertain network submissions on job retry', async () => {
     const f = await fixture();

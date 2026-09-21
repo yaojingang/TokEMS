@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { newInvoiceFileToken, resolveInvoiceSmsRecipient } from './invoice-sms.js';
+import {
+  invoiceFilePublicToken,
+  newInvoiceFileToken,
+  resolveInvoiceSmsRecipient,
+} from './invoice-sms.js';
 
 describe('invoice SMS recipient boundary', () => {
   const base = {
@@ -89,5 +93,12 @@ describe('invoice SMS recipient boundary', () => {
     const tokens = Array.from({ length: 1000 }, newInvoiceFileToken);
     expect(new Set(tokens).size).toBe(1000);
     expect(tokens.every((token) => /^[A-Za-z][A-Za-z0-9]{23}$/.test(token))).toBe(true);
+  });
+  it('derives an Aliyun-compatible public token without exposing the internal token', () => {
+    const token = newInvoiceFileToken();
+    const publicToken = invoiceFilePublicToken(token);
+    expect(publicToken).toMatch(/^[A-Za-z][A-Za-z0-9]{7}$/);
+    expect(invoiceFilePublicToken(token)).toBe(publicToken);
+    expect(publicToken).not.toBe(token);
   });
 });

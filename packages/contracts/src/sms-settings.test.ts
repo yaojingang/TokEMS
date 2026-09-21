@@ -4,6 +4,7 @@ import { UpdateAliyunSmsConfigurationSchema } from './index.js';
 const templates = {
   customerOtp: { enabled: true, templateCode: 'SMS_123456' },
   registrationSubmitted: { enabled: false, templateCode: '' },
+  registrationSuccess: { enabled: false, templateCode: '' },
   registrationApproved: { enabled: false, templateCode: '' },
   registrationRejected: { enabled: false, templateCode: '' },
   paymentSucceeded: { enabled: false, templateCode: '' },

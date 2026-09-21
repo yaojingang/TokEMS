@@ -102,7 +102,9 @@ function internalObjectUrl(storageKey: string) {
 export class InvoiceFileService {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
   async resolve(token: string) {
-    if (!/^[A-Za-z][A-Za-z0-9]{23}$/.test(token))
+    const isPublicToken = /^[A-Za-z][A-Za-z0-9]{7}$/.test(token);
+    const isLegacyToken = /^[A-Za-z][A-Za-z0-9]{23}$/.test(token);
+    if (!isPublicToken && !isLegacyToken)
       throw new InvoiceSmsError('领取链接已失效，请在订单中重新获取', 404);
     const db = this.database.db;
     if (!db) throw new InvoiceSmsError('文件服务暂时不可用', 503);
@@ -111,7 +113,9 @@ export class InvoiceFileService {
       .from(invoiceDocumentAccessLinks)
       .where(
         and(
-          eq(invoiceDocumentAccessLinks.tokenHash, invoiceTokenHash(token)),
+          isPublicToken
+            ? eq(invoiceDocumentAccessLinks.publicTokenHash, invoiceTokenHash(token))
+            : eq(invoiceDocumentAccessLinks.tokenHash, invoiceTokenHash(token)),
           isNull(invoiceDocumentAccessLinks.revokedAt),
           gt(invoiceDocumentAccessLinks.expiresAt, new Date()),
         ),

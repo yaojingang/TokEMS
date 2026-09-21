@@ -47,6 +47,7 @@ const TEST_PARAMETERS: Record<AliyunSmsTemplateKey, Record<string, string>> = {
     url: 'https://example.com/test',
     expiresAt: '今天 18:00',
   },
+  registrationSuccess: {},
   registrationApproved: {
     eventName: '短信连接测试',
     url: 'https://example.com/test',
@@ -86,9 +87,7 @@ const TEST_PARAMETERS: Record<AliyunSmsTemplateKey, Record<string, string>> = {
     url: 'https://example.com/test',
   },
   invoiceReady: {
-    eventName: '短信连接测试',
-    expiresAt: '今天 18:00',
-    fileToken: 'TestFileToken000000000000',
+    fileToken: 'A1b2C3d4',
   },
   eventReminder: {
     eventName: '短信连接测试',

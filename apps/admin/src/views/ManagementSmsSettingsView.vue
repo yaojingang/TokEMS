@@ -30,6 +30,12 @@ const templateRows: Array<{
     variables: ['eventName', 'url', 'expiresAt'],
   },
   {
+    key: 'registrationSuccess',
+    name: '报名成功提醒',
+    description: '报名成功后发送固定内容提醒',
+    variables: [],
+  },
+  {
     key: 'registrationApproved',
     name: '报名审核通过',
     description: '人工审核通过后通知参会用户',
@@ -80,8 +86,8 @@ const templateRows: Array<{
   {
     key: 'invoiceReady',
     name: '发票短信通知',
-    description: '开启后，上传或替换发票成功时通知购票人。链接免登录，有效期 30 天。',
-    variables: ['eventName', 'expiresAt', 'fileToken'],
+    description: '开启后，上传或替换发票成功时通知购票人。短信链接免登录，有效期 30 天。',
+    variables: ['fileToken'],
   },
   {
     key: 'eventReminder',
@@ -110,6 +116,7 @@ const templateGroups = [
     description: '覆盖报名、审核、支付、候补和发票进度。',
     keys: [
       'registrationSubmitted',
+      'registrationSuccess',
       'registrationApproved',
       'registrationRejected',
       'paymentSucceeded',
@@ -141,7 +148,7 @@ const invoiceTestMessage = ref('');
 const needsReload = ref(false);
 const invoiceCopy = computed(
   () =>
-    `【${form.signName || '短信签名'}】您的${'${eventName}'}电子发票已开具，请于${'${expiresAt}'}前查看及下载：${configuration.value?.invoiceFileOrigin || '本站域名'}/invoice/file/${'${fileToken}'}。请妥善保管领取链接。`,
+    `【${form.signName || '短信签名'}】您的大会发票已开具，下载链接：${configuration.value?.invoiceFileOrigin || '本站域名'}/invoice/file/${'${fileToken}'}`,
 );
 let testTimer: ReturnType<typeof setInterval> | undefined;
 const invoiceReadyVerified = computed(() =>
@@ -672,7 +679,7 @@ watch([testPhone, testTemplateKey], () => {
       <div class="settings-security-note">
         <strong>发票短信启用步骤</strong>
         <span>保存发票模板 CODE → 选择发票场景发送测试 → 收到送达回执 →
-          开启并保存。模板须包含固定本站域名与 /invoice/file/ 路径，fileToken 使用 24
+          开启并保存。模板须包含固定本站域名与 /invoice/file/ 路径，fileToken 使用 8
           位字母数字变量，需由短信服务商审核。变更签名、密钥、模板或域名后须重新验证。关闭不会补发历史发票。重新测试会暂时关闭发票通知。</span>
       </div>
       <div class="settings-security-note">

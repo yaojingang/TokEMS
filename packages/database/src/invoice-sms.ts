@@ -66,6 +66,23 @@ export function newInvoiceFileToken() {
     Array.from({ length: 23 }, () => alphabet[randomInt(alphabet.length)]!).join('')
   );
 }
+const INVOICE_PUBLIC_TOKEN_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const INVOICE_PUBLIC_TOKEN_ALPHABET = `${INVOICE_PUBLIC_TOKEN_LETTERS}0123456789`;
+
+/**
+ * Aliyun link parameters allow at most eight ASCII characters. Derive the
+ * public value from the sealed 24-character token so old links can be
+ * upgraded without storing another reversible secret.
+ */
+export function invoiceFilePublicToken(token: string) {
+  const digest = createHash('sha256').update(`invoice-file-public:${token}`).digest();
+  return (
+    INVOICE_PUBLIC_TOKEN_LETTERS[digest[0]! % INVOICE_PUBLIC_TOKEN_LETTERS.length]! +
+    Array.from({ length: 7 }, (_, index) =>
+      INVOICE_PUBLIC_TOKEN_ALPHABET[digest[index + 1]! % INVOICE_PUBLIC_TOKEN_ALPHABET.length],
+    ).join('')
+  );
+}
 export function invoiceFileSecret() {
   const value = process.env.NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET;
   if (!value || value.length < 32) throw new InvoiceSmsError('发票通知加密密钥尚未配置', 503);
@@ -668,11 +685,25 @@ export async function prepareInvoiceFileLink(
       .update(notificationDeliveries)
       .set({ fileAccessLinkId: existing.id })
       .where(eq(notificationDeliveries.id, delivery.id));
-    return { link: existing, token: openSecret(existing.sealedToken, invoiceFileSecret()) };
+    const internalToken = openSecret(existing.sealedToken, invoiceFileSecret());
+    const publicTokenHash = invoiceTokenHash(invoiceFilePublicToken(internalToken));
+    if (existing.publicTokenHash !== publicTokenHash) {
+      const [updated] = await tx
+        .update(invoiceDocumentAccessLinks)
+        .set({ publicTokenHash })
+        .where(eq(invoiceDocumentAccessLinks.id, existing.id))
+        .returning();
+      return {
+        link: updated ?? { ...existing, publicTokenHash },
+        token: invoiceFilePublicToken(internalToken),
+      };
+    }
+    return { link: existing, token: invoiceFilePublicToken(internalToken) };
   }
   if (delivery.attemptedAt) throw new InvoiceSmsError('领取凭证已过期，须确认短信结果后重新发送');
   for (let attempt = 0; attempt < 3; attempt++) {
     const token = newInvoiceFileToken();
+    const publicToken = invoiceFilePublicToken(token);
     const [link] = await tx
       .insert(invoiceDocumentAccessLinks)
       .values({
@@ -685,6 +716,7 @@ export async function prepareInvoiceFileLink(
         purpose,
         recipientHash: invoiceTokenHash(delivery.recipient),
         tokenHash: invoiceTokenHash(token),
+        publicTokenHash: invoiceTokenHash(publicToken),
         sealedToken: sealSecret(token, invoiceFileSecret()),
         expiresAt: new Date(Date.now() + (purpose === 'test' ? 1 : 30) * 86400_000),
         ...(delivery.invoiceRequestId
@@ -700,7 +732,7 @@ export async function prepareInvoiceFileLink(
         .where(eq(notificationDeliveries.id, delivery.id));
       if (purpose === 'invoice' && delivery.invoiceRequestId)
         await advanceInvoiceAccessVersion(tx, delivery.invoiceRequestId);
-      return { link, token };
+      return { link, token: publicToken };
     }
   }
   throw new Error('Unable to allocate invoice file access token');
