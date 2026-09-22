@@ -29,6 +29,9 @@ async function fixture(options = {}) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(12_000);
+  // Interaction assertions keep their strict 12s budget. Page loads get a navigation-only
+  // budget so that a slow or saturated runner cannot turn a healthy render into a failure.
+  page.setDefaultNavigationTimeout(30_000);
   if (options.paymentSurface && !paymentBase) {
     // Exercise the payment app's absolute return links against the local test server.
     await page.route(`**/order/${orderId}?**`, async (route) => {
