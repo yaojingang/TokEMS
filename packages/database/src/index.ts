@@ -24,6 +24,7 @@ export function createDatabase(databaseUrl = process.env.DATABASE_URL) {
 
 export * from './schema.js';
 export * from './migration-status.js';
+export * from './deployment-control.js';
 export * from './feishu-digest.js';
 export * from './inventory-reservation-policy.js';
 export * from './refund-reporting-policy.js';

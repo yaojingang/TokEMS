@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { deploymentControl } from '@conference/database';
 import type { IncomingMessage } from 'node:http';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
@@ -108,6 +109,7 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document, { jsonDocumentUrl: 'api/openapi.json' });
 
   await app.listen(port, bindAddress);
+  await deploymentControl.listen();
   Logger.log(`Conference API is listening on http://localhost:${port}/api/v1`, 'Bootstrap');
 }
 

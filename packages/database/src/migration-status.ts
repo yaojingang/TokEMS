@@ -1,3 +1,5 @@
+import { compatibleMigrationFromFile, deploymentControl } from './deployment-control.js';
+
 export type DatabaseMigrationStatus = {
   ok: boolean;
   expected: string;
@@ -21,7 +23,8 @@ export async function readDatabaseMigrationStatus(
   const appliedCandidate = result.rows[0]?.hash?.trim().toLowerCase() ?? '';
   const applied = MIGRATION_HASH_PATTERN.test(appliedCandidate) ? appliedCandidate : 'unknown';
   return {
-    ok: MIGRATION_HASH_PATTERN.test(expected) && applied === expected,
+    ok: MIGRATION_HASH_PATTERN.test(expected) && (applied === expected ||
+      deploymentControl.acceptsMigration(applied) || await compatibleMigrationFromFile(applied)),
     expected: MIGRATION_HASH_PATTERN.test(expected) ? expected : 'unknown',
     applied,
   };

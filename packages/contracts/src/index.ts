@@ -3456,10 +3456,39 @@ export const OrganizationSettingsResultSchema = z.object({
   settings: OrganizationSettingsSchema,
 });
 
+// PATCH must not inherit read-time defaults: omitted keys must stay omitted.
+const OrganizationSettingsPatchSchema = z.object({
+  brandName: OrganizationSettingsSchema.shape.brandName.optional(),
+  defaultTimezone: OrganizationSettingsSchema.shape.defaultTimezone.removeDefault().optional(),
+  defaultCurrency: OrganizationSettingsSchema.shape.defaultCurrency.removeDefault().optional(),
+  defaultBlueprintId: OrganizationSettingsSchema.shape.defaultBlueprintId.removeDefault().optional(),
+  defaultTemplateId: OrganizationSettingsSchema.shape.defaultTemplateId.removeDefault().optional(),
+  customerAccounts: z.object({
+    defaultAccountMode: StoredOrganizationAccountModeSchema.optional(),
+    termsUrl: OptionalHttpsUrlSchema.optional(),
+    termsVersion: z.string().trim().max(40).optional(),
+    privacyUrl: OptionalHttpsUrlSchema.optional(),
+    privacyVersion: z.string().trim().max(40).optional(),
+  }).strict().refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: '至少提交一个账户设置字段',
+  }).optional(),
+  website: z.object({
+    siteName: WebsiteSettingsSchema.shape.siteName.removeDefault().optional(),
+    seoTitle: WebsiteSettingsSchema.shape.seoTitle.removeDefault().optional(),
+    seoDescription: WebsiteSettingsSchema.shape.seoDescription.removeDefault().optional(),
+    faviconUrl: WebsiteSettingsSchema.shape.faviconUrl.removeDefault().optional(),
+    footerText: WebsiteSettingsSchema.shape.footerText.removeDefault().optional(),
+    icpNumber: WebsiteSettingsSchema.shape.icpNumber.removeDefault().optional(),
+    supportEmail: WebsiteSettingsSchema.shape.supportEmail.removeDefault().optional(),
+  }).strict().refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: '至少提交一个站点设置字段',
+  }).optional(),
+}).strict();
+
 export const UpdateOrganizationSettingsSchema = z
   .object({
     name: z.string().trim().min(1).max(160).optional(),
-    settings: OrganizationSettingsSchema.omit({ analytics: true }).partial().strict().optional(),
+    settings: OrganizationSettingsPatchSchema.optional(),
   })
   .strict()
   .refine(

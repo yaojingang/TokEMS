@@ -1,3 +1,4 @@
+import { deploymentControl } from '@conference/database';
 import {
   Inject,
   Injectable,
@@ -42,10 +43,10 @@ export class WeChatRefundService implements OnApplicationBootstrap, OnModuleDest
   onApplicationBootstrap() {
     if (!this.database.db) return;
     this.timer = setInterval(() => {
-      void this.tick();
+      void deploymentControl.run(() => this.tick());
     }, 10_000);
     this.timer.unref();
-    void this.tick();
+    void deploymentControl.run(() => this.tick());
   }
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);

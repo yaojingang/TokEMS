@@ -17,3 +17,7 @@ test-results/
 tmp/
 .codex-backups/
 cert/
+
+# Python deployment controller caches
+__pycache__/
+*.pyc

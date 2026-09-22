@@ -1,0 +1,481 @@
+name: tokems
+
+x-build-args: &build-args
+  BUILD_SHA: ${BUILD_SHA:-unknown}
+  BUILD_TIME: ${BUILD_TIME:-unknown}
+  BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+  BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
+
+x-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  args: *build-args
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+x-node-runtime: &node-runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *default-logging
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-production}
+  DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://conference:conference@postgres:5432/conference}
+  REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
+  S3_ENDPOINT: ${DOCKER_S3_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:19000}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${MINIO_ROOT_USER:-conference}}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-conference-secret}}
+  S3_BUCKET: ${S3_BUCKET:-conference-assets}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must contain at least 32 random characters}
+  TOKEMS_AGENT_ACCESS_ENABLED: ${TOKEMS_AGENT_ACCESS_ENABLED:-false}
+  TOKEMS_AGENT_WRITES_ENABLED: ${TOKEMS_AGENT_WRITES_ENABLED:-false}
+  TOKEMS_AGENT_CRITICAL_ACTIONS_ENABLED: ${TOKEMS_AGENT_CRITICAL_ACTIONS_ENABLED:-false}
+  AGENT_ACCESS_TOKEN_SECRET: ${AGENT_ACCESS_TOKEN_SECRET:-}
+  AGENT_ACCESS_TOKEN_PREVIOUS_SECRET: ${AGENT_ACCESS_TOKEN_PREVIOUS_SECRET:-}
+  INVOICE_DOWNLOAD_SIGNING_SECRET: ${INVOICE_DOWNLOAD_SIGNING_SECRET:-}
+  CUSTOMER_OTP_PEPPER: ${CUSTOMER_OTP_PEPPER:?CUSTOMER_OTP_PEPPER must contain at least 32 random characters}
+  CUSTOMER_SESSION_SECRET: ${CUSTOMER_SESSION_SECRET:?CUSTOMER_SESSION_SECRET must contain at least 32 random characters}
+  NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET: ${NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET:?NOTIFICATION_PAYLOAD_ENCRYPTION_SECRET must contain at least 32 random characters}
+  CUSTOMER_OTP_MODE: ${CUSTOMER_OTP_MODE:-provider}
+  CUSTOMER_OTP_ORG_DAILY_LIMIT: ${CUSTOMER_OTP_ORG_DAILY_LIMIT:-10000}
+  CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT: ${CUSTOMER_OTP_PLATFORM_HOURLY_LIMIT:-8}
+  ALLOW_INSECURE_LOCAL_AUTH: ${ALLOW_INSECURE_LOCAL_AUTH:-false}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_USER_ID: ${ADMIN_USER_ID:-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@tokems.local}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+  PUBLIC_ORGANIZATION_SLUG: ${PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN must be the external scheme and host}
+  ADMIN_ORIGIN: ${ADMIN_ORIGIN:?ADMIN_ORIGIN must be the external admin scheme and host}
+  PAYMENT_PUBLIC_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
+  PAYMENT_PUBLIC_BASE_PATH: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}
+  PAYMENT_PUBLIC_URL: ${PAYMENT_PUBLIC_URL:-}
+  PUBLIC_WEB_URL: ${PUBLIC_ORIGIN}
+  ADMIN_WEB_URL: ${ADMIN_ORIGIN}
+  PUBLIC_SITE_URL: ${PUBLIC_ORIGIN}
+  PUBLIC_API_URL: ${PUBLIC_ORIGIN}
+  TRUST_PROXY: ${TRUST_PROXY:-127.0.0.1,::1,172.16.0.0/12}
+  API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-5000}
+  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+  INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
+  INTEGRATION_ENCRYPTION_KEY_VERSION: ${INTEGRATION_ENCRYPTION_KEY_VERSION:-1}
+  INTEGRATION_ENCRYPTION_PREVIOUS_KEYS: ${INTEGRATION_ENCRYPTION_PREVIOUS_KEYS:-}
+  ENABLE_LOCAL_PAYMENT_SIMULATION: ${ENABLE_LOCAL_PAYMENT_SIMULATION:-false}
+  LOCAL_PAYMENT_SIMULATION_MOBILES: ${LOCAL_PAYMENT_SIMULATION_MOBILES:-}
+  AI_API_URL: ${AI_API_URL:-}
+  AI_API_KEY: ${AI_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-conference-copywriter-local-v1}
+  HTML_TEMPLATE_IMPORT_ENABLED: ${HTML_TEMPLATE_IMPORT_ENABLED:-true}
+  HTML_TEMPLATE_IMPORT_ORG_ALLOWLIST: ${HTML_TEMPLATE_IMPORT_ORG_ALLOWLIST:-}
+  HTML_TEMPLATE_ORG_ASSET_BYTES: ${HTML_TEMPLATE_ORG_ASSET_BYTES:-2147483648}
+  HTML_TEMPLATE_ORG_ASSET_COUNT: ${HTML_TEMPLATE_ORG_ASSET_COUNT:-10000}
+  HTML_TEMPLATE_AI_MAPPING_ENABLED: ${HTML_TEMPLATE_AI_MAPPING_ENABLED:-false}
+  HTML_TEMPLATE_AI_ORG_MINUTE_LIMIT: ${HTML_TEMPLATE_AI_ORG_MINUTE_LIMIT:-5}
+  HTML_TEMPLATE_AI_ORG_DAILY_LIMIT: ${HTML_TEMPLATE_AI_ORG_DAILY_LIMIT:-100}
+  NOTIFICATION_WEBHOOK_URL: ${NOTIFICATION_WEBHOOK_URL:-http://notification-sink:4080/notifications}
+  NOTIFICATION_WEBHOOK_TOKEN: ${NOTIFICATION_WEBHOOK_TOKEN:?NOTIFICATION_WEBHOOK_TOKEN is required}
+  OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-2000}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+  INVENTORY_RELEASE_INTERVAL_MS: ${INVENTORY_RELEASE_INTERVAL_MS:-30000}
+  SMS_RECEIPT_INTERVAL_MS: ${SMS_RECEIPT_INTERVAL_MS:-30000}
+  INVOICE_ASYNC_EXPORT_THRESHOLD: ${INVOICE_ASYNC_EXPORT_THRESHOLD:-50000}
+  BUILD_SHA: ${BUILD_SHA:-unknown}
+  BUILD_TIME: ${BUILD_TIME:-unknown}
+  BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+  BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: conference
+      POSTGRES_USER: conference
+      POSTGRES_PASSWORD: conference
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-15432}:5432'
+    volumes:
+      - tokems-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U conference -d conference']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    logging: *default-logging
+
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, 'yes']
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-16379}:6379'
+    volumes:
+      - tokems-redis:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: [server, /data, --console-address, ':9001']
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-conference}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-conference-secret}
+    ports:
+      - '127.0.0.1:${MINIO_API_PORT:-19000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001'
+    volumes:
+      - tokems-minio:/data
+    healthcheck:
+      test: [CMD, curl, --fail, http://127.0.0.1:9000/minio/health/live]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    restart: 'no'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-conference}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-conference-secret}
+      S3_BUCKET: ${S3_BUCKET:-conference-assets}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc anonymous set none "local/$$S3_BUCKET"
+    logging: *default-logging
+
+  mailpit:
+    image: axllent/mailpit@sha256:5a49a77c5bdbe7c5474450b4f46348d09949df3695257729c93a30369382d4f6
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025'
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8025/livez]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+  notification-sink:
+    <<: *node-runtime
+    image: tokems-notification-sink:local
+    build:
+      <<: *app-build
+      target: notification-sink
+    environment:
+      # Container listen port stays fixed; only the host mapping below is env-driven.
+      NOTIFICATION_SINK_PORT: 4080
+      NOTIFICATION_SINK_TOKEN: ${NOTIFICATION_WEBHOOK_TOKEN:?NOTIFICATION_WEBHOOK_TOKEN is required}
+    ports:
+      - '127.0.0.1:${NOTIFICATION_SINK_HOST_PORT:-${NOTIFICATION_SINK_PORT:-4080}}:4080'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:4080/health').then((response) => {
+            if (!response.ok) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  db-init:
+    image: tokems-api:local
+    build:
+      <<: *app-build
+      target: api
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+    environment: *app-environment
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        node node_modules/@conference/database/dist/migrate.js &&
+        if [ "$$SEED_DEMO_DATA" = "true" ]; then
+          node node_modules/@conference/database/dist/seed.js;
+        fi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *default-logging
+
+  api:
+    <<: *node-runtime
+    image: tokems-api:local
+    build:
+      <<: *app-build
+      target: api
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+    environment:
+      <<: *app-environment
+      BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}
+      API_PORT: 4100
+      API_BIND_ADDRESS: 0.0.0.0
+      API_INTERNAL_CONTAINER: 'true'
+    expose:
+      - '4100'
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:4100/api/v1/health').then(async (response) => {
+            const body = await response.json();
+            if (!response.ok || body.status !== 'ok' || body.database?.ok !== true) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 10s
+
+  worker:
+    <<: *node-runtime
+    tmpfs:
+      - /tmp:size=${WORKER_TMPFS_SIZE:-512m},mode=1777
+    image: tokems-worker:local
+    build:
+      <<: *app-build
+      target: worker
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+    environment: *app-environment
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      notification-sink:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, 'process.kill(1, 0)']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  web:
+    <<: *node-runtime
+    image: tokems-web:local
+    build:
+      <<: *app-build
+      target: web
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+    environment:
+      # Conference site must stay at domain root; never inherit payment base path.
+      NUXT_APP_BASE_URL: /
+      NUXT_API_INTERNAL_BASE: http://api:4100/api/v1
+      NUXT_PUBLIC_API_BASE: /api/v1
+      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+      NUXT_PUBLIC_PAYMENT_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
+      NUXT_PUBLIC_PAYMENT_BASE_PATH: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}
+      NUXT_PUBLIC_CONFERENCE_ORIGIN: ${PUBLIC_ORIGIN}
+      NUXT_PUBLIC_PAYMENT_SURFACE: 'false'
+      BUILD_SHA: ${BUILD_SHA:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+      BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+      BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
+      HOST: 0.0.0.0
+      PORT: 3000
+    expose:
+      - '3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/version.json').then((response) => {
+            if (!response.ok) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 10s
+
+  payment-web:
+    <<: *node-runtime
+    image: tokems-web:local
+    build:
+      <<: *app-build
+      target: web
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+    environment:
+      NUXT_APP_BASE_URL: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}/
+      NUXT_API_INTERNAL_BASE: http://api:4100/api/v1
+      NUXT_PUBLIC_API_BASE: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}/api/v1
+      NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+      NUXT_PUBLIC_PAYMENT_ORIGIN: ${PAYMENT_PUBLIC_ORIGIN:-}
+      NUXT_PUBLIC_PAYMENT_BASE_PATH: ${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}
+      NUXT_PUBLIC_CONFERENCE_ORIGIN: ${PUBLIC_ORIGIN}
+      NUXT_PUBLIC_PAYMENT_SURFACE: 'true'
+      BUILD_SHA: ${BUILD_SHA:-unknown}
+      BUILD_TIME: ${BUILD_TIME:-unknown}
+      BUILD_MIGRATION: ${BUILD_MIGRATION:-unknown}
+      BUILD_MIGRATION_HASH: ${BUILD_MIGRATION_HASH:-unknown}
+      HOST: 0.0.0.0
+      PORT: 3000
+    expose:
+      - '3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000${PAYMENT_PUBLIC_BASE_PATH:-/pay/hui}/version.json').then((response) => {
+            if (!response.ok) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 10s
+
+  admin:
+    image: tokems-admin:local
+    build:
+      <<: *app-build
+      target: admin
+      args:
+        <<: *build-args
+        NUXT_PUBLIC_API_BASE: /api/v1
+        NUXT_PUBLIC_ORGANIZATION_SLUG: ${NUXT_PUBLIC_ORGANIZATION_SLUG:-geo-conference}
+        VITE_API_BASE: /api/v1
+        VITE_ADMIN_BASE: /admin/
+        VITE_SIMPLE_AUTH: ${VITE_SIMPLE_AUTH:-false}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m
+      - /var/run:size=4m
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - '8080'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/healthz]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+  gateway:
+    image: tokems-gateway:local
+    build:
+      <<: *app-build
+      target: gateway
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m
+      - /var/run:size=4m
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '${GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GATEWAY_PORT:-8088}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+      payment-web:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/healthz]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging: *default-logging
+
+volumes:
+  tokems-postgres:
+    name: tokems-postgres
+  tokems-redis:
+    name: tokems-redis
+  tokems-minio:
+    name: tokems-minio

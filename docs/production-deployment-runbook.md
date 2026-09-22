@@ -4,6 +4,8 @@
 
 本文保存稳定规则。每次发布的提交、迁移、备份、异常和验证结果写入 `docs/release-records/`，不能用历史记录代替当前检查。
 
+新增的 `tooling/production-bluegreen.sh` 使用独立的[蓝绿发布流程](production-bluegreen-deployment.md)。它先准备完整镜像，再按声明选择在线或维护更新，不做生产 canonical 全等和通用 seed；流量切换由 Docker Gateway 完成，宿主机 Nginx 保持固定 8088 入口。本文以下写冻结、规范同步和原地替换步骤继续适用于原 `production-deploy.sh`；两个入口共用锁和恢复标记，不能交叉续跑。
+
 ## 1. 固定拓扑和目录
 
 | 项目                      | 固定值或用途                                  |

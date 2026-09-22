@@ -1,3 +1,4 @@
+import { deploymentControl } from '@conference/database';
 import { syncLegacyOrderItemState } from '@conference/database';
 import {
   createPrivateKey,
@@ -449,9 +450,9 @@ export class WeChatPayService implements OnApplicationBootstrap, OnModuleDestroy
 
   onApplicationBootstrap() {
     if (!this.database.db) return;
-    void this.runPaymentMaintenance();
+    void deploymentControl.run(() => this.runPaymentMaintenance());
     this.maintenanceTimer = setInterval(
-      () => void this.runPaymentMaintenance(),
+      () => void deploymentControl.run(() => this.runPaymentMaintenance()),
       PAYMENT_MAINTENANCE_INTERVAL_MS,
     );
     this.maintenanceTimer.unref?.();

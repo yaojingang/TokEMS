@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "baseline": {
+    "migration": "0072_absent_skaar.sql",
+    "hash": "595e1a8a59e0821a9ab83bc94c82c4e4555a857ae23cf6618d91d4245681c343"
+  },
+  "migrations": {},
+  "dataTasks": [],
+  "applicationRollbackCompatible": true
+}

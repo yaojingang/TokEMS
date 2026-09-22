@@ -36,6 +36,9 @@ jobs:
           docker run "${runtime_args[@]}" "$image" \
             python tooling/release-descriptor.py --help >/dev/null
 
+          docker run "${runtime_args[@]}" -e PYTHONDONTWRITEBYTECODE=1 "$image" \
+            python -m unittest discover -s tooling/bluegreen -p 'test_*.py'
+
           evidence_dir="$(mktemp -d "$RUNNER_TEMP/python36-descriptor.XXXXXX")"
           : >"$evidence_dir/invalid-source.bundle"
           set +e
@@ -86,6 +89,7 @@ jobs:
       INVOICE_SMS_TEST_DATABASE_URL: postgresql://conference:conference@localhost:5432/conference
       REDIS_URL: redis://localhost:6379
       INVOICE_SMS_TEST_REDIS_URL: redis://localhost:6379
+      TOKEMS_BLUEGREEN_TEST_REDIS_URL: redis://localhost:6379
       JWT_SECRET: conference-ci-verification-secret-at-least-32
       CUSTOMER_OTP_PEPPER: conference-ci-otp-pepper-at-least-32-characters
       CUSTOMER_SESSION_SECRET: conference-ci-session-secret-at-least-32-characters
@@ -162,6 +166,31 @@ jobs:
           pnpm db:prepare &&
           pnpm --filter @conference/database migrate &&
           pnpm --filter @conference/database seed
+      - name: Bluegreen proxy download integration tests
+        run: |
+          proxy_tools="$(mktemp -d "$RUNNER_TEMP/bluegreen-proxy.XXXXXX")"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 120 \
+            https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+            --output "$proxy_tools/crane.tar.gz"
+          printf '%s  %s\n' '36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059' "$proxy_tools/crane.tar.gz" | sha256sum --check --strict
+          tar -xzf "$proxy_tools/crane.tar.gz" -C "$proxy_tools" crane
+          TOKEMS_BLUEGREEN_TEST_CRANE="$proxy_tools/crane" python3 -m unittest discover -s tooling/bluegreen -p test_proxy_integration.py -v
+      - name: Bluegreen transactional update tests
+        run: |
+          docker run -d --name tokems-bluegreen-sql-test --label codex.task=tokems-bluegreen \
+            --network none --memory 256m --cpus 1 \
+            --tmpfs /var/lib/postgresql/data:rw,size=256m \
+            -e POSTGRES_PASSWORD=bluegreen-test -e POSTGRES_USER=conference -e POSTGRES_DB=conference postgres:16-alpine
+          trap 'docker rm -f tokems-bluegreen-sql-test' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec tokems-bluegreen-sql-test pg_isready -U conference -d conference; then break; fi
+            sleep 1
+          done
+          TOKEMS_BLUEGREEN_TEST_CONTAINER=tokems-bluegreen-sql-test python3 -m unittest discover -s tooling/bluegreen -p test_sql_integration.py -v
+      - name: Bluegreen Gateway error-log privacy
+        run: |
+          docker pull nginx:1.31-alpine
+          TOKEMS_BLUEGREEN_TEST_GATEWAY_IMAGE=nginx:1.31-alpine python3 -m unittest discover -s tooling/bluegreen -p test_gateway_privacy_integration.py -v
       - name: Quality gate
         id: quality_gate
         run: pnpm check

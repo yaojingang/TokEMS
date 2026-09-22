@@ -42,6 +42,7 @@ import {
 } from '@conference/contracts';
 import {
   auditLogs,
+  conferenceTemplates,
   eventBlueprints,
   eventReleases,
   events,
@@ -71,6 +72,30 @@ import {
 } from './staff-account.js';
 
 type Database = NonNullable<DatabaseService['db']>;
+
+function mergeDefined<T extends object>(before: T, patch?: { [K in keyof T]?: T[K] | undefined }): T {
+  const result = { ...before };
+  if (patch) {
+    for (const key of Object.keys(patch) as (keyof T)[]) {
+      const value = patch[key];
+      if (value !== undefined) result[key] = value;
+    }
+  }
+  return result;
+}
+
+export function mergeOrganizationSettingsPatch(
+  before: OrganizationSettings,
+  patch: UpdateOrganizationSettings['settings'],
+): OrganizationSettings {
+  const { customerAccounts, website, ...fields } = patch ?? {};
+  return {
+    ...mergeDefined(before, fields),
+    customerAccounts: mergeDefined(before.customerAccounts, customerAccounts),
+    website: mergeDefined(before.website, website),
+    defaultCurrency: 'CNY',
+  };
+}
 
 const DEFAULT_ORGANIZATION_SETTINGS: OrganizationSettings = {
   brandName: '大会管理中心',
@@ -2233,15 +2258,19 @@ export class OrganizationAdminService {
           );
         }
       }
+      if (input.settings?.defaultTemplateId) {
+        const [template] = await tx.select({ id: conferenceTemplates.id })
+          .from(conferenceTemplates)
+          .where(and(
+            eq(conferenceTemplates.id, input.settings.defaultTemplateId),
+            eq(conferenceTemplates.organizationId, organizationId),
+          )).limit(1);
+        if (!template) {
+          throw new DomainError(API_ERROR_CODES.NOT_FOUND, '默认大会模板不存在或无权访问', HttpStatus.NOT_FOUND);
+        }
+      }
       const before = normalizeOrganizationSettings(organization.name, organization.settings);
-      const settingsPatch = Object.fromEntries(
-        Object.entries(input.settings ?? {}).filter(([, value]) => value !== undefined),
-      ) as Partial<OrganizationSettings>;
-      const settings: OrganizationSettings = {
-        ...before,
-        ...settingsPatch,
-        defaultCurrency: 'CNY',
-      };
+      const settings = mergeOrganizationSettingsPatch(before, input.settings);
       const [updated] = await tx
         .update(organizations)
         .set({

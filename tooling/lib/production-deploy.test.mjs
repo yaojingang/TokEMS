@@ -750,8 +750,8 @@ test('worker publishes a persistent release identity only after startup maintena
   const readyWrite = workerSource.search(/writeFile\(\s*workerReadyTempFile/u);
   const readyLog = workerSource.indexOf('`[worker] ready queue=');
   assert.ok(readyWrite >= 0 && readyWrite < readyLog);
-  const firstConsumerStart = workerSource.indexOf('const workerRun = worker.run()');
-  const finalStartupMaintenance = workerSource.indexOf('await maintainFeishuDigests()');
+  const firstConsumerStart = workerSource.indexOf("if (deploymentControl.status().phase === 'active') await resumeConsumers()");
+  const finalStartupMaintenance = workerSource.indexOf('await deploymentControl.run(() => maintainFeishuDigests())');
   assert.ok(finalStartupMaintenance >= 0 && finalStartupMaintenance < firstConsumerStart);
   assert.equal(workerSource.match(/autorun: false/g)?.length, 2);
   assert.match(
@@ -1379,21 +1379,24 @@ test('standard release scope allows the reviewed partner and MinIO Compose migra
   const directory = mkdtempSync(resolve(tmpdir(), 'tokems-reviewed-compose-scope-'));
   const basePath = resolve(directory, 'base.yml');
   const targetPath = resolve(directory, 'target.yml');
-  const current = readFileSync(resolve(repositoryRoot, 'docker-compose.yml'), 'utf8');
+  const baseline = readFileSync(
+    resolve(repositoryRoot, 'tooling/fixtures/production-compose-fd2086f.yml'),
+    'utf8',
+  );
   const batchFlag =
     '      BATCH_PURCHASE_CREATION_ENABLED: ${BATCH_PURCHASE_CREATION_ENABLED:-true}\n';
-  const partnerStart = current.indexOf('  PARTNER_ATTRIBUTION_SECRET:');
-  const partnerEnd = current.indexOf('  TRUST_PROXY:', partnerStart);
-  assert.ok(partnerStart >= 0 && partnerEnd > partnerStart);
-  const partnerBlockWithNewline = current.slice(partnerStart, partnerEnd);
+  const partnerBlockWithNewline =
+    '  PARTNER_ATTRIBUTION_SECRET: ${PARTNER_ATTRIBUTION_SECRET:-}\n' +
+    '  PARTNER_PAYOUT_DATA_SECRET: ${PARTNER_PAYOUT_DATA_SECRET:-}\n' +
+    '  PAYOUT_PUBLIC_URL: ${PAYOUT_PUBLIC_URL:-${PUBLIC_ORIGIN}}\n';
   const oldMinio =
     'minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e';
   const oldMc =
     'minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727';
-  const baseline = current
-    .replace(partnerBlockWithNewline, '')
-    .replace(`quay.io/${oldMinio}`, oldMinio)
-    .replace(`quay.io/${oldMc}`, oldMc);
+  const current = baseline
+    .replace('  TRUST_PROXY:', `${partnerBlockWithNewline}  TRUST_PROXY:`)
+    .replace(oldMinio, `quay.io/${oldMinio}`)
+    .replace(oldMc, `quay.io/${oldMc}`);
   // Pin the full production fd2086f Compose bytes without depending on CI Git history.
   assert.equal(
     createHash('sha256').update(baseline).digest('hex'),

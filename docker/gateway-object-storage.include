@@ -1,0 +1,36 @@
+# Path-style object storage. The public URL is {origin}/{bucket}/{key}.
+# Forward the browser Host unchanged so AWS SigV4 presigned requests verify.
+location ^~ /conference-assets/ {
+  client_max_body_size 64m;
+
+  error_page 418 = @conference_assets_preflight;
+  if ($request_method = OPTIONS) {
+    return 418;
+  }
+
+  proxy_pass http://minio_backend;
+  proxy_http_version 1.1;
+  proxy_set_header Host $http_host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Host $http_host;
+  proxy_set_header X-Forwarded-Proto $forwarded_proto;
+  proxy_hide_header Access-Control-Allow-Origin;
+  proxy_hide_header Access-Control-Allow-Methods;
+  proxy_hide_header Access-Control-Allow-Headers;
+  proxy_hide_header Access-Control-Expose-Headers;
+  add_header Access-Control-Allow-Origin * always;
+  add_header Access-Control-Allow-Methods "GET, PUT, HEAD, DELETE, OPTIONS" always;
+  add_header Access-Control-Allow-Headers "content-type, if-none-match, content-length" always;
+  add_header Access-Control-Expose-Headers "etag, x-amz-request-id, x-amz-id-2" always;
+  add_header Access-Control-Max-Age 600 always;
+}
+
+location @conference_assets_preflight {
+  add_header Access-Control-Allow-Origin * always;
+  add_header Access-Control-Allow-Methods "GET, PUT, HEAD, DELETE, OPTIONS" always;
+  add_header Access-Control-Allow-Headers "content-type, if-none-match, content-length" always;
+  add_header Access-Control-Max-Age 600 always;
+  add_header Content-Length 0;
+  return 204;
+}

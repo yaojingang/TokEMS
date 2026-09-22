@@ -1,3 +1,5 @@
+import { activateDeploymentConsumers } from './deployment-consumers.js';
+import { deploymentControl } from '@conference/database';
 import { syncLegacyOrderItemState } from '@conference/database';
 import { findExpiredInventoryOrders } from '@conference/database';
 import { eraseUnavailableClaimInvitationReplays } from '@conference/database';
@@ -4281,12 +4283,12 @@ async function start() {
   });
   const feishuRateGate = createFeishuRateGate(await queue.getBackend().client);
   const invoiceSmsRateGate=createInvoiceSmsRateGate(await queue.getBackend().client);
-  const worker = new Worker(queueName, (job) => processDomainEvent(job, db, feishuRateGate, invoiceSmsRateGate), {
+  const worker = new Worker(queueName, (job) => deploymentControl.track(() => processDomainEvent(job, db, feishuRateGate, invoiceSmsRateGate)), {
     connection: workerConnection,
     concurrency,
     autorun: false,
   });
-  const htmlImportWorker = new Worker(htmlImportQueueName, (job) => processDomainEvent(job, db), {
+  const htmlImportWorker = new Worker(htmlImportQueueName, (job) => deploymentControl.track(() => processDomainEvent(job, db)), {
     connection: workerConnection,
     concurrency: htmlImportConcurrency,
     autorun: false,
@@ -4334,10 +4336,10 @@ async function start() {
   worker.on('failed', (job, error) => {
     console.error(`[worker] failed job=${job?.id}`, job?.data.eventType==='InvoiceSmsDeliveryRequested' ? 'invoice SMS task failed' : error);
     if (job) {
-      void (async () => {
+      void deploymentControl.track(async () => {
         await finalizeNotificationAccessTokenFailure(db, job, error);
         await redriveDurableFailure(job);
-      })().catch((finalizeError) =>
+      }).catch((finalizeError) =>
         console.error(`[worker] failed-job finalization failed job=${job.id}`, finalizeError),
       );
     }
@@ -4481,33 +4483,33 @@ async function start() {
     }
   };
 
-  await dispatch();
-  await reconcileDurableFailures();
-  const timer = setInterval(() => void dispatch(), pollInterval);
+  await deploymentControl.run(() => dispatch());
+  await deploymentControl.run(() => reconcileDurableFailures());
+  const timer = setInterval(() => void deploymentControl.run(() => dispatch()), pollInterval);
   const durableFailureTimer = setInterval(
     () =>
-      void reconcileDurableFailures().catch((error) =>
+      void deploymentControl.run(() => reconcileDurableFailures()).catch((error) =>
         console.error('[worker] durable failure reconciliation failed', error),
       ),
     5 * 60_000,
   );
-  await releaseExpiredReservations(db);
-  await expireWaitlistOffers(db);
-  await maintainInvoiceExports(db);
-  await recoverStaleHtmlTemplateImports(db);
-  await expireHtmlTemplateImports(db);
-  await expireTemplateAssetUploadReservations(db);
-  await eraseUnavailableClaimInvitationReplays(db);
-  await maintainCustomerAuthData(db);
-  await maintainAgentAccessData(db);
-  await cleanupExpiredCustomerAvatarSources(db);
-  await reconcileAliyunSmsDeliveries(db);
-  await processPartnerFinancialInbox(db);
-  await releasePartnerCommissions(db);
-  await reconcilePartnerFinancialFacts(db);
-  await activateScheduledPartnerPrograms(db);
-  await queryPendingPartnerPayouts(db);
-  await reconcileAgedPartnerPayouts(db);
+  await deploymentControl.run(() => releaseExpiredReservations(db));
+  await deploymentControl.run(() => expireWaitlistOffers(db));
+  await deploymentControl.run(() => maintainInvoiceExports(db));
+  await deploymentControl.run(() => recoverStaleHtmlTemplateImports(db));
+  await deploymentControl.run(() => expireHtmlTemplateImports(db));
+  await deploymentControl.run(() => expireTemplateAssetUploadReservations(db));
+  await deploymentControl.run(() => eraseUnavailableClaimInvitationReplays(db));
+  await deploymentControl.run(() => maintainCustomerAuthData(db));
+  await deploymentControl.run(() => maintainAgentAccessData(db));
+  await deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db));
+  await deploymentControl.run(() => reconcileAliyunSmsDeliveries(db));
+  await deploymentControl.run(() => processPartnerFinancialInbox(db));
+  await deploymentControl.run(() => releasePartnerCommissions(db));
+  await deploymentControl.run(() => reconcilePartnerFinancialFacts(db));
+  await deploymentControl.run(() => activateScheduledPartnerPrograms(db));
+  await deploymentControl.run(() => queryPendingPartnerPayouts(db));
+  await deploymentControl.run(() => reconcileAgedPartnerPayouts(db));
   let maintainingFeishuDigests = false;
   const maintainFeishuDigests = async () => {
     if (maintainingFeishuDigests) return;
@@ -4529,100 +4531,94 @@ async function start() {
       if (result.queued || result.skipped || result.cancelled || result.disabled) {
         console.info(`[feishu-digest] schedule result=${JSON.stringify(result)}`);
       }
-      await dispatch();
+      await deploymentControl.run(() => dispatch());
     } catch (error) {
       console.error('[feishu-digest] schedule failed', error);
     } finally {
       maintainingFeishuDigests = false;
     }
   };
-  await maintainFeishuDigests();
+  await deploymentControl.run(() => maintainFeishuDigests());
   const inventoryTimer = setInterval(() => {
-    void releaseExpiredReservations(db);
-    void expireWaitlistOffers(db);
-    void eraseUnavailableClaimInvitationReplays(db).catch((error) => console.error('[worker] Invitation replay cleanup failed', error));
+    void deploymentControl.run(() => releaseExpiredReservations(db));
+    void deploymentControl.run(() => expireWaitlistOffers(db));
+    void deploymentControl.run(() => eraseUnavailableClaimInvitationReplays(db)).catch((error) => console.error('[worker] Invitation replay cleanup failed', error));
   }, inventoryReleaseInterval);
-  const exportMaintenanceTimer = setInterval(() => void maintainInvoiceExports(db), 5 * 60_000);
+  const exportMaintenanceTimer = setInterval(() => void deploymentControl.run(() => maintainInvoiceExports(db)), 5 * 60_000);
   const htmlImportMaintenanceTimer = setInterval(() => {
-    void recoverStaleHtmlTemplateImports(db);
-    void expireHtmlTemplateImports(db);
-    void expireTemplateAssetUploadReservations(db);
+    void deploymentControl.run(() => recoverStaleHtmlTemplateImports(db));
+    void deploymentControl.run(() => expireHtmlTemplateImports(db));
+    void deploymentControl.run(() => expireTemplateAssetUploadReservations(db));
   }, 60_000);
   const customerAuthMaintenanceTimer = setInterval(
     () => {
-      void maintainCustomerAuthData(db);
-      void cleanupExpiredCustomerAvatarSources(db);
+      void deploymentControl.run(() => maintainCustomerAuthData(db));
+      void deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db));
     },
     6 * 60 * 60_000,
   );
   const agentAccessMaintenanceTimer = setInterval(
     () =>
-      void maintainAgentAccessData(db).catch((error) =>
+      void deploymentControl.run(() => maintainAgentAccessData(db)).catch((error) =>
         console.error('[worker] Agent Access maintenance failed', error),
       ),
     5 * 60_000,
   );
   const smsReceiptTimer = setInterval(
-    () => void reconcileAliyunSmsDeliveries(db),
+    () => void deploymentControl.run(() => reconcileAliyunSmsDeliveries(db)),
     smsReceiptInterval,
   );
-  const feishuDigestTimer = setInterval(() => void maintainFeishuDigests(), 60_000);
+  const feishuDigestTimer = setInterval(() => void deploymentControl.run(() => maintainFeishuDigests()), 60_000);
   const partnerFinancialTimer = setInterval(
     () =>
-      void processPartnerFinancialInbox(db).catch((error) =>
+      void deploymentControl.run(() => processPartnerFinancialInbox(db)).catch((error) =>
         console.error('[partner-financial] inbox processing failed', error),
       ),
     5_000,
   );
   const partnerCommissionReleaseTimer = setInterval(
     () =>
-      void releasePartnerCommissions(db).catch((error) =>
+      void deploymentControl.run(() => releasePartnerCommissions(db)).catch((error) =>
         console.error('[partner-financial] commission release failed', error),
       ),
     60_000,
   );
   const partnerReconciliationTimer = setInterval(
     () =>
-      void reconcilePartnerFinancialFacts(db).catch((error) =>
+      void deploymentControl.run(() => reconcilePartnerFinancialFacts(db)).catch((error) =>
         console.error('[partner-financial] reconciliation failed', error),
       ),
     15 * 60_000,
   );
   const partnerProgramTimer = setInterval(
     () =>
-      void activateScheduledPartnerPrograms(db).catch((error) =>
+      void deploymentControl.run(() => activateScheduledPartnerPrograms(db)).catch((error) =>
         console.error('[partner-financial] scheduled program activation failed', error),
       ),
     60_000,
   );
   const partnerPayoutQueryTimer = setInterval(
     () =>
-      void queryPendingPartnerPayouts(db).catch((error) =>
+      void deploymentControl.run(() => queryPendingPartnerPayouts(db)).catch((error) =>
         console.error('[partner-financial] payout query failed', error),
       ),
     60_000,
   );
   const partnerPayoutReconciliationTimer = setInterval(
     () =>
-      void reconcileAgedPartnerPayouts(db).catch((error) =>
+      void deploymentControl.run(() => reconcileAgedPartnerPayouts(db)).catch((error) =>
         console.error('[partner-financial] aged payout reconciliation failed', error),
       ),
     6 * 60 * 60_000,
   );
-  const workerRun = worker.run();
-  const htmlImportWorkerRun = htmlImportWorker.run();
-  void workerRun.catch((error) => {
-    console.error('[worker] domain event consumer stopped unexpectedly', error);
-    process.exit(1);
-  });
-  void htmlImportWorkerRun.catch((error) => {
-    console.error('[worker] HTML import consumer stopped unexpectedly', error);
-    process.exit(1);
+  const resumeConsumers = () => activateDeploymentConsumers([worker, htmlImportWorker]);
+  deploymentControl.register({
+    pause: async () => { await Promise.all([worker.pause(), htmlImportWorker.pause()]); },
+    resume: resumeConsumers,
   });
   await Promise.all([worker.waitUntilReady(), htmlImportWorker.waitUntilReady()]);
-  if (!worker.isRunning() || !htmlImportWorker.isRunning()) {
-    throw new Error('Worker consumers did not enter the running state');
-  }
+  if (deploymentControl.status().phase === 'active') await resumeConsumers();
+  await deploymentControl.listen();
   await writeFile(
     workerReadyTempFile,
     `${JSON.stringify(resolveBuildInfo('worker', process.env))}\n`,
@@ -4636,7 +4632,10 @@ async function start() {
     `[worker] ready queue=${queueName} concurrency=${concurrency} htmlQueue=${htmlImportQueueName} htmlConcurrency=${htmlImportConcurrency}`,
   );
 
+  let stopping = false;
   const stop = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
     console.info(`[worker] stopping signal=${signal}`);
     await unlink(workerReadyFile).catch(() => undefined);
     await unlink(workerReadyTempFile).catch(() => undefined);
@@ -4662,8 +4661,8 @@ async function start() {
     await pool.end();
     process.exit(0);
   };
-  process.once('SIGINT', () => void stop('SIGINT'));
-  process.once('SIGTERM', () => void stop('SIGTERM'));
+  process.on('SIGINT', () => void stop('SIGINT'));
+  process.on('SIGTERM', () => void stop('SIGTERM'));
 }
 
 start().catch((error) => {
