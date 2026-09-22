@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import test from 'node:test';
+
+function containerLogs(name) {
+  const result = spawnSync('docker', ['logs', name], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  return result.stdout + result.stderr;
+}
 
 test(
   'real gateway keeps invoice response private and rejects the payment alias without logging credentials',
@@ -31,10 +37,14 @@ test(
       'utf8',
     );
     const config = original.replace(
-      /server (?:api:4100|web:3000|payment-web:3000|admin:8080) resolve;/g,
+      /server (?:api:4100|web:3000|payment-web:3000|admin:8080|minio:9000) resolve;/g,
       `server host.docker.internal:${port};`,
     );
     await writeFile(join(temp, 'default.conf'), config);
+    await copyFile(
+      new URL('../docker/gateway-object-storage.include', import.meta.url),
+      join(temp, 'tokems-object-storage.include'),
+    );
     let started = false;
     try {
       execFileSync(
@@ -50,6 +60,8 @@ test(
           '127.0.0.1::8080',
           '-v',
           `${temp}/default.conf:/etc/nginx/conf.d/default.conf:ro`,
+          '-v',
+          `${temp}/tokems-object-storage.include:/etc/nginx/tokems-object-storage.include:ro`,
           'nginx:1.31.1-alpine',
         ],
         { stdio: 'pipe' },
@@ -69,7 +81,7 @@ test(
         }
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
-      assert.equal(ready, true);
+      assert.equal(ready, true, `Gateway did not become healthy:\n${containerLogs(name)}`);
       const token = 'A12345678901234567890123';
       for (const host of ['public.test', 'admin.public.test'])
         for (const path of ['/invoice/file/', '/api/v1/invoice-files/']) {
@@ -90,10 +102,12 @@ test(
       const alias = await fetch(`${base}/pay/hui/api/v1/invoice-files/${token}`);
       assert.equal(alias.status, 404);
       assert.equal(requests.length, 4);
-      const logs = execFileSync('docker', ['logs', name], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      const controlPath = '/api/v1/gateway-log-control';
+      const control = await fetch(`${base}${controlPath}`);
+      assert.equal(control.status, 200);
+      await control.text();
+      const logs = containerLogs(name);
+      assert.ok(logs.includes(controlPath), 'ordinary requests must still produce access logs');
       assert.ok(!logs.includes(token));
     } finally {
       if (started) execFileSync('docker', ['rm', '--force', name], { stdio: 'pipe' });
@@ -164,17 +178,12 @@ test(
         }
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
-      assert.equal(ready, true);
+      assert.equal(ready, true, `Payment entry did not become healthy:\n${containerLogs(name)}`);
       const token = 'B12345678901234567890123';
       const alias = await fetch(`${base}/pay/hui/api/v1/invoice-files/${token}`, {
         headers: { referer: `https://public.test/invoice/file/${token}` },
       });
       await alias.text();
-      const logs = execFileSync('docker', ['logs', name], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      assert.ok(!logs.includes(token), 'payment entry access log must exclude invoice credentials');
       assert.equal(alias.status, 404);
       assert.equal(alias.headers.get('referrer-policy'), 'no-referrer');
       assert.equal(requests.length, 0, 'invoice alias must be rejected at the outer entry');
@@ -184,6 +193,9 @@ test(
       assert.equal(payment.status, 200);
       await payment.text();
       assert.deepEqual(requests, [{ url: '/pay/hui/', referer: 'https://payment.test/pay/hui/' }]);
+      const logs = containerLogs(name);
+      assert.ok(logs.includes('GET /pay/hui/ HTTP/1.1'), 'ordinary payment requests must still be logged');
+      assert.ok(!logs.includes(token), 'payment entry access log must exclude invoice credentials');
     } finally {
       if (started) execFileSync('docker', ['rm', '--force', name], { stdio: 'pipe' });
       await new Promise((resolve) => backend.close(resolve));
