@@ -79,6 +79,14 @@ describe('canonical homepage snapshot', () => {
     expect(() => validateCanonicalHomepageSnapshot(value, 'observation')).not.toThrow();
     expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/registration form.*active/iu);
   });
+  it('allows an environment-owned default template in production observations', async () => {
+    const value = await snapshot();
+    const organization = value.organization as { settings: { defaultTemplateId: string | null } };
+    organization.settings.defaultTemplateId = randomUUID();
+
+    expect(() => validateCanonicalHomepageSnapshot(value, 'observation')).not.toThrow();
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/default template/u);
+  });
   it('limits the trusted production exporter to the read-only Compose topology', () => {
     const trusted = {
       databaseUrl:

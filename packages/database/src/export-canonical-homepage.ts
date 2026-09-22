@@ -792,6 +792,7 @@ export function validateCanonicalHomepageSnapshot(
   const organization = record(snapshot.organization, 'canonical organization');
   const organizationSettings = record(organization.settings, 'canonical organization settings');
   if (
+    purpose === 'snapshot' &&
     organizationSettings.defaultTemplateId &&
     !templateRootIds.has(organizationSettings.defaultTemplateId)
   ) {

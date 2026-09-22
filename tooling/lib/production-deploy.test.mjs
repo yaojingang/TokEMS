@@ -965,6 +965,27 @@ test('recovery is versioned, offline-capable, and waits for detached database wo
   assert.match(source, /com\.docker\.compose\.service=db-init/);
 });
 
+test('write recovery can close locally once the target database and images are complete', () => {
+  const bootstrap = source.slice(
+    source.indexOf('bootstrap_latest_script() {'),
+    source.indexOf('\nenv_value() {'),
+  );
+  assert.match(bootstrap, /mode.*resolve-recovery/);
+  assert.match(bootstrap, /assert_local_recovery_entrypoint/);
+  assert.match(bootstrap, /read_pending_recovery_marker/);
+  assert.match(bootstrap, /installed recovery entrypoint/);
+  assert.match(bootstrap, /remote CI is not required to restore writes/);
+  assert.doesNotMatch(bootstrap, /git_as_owner show "\$\{target_sha\}:tooling\/production-deploy\.sh"/);
+  const resolve = source.slice(
+    source.indexOf('resolve_pending_recovery() {'),
+    source.indexOf('\nwrite_success_summary() {'),
+  );
+  assert.match(resolve, /assert_local_recovery_target/);
+  assert.match(resolve, /assert_local_recovery_state/);
+  assert.doesNotMatch(resolve, /verify_github_release_gate/);
+  assert.match(source, /Production database migration hash does not match the protected recovery target/);
+});
+
 test('release verifies public recovery projection and the full canonical backend snapshot', () => {
   assert.match(source, /public-homepage-recovery-resolve\.json/);
   assert.match(source, /canonical-homepage\.snapshot\.\$\{evidence_suffix\}\.json/);
@@ -1050,6 +1071,46 @@ test('canonical snapshot comparator detects equality, drift, and invalid JSON', 
   }
 });
 
+test('canonical snapshot comparator ignores environment-owned organization settings', () => {
+  const match = source.match(/canonical_snapshot_files_match\(\) \{[\s\S]*?<<'PY'\n([\s\S]*?)\nPY/);
+  assert.ok(match, 'canonical snapshot comparison Python program was not found');
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-canonical-runtime-fields-'));
+  const actualPath = resolve(directory, 'actual.json');
+  const expectedPath = resolve(directory, 'expected.json');
+  try {
+    const expected = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, 'packages/contracts/src/canonical-homepage.snapshot.json'),
+        'utf8',
+      ),
+    );
+    const actual = structuredClone(expected);
+    actual.organization.settings.defaultTemplateId = null;
+    actual.organization.settings.customerAccounts.privacyUrl = 'https://runtime.example/privacy';
+    actual.organization.settings.customerAccounts.privacyVersion = 'runtime-1';
+    actual.organization.settings.customerAccounts.termsUrl = 'https://runtime.example/terms';
+    actual.organization.settings.customerAccounts.termsVersion = 'runtime-2';
+    actual.organization.settings.customerAccounts.defaultAccountMode = 'guest_allowed';
+    writeFileSync(actualPath, JSON.stringify(actual));
+    writeFileSync(expectedPath, JSON.stringify(expected));
+    const accepted = spawnSync('python3', ['-', actualPath, expectedPath], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(accepted.status, 0, accepted.stderr);
+
+    actual.organization.settings.locale = 'en-US';
+    writeFileSync(actualPath, JSON.stringify(actual));
+    const rejected = spawnSync('python3', ['-', actualPath, expectedPath], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(rejected.status, 1, rejected.stderr);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('public homepage verifier treats an omitted binding revision as sanitized metadata', () => {
   const match = source.match(/verify_homepage_file\(\) \{[\s\S]*?<<'PY'\n([\s\S]*?)\nPY/);
   assert.ok(match, 'public homepage verification Python program was not found');
@@ -1093,6 +1154,8 @@ for (const verifier of ['canonical_snapshot_files_match', 'verify_homepage_file'
     const actual = structuredClone(expected);
     actual.publicEvent.registrationForm.publishedAt = '2026-09-04T13:49:07.481Z';
     expected.publicEvent.registrationForm.publishedAt = '2026-09-04T06:46:07.380Z';
+    actual.release.snapshot.registrationForm.publishedAt = '2026-09-04T13:49:07.481Z';
+    expected.release.snapshot.registrationForm.publishedAt = '2026-09-04T06:46:07.380Z';
     const run = () => {
       writeFileSync(
         actualPath,
