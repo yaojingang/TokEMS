@@ -183,7 +183,7 @@ jobs:
             -e POSTGRES_PASSWORD=bluegreen-test -e POSTGRES_USER=conference -e POSTGRES_DB=conference postgres:16-alpine
           trap 'docker rm -f tokems-bluegreen-sql-test' EXIT
           for attempt in $(seq 1 30); do
-            if docker exec tokems-bluegreen-sql-test pg_isready -U conference -d conference; then break; fi
+            if docker exec tokems-bluegreen-sql-test pg_isready -h 127.0.0.1 -U conference -d conference; then break; fi
             sleep 1
           done
           TOKEMS_BLUEGREEN_TEST_CONTAINER=tokems-bluegreen-sql-test python3 -m unittest discover -s tooling/bluegreen -p test_sql_integration.py -v
