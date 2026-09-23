@@ -1042,11 +1042,65 @@ test('canonical snapshot comparator detects equality, drift, and invalid JSON', 
   const actual = resolve(directory, 'actual.json');
   const matching = resolve(directory, 'matching.json');
   const drifted = resolve(directory, 'drifted.json');
+  const assetActual = resolve(directory, 'asset-actual.json');
+  const assetMatching = resolve(directory, 'asset-matching.json');
+  const assetDrifted = resolve(directory, 'asset-drifted.json');
   const invalid = resolve(directory, 'invalid.json');
   try {
     writeFileSync(actual, '{"nested":{"value":"大会"},"items":[1,2]}\n');
     writeFileSync(matching, '{\n  "items": [1, 2],\n  "nested": {"value": "大会"}\n}\n');
     writeFileSync(drifted, '{"nested":{"value":"旧文案"},"items":[1,2]}\n');
+    writeFileSync(
+      assetActual,
+      JSON.stringify({
+        assets: [
+          {
+            id: '4f657579-4ef4-4982-98ad-1c2be44d04f7',
+            contentDigest: 'same-digest',
+            storageKey: 'runtime/avatar.png',
+          },
+        ],
+        publicEvent: {
+          speakers: [
+            { avatarUrl: '/assets/templates/4f657579-4ef4-4982-98ad-1c2be44d04f7' },
+          ],
+        },
+      }),
+    );
+    writeFileSync(
+      assetMatching,
+      JSON.stringify({
+        assets: [
+          {
+            id: '98b4e830-7431-46bd-9de8-a2c8b05e70cf',
+            contentDigest: 'same-digest',
+            storageKey: 'canonical/avatar.png',
+          },
+        ],
+        publicEvent: {
+          speakers: [
+            { avatarUrl: '/assets/templates/98b4e830-7431-46bd-9de8-a2c8b05e70cf' },
+          ],
+        },
+      }),
+    );
+    writeFileSync(
+      assetDrifted,
+      JSON.stringify({
+        assets: [
+          {
+            id: '98b4e830-7431-46bd-9de8-a2c8b05e70cf',
+            contentDigest: 'different-digest',
+            storageKey: 'canonical/avatar.png',
+          },
+        ],
+        publicEvent: {
+          speakers: [
+            { avatarUrl: '/assets/templates/98b4e830-7431-46bd-9de8-a2c8b05e70cf' },
+          ],
+        },
+      }),
+    );
     writeFileSync(invalid, '{"nested":');
 
     const equalResult = spawnSync('python3', ['-', actual, matching], {
@@ -1060,6 +1114,18 @@ test('canonical snapshot comparator detects equality, drift, and invalid JSON', 
       input: match[1],
     });
     assert.equal(driftResult.status, 1, driftResult.stderr);
+
+    const assetEqualResult = spawnSync('python3', ['-', assetActual, assetMatching], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(assetEqualResult.status, 0, assetEqualResult.stderr);
+
+    const assetDriftResult = spawnSync('python3', ['-', assetActual, assetDrifted], {
+      encoding: 'utf8',
+      input: match[1],
+    });
+    assert.equal(assetDriftResult.status, 1, assetDriftResult.stderr);
 
     const invalidResult = spawnSync('python3', ['-', actual, invalid], {
       encoding: 'utf8',
@@ -1130,6 +1196,72 @@ test('public homepage verifier treats an omitted binding revision as sanitized m
       encoding: 'utf8',
       input: match[1],
     });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('public homepage verifier normalizes deduplicated asset ids by content digest', () => {
+  const match = source.match(/verify_homepage_file\(\) \{[\s\S]*?<<'PY'\n([\s\S]*?)\nPY/);
+  assert.ok(match, 'public homepage verification Python program was not found');
+  const directory = mkdtempSync(resolve(tmpdir(), 'tokems-homepage-assets-'));
+  const actual = resolve(directory, 'actual.json');
+  const expected = resolve(directory, 'expected.json');
+  const actualFull = resolve(directory, 'actual-full.json');
+  const expectedFull = resolve(directory, 'expected-full.json');
+  try {
+    writeFileSync(
+      actual,
+      JSON.stringify({
+        slug: 'tokems26',
+        publicMetrics: {},
+        speakers: [
+          { avatarUrl: '/assets/templates/4f657579-4ef4-4982-98ad-1c2be44d04f7' },
+        ],
+        tickets: [],
+      }),
+    );
+    writeFileSync(
+      expected,
+      JSON.stringify({
+        publicEvent: {
+          slug: 'tokems26',
+          publicMetrics: {},
+          speakers: [
+            { avatarUrl: '/assets/templates/98b4e830-7431-46bd-9de8-a2c8b05e70cf' },
+          ],
+          tickets: [],
+        },
+      }),
+    );
+    writeFileSync(
+      actualFull,
+      JSON.stringify({
+        assets: [
+          {
+            id: '4f657579-4ef4-4982-98ad-1c2be44d04f7',
+            contentDigest: 'same-digest',
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      expectedFull,
+      JSON.stringify({
+        assets: [
+          {
+            id: '98b4e830-7431-46bd-9de8-a2c8b05e70cf',
+            contentDigest: 'same-digest',
+          },
+        ],
+      }),
+    );
+    const result = spawnSync(
+      'python3',
+      ['-', actual, expected, 'tokems26', actualFull, expectedFull],
+      { encoding: 'utf8', input: match[1] },
+    );
     assert.equal(result.status, 0, result.stderr);
   } finally {
     rmSync(directory, { recursive: true, force: true });
