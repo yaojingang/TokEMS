@@ -403,6 +403,21 @@ commit;
                     run(['docker', 'kill', '--signal=TERM', identifier])
         wait_until(lambda: all(not inspect(old['containers'][s])['State']['Running'] for s in services), 60)
 
+    def assert_restorable(self, old):
+        # A later release can reuse a slot and replace its stopped containers.
+        # Prove the whole saved set exists before draining the healthy owner.
+        require(all(service in old['containers'] and service in old['images'] for service in APPS),
+                'Rollback target container record is incomplete')
+        for service in APPS:
+            try:
+                obj = inspect(old['containers'][service])
+            except DeployError:
+                raise DeployError('Rollback target containers are unavailable; the slot may have been reused')
+            require(obj['Image'] == old['images'][service], 'Rollback target container identity changed')
+        if old['protocol']:
+            for service in ('api', 'worker'):
+                self.runtime_directory(old['containers'][service])
+
     def restore(self, old):
         self.ownership(old, True)
         for service in APPS:

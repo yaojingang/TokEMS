@@ -189,7 +189,7 @@ class FlowTests(unittest.TestCase):
         runtime, saved = FakeRuntime(), state()
         saved['candidateStarted'] = True
         recover_old(runtime, saved)
-        self.assertEqual(runtime.events, ['quiesce_candidate', 'restore', 'stop_candidate'])
+        self.assertEqual(runtime.events, ['assert_restorable', 'quiesce_candidate', 'restore', 'stop_candidate'])
 
     def test_resume_after_database_commit_skips_maintenance_gate(self):
         runtime, saved = FakeRuntime(), state('maintenance')

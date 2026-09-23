@@ -44,6 +44,16 @@ def verify_seal(directory):
         require(not path.is_symlink() and path.is_file() and digest(path) == expected, 'Prepared release file changed: ' + name)
 
 
+def require_target_controller(directory):
+    def implementation(folder):
+        return {path.name: digest(path) for path in folder.glob('*.py')
+                if not path.name.startswith('test_') and path.is_file() and not path.is_symlink()}
+    installed = implementation(Path(__file__).parent)
+    target = implementation(Path(directory) / 'source/tooling/bluegreen')
+    require(installed and installed == target,
+            'Installed bluegreen controller differs from verified target; start a new deploy using the updated target checkout before changing services')
+
+
 def marker(directory, state):
     atomic(MARKER, 'protocol=bluegreen-v1\nbackup_dir={}\ntarget_sha={}\nphase={}\n'.format(directory, state['sha'], state['phase']))
 
@@ -64,6 +74,7 @@ def require_rollback_compatible(runtime, state):
 def recover_old(runtime, state):
     """Stop the new background owner before restoring the old one, never restore a DB dump."""
     require_rollback_compatible(runtime, state)
+    runtime.assert_restorable(state['old'])
     if state.get('candidateStarted'):
         runtime.quiesce_candidate(state['target'])
     runtime.restore(state['old'])
@@ -172,6 +183,7 @@ def perform(directory):
             cfg = config()
             print('[TokEMS bluegreen] Download network: ' + ('SSH proxy' if state.get('downloadProxy') else 'direct'), flush=True)
             prepare(directory, state['sha'], state.get('downloadProxy'))
+            require_target_controller(directory)
             runtime = Runtime(directory, cfg)
             runtime.capacity()
             port = runtime.proxy_port()
@@ -304,6 +316,7 @@ def begin_rollback(directory):
     runtime.assert_target(state['target'])
     # A rejected rollback must leave the healthy active release and marker untouched.
     require_rollback_compatible(runtime, state)
+    runtime.assert_restorable(state['old'])
     state['rollbackRequested'] = True
     save(directory, state, 'rollback-started')
     marker(directory, state)

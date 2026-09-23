@@ -51,6 +51,16 @@ def release_gate(sha, env=None):
     return evidence
 
 
+def extract_source(directory, sha):
+    source = Path(directory) / 'source'
+    source.mkdir(mode=0o700, exist_ok=True)
+    protected(source, True)
+    # Archive is produced from the verified local commit, not downloaded tar metadata.
+    archive = run(['sudo', '-u', 'ecs-user', 'git', '-C', APP, 'archive', sha], binary=True)
+    run(['tar', '-xf', '-', '-C', source], data=archive, binary=True)
+    return source
+
+
 def prepare(directory, sha, proxy=None):
     directory = Path(directory)
     network = ImageSource(proxy)
@@ -114,11 +124,7 @@ def prepare(directory, sha, proxy=None):
                  '--timeout-seconds', '180'])
         finally:
             shutil.rmtree(str(transport))
-        source = directory / 'source'
-        source.mkdir(mode=0o700)
-        # Archive is produced from the verified local commit, not downloaded tar metadata.
-        archive = run(['sudo', '-u', 'ecs-user', 'git', '-C', APP, 'archive', sha], binary=True)
-        run(['tar', '-xf', '-', '-C', source], data=archive, binary=True)
+        source = extract_source(directory, sha)
         require(digest(verifier) == digest(source / 'tooling/release-descriptor.py'), 'Verifier differs from target source')
         records = [line.split('\t') for line in (directory / 'records.tsv').read_text().splitlines()]
         build = {name: value for kind, name, value in records if kind == 'build'}

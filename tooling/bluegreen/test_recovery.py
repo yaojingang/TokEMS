@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import controller
 from controller import finish, recover_old
 from policy import DeployError
-from runtime import Runtime
+from runtime import APPS, Runtime
 import test_deploy as fixtures
 from test_deploy import FakeRuntime, state
 
@@ -52,7 +52,7 @@ class RecoveryTests(unittest.TestCase):
         saved['databaseStarted'] = True
         runtime.database_unchanged = Mock(return_value=True)
         recover_old(runtime, saved)
-        self.assertEqual(runtime.events, ['restore'])
+        self.assertEqual(runtime.events, ['assert_restorable', 'restore'])
 
     def test_finish_recovers_active_pointer_before_clearing_marker(self):
         directory = self.root / 'release-b'
@@ -113,6 +113,54 @@ class RecoveryTests(unittest.TestCase):
             perform.assert_not_called()
         self.assertEqual(before, (state_path.read_bytes(), active_path.read_bytes()))
         self.assertFalse(marker.exists())
+
+    def test_reused_old_slot_rejects_rollback_before_pausing_the_active_release(self):
+        directory = self.root / 'release-b'
+        directory.mkdir()
+        saved = state()
+        saved.update(phase='complete', config={}, candidateStarted=True)
+        state_path, active_path = directory / 'state.json', self.root / 'active.json'
+        state_path.write_text(json.dumps(saved))
+        active_path.write_text(json.dumps(dict(directory=str(directory))))
+        before = state_path.read_bytes(), active_path.read_bytes()
+        runtime = Mock(spec=Runtime)
+        runtime.proxy_port.return_value = saved['target']['port']
+        runtime.assert_restorable = Mock(side_effect=DeployError('Rollback target containers are unavailable'))
+        marker = self.root / 'RECOVERY_REQUIRED'
+        with patch.object(controller, 'ROOT', self.root), patch.object(controller, 'MARKER', marker), \
+                patch.object(controller, 'protected', side_effect=Path), patch.object(controller, 'verify_seal'), \
+                patch.object(controller, 'Runtime', return_value=runtime), patch.object(controller, 'perform') as perform:
+            with self.assertRaisesRegex(DeployError, 'Rollback target containers'):
+                controller.begin_rollback(directory)
+            perform.assert_not_called()
+        runtime.quiesce_candidate.assert_not_called()
+        self.assertEqual(before, (state_path.read_bytes(), active_path.read_bytes()))
+        self.assertFalse(marker.exists())
+
+    def test_rollback_preflight_checks_every_saved_container_without_mutation(self):
+        old = dict(protocol=True, containers={s: 'old-' + s for s in APPS},
+                   images={s: 'image-' + s for s in APPS})
+        self.runtime.runtime_directory = Mock(return_value=self.root)
+        for missing in [None] + list(APPS):
+            def inspect(identifier):
+                service = identifier[len('old-'):]
+                if service == missing:
+                    raise DeployError('Container no longer exists')
+                return dict(Image='image-' + service)
+            with self.subTest(missing=missing), patch('runtime.inspect', side_effect=inspect), patch('runtime.run') as run:
+                if missing is None:
+                    self.runtime.assert_restorable(old)
+                else:
+                    with self.assertRaisesRegex(DeployError, 'containers are unavailable'):
+                        self.runtime.assert_restorable(old)
+                run.assert_not_called()
+
+    def test_rollback_preflight_rejects_a_replaced_container_identity(self):
+        old = dict(protocol=False, containers={s: 'old-' + s for s in APPS},
+                   images={s: 'saved-image' for s in APPS})
+        with patch('runtime.inspect', return_value=dict(Image='replacement-image')):
+            with self.assertRaisesRegex(DeployError, 'identity changed'):
+                self.runtime.assert_restorable(old)
 
     def test_application_incompatibility_blocks_rollback_only_after_write_boundary(self):
         runtime, saved = FakeRuntime(), state('maintenance', compatible=False)
