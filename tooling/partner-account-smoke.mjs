@@ -204,7 +204,9 @@ async function setup(t, width = 1440, options = {}) {
       return fillText.call(this, text, ...args);
     };
   });
-  await page.goto(`${base}/account/partnerships/101?tab=profile`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}/account/partnerships/101?tab=profile`, {
+    waitUntil: 'domcontentloaded',
+  });
   await page.getByRole('textbox', { name: /^公开姓名/ }).waitFor();
   t.after(() => assert.deepEqual(errors, []));
   return { page, ...data };

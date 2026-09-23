@@ -63,6 +63,14 @@ const canonicalOrganizationSettings = {
   ...CANONICAL_HOMEPAGE_SNAPSHOT.organization.settings,
   analytics: DEFAULT_ANALYTICS_SETTINGS,
 } as const;
+const canonicalOrganizationStableSettings = Object.fromEntries(
+  Object.entries(canonicalOrganizationSettings).filter(
+    ([key]) => key !== 'defaultTemplateId' && key !== 'customerAccounts',
+  ),
+);
+const canonicalOrganizationCustomerAccountSettings = {
+  defaultAccountMode: canonicalOrganizationSettings.customerAccounts.defaultAccountMode,
+};
 const canonicalBackend = CANONICAL_HOMEPAGE_SNAPSHOT.backend;
 const canonicalTemplate = CANONICAL_HOMEPAGE_SNAPSHOT.template;
 const canonicalRelease = CANONICAL_HOMEPAGE_SNAPSHOT.release;
@@ -387,9 +395,20 @@ try {
           set: {
             slug: publicOrganizationSlug,
             name: CANONICAL_HOMEPAGE_SNAPSHOT.organization.name,
-            settings: sql`${organizations.settings} || ${JSON.stringify(
-              CANONICAL_HOMEPAGE_SNAPSHOT.organization.settings,
-            )}::jsonb`,
+            settings: sql`
+              jsonb_set(
+                coalesce(${organizations.settings}, '{}'::jsonb) ||
+                  ${JSON.stringify(canonicalOrganizationStableSettings)}::jsonb,
+                '{customerAccounts}',
+                case
+                  when ${organizations.settings}->'customerAccounts'->>'defaultAccountMode' is null then
+                    coalesce(${organizations.settings}->'customerAccounts', '{}'::jsonb) ||
+                      ${JSON.stringify(canonicalOrganizationCustomerAccountSettings)}::jsonb
+                  else coalesce(${organizations.settings}->'customerAccounts', '{}'::jsonb)
+                end,
+                true
+              )
+            `,
             updatedAt: new Date(),
           },
         });
@@ -851,6 +870,29 @@ try {
           updatedAt: new Date(),
         })
         .where(sql`${conferenceTemplates.id} = ${CONFERENCE_TEMPLATE_ID}`);
+
+      // The canonical template root is stable even when the organization
+      // settings were created by an older seed. Repair the pointer explicitly
+      // after the template rows exist so repeated syncs converge to the same
+      // exported state.
+      await tx
+        .update(organizations)
+        .set({
+          settings: sql`
+            case
+              when ${organizations.settings}->>'defaultTemplateId' is null then
+                jsonb_set(
+                  coalesce(${organizations.settings}, '{}'::jsonb),
+                  '{defaultTemplateId}',
+                  to_jsonb(${CONFERENCE_TEMPLATE_ID}::text),
+                  true
+                )
+              else ${organizations.settings}
+            end
+          `,
+          updatedAt: new Date(),
+        })
+        .where(eq(organizations.id, DEMO_IDS.organization));
 
       await tx
         .insert(conferenceTemplateDrafts)

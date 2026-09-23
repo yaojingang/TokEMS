@@ -30,6 +30,13 @@ describe('canonical seed release identity', () => {
     expect(seedSource).toContain('canonicalBackend.ticketTypes.map');
     expect(seedSource).toContain('canonicalRelease.snapshot');
     expect(seedSource.match(/\.insert\(conferenceTemplates\)/gu)).toHaveLength(2);
+    expect(seedSource).toContain('jsonb_set(');
+    expect(seedSource).toContain("'{defaultTemplateId}'");
+    expect(seedSource).toContain('CONFERENCE_TEMPLATE_ID}::text');
+    expect(seedSource).toContain('canonicalOrganizationStableSettings');
+    expect(seedSource).toContain('canonicalOrganizationCustomerAccountSettings');
+    expect(seedSource).toContain("->'customerAccounts'->>'defaultAccountMode'");
+    expect(seedSource).toContain("->>'defaultTemplateId'");
   });
 
   it('preserves production inventory invariants during canonical reconciliation', async () => {

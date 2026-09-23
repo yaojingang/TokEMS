@@ -265,6 +265,8 @@ sudo /usr/local/sbin/tokems-deploy recover-interrupted
 sudo /usr/local/sbin/tokems-deploy resolve-recovery
 ```
 
+如果恢复标记由旧入口创建，先按“服务器单命令入口”中的 SCP 流程把包含本地恢复能力标记的已审查脚本安装到 `/usr/local/sbin/tokems-deploy`，再执行上述命令。生产 checkout 的 `origin/main` 必须继续保持恢复标记中的目标 SHA；只更新稳定入口，不在生产 checkout 中拉取新的远端提交。
+
 2026-08-24 的失败发布记录明确指出：线上容器已经回到 `01c7b490bb690e4e12695dba2996f7d2864566f4` / `0053_mute_vulcan.sql`，服务器 `.env` 仍留有失败目标的构建身份。首次使用本脚本时先执行 `repair-identity`，再执行 `check` 和 `deploy`。修复证据保存到 `/www/backup/TokEMS/identity-repair-<时间戳>`。
 
 `check` 检查当前运行版本、Git 工作区、官方远端、`production → origin/main`、GitHub 合并 PR、`quality-and-flows`、`tokems-image-publish`、descriptor、源码 Bundle 与服务镜像 provenance、Compose、Nginx、容器、镜像标签、生产环境固定项、平台和磁盘。它可能把经过证明的 Bundle 对象导入 `.git` 并 Fast-forward 远端跟踪 ref，不更新工作树、环境文件、运行容器或数据库。`--build-on-host` 额外检查构建内存。`deploy` 在相同门禁通过后自动完成以下流程：
@@ -277,9 +279,9 @@ sudo /usr/local/sbin/tokems-deploy resolve-recovery
 6. 在写冻结窗口验证容器、迁移、五类构建身份、本机与公网 HTTP、公开首页投影，以及从生产数据库重新导出的脱敏完整规范大会与后台设置；冻结期生产主键集合、计数和票种/配额销量必须精确一致。验证通过后以 `restart: no` 和正常数据库权限重建 API/Worker。Worker 的两类 BullMQ 消费者都完成 Redis ready 后才写入包含 SHA、构建时间和迁移身份的 `/tmp/tokems-worker-ready.json`；脚本核对并观察稳定后恢复 `unless-stopped`，再检查健康、数据库实例和允许正常新增的生产数据。
 7. 失败时先停止 API/Worker，再读取数据库迁移证据并恢复发布前镜像标签与 `.env`。迁移证据不可读取时，旧镜像和环境已经恢复，API/Worker 保持停止，`RECOVERY_REQUIRED` 继续阻止下一次普通发布。数据库 dump 始终保留，脚本不会自动覆盖恢复数据库。
 
-脚本会先通过 GitHub API 验证最新 `main` 对应的合并 PR、CI 和镜像发布工作流，再从 descriptor digest 读取目标源码与最新版部署脚本。服务器首次启用使用本节前面的 SCP 固定引导流程：本地只从已合并的 `origin/main` 导出脚本，核对 SHA-256 后安装到 `/usr/local/sbin/tokems-deploy`。这一步不要求生产机连接 `github.com` Git Smart HTTP；安装后的稳定入口负责完成其余外部证明和 Bundle 导入。
+常规 `check`、`deploy` 和 `deploy --resume-recovery` 会先通过 GitHub API 验证最新 `main` 对应的合并 PR、CI 和镜像发布工作流，再从 descriptor digest 读取目标源码与最新版部署脚本。`resolve-recovery` 读取恢复标记绑定的目标提交，核对本地 `origin/main`，并由带有本地恢复能力标记的当前已安装受保护入口继续执行本机证据；目标数据库迁移与本地镜像证据齐全时不等待远端 CI。服务器首次启用使用本节前面的 SCP 固定引导流程：本地只从已合并的 `origin/main` 导出脚本，核对 SHA-256 后安装到 `/usr/local/sbin/tokems-deploy`。这一步不要求生产机连接 `github.com` Git Smart HTTP；安装后的稳定入口负责完成其余外部证明和 Bundle 导入。
 
-默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。常规发布的 `SEED_DEMO_DATA` 始终为 `false`；规范同步阶段才会向一次性 `db-init` 进程临时传入 `SEED_DEMO_DATA=true`。
+默认模板策略为自动判断。两个规范快照相对当前线上提交发生变化时，脚本强制同步规范模板；快照未变化时，预检仍会使用只读数据库连接导出线上完整规范状态，并与目标快照逐项比较，发现存量漂移后自动触发同步。`--sync-canonical` 可主动重跑幂等同步；`--skip-canonical` 仅在 Git 快照未变化且线上完整规范状态已经匹配时通过。常规发布的 `SEED_DEMO_DATA` 始终为 `false`；规范同步阶段才会向一次性 `db-init` 进程临时传入 `SEED_DEMO_DATA=true`。种子会保留已有组织的默认模板指针、登录协议和客户协议 URL/版本，仅在默认模板指针或登录协议为空时补齐规范值。完整规范验收会忽略各环境自行生成的报名表 `publishedAt`、组织默认模板指针、登录协议，以及客户协议 URL/版本；报名表身份、版本、状态、字段和条款内容仍需一致。
 
 当线上运行镜像已经包含目标规范快照，且运行提交到目标提交之间的差异仅限 `AGENTS.md`、`docs/`、生产部署脚本及其测试时，自动检测到的规范漂移或显式 `--sync-canonical` 会进入规范修复流程。该流程先复核合并 PR、CI、运行身份、数据库实例和规范目标，再创建两轮数据库备份与镜像回滚标签、Fast-forward 服务器源码、冻结 API/Worker 写入、运行幂等规范同步，并在恢复写入前后核对公开首页、完整后台规范快照、业务主键、计数和销量。当前镜像和数据库迁移身份保持不变，因此无需镜像构建资源。任一运行相关文件或规范快照发生变化时，脚本回到标准预构建镜像流程。
 
@@ -542,7 +544,7 @@ Docker Compose v2.27 的 `docker compose run` 不支持 `--no-build`。此处不
 先确认当前目标：
 
 - 比较线上当前发布版本、历史最高版本及独立编辑过的公开内容。线上新增嘉宾、议程等内容须先同步到本地规范模板，结合本次修改生成高于两端历史版本的全新发布，再导出快照、合并并通过 CI。禁止覆盖已有版本来处理版本冲突。
-- 报名表 `publishedAt` 由各环境首次发布时生成。公开首页与完整规范验收忽略这个运行时间字段，继续严格比较报名表身份、版本、状态、字段和条款；禁止修改实际发布时间以消除环境差异。
+- 报名表 `publishedAt` 由各环境首次发布时生成。公开首页与完整规范验收忽略这个运行时间字段，继续严格比较报名表身份、版本、状态、字段和条款；组织默认模板指针、登录协议及客户协议 URL/版本属于运行时设置，同样按环境归一化；禁止修改实际发布时间或删除协议配置以消除环境差异。
 - 组织 slug 为 `geo-conference`。
 - 大会 slug 为 `tokems26`。
 - 票种和配额使用稳定 ID。
@@ -684,7 +686,7 @@ docker inspect tokems-api-1
 - `automatic-rollback.log`
 - `/www/backup/TokEMS/RECOVERY_REQUIRED`
 
-这个受保护恢复状态使用旧应用提交和当前数据库迁移，数据库身份可确认时提供只读公开访问；身份不可确认时保持应用写服务停止。常规 `check` 与 `deploy` 会返回失败，防止把暂停写入误判为健康基线。修复代码已经合并并通过 CI 后，使用 `deploy --resume-recovery` 继续前向发布；人工完成独立恢复后，使用 `resolve-recovery` 复核正常写权限、Worker 持久 ready 身份、生产数据子集及首页投影并清除标记。静态 Gateway/Web/Admin 保留旧镜像内的迁移信息；API/Worker 使用当前数据库迁移信息。提交和构建时间必须保持一致，审计标记必须与两组迁移身份吻合。
+这个受保护恢复状态使用旧应用提交和当前数据库迁移，数据库身份可确认时提供只读公开访问；身份不可确认时保持应用写服务停止。常规 `check` 与 `deploy` 会返回失败，防止把暂停写入误判为健康基线。需要前向发布时，修复代码合并并通过 CI 后使用 `deploy --resume-recovery`；如果数据库迁移哈希已经等于恢复标记中的目标哈希、六个本地应用镜像齐全、运行身份与目标提交保持祖先关系，`resolve-recovery` 可以只依赖本机证据复核正常写权限、Worker 持久 ready 身份、生产数据子集及首页投影并清除标记，不再等待远端 CI。静态 Gateway/Web/Admin 保留旧镜像内的迁移信息；API/Worker 使用当前数据库迁移信息。提交和构建时间必须保持一致，审计标记必须与两组迁移身份吻合。
 
 Web 和支付 Web 的版本接口读取运行环境。受保护回滚会通过只读 Compose 覆盖固定这两个服务的旧镜像迁移信息，使其与 Gateway/Admin 一致；API/Worker 继续使用当前数据库迁移信息。前向恢复会在受保护临时目录生成新的只读覆盖，清除旧 Web 迁移覆盖并保留原发布目录的恢复证据。
 

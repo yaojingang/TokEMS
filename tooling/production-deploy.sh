@@ -74,6 +74,7 @@ readonly -a LONG_RUNNING_SERVICES=(
 readonly -a ROLLBACK_IMAGES=(
   tokems-api tokems-admin tokems-web tokems-worker tokems-gateway tokems-notification-sink
 )
+readonly LOCAL_RECOVERY_ENTRYPOINT_VERSION='2'
 readonly -a CANONICAL_SNAPSHOT_PATHS=(
   packages/contracts/src/canonical-homepage.snapshot.json
   packages/contracts/src/canonical-homepage.public.json
@@ -1194,6 +1195,15 @@ assert_minimal_git_state() {
 
 bootstrap_latest_script() {
   log 'Loading the deployment script from the latest verified main release'
+  if [[ "$mode" == 'resolve-recovery' ]]; then
+    assert_local_recovery_entrypoint
+    read_pending_recovery_marker
+    target_sha="$pending_recovery_target_sha"
+    assert_target_selection "$target_sha"
+    assert_local_recovery_target
+    log "Using the installed recovery entrypoint with protected local target ${target_sha}; remote CI is not required to restore writes."
+    return 0
+  fi
   local latest_sha latest_script_sha current_script_sha temp_script
   latest_sha="$(github_main_sha)"
   assert_target_selection "$latest_sha"
@@ -1348,6 +1358,29 @@ if not re.fullmatch(r"[0-9a-f]{40}", sha):
     raise SystemExit("GitHub main did not resolve to a full lowercase commit SHA")
 print(sha)
 '
+}
+
+assert_local_recovery_target() {
+  [[ "$mode" == 'resolve-recovery' ]] || die 'Local recovery target checks apply only to resolve-recovery.'
+  [[ "$target_sha" =~ ^[0-9a-f]{40}$ ]] || die 'Local recovery target is incomplete.'
+  git_as_owner cat-file -e "${target_sha}^{commit}" || {
+    die 'The protected recovery target commit is not available in the local checkout.'
+  }
+  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
+    die 'The local origin/main ref does not match the protected recovery target.'
+  }
+}
+
+assert_local_recovery_entrypoint() {
+  [[ "${LOCAL_RECOVERY_ENTRYPOINT_VERSION:-}" == '2' ]] || {
+    die 'The installed deployment entrypoint does not support local recovery resolution.'
+  }
+  declare -F assert_local_recovery_target >/dev/null || {
+    die 'The installed deployment entrypoint is missing local recovery target checks.'
+  }
+  declare -F assert_local_recovery_state >/dev/null || {
+    die 'The installed deployment entrypoint is missing local recovery state checks.'
+  }
 }
 
 assert_github_main_unchanged() {
@@ -2098,6 +2131,26 @@ assert_runtime_image_tags() {
   assert_runtime_image notification-sink tokems-notification-sink
 }
 
+assert_local_recovery_state() {
+  local release_env target_migration_hash current_migration_hash image
+  release_env="${pending_recovery_backup_dir}/.env.release"
+  assert_trusted_recovery_file "$release_env"
+  target_migration_hash="$(env_file_value BUILD_MIGRATION_HASH "$release_env")"
+  [[ "$target_migration_hash" =~ ^[0-9a-f]{64}$ ]] || {
+    die 'Protected recovery target migration hash is incomplete.'
+  }
+  current_migration_hash="$(read_database_migration_hash)"
+  [[ "$current_migration_hash" == "$target_migration_hash" ]] || {
+    die 'Production database migration hash does not match the protected recovery target.'
+  }
+  for image in "${ROLLBACK_IMAGES[@]}"; do
+    docker image inspect "${image}:local" >/dev/null || {
+      die "Protected recovery image is missing: ${image}:local"
+    }
+  done
+  log 'Protected recovery target migration and local image set are complete.'
+}
+
 assert_current_runtime_identity() {
   local verify_environment="${1:-true}"
   local gateway_json web_json admin_json health_json worker_json
@@ -2274,11 +2327,32 @@ def load_snapshot(file_name):
     with open(file_name, encoding="utf-8") as handle:
         snapshot = json.load(handle)
     if isinstance(snapshot, dict):
-        event = snapshot.get("publicEvent")
-        form = event.get("registrationForm") if isinstance(event, dict) else None
-        if isinstance(form, dict):
-            # Seeding records the form publication time in each environment.
-            form.pop("publishedAt", None)
+        # Seeding records the form publication time in each environment.  The
+        # full snapshot carries the form in both the public event and release
+        # snapshot projections.
+        release = snapshot.get("release")
+        release_snapshot = release.get("snapshot") if isinstance(release, dict) else None
+        for event in (snapshot.get("publicEvent"), release_snapshot):
+            form = event.get("registrationForm") if isinstance(event, dict) else None
+            if isinstance(form, dict):
+                form.pop("publishedAt", None)
+        organization = snapshot.get("organization")
+        settings = organization.get("settings") if isinstance(organization, dict) else None
+        if isinstance(settings, dict):
+            # These values belong to the running environment.  The canonical
+            # snapshot keeps them for local/CI checks, but they are not stable
+            # release invariants across production databases.
+            settings.pop("defaultTemplateId", None)
+            customer_accounts = settings.get("customerAccounts")
+            if isinstance(customer_accounts, dict):
+                for key in (
+                    "defaultAccountMode",
+                    "privacyUrl",
+                    "privacyVersion",
+                    "termsUrl",
+                    "termsVersion",
+                ):
+                    customer_accounts.pop(key, None)
     return snapshot
 
 
@@ -4256,15 +4330,12 @@ resolve_pending_recovery() {
   wait_for_worker_ready
   curl "${CURL_ARGS[@]}" 'http://127.0.0.1:8088/api/v1/health' | assert_health_json
 
-  assert_github_main_unchanged
-  [[ "$(git_as_owner rev-parse "$EXPECTED_UPSTREAM_REF")" == "$target_sha" ]] || {
-    die 'origin/main differs from the verified release source bundle.'
-  }
+  assert_local_recovery_target
+  assert_local_recovery_state
   git_as_owner cat-file -e "${runtime_sha}^{commit}"
   git_as_owner merge-base --is-ancestor "$runtime_sha" "$target_sha" || {
     die 'Resolved runtime is not an ancestor of origin/main.'
   }
-  verify_github_release_gate
   [[ "$(curl "${CURL_ARGS[@]}" "${PUBLIC_ORIGIN}/version.json" | json_sha_from_stdin)" == "$runtime_sha" ]] || {
     die 'Resolved public version differs from the verified local runtime.'
   }
