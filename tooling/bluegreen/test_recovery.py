@@ -124,6 +124,7 @@ class RecoveryTests(unittest.TestCase):
         active_path.write_text(json.dumps(dict(directory=str(directory))))
         before = state_path.read_bytes(), active_path.read_bytes()
         runtime = Mock(spec=Runtime)
+        runtime.assert_target = Mock()
         runtime.proxy_port.return_value = saved['target']['port']
         runtime.assert_restorable = Mock(side_effect=DeployError('Rollback target containers are unavailable'))
         marker = self.root / 'RECOVERY_REQUIRED'
