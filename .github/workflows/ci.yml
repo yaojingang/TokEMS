@@ -153,6 +153,10 @@ jobs:
             chrislusf/seaweedfs:4.30@sha256:20fb6eabf1468d3e53fb7b8bd05d929f8b01ae8ceccc2668b501176b2366940f \
             server -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3.json -dir=/data
           for attempt in $(seq 1 60); do
+            if [[ "$(docker inspect --format '{{.State.Running}}' tokems-ci-seaweedfs)" != true ]]; then
+              docker logs tokems-ci-seaweedfs
+              exit 1
+            fi
             if [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:9000/)" != 000 ]]; then
               break
             fi
