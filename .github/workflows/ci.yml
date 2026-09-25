@@ -147,7 +147,7 @@ jobs:
           cat > "$s3_config" <<EOF
           {"identities":[{"name":"ci","credentials":[{"accessKey":"$S3_ACCESS_KEY","secretKey":"$S3_SECRET_KEY"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
           EOF
-          chmod 600 "$s3_config"
+          chmod 644 "$s3_config"
           docker run --detach --name tokems-ci-seaweedfs --publish 9000:9000 \
             --volume "$s3_config:/etc/seaweedfs/s3.json:ro" \
             chrislusf/seaweedfs:4.30@sha256:20fb6eabf1468d3e53fb7b8bd05d929f8b01ae8ceccc2668b501176b2366940f \
