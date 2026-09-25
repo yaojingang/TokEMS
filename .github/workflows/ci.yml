@@ -143,23 +143,32 @@ jobs:
       - name: Start object storage
         id: object_storage
         run: |
-          docker run --detach --name tokems-ci-minio --publish 9000:9000 \
-            --env MINIO_ROOT_USER="$S3_ACCESS_KEY" \
-            --env MINIO_ROOT_PASSWORD="$S3_SECRET_KEY" \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e server /data
+          s3_config="$RUNNER_TEMP/tokems-ci-s3.json"
+          cat > "$s3_config" <<EOF
+          {"identities":[{"name":"ci","credentials":[{"accessKey":"$S3_ACCESS_KEY","secretKey":"$S3_SECRET_KEY"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+          EOF
+          chmod 600 "$s3_config"
+          docker run --detach --name tokems-ci-seaweedfs --publish 9000:9000 \
+            --volume "$s3_config:/etc/seaweedfs/s3.json:ro" \
+            chrislusf/seaweedfs:4.30@sha256:20fb6eabf1468d3e53fb7b8bd05d929f8b01ae8ceccc2668b501176b2366940f \
+            server -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3.json -dir=/data
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://localhost:9000/minio/health/live > /dev/null; then
+            if [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:9000/)" != 000 ]]; then
               break
             fi
             sleep 1
           done
-          curl --fail --silent http://localhost:9000/minio/health/live > /dev/null
-          docker run --rm --network host \
-            --env S3_ACCESS_KEY --env S3_SECRET_KEY --env S3_BUCKET \
-            --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 -ec '
-              mc alias set local http://127.0.0.1:9000 "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
-              mc mb --ignore-existing "local/$S3_BUCKET"
-            '
+          for attempt in $(seq 1 30); do
+            bucket_result="$(printf 's3.bucket.create -name %s\n' "$S3_BUCKET" | docker exec -i tokems-ci-seaweedfs weed shell || true)"
+            if grep -Fq "created bucket $S3_BUCKET" <<< "$bucket_result"; then
+              break
+            fi
+            sleep 2
+          done
+          echo "$bucket_result"
+          grep -Fq "created bucket $S3_BUCKET" <<< "$bucket_result"
+          AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" AWS_DEFAULT_REGION="$S3_REGION" \
+            aws --endpoint-url http://127.0.0.1:9000 s3api head-bucket --bucket "$S3_BUCKET"
       - name: Migrate and seed
         id: migrate_seed
         run: >-
