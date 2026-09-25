@@ -3,6 +3,7 @@ import { DEMO_IDS } from '@conference/contracts';
 import { sha256 } from '@conference/security';
 import {
   AgentAuthorizationService,
+  agentAuthorizationPageUrl,
   agentApprovalRequestHash,
   agentVersionAtLeast,
 } from './agent-authorization.service.js';
@@ -12,6 +13,11 @@ afterEach(() => {
 });
 
 describe('Agent authorization bindings', () => {
+  it('uses the deployed admin application path for device approval', () => {
+    expect(agentAuthorizationPageUrl('https://admin.example.com/')).toBe(
+      'https://admin.example.com/admin/agent-authorizations',
+    );
+  });
   it('uses a stable canonical approval hash', () => {
     expect(agentApprovalRequestHash({ scopes: ['tokems:read'], id: 'authorization-1' })).toBe(
       agentApprovalRequestHash({ id: 'authorization-1', scopes: ['tokems:read'] }),

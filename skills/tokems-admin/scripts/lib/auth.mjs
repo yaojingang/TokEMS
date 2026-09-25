@@ -158,7 +158,9 @@ export async function connect({ origin, name, scope }) {
   if (
     verificationUri.origin !== metadata.adminOrigin ||
     verificationUriComplete.origin !== metadata.adminOrigin ||
-    !verificationUri.pathname.endsWith('/agent-authorizations') ||
+    !['/agent-authorizations', '/admin/agent-authorizations'].includes(
+      verificationUri.pathname,
+    ) ||
     verificationUriComplete.pathname !== verificationUri.pathname ||
     verificationUriComplete.searchParams.get('user_code') !== authorization.user_code
   ) {
@@ -166,8 +168,11 @@ export async function connect({ origin, name, scope }) {
     error.code = 'TOKEMS_IDENTITY_MISMATCH';
     throw error;
   }
+  if (verificationUriComplete.pathname === '/agent-authorizations') {
+    verificationUriComplete.pathname = '/admin/agent-authorizations';
+  }
   process.stderr.write(
-    `Open this TokEMS authorization page and complete super-administrator step-up:\n${authorization.verification_uri_complete}\nCode: ${authorization.user_code}\n`,
+    `Open this TokEMS authorization page and complete super-administrator step-up:\n${verificationUriComplete}\nCode: ${authorization.user_code}\n`,
   );
   const deadline = Date.now() + Number(authorization.expires_in) * 1000;
   let interval = Math.max(5, Number(authorization.interval || 5));
