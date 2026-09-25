@@ -99,6 +99,10 @@ export function agentApprovalRequestHash(value: unknown) {
   return sha256(stableCanonicalJson(value));
 }
 
+export function agentAuthorizationPageUrl(adminOrigin: string) {
+  return `${adminOrigin.replace(/\/+$/u, '')}/admin/agent-authorizations`;
+}
+
 interface StepUpClaims {
   token_use: 'human-step-up';
   sub: string;
@@ -212,7 +216,7 @@ export class AgentAuthorizationService {
       expiresAt: expiry(AGENT_DEVICE_CODE_TTL_SECONDS),
     });
     const adminOrigin = process.env.ADMIN_ORIGIN ?? new URL(resource).origin;
-    const verificationUri = `${adminOrigin.replace(/\/+$/u, '')}/agent-authorizations`;
+    const verificationUri = agentAuthorizationPageUrl(adminOrigin);
     return {
       device_code: deviceCode,
       user_code: userCode,

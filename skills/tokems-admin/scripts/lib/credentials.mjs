@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const SERVICE = 'org.tokems.admin-skill';
 
@@ -24,6 +25,14 @@ export function credentialStoreKind() {
   return 'unsupported';
 }
 
+export function decodeKeychainOutput(value) {
+  if (/^(?:[0-9a-f]{2})+$/iu.test(value)) {
+    const decoded = Buffer.from(value, 'hex').toString('utf8');
+    if (decoded.startsWith('{') || decoded.startsWith('[')) return decoded;
+  }
+  return value;
+}
+
 export function credentialStoreAvailable() {
   const key = `capability-probe:${process.pid}:${crypto.randomUUID()}`;
   const value = crypto.randomUUID();
@@ -42,9 +51,9 @@ export function credentialStoreAvailable() {
 export function credentialWriteInvocation(platform, key, value) {
   if (platform === 'darwin') {
     return {
-      command: '/usr/bin/security',
-      args: ['add-generic-password', '-a', key, '-s', SERVICE, '-U', '-w'],
-      options: { input: `${value}\n` },
+      command: '/usr/bin/swift',
+      args: [fileURLToPath(new URL('./keychain-write.swift', import.meta.url)), key, SERVICE],
+      options: { input: value },
     };
   }
   if (platform === 'linux') {
@@ -71,7 +80,9 @@ export function storeCredential(key, value) {
 export function readCredential(key, optional = false) {
   try {
     if (process.platform === 'darwin') {
-      return run('/usr/bin/security', ['find-generic-password', '-a', key, '-s', SERVICE, '-w']);
+      return decodeKeychainOutput(
+        run('/usr/bin/security', ['find-generic-password', '-a', key, '-s', SERVICE, '-w']),
+      );
     }
     if (process.platform === 'linux') {
       return run('secret-tool', ['lookup', 'service', SERVICE, 'key', key]);

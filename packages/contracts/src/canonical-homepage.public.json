@@ -3,7 +3,7 @@
     "address": "广东省深圳市南山区（具体酒店待定）",
     "city": "深圳",
     "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
-    "endsAt": "2026-11-22T09:30:00.000Z",
+    "endsAt": "2026-11-22T10:00:00.000Z",
     "experience": {
       "faq": {
         "contactLabel": "联系大会组委会",
@@ -845,10 +845,11 @@
         "day": 1,
         "endsAt": "14:30",
         "id": "66666666-6666-4666-8666-666666666612",
-        "kind": "break",
+        "kind": "talk",
+        "speaker": "苍何",
         "startsAt": "14:00",
-        "summary": "围绕大会内容自由交流。",
-        "title": "自由交流"
+        "summary": "围绕 GEO 服务交付，分享项目落地中的实战经验。",
+        "title": "GEO 落地服务实战"
       },
       {
         "day": 1,
@@ -962,108 +963,118 @@
       {
         "day": 2,
         "endsAt": "10:30",
+        "id": "a4c60f6f-1e8e-4a6b-b6f5-b386e186b810",
+        "kind": "talk",
+        "speaker": "彭涛",
+        "startsAt": "10:00",
+        "summary": "分享 AI 产品面向海外市场的增长策略。",
+        "title": "AI 产品的海外增长策略"
+      },
+      {
+        "day": 2,
+        "endsAt": "11:00",
         "id": "66666666-6666-4666-8666-666666666618",
         "kind": "talk",
         "speaker": "Berryxia",
-        "startsAt": "10:00",
+        "startsAt": "10:30",
         "summary": "连接内容定位、受众积累与商业转化。",
         "title": "从个人博主到商业闭环：X 上的 AI 内容变现全链路"
       },
       {
         "day": 2,
-        "endsAt": "10:45",
+        "endsAt": "11:15",
         "id": "66666666-6666-4666-8666-666666666619",
-        "kind": "break",
-        "startsAt": "10:30",
+        "kind": "talk",
+        "startsAt": "11:00",
         "summary": "助教提供练习环境协助。",
         "title": "茶歇与自由交流"
       },
       {
         "day": 2,
-        "endsAt": "11:15",
+        "endsAt": "11:45",
         "id": "66666666-6666-4666-8666-666666666620",
         "kind": "talk",
         "speaker": "余一",
-        "startsAt": "10:45",
+        "startsAt": "11:15",
         "summary": "围绕行业问题，完成资料搜集、信息核验、分析与引用。",
         "title": "如何借助 AI 做行业研究"
       },
       {
         "day": 2,
-        "endsAt": "11:45",
+        "endsAt": "12:15",
         "id": "66666666-6666-4666-8666-666666666621",
         "kind": "talk",
         "speaker": "岚叔",
-        "startsAt": "11:15",
+        "startsAt": "11:45",
         "summary": "从企业客户场景出发，定义交付物、验收标准与增长机会。",
         "title": "交付即增长：AI 时代企业客户的另一条路"
       },
       {
         "day": 2,
-        "endsAt": "12:15",
+        "endsAt": "12:45",
         "id": "66666666-6666-4666-8666-666666666622",
         "kind": "talk",
         "speaker": "彭超",
-        "startsAt": "11:45",
+        "startsAt": "12:15",
         "summary": "智能体的任务拆解、工具调用、结果检查与人工介入。",
         "title": "Agentic 之道"
       },
       {
         "day": 2,
-        "endsAt": "12:30",
+        "endsAt": "13:00",
         "id": "66666666-6666-4666-8666-666666666623",
         "kind": "talk",
         "speaker": "拔刀刘 · floatboat · 助教",
-        "startsAt": "12:15",
+        "startsAt": "12:45",
         "summary": "介绍练习品牌、输入文件、输出位置与完成标准。",
         "title": "实操任务说明与环境核验"
       },
       {
         "day": 2,
-        "endsAt": "13:30",
+        "endsAt": "14:00",
         "id": "66666666-6666-4666-8666-666666666624",
-        "kind": "break",
-        "startsAt": "12:30",
+        "kind": "talk",
+        "startsAt": "13:00",
         "summary": "环境协助台开放，处理账号与电脑问题。",
         "title": "午间休息"
       },
       {
         "day": 2,
-        "endsAt": "15:10",
+        "endsAt": "15:40",
         "id": "66666666-6666-4666-8666-666666666625",
         "kind": "talk",
         "speaker": "主讲：拔刀刘",
-        "startsAt": "13:30",
+        "startsAt": "14:00",
         "summary": "建立问题集，收集 AI 回答与引用证据，产出品牌诊断表和优化任务清单。助教现场带练。",
         "title": "GEO 工具与数据实操"
       },
       {
         "day": 2,
-        "endsAt": "15:30",
+        "endsAt": "16:00",
         "id": "66666666-6666-4666-8666-666666666626",
-        "kind": "break",
+        "kind": "talk",
         "speaker": "助教",
-        "startsAt": "15:10",
+        "startsAt": "15:40",
         "summary": "导出第一场诊断数据，准备 GEO Agent 实操输入。",
         "title": "茶歇与数据交接"
       },
       {
         "day": 2,
-        "endsAt": "17:10",
+        "endsAt": "17:40",
         "id": "66666666-6666-4666-8666-666666666627",
         "kind": "talk",
         "speaker": "主讲：floatboat\n方法点评：彭超",
-        "startsAt": "15:30",
+        "startsAt": "16:00",
         "summary": "使用品牌资料与诊断数据，搭建可复用的 GEO Agent 工作流，生成诊断报告与内容任务。助教现场带练。",
         "title": "GEO Agent 实操"
       },
       {
         "day": 2,
-        "endsAt": "17:30",
+        "endsAt": "18:00",
         "id": "66666666-6666-4666-8666-666666666628",
         "kind": "talk",
         "speaker": "主持：乔向阳",
-        "startsAt": "17:10",
+        "startsAt": "17:40",
         "summary": "展示练习成果，讲解验收与复用方式，整理会后行动。",
         "title": "成果展示与闭幕"
       }
@@ -1113,6 +1124,20 @@
           "内容变现"
         ],
         "topic": "从个人博主到商业闭环：X 上的 AI 内容变现全链路"
+      },
+      {
+        "accentFrom": "#174e5e",
+        "accentTo": "#0c2634",
+        "id": "47075e54-0bc5-43be-8479-0df0ddd82d99",
+        "initials": "苍何",
+        "name": "苍何",
+        "publicCode": "eafy",
+        "role": "微软 MVP · 前排 GEO 研究院主任 · AI KOL",
+        "tags": [
+          "GEO",
+          "落地服务"
+        ],
+        "topic": "GEO 落地服务实战"
       },
       {
         "accentFrom": "#059669",
@@ -1242,6 +1267,20 @@
           "智能体"
         ],
         "topic": "Agentic 之道"
+      },
+      {
+        "accentFrom": "#3d547e",
+        "accentTo": "#182841",
+        "id": "3f2adce6-26cd-49ec-8004-708cae11ee2c",
+        "initials": "彭涛",
+        "name": "彭涛",
+        "publicCode": "mlye",
+        "role": "HiAPI 创始人 & CEO",
+        "tags": [
+          "AI 产品",
+          "海外增长"
+        ],
+        "topic": "AI 产品的海外增长策略"
       },
       {
         "accentFrom": "#2563eb",
@@ -1469,6 +1508,25 @@
       "websiteUrl": null
     },
     {
+      "accentFrom": "#174e5e",
+      "accentTo": "#0c2634",
+      "avatarAssetId": null,
+      "bio": "苍何，微软 MVP，前排 GEO 研究院主任，AI KOL。",
+      "id": "47075e54-0bc5-43be-8479-0df0ddd82d99",
+      "initials": "苍何",
+      "name": "苍何",
+      "role": "微软 MVP · 前排 GEO 研究院主任 · AI KOL",
+      "socialLinks": [],
+      "sortOrder": 3,
+      "tags": [
+        "GEO",
+        "落地服务"
+      ],
+      "topic": "GEO 落地服务实战",
+      "topicAbstract": "分享 GEO 落地服务实战经验。",
+      "websiteUrl": null
+    },
+    {
       "accentFrom": "#059669",
       "accentTo": "#064e3b",
       "avatarAssetId": null,
@@ -1478,7 +1536,7 @@
       "name": "陈峥",
       "role": "欧博东方 CEO",
       "socialLinks": [],
-      "sortOrder": 3,
+      "sortOrder": 4,
       "tags": [
         "经营增长",
         "组织落地"
@@ -1497,7 +1555,7 @@
       "name": "大尤",
       "role": "大有可为创始人 · 《红利思维》作者",
       "socialLinks": [],
-      "sortOrder": 4,
+      "sortOrder": 5,
       "tags": [
         "企业实战",
         "增长闭环"
@@ -1516,7 +1574,7 @@
       "name": "夫唯",
       "role": "特邀嘉宾 · SEOWHY 搜外创始人 · 搜索营销专家",
       "socialLinks": [],
-      "sortOrder": 5,
+      "sortOrder": 6,
       "tags": [
         "特邀嘉宾",
         "搜索营销"
@@ -1535,7 +1593,7 @@
       "name": "高军",
       "role": "媒介匣创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 6,
+      "sortOrder": 7,
       "tags": [
         "GEO 治理",
         "品牌管理"
@@ -1554,7 +1612,7 @@
       "name": "哥飞",
       "role": "海外 SEO 专家 · AI 出海公司创始人",
       "socialLinks": [],
-      "sortOrder": 7,
+      "sortOrder": 8,
       "tags": [
         "出海GEO",
         "全球搜索"
@@ -1573,7 +1631,7 @@
       "name": "岚叔",
       "role": "AI 博主 · 大厂技术专家",
       "socialLinks": [],
-      "sortOrder": 8,
+      "sortOrder": 9,
       "tags": [
         "企业服务",
         "交付增长"
@@ -1592,7 +1650,7 @@
       "name": "冷洪利",
       "role": "曝光率GEO创始人",
       "socialLinks": [],
-      "sortOrder": 9,
+      "sortOrder": 10,
       "tags": [
         "豆包 GEO",
         "视频矩阵"
@@ -1616,7 +1674,7 @@
           "url": "https://u.wechat.com/EMaid8xByc7aAZP39vPWdlo?s=2"
         }
       ],
-      "sortOrder": 10,
+      "sortOrder": 11,
       "tags": [
         "品牌GEO",
         "增长实践"
@@ -1635,13 +1693,32 @@
       "name": "彭超",
       "role": "ClawTime 首席 AI 专家 · 火山核心开发者",
       "socialLinks": [],
-      "sortOrder": 11,
+      "sortOrder": 12,
       "tags": [
         "Agentic",
         "智能体"
       ],
       "topic": "Agentic 之道",
       "topicAbstract": "围绕 Agentic 产品与系统的构建逻辑，分享从任务理解、工具调用到自主执行与结果交付的关键方法，并讨论实践中的取舍与演进方向。",
+      "websiteUrl": null
+    },
+    {
+      "accentFrom": "#3d547e",
+      "accentTo": "#182841",
+      "avatarAssetId": null,
+      "bio": "彭涛，HiAPI 创始人 & CEO。",
+      "id": "3f2adce6-26cd-49ec-8004-708cae11ee2c",
+      "initials": "彭涛",
+      "name": "彭涛",
+      "role": "HiAPI 创始人 & CEO",
+      "socialLinks": [],
+      "sortOrder": 13,
+      "tags": [
+        "AI 产品",
+        "海外增长"
+      ],
+      "topic": "AI 产品的海外增长策略",
+      "topicAbstract": "分享 AI 产品的海外增长策略。",
       "websiteUrl": null
     },
     {
@@ -1654,7 +1731,7 @@
       "name": "乔向阳",
       "role": "知名 AI 自媒体人",
       "socialLinks": [],
-      "sortOrder": 12,
+      "sortOrder": 14,
       "tags": [
         "AI内容",
         "产品传播"
@@ -1673,7 +1750,7 @@
       "name": "任开心",
       "role": "短视频科技博主 · 「开心 AI 工具集」账号作者",
       "socialLinks": [],
-      "sortOrder": 13,
+      "sortOrder": 15,
       "tags": [
         "AI 工具",
         "生成式 AI"
@@ -1692,7 +1769,7 @@
       "name": "任强",
       "role": "北京日报社京报移动副总经理",
       "socialLinks": [],
-      "sortOrder": 14,
+      "sortOrder": 16,
       "tags": [
         "主流媒体",
         "内容公信力"
@@ -1711,7 +1788,7 @@
       "name": "杨攀",
       "role": "Bilink 创始人",
       "socialLinks": [],
-      "sortOrder": 15,
+      "sortOrder": 17,
       "tags": [
         "AI 趋势",
         "创业机会"
@@ -1730,7 +1807,7 @@
       "name": "姚金刚",
       "role": "猎河科技创始人 · GEOFlow 创始人",
       "socialLinks": [],
-      "sortOrder": 16,
+      "sortOrder": 18,
       "tags": [
         "GEO战略",
         "企业落地"
@@ -1749,7 +1826,7 @@
       "name": "姚诗成",
       "role": "思迈特 CEO",
       "socialLinks": [],
-      "sortOrder": 17,
+      "sortOrder": 19,
       "tags": [
         "企业数据",
         "智能决策"
@@ -1768,7 +1845,7 @@
       "name": "玉伯",
       "role": "YouMind 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 18,
+      "sortOrder": 20,
       "tags": [
         "内容创作",
         "产品增长"
@@ -1787,7 +1864,7 @@
       "name": "岳琦",
       "role": "每经科技首席产品官 · GEO 圆桌主持人",
       "socialLinks": [],
-      "sortOrder": 19,
+      "sortOrder": 21,
       "tags": [
         "GEO 圆桌",
         "企业实践"
@@ -1806,7 +1883,7 @@
       "name": "余一",
       "role": "HowOneAI 主理人",
       "socialLinks": [],
-      "sortOrder": 20,
+      "sortOrder": 22,
       "tags": [
         "AI 研究",
         "行业研究"
