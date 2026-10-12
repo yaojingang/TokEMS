@@ -993,7 +993,7 @@ async function runVisualSmoke() {
   const adminSurfaces = [
     [
       `${eventBase}/overview`,
-      '第二届中国 GEO & AI 营销大会',
+      '第二届中国GEO大会',
       'admin-dashboard-desktop.png',
       '大会概览桌面端',
     ],

@@ -13,7 +13,7 @@ const snapshot: FeishuDigestSnapshot = {
   event: {
     id: 101,
     slug: 'tokems26',
-    name: '第二届中国 GEO & AI 营销大会',
+    name: '第二届中国GEO大会',
     status: 'registration_open',
     timezone: 'Asia/Shanghai',
   },
@@ -235,7 +235,7 @@ describe('Feishu bot integration', () => {
       { test: true },
     );
     const serialized = JSON.stringify(card);
-    expect(serialized).toContain('【测试】第二届中国 GEO & AI 营销大会');
+    expect(serialized).toContain('【测试】第二届中国GEO大会');
     expect(serialized).toContain('当前待办');
     expect(serialized).toContain('https://admin.example.com/events/101/overview');
     expect(serialized).toContain('"behaviors":[{"type":"open_url"');

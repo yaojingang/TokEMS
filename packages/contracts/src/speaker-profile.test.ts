@@ -169,7 +169,7 @@ describe('speaker profile contracts', () => {
       accentFrom: '#2448a8',
       accentTo: '#102759',
       tags: ['GEO方法论'],
-      eventName: '第二届中国 GEO & AI 营销大会',
+      eventName: '第二届中国GEO大会',
       eventSlug: 'geo-conference-2026',
       eventStartsAt: '2026-11-21T01:00:00.000Z',
       eventEndsAt: '2026-11-22T09:00:00.000Z',

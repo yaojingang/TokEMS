@@ -20,7 +20,7 @@ vi.mock('../lib/api', async () => {
     conferenceApi: api,
     session: {
       can: () => true,
-      activeEvent: ref({ id: 101, name: '第二届中国 GEO & AI 营销大会' }),
+      activeEvent: ref({ id: 101, name: '第二届中国GEO大会' }),
     },
   };
 });
