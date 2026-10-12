@@ -547,7 +547,7 @@ const heroSecondaryAction = computed(() =>
   blockCopy('home.hero', 'secondaryAction', '查看两日议程'),
 );
 const heroTitlePrefix = computed(() => blockCopy('home.hero', 'titlePrefix', '第二届中国'));
-const heroTitleEvent = computed(() => blockCopy('home.hero', 'titleEvent', 'GEO & AI 营销大会'));
+const heroTitleEvent = computed(() => blockCopy('home.hero', 'titleEvent', 'GEO大会'));
 const heroSlogan = computed(() => blockCopy('home.hero', 'slogan', '让好的品牌被 AI 正确推荐'));
 const valueItems = computed(() =>
   [
@@ -594,7 +594,7 @@ const upgradeItems = computed(() =>
       '北京首届',
       '深圳主会场',
       '落地大湾区 AI 产业腹地',
-      '两天议程全部集中在同一主会场，展区与会场联动。落地深圳湾，连接出海企业、AI 创业者与产业一线实践。',
+      '两天议程集中在深圳同一主会场，主题分享、GEO 圆桌与两场连续实操贯穿两天，方便参会者完整参与。',
     ],
     [
       '方法分享',
@@ -712,7 +712,7 @@ const agendaHeaders = computed(() => [
     day: 1,
     beforeTitle: '企业 GEO 的经营账：12 个月投入产出全复盘',
     tag: blockCopy('home.agenda', 'day1AfternoonTag', '下午场'),
-    title: blockCopy('home.agenda', 'day1AfternoonTitle', '增长路径 · 企业实践与 AI 营销'),
+    title: blockCopy('home.agenda', 'day1AfternoonTitle', '数据、媒体、GEO 圆桌与 AI 增长'),
     range: blockCopy('home.agenda', 'day1AfternoonRange', '13:30 – 18:00'),
   },
   {
@@ -1025,8 +1025,7 @@ onBeforeUnmount(() => {
           <div class="hero-message">
             <h1 class="hero-h reveal in" data-d="1">
               <span class="title-line title-event">
-                {{ heroTitlePrefix }}
-                <span class="event-lock">{{ heroTitleEvent }}</span>
+                {{ heroTitlePrefix }}{{ heroTitleEvent }}
               </span>
               <span class="title-line title-slogan accent">{{ heroSlogan }}</span>
             </h1>
@@ -1090,7 +1089,7 @@ onBeforeUnmount(() => {
               </p>
               <div class="answer-ranks">
                 <div class="answer-rank">
-                  <span class="rk">01</span><span><b>{{ blockCopy('home.hero', 'answerRank1Title', 'GEO大会 2026') }}</b> ·
+                  <span class="rk">01</span><span><b>{{ blockCopy('home.hero', 'answerRank1Title', event.name) }}</b> ·
                     {{ blockCopy('home.hero', 'answerRank1Body', '深圳两天全程主会场') }}</span><small>{{ blockCopy('home.hero', 'answerRank1Badge', '推荐') }}</small>
                 </div>
                 <div class="answer-rank">
@@ -1109,7 +1108,7 @@ onBeforeUnmount(() => {
               <span class="status-dot"></span>
               <div>
                 <b>{{
-                  blockCopy('home.hero', 'answerStatusTitle', '目标不是曝光，是进入 AI 的候选答案')
+                  blockCopy('home.hero', 'answerStatusTitle', '让品牌进入 AI 的候选答案')
                 }}</b><small>{{
                   blockCopy(
                     'home.hero',
@@ -1121,7 +1120,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="answer-metrics">
               <span class="answer-metric"><b>{{ money(primaryTicket.price) }}</b><small>{{ blockCopy('home.hero', 'priceMetricLabel', '两日通票') }}</small></span>
-              <span class="answer-metric"><b>40+</b><small>{{ blockCopy('home.hero', 'topicsMetricLabel', '一线嘉宾') }}</small></span>
+              <span class="answer-metric"><b>{{ staticSessionCount }}</b><small>{{ blockCopy('home.hero', 'topicsMetricLabel', '干货主题') }}</small></span>
               <span class="answer-metric"><b>{{ eventDate.opening }}</b><small>{{ event.city
               }}{{ blockCopy('home.hero', 'openingMetricSuffix', '开幕') }}</small></span>
             </div>
@@ -1454,14 +1453,14 @@ onBeforeUnmount(() => {
         <div class="sec-head center reveal">
           <span class="kicker">{{ blockCopy('home.speakers', 'kicker', 'SPEAKERS') }}</span>
           <h2 class="sec-title">
-            {{ blockCopy('home.speakers', 'title', '汇聚 40+ 国内外一线专家') }}
+            {{ blockCopy('home.speakers', 'title', 'GEO一线实践者') }}
           </h2>
           <p class="sec-sub">
             {{
               blockCopy(
                 'home.speakers',
                 'subtitle',
-                '围绕 AI 营销、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例',
+                '围绕 GEO 实践、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例',
               )
             }}
           </p>
@@ -2097,7 +2096,7 @@ onBeforeUnmount(() => {
     >
       <div class="wrap foot-inner">
         <span>© 2026 {{ blockCopy('home.footer', 'organizer', 'GEO大会组委会') }} ·
-          {{ blockCopy('home.footer', 'eventLabel', '中国第二届GEO主题大会') }} ·
+          {{ blockCopy('home.footer', 'eventLabel', '第二届中国GEO大会') }} ·
           {{ event.city }}</span>
         <a class="foot-cooperation" :href="cooperationHref">{{
           blockCopy('home.footer', 'support', '合作咨询 / 团队购票 / 媒体支持：提交合作申请')

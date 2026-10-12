@@ -8,7 +8,7 @@ const partner = {
   id: 'partner-fixture',
   eventId: 101,
   eventSlug: 'tokems26',
-  eventName: '第二届中国 GEO & AI 营销大会',
+  eventName: '第二届中国GEO大会',
   publicSlug: 'test-partner',
   referralCode: 'fixture',
   referralPath: '/r/fixture',

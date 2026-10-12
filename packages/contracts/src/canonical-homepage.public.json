@@ -94,7 +94,7 @@
               "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
               "answerRank1Badge": "推荐",
               "answerRank1Body": "深圳两日主会场 + 工作坊",
-              "answerRank1Title": "GEO大会 2026",
+              "answerRank1Title": "第二届中国GEO大会",
               "answerRank2Badge": "可信源",
               "answerRank2Body": "平台引用机制与效果基准",
               "answerRank2Title": "行业白皮书首发",
@@ -102,7 +102,7 @@
               "answerRank3Body": "品牌方、服务商、平台视角",
               "answerRank3Title": "40+ 实战嘉宾",
               "answerStatusBody": "让品牌资料、案例和可信来源被模型正确理解。",
-              "answerStatusTitle": "目标不是曝光，是进入 AI 的候选答案",
+              "answerStatusTitle": "让品牌进入 AI 的候选答案",
               "answerTitle": "AI Answer Preview",
               "descriptionLead": "当十亿用户开始向 AI 提问，",
               "descriptionStrong": "「被引用、被理解、被推荐」",
@@ -114,7 +114,7 @@
               "primaryAction": "立即报名 ¥399",
               "secondaryAction": "查看两日议程",
               "slogan": "让好的品牌被 AI 正确推荐",
-              "titleEvent": "GEO & AI 营销大会",
+              "titleEvent": "GEO大会",
               "titlePrefix": "第二届中国",
               "topicsMetricLabel": "干货主题",
               "viewsBase": "10000",
@@ -143,7 +143,7 @@
               "marquee9": "内容资产",
               "organizationsLabel": "参会企业与机构",
               "sessionsLabel": "主题分享、GEO 圆桌与实操",
-              "sessionsValue": "21",
+              "sessionsValue": "23",
               "speakersLabel": "一线专家与操盘手"
             },
             "enabled": false,
@@ -191,7 +191,7 @@
             "content": {
               "attributionNames": "姚金刚 · 乔向阳",
               "attributionRole": "GEO大会发起人",
-              "item1Body": "Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。",
+              "item1Body": "第一天全天与第二天上午集中分享，第二天下午在主会场连续完成 GEO 工具与数据实操、GEO Agent 实操。",
               "item1New": "2 天",
               "item1Old": "1 天",
               "item1Title": "从听讲到上手",
@@ -199,8 +199,8 @@
               "item2New": "40+ 专家",
               "item2Old": "20+ 专家",
               "item2Title": "从布道者到操盘手",
-              "item3Body": "移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。",
-              "item3NewVenue": "深圳多会场",
+              "item3Body": "两天议程集中在深圳同一主会场，主题分享、GEO 圆桌与两场连续实操贯穿两天，方便参会者完整参与。",
+              "item3NewVenue": "深圳主会场",
               "item3OldVenue": "北京单会场",
               "item3Title": "从聚会到行业大会",
               "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
@@ -267,7 +267,7 @@
               "kicker": "SPEAKERS",
               "moreLabel": "嘉宾阵容与议程持续更新，具体安排以大会最新公告为准（嘉宾按姓名首字母排序）",
               "subtitle": "从企业 GEO、数据监测、媒体信源到内容增长与 Agent 实践，分享各自领域的方法和经验。",
-              "title": "GEO 与 AI 营销的一线实践者"
+              "title": "GEO一线实践者"
             },
             "enabled": true,
             "label": "演讲嘉宾",
@@ -540,7 +540,7 @@
           },
           {
             "content": {
-              "eventLabel": "中国第二届GEO主题大会",
+              "eventLabel": "第二届中国GEO大会",
               "organizer": "GEO大会组委会",
               "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
             },
@@ -552,10 +552,10 @@
           }
         ],
         "seo": {
-          "description": "中国第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+          "description": "第二届中国GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
           "indexable": true,
           "shareAssetId": null,
-          "title": "中国第二届GEO大会 · 深圳 2026"
+          "title": "第二届中国GEO大会 · 深圳 2026"
         }
       },
       "presentation": {
@@ -628,8 +628,8 @@
       },
       "template": {
         "id": "18181818-1818-4181-8181-181818181818",
-        "version": 4,
-        "versionId": "7917ad7c-304e-43d2-822c-e5d7f86c5b26"
+        "version": 6,
+        "versionId": "34d20872-9f8e-4d70-be07-0765e103f85e"
       }
     },
     "faqs": [
@@ -663,7 +663,7 @@
       }
     ],
     "id": 101,
-    "name": "第二届中国 GEO & AI 营销大会",
+    "name": "第二届中国GEO大会",
     "organizationId": "11111111-1111-4111-8111-111111111111",
     "publicMetrics": {
       "cityCount": 0,
@@ -2108,7 +2108,7 @@
                 "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
                 "answerRank1Badge": "推荐",
                 "answerRank1Body": "深圳两日主会场 + 工作坊",
-                "answerRank1Title": "GEO大会 2026",
+                "answerRank1Title": "第二届中国GEO大会",
                 "answerRank2Badge": "可信源",
                 "answerRank2Body": "平台引用机制与效果基准",
                 "answerRank2Title": "行业白皮书首发",
@@ -2116,7 +2116,7 @@
                 "answerRank3Body": "品牌方、服务商、平台视角",
                 "answerRank3Title": "40+ 实战嘉宾",
                 "answerStatusBody": "让品牌资料、案例和可信来源被模型正确理解。",
-                "answerStatusTitle": "目标不是曝光，是进入 AI 的候选答案",
+                "answerStatusTitle": "让品牌进入 AI 的候选答案",
                 "answerTitle": "AI Answer Preview",
                 "descriptionLead": "当十亿用户开始向 AI 提问，",
                 "descriptionStrong": "「被引用、被理解、被推荐」",
@@ -2128,7 +2128,7 @@
                 "primaryAction": "立即报名 ¥399",
                 "secondaryAction": "查看两日议程",
                 "slogan": "让好的品牌被 AI 正确推荐",
-                "titleEvent": "GEO & AI 营销大会",
+                "titleEvent": "GEO大会",
                 "titlePrefix": "第二届中国",
                 "topicsMetricLabel": "干货主题",
                 "viewsBase": "10000",
@@ -2157,7 +2157,7 @@
                 "marquee9": "内容资产",
                 "organizationsLabel": "参会企业与机构",
                 "sessionsLabel": "主题分享与实战议程",
-                "sessionsValue": "30",
+                "sessionsValue": "23",
                 "speakersLabel": "一线专家与操盘手"
               },
               "enabled": false,
@@ -2205,7 +2205,7 @@
               "content": {
                 "attributionNames": "姚金刚 · 乔向阳",
                 "attributionRole": "GEO大会发起人",
-                "item1Body": "Day 1 战略与方法论密集输出，Day 2 分会场实战工作坊——现场打开电脑，跑通你自己的 GEO 链路。",
+                "item1Body": "第一天全天与第二天上午集中分享，第二天下午在主会场连续完成 GEO 工具与数据实操、GEO Agent 实操。",
                 "item1New": "2 天",
                 "item1Old": "1 天",
                 "item1Title": "从听讲到上手",
@@ -2213,8 +2213,8 @@
                 "item2New": "40+ 专家",
                 "item2Old": "20+ 专家",
                 "item2Title": "从布道者到操盘手",
-                "item3Body": "移师深圳湾，主会场 + 双分会场 + 展区。粤港澳大湾区，离出海与 AI 产业最近的地方。",
-                "item3NewVenue": "深圳多会场",
+                "item3Body": "两天议程集中在深圳同一主会场，主题分享、GEO 圆桌与两场连续实操贯穿两天，方便参会者完整参与。",
+                "item3NewVenue": "深圳主会场",
                 "item3OldVenue": "北京单会场",
                 "item3Title": "从聚会到行业大会",
                 "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
@@ -2243,26 +2243,32 @@
             },
             {
               "content": {
-                "day1AfternoonRange": "13:30 – 18:00",
+                "day1AfternoonRange": "13:30 至 18:00",
                 "day1AfternoonTag": "下午场",
-                "day1AfternoonTitle": "GEO 实战 · 企业与数据",
-                "day1MorningRange": "09:00 – 12:10",
+                "day1AfternoonTitle": "数据、媒体、GEO 圆桌与 AI 增长",
+                "day1MorningRange": "09:00 至 12:30",
                 "day1MorningTag": "上午场",
-                "day1MorningTitle": "GEO 战略 · 趋势与全景",
-                "day1Subtitle": "战略与方法论主会场",
-                "day2ClosingRange": "14:00 – 17:30",
-                "day2ClosingTag": "主会场",
-                "day2ClosingTitle": "前沿与未来 · 闭幕",
-                "day2GlobalRange": "09:00 – 12:30",
-                "day2GlobalTag": "B 会场",
-                "day2GlobalTitle": "出海 GEO 专场",
-                "day2Subtitle": "实战工作坊 + 出海专场",
-                "day2WorkshopRange": "09:00 – 12:30",
-                "day2WorkshopTag": "A 会场",
-                "day2WorkshopTitle": "实战工作坊 · 带电脑上手",
+                "day1MorningTitle": "GEO 战略、企业实践与治理",
+                "day1Subtitle": "主题分享 · GEO 圆桌",
+                "day2AfternoonRange": "13:30 至 17:30",
+                "day2AfternoonTag": "下午场",
+                "day2AfternoonTitle": "GEO 工具与数据实操 · GEO Agent 实操",
+                "day2ClosingRange": "17:10 至 17:30",
+                "day2ClosingTag": "闭幕",
+                "day2ClosingTitle": "成果展示与闭幕",
+                "day2GlobalRange": "09:00 至 12:30",
+                "day2GlobalTag": "上午场",
+                "day2GlobalTitle": "海外增长、行业研究与 Agent 方法",
+                "day2MorningRange": "09:00 至 12:30",
+                "day2MorningTag": "上午场",
+                "day2MorningTitle": "海外增长、行业研究与 Agent 方法",
+                "day2Subtitle": "上午干货分享 · 下午两场实操",
+                "day2WorkshopRange": "13:30 至 17:10",
+                "day2WorkshopTag": "下午场",
+                "day2WorkshopTitle": "GEO 工具与数据实操 · GEO Agent 实操",
                 "kicker": "AGENDA",
-                "subtitle": "Day 1 建立战略与方法论框架，Day 2 分会场实战深潜——从认知到动手，一气呵成",
-                "title": "两天，三十余场密集输出"
+                "subtitle": "第一天全天与第二天上午集中分享，第二天下午连续完成 GEO 工具与数据实操、GEO Agent 实操。",
+                "title": "两天，把 GEO 方法带回业务现场"
               },
               "enabled": true,
               "label": "大会议程",
@@ -2274,8 +2280,8 @@
               "content": {
                 "kicker": "SPEAKERS",
                 "moreLabel": "嘉宾阵容持续更新中 · 最终议程以现场为准",
-                "subtitle": "围绕 AI 营销、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例",
-                "title": "汇聚 40+ 国内外一线专家"
+                "subtitle": "围绕 GEO 实践、Agent 生态、AI 搜索、内容工程与品牌占位，集中分享最新判断与真实案例",
+                "title": "GEO一线实践者"
               },
               "enabled": true,
               "label": "演讲嘉宾",
@@ -2521,7 +2527,7 @@
             },
             {
               "content": {
-                "eventLabel": "中国第二届GEO主题大会",
+                "eventLabel": "第二届中国GEO大会",
                 "organizer": "GEO大会组委会",
                 "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
               },
@@ -2533,10 +2539,10 @@
             }
           ],
           "seo": {
-            "description": "中国第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+            "description": "第二届中国GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
             "indexable": true,
             "shareAssetId": null,
-            "title": "中国第二届GEO大会 · 深圳 2026"
+            "title": "第二届中国GEO大会 · 深圳 2026"
           }
         },
         "kind": "structured"
@@ -2604,7 +2610,7 @@
       }
     },
     "rootId": "18181818-1818-4181-8181-181818181818",
-    "version": 4,
-    "versionId": "7917ad7c-304e-43d2-822c-e5d7f86c5b26"
+    "version": 6,
+    "versionId": "34d20872-9f8e-4d70-be07-0765e103f85e"
   }
 }

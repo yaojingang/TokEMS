@@ -8,7 +8,7 @@ import {
 const registration = {
   id: '10000000-0000-4000-8000-000000000001',
   eventId: 101,
-  eventName: '第二届中国 GEO & AI 营销大会',
+  eventName: '第二届中国GEO大会',
   eventSlug: 'tokems26',
   startsAt: '2026-11-21T01:00:00.000Z',
   endsAt: '2026-11-22T09:00:00.000Z',
