@@ -36,8 +36,8 @@
     "@conference/html-template": "workspace:*",
     "@conference/security": "workspace:*",
     "bcryptjs": "3.0.3",
-    "drizzle-orm": "0.45.2",
-    "pg": "8.23.0"
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@types/node": "26.6.1",
