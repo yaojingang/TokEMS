@@ -1653,6 +1653,10 @@
       "defaultCurrency": "CNY",
       "defaultTemplateId": "18181818-1818-4181-8181-181818181818",
       "defaultTimezone": "Asia/Shanghai",
+      "homepage": {
+        "mode": "event",
+        "revision": 0
+      },
       "locale": "zh-CN",
       "website": {
         "faviconUrl": "",

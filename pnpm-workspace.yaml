@@ -21,6 +21,7 @@ overrides:
   'shell-quote@>=1.8.4 <1.11.0': 1.11.0
   # v4 uses a named export; the devtools patch below adapts its existing import.
   '@nuxt/devtools>simple-git': 4.0.2
+  '@nuxt/devtools>launch-editor': 2.14.2
 
 allowBuilds:
   '@alicloud/openapi-core': true

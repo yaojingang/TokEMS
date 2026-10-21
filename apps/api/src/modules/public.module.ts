@@ -533,8 +533,9 @@ export class SpeakersController {
 
 @ApiTags('public-homepage')
 @Controller('homepage')
-class HomepageController {
+export class HomepageController {
   constructor(
+    @Inject(OrganizationAdminService) private readonly organizationAdmin: OrganizationAdminService,
     @Inject(ConferenceRepository) private readonly repository: ConferenceRepository,
     @Inject(HtmlTemplateOperationsService)
     private readonly htmlTemplates: HtmlTemplateOperationsService,
@@ -549,6 +550,19 @@ class HomepageController {
   ) {
     const organizationSlug =
       organizationSlugValue ?? process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
+    const configuration = this.database.persistent
+      ? await this.organizationAdmin.getHomepageConfigurationBySlug(organizationSlug)
+      : undefined;
+    if (configuration?.mode === 'empty') {
+      return reply.code(200)
+        .header('Content-Type', 'text/html; charset=utf-8')
+        .header('Cache-Control', 'no-store')
+        .header('X-Robots-Tag', 'noindex, nofollow')
+        .header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'")
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('X-TokEMS-Homepage', 'empty')
+        .send('<!doctype html><html lang="zh-CN" data-tokems-homepage="empty"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title></title></head><body></body></html>');
+    }
     const event = await this.repository.getPublicHomepageEvent(organizationSlug);
     return servePublishedHomeDocument(
       this.htmlTemplates,

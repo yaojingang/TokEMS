@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { publicEventHomePath, publicEventScopedPath } from '@conference/contracts';
+import { publicEventHomePath, publicEventScopedPath, resolveNavigationLinks } from '@conference/contracts';
+import { useAsyncData, useRequestURL } from '#imports';
+import { resolveEventExperience } from '~/composables/useEventExperience';
 
 const props = withDefaults(
   defineProps<{
@@ -9,6 +11,20 @@ const props = withDefaults(
   { eventName: '' },
 );
 
+const api = useConferenceApi();
+const navigationOrigin = useRequestURL().origin;
+const { data: navigationEvent } = await useAsyncData(
+  () => `navigation-event:${props.eventSlug}`,
+  () => props.eventSlug ? api.getEvent(props.eventSlug) : Promise.resolve(null),
+  { watch: [() => props.eventSlug] },
+);
+const experience = computed(() => navigationEvent.value ? resolveEventExperience(navigationEvent.value) : null);
+const links = computed(() => navigationEvent.value && experience.value
+  ? resolveNavigationLinks(navigationEvent.value, experience.value.home, experience.value.faq.mode, { origin: navigationOrigin }) : []);
+const brandCopy = (key: string, fallback: string) => {
+  const value = experience.value?.home.blocks.find((block) => block.nodeKey === 'home.navigation')?.content[key];
+  return typeof value === 'string' ? value : fallback;
+};
 const homePath = computed(() => {
   try {
     return publicEventHomePath(props.eventSlug);
@@ -23,34 +39,17 @@ const registrationPath = computed(() => {
     return '/register';
   }
 });
-const faqPath = computed(() => {
-  try {
-    return publicEventScopedPath('/faq', props.eventSlug);
-  } catch {
-    return '/faq';
-  }
-});
 </script>
 
 <template>
   <nav id="nav" class="event-public-nav scrolled" aria-label="大会主导航">
     <div class="nav-inner">
       <a :href="`${homePath}#hero`" class="logo" aria-label="返回大会首页">
-        <span class="logo-mark">G</span>
-        <span class="event-public-nav__brand">GEO大会</span>
+        <span class="logo-mark">{{ brandCopy('logoMark', 'G') }}</span>
+        <span class="event-public-nav__brand logo-name">{{ brandCopy('brandLabel', '大会') }}</span>
         <span v-if="eventName" class="logo-sub">{{ eventName }}</span>
       </a>
-      <div class="nav-links">
-        <a :href="`${homePath}#why`">背景</a>
-        <a :href="`${homePath}#agenda`">议程</a>
-        <a :href="`${homePath}#speakers`">嘉宾</a>
-        <a :href="`${homePath}#members`">会员</a>
-        <a class="is-current" :href="`${homePath}#event-partners`" aria-current="page">
-          合作伙伴
-        </a>
-        <a :href="`${homePath}#tickets`">门票</a>
-        <a :href="faqPath">FAQ</a>
-      </div>
+      <ConferenceNavigationLinks :links="links" />
       <div class="nav-cta">
         <a :href="registrationPath" class="btn btn-primary">立即报名</a>
         <CustomerAccountAction />

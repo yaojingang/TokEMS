@@ -6,10 +6,12 @@ import {
   useAsyncData,
   useNuxtApp,
   useRuntimeConfig,
+  useRequestURL,
   useState,
 } from '#imports';
 import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  resolveNavigationLinks,
   publicEventHomePath,
   publicEventScopedPath,
   publicSpeakerPath,
@@ -104,6 +106,11 @@ const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
 const experience = computed(() => resolveEventExperience(event.value));
 const homeBlocks = computed(() => experience.value.home.blocks);
+const navigationOrigin = useRequestURL().origin;
+const navigationLinks = computed(() => resolveNavigationLinks(event.value, experience.value.home, experience.value.faq.mode, {
+  onHome: true, membersVisible: memberDirectoryState.value.visible,
+  partnersVisible: Boolean(featuredPartners.value?.items.length), origin: navigationOrigin,
+}));
 const membersBlock = computed(() =>
   event.value.experience?.home?.blocks.find((block) => block.nodeKey === 'home.members'),
 );
@@ -946,40 +953,14 @@ onBeforeUnmount(() => {
       :style="blockStyle('home.navigation')"
     >
       <div class="nav-inner">
-        <a href="#hero" class="logo">
+        <a href="#hero" class="logo" :aria-label="blockCopy('home.navigation', 'brandLabel', 'GEO大会')">
           <span class="logo-mark">{{ blockCopy('home.navigation', 'logoMark', 'G') }}</span>
-          {{ blockCopy('home.navigation', 'brandLabel', 'GEO大会') }}
+          <span class="logo-name">{{ blockCopy('home.navigation', 'brandLabel', 'GEO大会') }}</span>
           <span class="logo-sub">{{
             blockCopy('home.navigation', 'brandMeta', '2026 · 第二届')
           }}</span>
         </a>
-        <div class="nav-links">
-          <a v-if="blockEnabled('home.value')" href="#why">{{
-            blockCopy('home.navigation', 'whyLabel', '背景')
-          }}</a>
-          <a v-if="blockEnabled('home.upgrade')" href="#upgrade">{{
-            blockCopy('home.navigation', 'editionLabel', '第二届')
-          }}</a>
-          <a v-if="blockEnabled('home.agenda')" href="#agenda">{{
-            blockCopy('home.navigation', 'agendaLabel', '议程')
-          }}</a>
-          <a v-if="blockEnabled('home.speakers')" href="#speakers">{{
-            blockCopy('home.navigation', 'speakersLabel', '嘉宾')
-          }}</a>
-          <a v-if="memberDirectoryState.visible" href="#members">{{
-            blockCopy('home.navigation', 'membersLabel', '会员')
-          }}</a>
-          <a v-if="featuredPartners?.items.length" href="#event-partners">合作伙伴</a>
-          <a v-if="blockEnabled('home.tickets')" href="#tickets">{{
-            blockCopy('home.navigation', 'ticketsLabel', '门票')
-          }}</a>
-          <a v-if="blockEnabled('home.cooperation')" :href="cooperationHref">{{
-            blockCopy('home.navigation', 'cooperationLabel', '合作')
-          }}</a>
-          <a v-if="blockEnabled('home.faq-summary')" :href="faqHref">{{
-            blockCopy('home.navigation', 'faqLabel', 'FAQ')
-          }}</a>
-        </div>
+        <ConferenceNavigationLinks :links="navigationLinks" />
         <div class="nav-cta">
           <a
             :href="registrationAction.href"

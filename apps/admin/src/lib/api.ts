@@ -1,5 +1,6 @@
 import type { RegistrationBatchCheckout, ReviewBatchOrder, ReviewBatchOrderResult, AdminItemRefund } from '@conference/contracts';
 import type { InvoiceSmsTestStatus } from '@conference/contracts';
+import type { OrganizationHomepageConfiguration, UpdateOrganizationHomepageConfiguration } from '@conference/contracts';
 import { computed, ref } from 'vue';
 import type {
   FeishuBotConfiguration,
@@ -1268,6 +1269,14 @@ export const conferenceApi = {
     return request<OrganizationHomepageEvent>('/admin/organization/homepage-event', {
       method: 'PUT',
       body: JSON.stringify({ eventId }),
+    });
+  },
+  getOrganizationHomepage() {
+    return request<OrganizationHomepageConfiguration>('/admin/organization/homepage');
+  },
+  updateOrganizationHomepage(input: UpdateOrganizationHomepageConfiguration) {
+    return request<OrganizationHomepageConfiguration>('/admin/organization/homepage', {
+      method: 'PUT', body: JSON.stringify(input),
     });
   },
   getEventSlugAvailability(slug: string, eventId?: EventId) {

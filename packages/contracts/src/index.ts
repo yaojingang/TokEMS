@@ -3,6 +3,8 @@ export * from './invoice-sms.js';
 import { MainlandMobileSchema } from './mobile.js';
 export * from './mobile.js';
 import { z } from 'zod';
+import { NavigationItemsSchema } from './navigation.js';
+export * from './navigation.js';
 import { EventRefundPolicySchema } from './refunds.js';
 export * from './refunds.js';
 import {
@@ -331,6 +333,11 @@ const OptionalHttpsUrlSchema = z
   .max(500)
   .refine((value) => !value || /^https:\/\//i.test(value), '链接必须使用 HTTPS 地址');
 
+export const OrganizationHomepageSettingsSchema = z.object({
+  mode: z.enum(['event', 'empty']),
+  revision: z.number().int().nonnegative().default(0),
+}).strict();
+
 export const OrganizationSettingsSchema = z.object({
   brandName: z.string().trim().min(1).max(160),
   defaultTimezone: z.string().trim().min(1).max(80).default('Asia/Shanghai'),
@@ -362,6 +369,7 @@ export const OrganizationSettingsSchema = z.object({
     supportEmail: '',
   }),
   analytics: AnalyticsSettingsSchema.default(DEFAULT_ANALYTICS_SETTINGS),
+  homepage: OrganizationHomepageSettingsSchema.optional(),
 });
 
 export const TemplatePartnershipOrganizationGroupKeySchema = z.enum(['speaker', 'media', 'member']);
@@ -453,6 +461,12 @@ export const TemplateHomeBlockSchema = z.object({
   enabled: z.boolean().default(true),
   variant: z.string().trim().min(1).max(80).default('default'),
   content: z.record(z.string(), z.unknown()).default({}),
+}).superRefine((block, context) => {
+  if (block.nodeKey !== 'home.navigation' || block.content.items === undefined) return;
+  const result = NavigationItemsSchema.safeParse(block.content.items);
+  if (!result.success) for (const issue of result.error.issues) context.addIssue({
+    ...issue, path: ['content', 'items', ...issue.path],
+  });
 });
 
 export const TemplateFaqItemSchema = z.object({
@@ -499,6 +513,17 @@ export const TemplateHomeSchema = z.object({
     indexable: z.boolean().default(true),
   }),
   blocks: z.array(TemplateHomeBlockSchema).min(1).max(32),
+}).superRefine((home, context) => {
+  const navigationIndex = home.blocks.findIndex((block) => block.nodeKey === 'home.navigation');
+  const items = home.blocks[navigationIndex]?.content.items;
+  if (items === undefined) return;
+  const parsed = NavigationItemsSchema.safeParse(items);
+  if (!parsed.success) return;
+  parsed.data.forEach((item, index) => {
+    if (item.kind === 'section' && !home.blocks.some((block) => block.nodeKey === item.target)) context.addIssue({
+      code: 'custom', path: ['blocks', navigationIndex, 'content', 'items', index, 'target'], message: '菜单目标区块不存在，请选择当前模板中的区块',
+    });
+  });
 });
 
 const DEFAULT_COOPERATION_HOME_BLOCK = TemplateHomeBlockSchema.parse({
@@ -3831,7 +3856,26 @@ export const EventSummarySchema = EventContextOptionSchema.extend({
   templateVersion: z.number().int().positive().nullable().default(null),
   templateUpgradeAvailable: z.boolean().default(false),
   isHomepageDefault: z.boolean().default(false),
+  isDefaultEvent: z.boolean().optional(),
 });
+
+export const OrganizationHomepageConfigurationSchema = z.object({
+  organizationId: z.string().uuid(),
+  mode: z.enum(['event', 'empty']),
+  eventId: EventIdSchema.nullable(),
+  slug: EventSlugSchema.nullable(),
+  name: z.string().nullable(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.string(),
+  candidates: z.array(z.object({ id: EventIdSchema, slug: EventSlugSchema, name: z.string() })).optional(),
+});
+export const UpdateOrganizationHomepageConfigurationSchema = z.object({
+  mode: z.enum(['event', 'empty']),
+  eventId: EventIdSchema.optional(),
+  revision: z.number().int().nonnegative(),
+}).strict();
+export type OrganizationHomepageConfiguration = z.infer<typeof OrganizationHomepageConfigurationSchema>;
+export type UpdateOrganizationHomepageConfiguration = z.infer<typeof UpdateOrganizationHomepageConfigurationSchema>;
 
 export const SetOrganizationHomepageEventSchema = z.object({
   eventId: EventIdSchema,
@@ -4081,6 +4125,7 @@ export const EventExperienceSchema = z.object({
     version: z.number().int().positive(),
   }),
   definition: ConferenceTemplateDefinitionSchema,
+  defaultNavigationItems: NavigationItemsSchema.optional(),
   overrides: z.record(
     TemplateSurfaceSchema,
     z.object({

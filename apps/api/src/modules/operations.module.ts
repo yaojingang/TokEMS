@@ -37,6 +37,7 @@ import {
   RefundRequestSchema,
   RegistrationFormPublishSchema,
   SetOrganizationHomepageEventSchema,
+  UpdateOrganizationHomepageConfigurationSchema,
   TestAliyunSmsConfigurationSchema,
   UpdateFeishuBotConfigurationSchema,
   UpdateFeishuDigestSubscriptionSchema,
@@ -337,6 +338,23 @@ export class OrganizationEventsController {
       request.user.sub,
       parse(UpdateOrganizationAnalyticsSchema, body),
     );
+  }
+
+  @Get('organization/homepage')
+  @RequireGrant('org.settings.read')
+  async organizationHomepage(@Req() request: AuthenticatedRequest) {
+    const [configuration, candidates] = await Promise.all([
+      this.organizationAdmin.getHomepageConfiguration(request.user.organizationId),
+      this.organizationAdmin.homepageCandidates(request.user.organizationId),
+    ]);
+    return { ...configuration, candidates };
+  }
+
+  @Put('organization/homepage')
+  @RequireGrant('org.settings.manage')
+  updateOrganizationHomepage(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    return this.organizationAdmin.updateHomepageConfiguration(request.user.organizationId, request.user.sub,
+      parse(UpdateOrganizationHomepageConfigurationSchema, body));
   }
 
   @Put('organization/homepage-event')

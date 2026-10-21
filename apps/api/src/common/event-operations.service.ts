@@ -24,6 +24,7 @@ import {
   API_ERROR_CODES,
   DEMO_IDS,
   normalizeConferenceTemplateDefinition,
+  OrganizationHomepageSettingsSchema,
   speakerAvatarText,
 } from '@conference/contracts';
 import {
@@ -436,8 +437,9 @@ export class EventOperationsService {
         .groupBy(events.id)
         .orderBy(desc(events.createdAt)),
       this.db()
-        .select({ eventId: organizationHomepageEvents.eventId })
+        .select({ eventId: organizationHomepageEvents.eventId, settings: organizations.settings })
         .from(organizationHomepageEvents)
+        .innerJoin(organizations, eq(organizations.id, organizationHomepageEvents.organizationId))
         .where(eq(organizationHomepageEvents.organizationId, organizationId))
         .limit(1),
     ]);
@@ -480,7 +482,9 @@ export class EventOperationsService {
           templateUpgradeAvailable:
             Boolean(binding?.currentPublishedVersionId) &&
             binding?.versionId !== binding?.currentPublishedVersionId,
-          isHomepageDefault: homepage[0]?.eventId === event.id,
+          isDefaultEvent: homepage[0]?.eventId === event.id,
+          isHomepageDefault: homepage[0]?.eventId === event.id &&
+            (homepage[0].settings.homepage === undefined || OrganizationHomepageSettingsSchema.parse(homepage[0].settings.homepage).mode === 'event'),
         };
       }),
     );

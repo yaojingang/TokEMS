@@ -8,7 +8,7 @@ import {
 
 describe('Agent operation catalog', () => {
   it('has unique identifiers and classifies every released route', () => {
-    expect(AGENT_ACTIONS).toHaveLength(87);
+    expect(AGENT_ACTIONS).toHaveLength(89);
     expect(AGENT_ACTION_MAP.size).toBe(AGENT_ACTIONS.length);
     for (const action of AGENT_ACTIONS) {
       const concretePath = action.path

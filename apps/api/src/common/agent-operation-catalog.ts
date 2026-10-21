@@ -227,6 +227,13 @@ export const AGENT_ACTIONS = [
     verifyActionId: 'organization.settings.get',
     rollback: '调用同一接口停用网站统计。',
   }),
+  action('organization.homepage.get', 'GET', '/api/v1/admin/organization/homepage', {
+    grant: 'org.settings.read', description: '读取根首页展示方式、默认业务大会及可选大会。',
+  }),
+  action('organization.homepage.update', 'PUT', '/api/v1/admin/organization/homepage', {
+    grant: 'org.settings.manage', risk: 'controlled', description: '更新根首页展示方式及默认业务大会。',
+    verifyActionId: 'organization.homepage.get',
+  }),
   action('organization.homepage-event.update', 'PUT', '/api/v1/admin/organization/homepage-event', {
     grant: 'org.settings.manage',
     risk: 'controlled',

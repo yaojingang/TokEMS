@@ -18,6 +18,16 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it('accepts an empty root with its default conference and rejects malformed root settings', async () => {
+    const value = await snapshot();
+    const settings = (value.organization as { settings: Record<string, unknown> }).settings;
+    settings.homepage = { mode: 'empty', revision: 0 };
+    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+    settings.homepage = { mode: 'unrecognized', revision: 0 };
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/root homepage/u);
+    settings.homepage = { mode: 'empty', revision: 12 };
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/root homepage/u);
+  });
   it('selects current speaker routes without mutating the supplied mappings', async () => {
     const value = await snapshot();
     const backend = value.backend as {

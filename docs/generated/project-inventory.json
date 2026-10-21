@@ -6,6 +6,6 @@
   "latestMigration": "0072_absent_skaar.sql",
   "databaseTables": 105,
   "apiControllers": 46,
-  "apiOperations": 365,
-  "testFiles": 238
+  "apiOperations": 367,
+  "testFiles": 242
 }

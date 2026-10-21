@@ -9,6 +9,8 @@ export const HOME_DOCUMENT_FORWARDED_HEADERS = [
   'content-language',
   'vary',
   'warning',
+  'x-robots-tag',
+  'x-tokems-homepage',
 ] as const;
 
 const STRUCTURED_PAGE_FORWARDED_HEADERS = [

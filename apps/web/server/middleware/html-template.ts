@@ -7,7 +7,7 @@ import { homeDocumentResponseHeaders } from '../utils/home-document-headers';
 
 export default defineEventHandler(async (event) => {
   const url = getRequestURL(event);
-  if (event.method !== 'GET') return;
+  if (event.method !== 'GET' && event.method !== 'HEAD') return;
 
   const config = useRuntimeConfig(event);
   const apiBase = String(config.apiInternalBase).replace(/\/$/u, '');

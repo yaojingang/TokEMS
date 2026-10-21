@@ -14,6 +14,10 @@ after(() => browser.close());
 async function fixture(options = {}) {
   const context = await browser.newContext();
   const page = await context.newPage();
+  // Keep fixture navigation independent of the external font service.
+  await page.route('https://fonts.googleapis.com/**', (route) =>
+    route.fulfill({ contentType: 'text/css', body: '' }),
+  );
   page.setDefaultTimeout(8_000);
   const event = structuredClone(DEMO_EVENT);
   event.slug = 'registration-browser-fixture';
@@ -161,6 +165,35 @@ async function fixture(options = {}) {
     },
   };
 }
+
+test('registration works with denied storage when the external font service is unavailable', async (t) => {
+  const f = await fixture({ storageFailure: 'denied' });
+  let externalFontRequests = 0;
+  let releaseFont;
+  const unavailableFont = new Promise((resolve) => {
+    releaseFont = resolve;
+  });
+  await f.context.route('https://fonts.googleapis.com/**', async (route) => {
+    externalFontRequests += 1;
+    await unavailableFont;
+    await route.abort().catch(() => {});
+  });
+  try {
+    await f.open();
+    await f.page.locator('#registration-name').fill('字体不可用时填写');
+    await f.submit();
+    assert.equal(f.submissions.length, 1);
+    assert.equal(f.submissions[0].attendee.name, '字体不可用时填写');
+    assert.equal(externalFontRequests, 0, 'the fixture supplies its own font stylesheet');
+    assert.deepEqual(f.errors, []);
+  } catch (error) {
+    t.diagnostic(`External font requests: ${externalFontRequests}`);
+    throw error;
+  } finally {
+    releaseFont();
+    await f.context.close();
+  }
+});
 
 test('edits made while the account loads take precedence over an older saved draft', async () => {
   const f = await fixture();
