@@ -14,7 +14,7 @@ await mkdir(output, { recursive: true });
 const program = { mode: 'fixed', fixedRateBps: 1000, attributionDays: 30 };
 const partner = {
   id: 'a761c83a-143b-4447-b018-a03c238b2be7',
-  version: 1,
+  version: 1, eventId: 101, eventSlug: 'tokems26', eventName: '第二届中国GEO大会', referralPath: '/r/dialogfixture',
   loginMobile: '+8613800138000',
   personalRateBps: null,
   sortOrder: 0,
@@ -27,7 +27,7 @@ const partner = {
     industry: '',
     businessIntro: '',
     businessUrl: '',
-    publicStatus: 'draft',
+    publicStatus: 'draft', avatarUrl: null, visibleFields: {displayName:true,company:true,title:true,avatar:true}, posterFields: {displayName:true,company:true,title:true,avatar:true},
   },
   balances: { available: 0, reserved: 0 },
   currentProgram: program,
@@ -36,16 +36,23 @@ const partner = {
 async function fixture(t, width = 1440, height = 1000) {
   const context = await browser.newContext({ viewport: { width, height } });
   t.after(() => context.close());
+  await context.addInitScript(() => localStorage.setItem('conference.admin.token', 'partner-dialog-fixture'));
   const page = await context.newPage();
   page.setDefaultTimeout(8_000);
   const writes = [];
   const errors = [];
   const server = { reject: false };
+  page.on('dialog', dialog => dialog.accept());
   page.on('pageerror', (error) => errors.push(error.message));
-  // Only login reaches the real write API. All partner mutations use fixtures.
-  await page.route('**/api/v1/admin/events/101/distribution/**', async (route) => {
+  // Authentication and partner writes use fixtures; the browser exercises the real dialog.
+  await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    const event = { id: 101, organizationId: 'dialog-org', slug: 'tokems26', name: '第二届中国GEO大会', status: 'registration_open' };
+    if (path.endsWith('/auth/me')) return route.fulfill({ json: { user: {id: 101, name: '伙伴管理员'}, organization: {id: event.organizationId, slug: 'geo-conference', name: '大会组织', settings: {}}, membership: {id: 'membership', role: 'owner', status: 'active', grants: ['*']}, adminPreferences: {lastEventId: 101} } });
+    if (path.endsWith('/admin/event-options')) return route.fulfill({ json: [event] });
+    if (path.endsWith('/events/101') || path.endsWith('/events/tokems26')) return route.fulfill({ json: event });
+    if (path.endsWith('/admin-preferences') || path.endsWith('/auth/preferences/admin')) return route.fulfill({ json: {lastEventId: 101} });
     if (request.method() !== 'GET') {
       writes.push(request.postDataJSON());
       if (server.reject)
@@ -58,6 +65,7 @@ async function fixture(t, width = 1440, height = 1000) {
         });
       return route.fulfill({ json: { ...partner, created: false } });
     }
+    if (path.endsWith('/promotion')) return route.fulfill({ json: { ...partner, availability: 'pending_confirmation', reason: '待确认规则' } });
     if (path.endsWith('/overview'))
       return route.fulfill({
         json: { program, partnerCounts: {}, commissionTotals: {}, payoutTotals: {} },

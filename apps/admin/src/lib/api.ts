@@ -513,6 +513,11 @@ export function publicHomepageUrl() {
   return new URL('/', publicWebURL).toString();
 }
 
+export function publicPartnerReferralUrl(path: string) {
+  if (!/^\/r\/[A-Za-z0-9_-]+$/.test(path)) return '';
+  return new URL(path, publicWebURL).toString();
+}
+
 export function publicEventHomeUrl(eventSlug: string): string;
 export function publicEventHomeUrl(eventSlug?: string): string | undefined;
 export function publicEventHomeUrl(eventSlug = activeEventSlug.value): string | undefined {
@@ -2153,6 +2158,23 @@ export const conferenceApi = {
     return request<{ items: import('@conference/contracts').AdminPartnerRelationshipView[] }>(
       `/admin/events/${eventScope(eventId)}/distribution/partners`,
     );
+  },
+  getPartnerPromotion(partnerId: string, eventId: EventId) {
+    return request<import('@conference/contracts').AdminPartnerPromotionView>(
+      `/admin/events/${eventScope(eventId)}/distribution/partners/${encodeURIComponent(partnerId)}/promotion`,
+      { cache: 'no-store' },
+    );
+  },
+  async getPartnerPromotionAvatar(partnerId: string, profileVersion: number, eventId: EventId, signal?: AbortSignal) {
+    const response = await fetch(
+      `${baseURL}/admin/events/${eventScope(eventId)}/distribution/partners/${encodeURIComponent(partnerId)}/promotion/avatar?version=${profileVersion}`,
+      { headers: { Authorization: `Bearer ${session.token.value}` }, cache: 'no-store', signal: signal ?? null },
+    );
+    if (!response.ok) {
+      if (response.status === 401) session.clear();
+      throw new Error('海报头像读取失败，请刷新素材后重试。');
+    }
+    return response.blob();
   },
   enableEventPartner(input: import('@conference/contracts').AdminEnablePartner, eventId?: EventId) {
     return request<import('@conference/contracts').AdminEnablePartnerResult>(

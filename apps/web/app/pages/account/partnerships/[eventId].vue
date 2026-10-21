@@ -12,7 +12,7 @@ import type {
 } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import { renderPersonalEventPoster } from '~/utils/personal-event-poster';
-import { partnerPosterFilename, resolvePartnerPosterContent, resolvePartnerPosterCopy } from '~/utils/partner-poster';
+import { partnerPosterFilename, resolvePartnerPosterContent, resolvePartnerPosterCopy, resolvePartnerPosterOptions } from '~/utils/partner-poster';
 import { nextTick, watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { copyPlainText } from '~/utils/copy-text';
@@ -271,17 +271,6 @@ const posterContent = computed(() =>
     ? resolvePartnerPosterContent({ ...partner.value.profile, posterCopy: { ...posterDraft } })
     : null,
 );
-const posterEventLine = computed(() => {
-  const value = posterEvent.value;
-  if (!value?.startsAt) return value?.city || '大会现场';
-  const date = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: value.timezone,
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(new Date(value.startsAt));
-  return [date, value.city].filter(Boolean).join(' · ');
-});
 async function loadPosterEvent() {
   const slug = partner.value?.eventSlug;
   posterEvent.value = null;
@@ -461,14 +450,7 @@ async function renderPoster() {
   posterRendering.value = true;
   posterError.value = '';
   try {
-    const rendered = await renderPersonalEventPoster(canvas, qrCanvas, {
-      variant: 'partner',
-      eventName: value.eventName,
-      eventMark: posterEvent.value?.shortName?.trim() || value.eventName,
-      eventLine: posterEventLine.value,
-      location: posterEvent.value?.city?.trim() || '大会现场',
-      content,
-    });
+    const rendered = await renderPersonalEventPoster(canvas, qrCanvas, resolvePartnerPosterOptions(value, content, posterEvent.value));
     if (version === posterRenderVersion && canvas === posterCanvas.value)
       posterReady.value = rendered;
   } catch (error) {

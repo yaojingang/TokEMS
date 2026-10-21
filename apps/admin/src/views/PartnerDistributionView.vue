@@ -4,6 +4,8 @@ import { AdminEnablePartnerSchema, AdminEditPartnerDetailsSchema, type AdminPart
 import { partnerFieldIssues, partnerServerFieldIssues, type PartnerFieldIssue } from '../lib/partner-form-feedback';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import { conferenceApi, session } from '../lib/api';
+import PartnerPromotionPanel from '../components/PartnerPromotionPanel.vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 
 type Tab = 'overview' | 'commissions' | 'payouts' | 'settings';
 type MoneyRow = Record<string, unknown> & { id?: string; status?: string; version?: number };
@@ -52,6 +54,9 @@ const enableForm = reactive({
 });
 const editingPartner = ref<AdminPartnerRelationshipView | null>(null);
 const partnerEditor = ref<HTMLDialogElement>();
+const partnerEditorTab = ref<'profile' | 'promotion'>('profile');
+const originalPartnerForm = ref('');
+const partnerFormDirty = computed(() => Boolean(editingPartner.value && JSON.stringify(editForm) !== originalPartnerForm.value));
 const partnerEditorError = ref('');
 const partnerEditorIssues = ref<PartnerFieldIssue[]>([]);
 const partnerEditorNotice = ref('');
@@ -375,9 +380,10 @@ function fieldAttributes(kind: PartnerFormKind, field: string) {
 }
 
 async function focusPartnerFeedback(kind: PartnerFormKind, field?: string) {
+  const targetField = field ?? fieldIssues(kind).value[0]?.field;
+  if (kind === 'edit' && targetField) partnerEditorTab.value = 'profile';
   await nextTick();
   const dialog = kind === 'invite' ? partnerInvitation.value : partnerEditor.value;
-  const targetField = field ?? fieldIssues(kind).value[0]?.field;
   const input = targetField ? dialog?.querySelector<HTMLElement>(`[name="${targetField}"]`) : null;
   if (input) {
     input.focus({ preventScroll: true });
@@ -451,21 +457,14 @@ async function enablePartner() {
   successMessage.value = '';
   try {
     const enabledPartner = await conferenceApi.enableEventPartner(parsed.data);
-    await load();
     partnerInvitationOpen.value = false;
     await nextTick();
-    if (!enabledPartner.created) {
-      const existing = partners.value.find(item => item.id === enabledPartner.id);
-      if (existing) {
-        openPartnerEditor(existing);
-        partnerEditorNotice.value = '该手机号已是本大会的合作伙伴，已打开已有资料供你编辑。';
-        successMessage.value = '该手机号已经是合作伙伴，已为你打开资料编辑。';
-      } else {
-        successMessage.value = '该手机号已经是合作伙伴，请刷新列表后编辑资料。';
-      }
-    } else {
-      successMessage.value = '合作伙伴资格已就绪，对方可使用该手机号验证码登录并确认合作规则。';
-    }
+    openPartnerEditor(enabledPartner, enabledPartner.created ? 'promotion' : 'profile');
+    partnerEditorNotice.value = enabledPartner.created
+      ? '合作伙伴创建成功。对方确认当前合作规则后，原分销链接和二维码即可生效。'
+      : '该手机号已是本大会的合作伙伴，已打开已有资料供你编辑。';
+    successMessage.value = enabledPartner.created ? '合作伙伴创建成功。' : '该手机号已经是合作伙伴，已为你打开资料编辑。';
+    await load();
     Object.assign(enableForm, { mobile: '', displayName: '', company: '', title: '', ratePercent: '', note: '' });
   } catch (error) {
     partnerInvitationIssues.value = partnerServerFieldIssues(error);
@@ -488,7 +487,8 @@ function updatePartner(item: AdminPartnerRelationshipView, status: 'active' | 'p
   );
 }
 
-function openPartnerEditor(item: AdminPartnerRelationshipView) {
+function openPartnerEditor(item: AdminPartnerRelationshipView, tab: 'profile' | 'promotion' = 'profile') {
+  partnerEditorTab.value = tab;
   partnerEditorReturnFocus =
     typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -505,15 +505,24 @@ function openPartnerEditor(item: AdminPartnerRelationshipView) {
   editForm.ratePercent = item.personalRateBps === null ? '' : String(item.personalRateBps / 100);
   editForm.sortOrder = String(item.sortOrder);
   editForm.internalNote = item.internalNote;
+  originalPartnerForm.value = JSON.stringify(editForm);
   editingPartner.value = item;
 }
 
 function closePartnerEditor() {
-  if (pending.value) return;
+  if (pending.value || !confirmPartnerDraft()) return;
   editingPartner.value = null;
   partnerEditorError.value = '';
 }
 
+function confirmPartnerDraft() {
+  return !partnerFormDirty.value || window.confirm('合作伙伴资料尚未保存，确定离开？');
+}
+function guardPartnerUnload(event: BeforeUnloadEvent) {
+  if (partnerFormDirty.value) { event.preventDefault(); event.returnValue = ''; }
+}
+onBeforeRouteLeave(confirmPartnerDraft);
+onBeforeRouteUpdate(confirmPartnerDraft);
 function handlePartnerEditorCancel(event: Event) {
   event.preventDefault();
   closePartnerEditor();
@@ -521,7 +530,7 @@ function handlePartnerEditorCancel(event: Event) {
 
 async function savePartnerDetails() {
   const item = editingPartner.value;
-  if (!item || pending.value) return;
+  if (!item || pending.value || !canManagePartners.value) return;
   partnerEditorError.value = '';
   partnerEditorIssues.value = [];
   const parsed = AdminEditPartnerDetailsSchema.safeParse({
@@ -544,12 +553,18 @@ async function savePartnerDetails() {
     await focusPartnerFeedback('edit');
     return;
   }
+  const submittedForm = JSON.stringify(editForm);
   pending.value = true;
   errorMessage.value = '';
   successMessage.value = '';
   try {
-    await conferenceApi.updateEventPartnerDetails(item.id, parsed.data);
-    editingPartner.value = null;
+    const updated = await conferenceApi.updateEventPartnerDetails(item.id, parsed.data);
+    editingPartner.value = { ...item, ...updated, sortOrder: parsed.data.sortOrder, internalNote: parsed.data.internalNote };
+    originalPartnerForm.value = submittedForm;
+    partnerEditorTab.value = partnerFormDirty.value ? 'profile' : 'promotion';
+    partnerEditorNotice.value = partnerFormDirty.value
+      ? '本次资料已保存，后续修改尚未保存。'
+      : '资料已保存，推广素材已按最新资料更新。';
     successMessage.value = '合作伙伴资料和佣金设置已更新。';
     await load();
   } catch (error) {
@@ -837,10 +852,12 @@ watch(editingPartner, async (item) => {
   partnerEditorReturnFocus = null;
 });
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', guardPartnerUnload);
   if (partnerInvitation.value?.open) partnerInvitation.value.close();
   if (partnerEditor.value?.open) partnerEditor.value.close();
 });
-onMounted(() => void load());
+onMounted(() => { window.addEventListener('beforeunload', guardPartnerUnload); void load(); });
+watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; partnerInvitationOpen.value = false; });
 </script>
 
 <template>
@@ -1007,6 +1024,7 @@ onMounted(() => void load());
               </td>
               <td data-label="操作">
                 <div class="row-actions">
+                  <button v-if="canReadPartners" type="button" @click="openPartnerEditor(item, 'promotion')">推广素材</button>
                   <button v-if="canManagePartners" type="button" @click="openPartnerEditor(item)">
                     编辑
                   </button>
@@ -1780,16 +1798,16 @@ onMounted(() => void load());
   <Teleport to="body">
     <dialog
       ref="partnerEditor"
-      class="partner-dialog partner-edit-dialog"
+      :class="['partner-dialog partner-edit-dialog', { 'partner-material-dialog': partnerEditorTab === 'promotion' }]"
       aria-labelledby="partner-edit-title"
       @cancel="handlePartnerEditorCancel"
     >
       <form v-if="editingPartner" class="partner-modal-form partner-edit-form" novalidate @input="clearPartnerFieldError('edit', $event)" @submit.prevent="savePartnerDetails">
         <header class="partner-edit-head">
           <div>
-            <p class="eyebrow">EDIT PARTNER</p>
-            <h2 id="partner-edit-title">编辑合作伙伴</h2>
-            <p>资料修改仅作用于当前大会，佣金比例从后续符合条件的订单开始生效。</p>
+            <p class="eyebrow">PARTNER</p>
+            <h2 id="partner-edit-title">{{ partnerEditorTab === 'promotion' ? '合作伙伴推广素材' : '编辑合作伙伴' }}</h2>
+            <p>{{ partnerEditorTab === 'promotion' ? '查看并领取该合作伙伴的专属分销链接、二维码和海报。' : '资料修改仅作用于当前大会，佣金比例从后续符合条件的订单开始生效。' }}</p>
           </div>
           <button
             class="partner-edit-close"
@@ -1802,7 +1820,12 @@ onMounted(() => void load());
           </button>
         </header>
 
+        <nav v-if="canManagePartners" class="partner-editor-tabs" aria-label="合作伙伴详情">
+          <button type="button" :class="{ active: partnerEditorTab === 'profile' }" :aria-pressed="partnerEditorTab === 'profile'" @click="partnerEditorTab = 'profile'">基本资料</button>
+          <button type="button" :class="{ active: partnerEditorTab === 'promotion' }" :aria-pressed="partnerEditorTab === 'promotion'" @click="partnerEditorTab = 'promotion'">推广素材</button>
+        </nav>
         <p v-if="partnerEditorNotice" class="partner-editor-notice" role="status">{{ partnerEditorNotice }}</p>
+        <PartnerPromotionPanel v-if="partnerEditorTab === 'promotion'" :partner-id="editingPartner.id" :event-id="editingPartner.eventId" :unsaved="partnerFormDirty" :version="editingPartner.version" />
 
         <section v-if="partnerEditorError || partnerEditorIssues.length" class="partner-form-feedback" role="alert" tabindex="-1">
           <span class="partner-feedback-icon" aria-hidden="true">!</span>
@@ -1818,7 +1841,7 @@ onMounted(() => void load());
         </section>
 
 
-        <div class="partner-edit-body">
+        <div v-show="partnerEditorTab === 'profile' && canManagePartners" class="partner-edit-body">
           <section class="partner-edit-section" aria-labelledby="partner-basic-title">
             <div>
               <h3 id="partner-basic-title">基础资料</h3>
@@ -1938,9 +1961,10 @@ onMounted(() => void load());
             :disabled="pending"
             @click="closePartnerEditor"
           >
-            取消
+            {{ partnerEditorTab === 'promotion' ? '关闭' : '取消' }}
           </button>
           <button
+            v-if="canManagePartners && (partnerEditorTab === 'profile' || partnerFormDirty)"
             class="button"
             type="submit"
             :disabled="pending"
@@ -2670,4 +2694,8 @@ onMounted(() => void load());
     grid-column: auto;
   }
 }
+</style>
+
+<style scoped>
+.partner-material-dialog{width:min(900px,calc(100vw - 32px))}.partner-editor-tabs{display:flex;gap:8px;padding:0 30px 12px;flex-shrink:0}.partner-editor-tabs button{border:1px solid #dbe5f0;border-radius:8px;background:#fff;padding:9px 16px;color:#526176;cursor:pointer}.partner-editor-tabs button.active{background:#0e2b50;border-color:#0e2b50;color:#fff}.partner-editor-tabs button:focus-visible{outline:2px solid #2463a5;outline-offset:3px}.partner-editor-tabs button:active{transform:translateY(1px)}@media(max-width:640px){.partner-editor-tabs{padding:0 20px 12px}}
 </style>
