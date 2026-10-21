@@ -192,6 +192,10 @@ async function setup(t, width = 1440, options = {}) {
   const context = await browser.newContext({ viewport: { width, height: 1000 } });
   t.after(() => context.close());
   const page = await context.newPage();
+  // Keep fixture navigation independent of the external font service.
+  await page.route('https://fonts.googleapis.com/**', (route) =>
+    route.fulfill({ contentType: 'text/css', body: '' }),
+  );
   page.setDefaultTimeout(8000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -251,6 +255,31 @@ function accountAppearance(page) {
     };
   });
 }
+
+test('partner workspace stays editable when the external font service is unavailable', async (t) => {
+  const { page } = await setup(t);
+  let externalFontRequests = 0;
+  let releaseFont;
+  const unavailableFont = new Promise((resolve) => {
+    releaseFont = resolve;
+  });
+  await page.context().route('https://fonts.googleapis.com/**', async (route) => {
+    externalFontRequests += 1;
+    await unavailableFont;
+    await route.abort().catch(() => {});
+  });
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByLabel('公司', { exact: true }).fill('字体不可用时编辑');
+    assert.equal(await page.getByLabel('公司', { exact: true }).inputValue(), '字体不可用时编辑');
+    assert.equal(externalFontRequests, 0, 'the fixture supplies its own font stylesheet');
+  } catch (error) {
+    t.diagnostic(`External font requests: ${externalFontRequests}`);
+    throw error;
+  } finally {
+    releaseFont();
+  }
+});
 
 test('partner workspace follows the personal account design tokens and dimensions', async (t) => {
   const { page } = await setup(t);
