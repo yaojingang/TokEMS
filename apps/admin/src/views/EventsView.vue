@@ -206,6 +206,7 @@ async function confirmHomepageChange() {
     rows.value = rows.value.map((item) => ({
       ...item,
       isHomepageDefault: item.id === candidate.id,
+      isDefaultEvent: item.id === candidate.id,
     }));
     successMessage.value = `${candidate.name} 已设为首页默认大会，访问前台首页将展示该大会。`;
     homepageCandidate.value = undefined;
@@ -411,7 +412,7 @@ onMounted(() => void load());
       <div v-if="loading" class="admin-loading">正在读取大会列表…</div>
       <template v-else-if="rows.length">
         <p v-if="!hasHomepageDefault" class="event-homepage-warning" role="status">
-          当前组织还没有首页默认大会。设置后，访问前台根地址会直接展示所选大会。
+          当前根首页不展示大会。可在组织管理的“公开网站”中调整首页方式，或选择大会设为首页。
         </p>
         <ul class="operations-list event-management-list">
           <li v-for="item in rows" :key="item.id">
@@ -421,7 +422,8 @@ onMounted(() => void load());
                 <span class="status-badge" :class="statusClass(item.status)">
                   {{ statusLabel(item.status) }}
                 </span>
-                <span v-if="item.isHomepageDefault" class="event-homepage-badge">首页默认</span>
+                <span v-if="item.isDefaultEvent" class="event-homepage-badge">默认业务大会</span>
+                <span v-if="item.isHomepageDefault" class="event-homepage-badge">根首页展示</span>
               </div>
               <small>
                 {{ item.city }} · {{ dateTime(item.startsAt) }} ·
@@ -746,7 +748,7 @@ onMounted(() => void load());
   <AdminConfirmDialog
     :open="Boolean(homepageCandidate)"
     title="确认切换首页默认大会？"
-    description="切换后，组织前台根地址会立即展示所选大会；每场大会原有的独立地址保持可访问。"
+    description="保存后根地址展示所选大会，同时将其设为历史业务入口的默认大会。每场大会的独立地址继续可访问。"
     confirm-label="确认设为首页"
     :busy="homepagePending"
     :error="homepageError"

@@ -6,6 +6,8 @@ import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   TemplateLogoWallSchema,
   normalizeConferenceTemplateDefinition,
+  navigationItems,
+  NavigationItemsSchema,
   type ConferenceTemplateDefinition,
   type ConferenceTemplateDraft,
   type ConferenceTemplateOption,
@@ -1210,12 +1212,24 @@ export class TemplateOperationsService {
           .for('update');
         const conflicts = overrideRows.flatMap((row) =>
           Object.keys(row.document)
-            .filter((nodeKey) => !nodeKey.startsWith('$') && !targetKeys[row.surface].has(nodeKey))
+            .filter((nodeKey) => {
+              if (nodeKey.startsWith('$')) return false;
+              if (!targetKeys[row.surface].has(nodeKey)) return true;
+              if (row.surface !== 'home' || nodeKey !== 'home.navigation') return false;
+              const patch = row.document[nodeKey] as { content?: { items?: unknown } };
+              const menu = NavigationItemsSchema.safeParse(patch?.content?.items);
+              return (
+                menu.success &&
+                menu.data.some(
+                  (item) => item.kind === 'section' && !targetKeys.home.has(item.target),
+                )
+              );
+            })
             .map((nodeKey) => ({
               surface: row.surface,
               nodeKey,
               key: `${row.surface}.${nodeKey}`,
-              reason: '目标模板版本中不存在该大会覆盖节点',
+              reason: '目标模板版本中不存在该覆盖节点或菜单目标区块',
             })),
         );
         const unresolved = conflicts.filter((conflict) => {
@@ -1231,6 +1245,7 @@ export class TemplateOperationsService {
             { conflicts: unresolved },
           );
         }
+        const nextOverrides: Partial<Record<TemplateSurface, SurfaceOverrideDocument>> = {};
         for (const row of overrideRows) {
           const nextDocument = { ...row.document };
           let changed = false;
@@ -1243,6 +1258,7 @@ export class TemplateOperationsService {
               changed = true;
             }
           }
+          nextOverrides[row.surface] = nextDocument;
           if (changed) {
             await tx
               .update(eventTemplateOverrides)
@@ -1255,6 +1271,15 @@ export class TemplateOperationsService {
               })
               .where(eq(eventTemplateOverrides.id, row.id));
           }
+        }
+        try {
+          mergeTemplateDefinition(targetDefinition, nextOverrides);
+        } catch {
+          throw new DomainError(
+            API_ERROR_CODES.VALIDATION_ERROR,
+            '目标模板与当前大会配置不兼容，请检查菜单和页面覆盖设置',
+            HttpStatus.UNPROCESSABLE_ENTITY,
+          );
         }
         await tx
           .update(eventTemplateBindings)
@@ -1315,10 +1340,21 @@ export class TemplateOperationsService {
       registration_flow: overrides.registration_flow.document as SurfaceOverrideDocument,
     });
     const validation = ConferenceTemplateDefinitionSchema.safeParse(resolved);
+    const baseDefinition = normalizeConferenceTemplateDefinition(version!.version.definition);
     return {
       binding,
       renderer: { key: version!.renderer.key, version: version!.renderer.version },
       definition: resolved,
+      ...(baseDefinition.presentation.kind === 'structured'
+        ? {
+            defaultNavigationItems: navigationItems(baseDefinition.presentation.home).map(
+              (item) => ({
+                ...item,
+                label: item.label.trim().slice(0, 16) || '菜单',
+              }),
+            ),
+          }
+        : {}),
       overrides,
       validation: validation.success
         ? { valid: true, errors: [], warnings: [] }
@@ -1472,7 +1508,7 @@ export class TemplateOperationsService {
           } catch {
             throw new DomainError(
               API_ERROR_CODES.VALIDATION_ERROR,
-              '首页配置不完整，请检查 Logo 设置',
+              '首页配置不完整，请检查菜单链接、菜单文字和 Logo 设置',
               HttpStatus.UNPROCESSABLE_ENTITY,
             );
           }

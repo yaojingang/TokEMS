@@ -61,11 +61,12 @@ const isLocalDemoSeed = process.env.DEPLOYMENT_MODE === 'local';
 const publicOrganizationSlug = process.env.PUBLIC_ORGANIZATION_SLUG ?? 'geo-conference';
 const canonicalOrganizationSettings = {
   ...CANONICAL_HOMEPAGE_SNAPSHOT.organization.settings,
+  homepage: { mode: CANONICAL_HOMEPAGE_SNAPSHOT.organization.settings.homepage?.mode ?? 'event', revision: 0 },
   analytics: DEFAULT_ANALYTICS_SETTINGS,
 } as const;
 const canonicalOrganizationStableSettings = Object.fromEntries(
   Object.entries(canonicalOrganizationSettings).filter(
-    ([key]) => key !== 'defaultTemplateId' && key !== 'customerAccounts',
+    ([key]) => key !== 'defaultTemplateId' && key !== 'customerAccounts' && key !== 'homepage',
   ),
 );
 const canonicalOrganizationCustomerAccountSettings = {
@@ -541,6 +542,17 @@ try {
             lastId: sql`greatest(${eventIdAllocators.lastId}, ${DEMO_IDS.event})`,
           },
         });
+
+      const [homepageOrganization] = await tx.select({ settings: organizations.settings }).from(organizations)
+        .where(eq(organizations.id, DEMO_IDS.organization));
+      const [previousDefault] = await tx.select({ eventId: organizationHomepageEvents.eventId }).from(organizationHomepageEvents)
+        .where(eq(organizationHomepageEvents.organizationId, DEMO_IDS.organization));
+      const previousHome = homepageOrganization?.settings.homepage as { mode?: string; revision?: number } | undefined;
+      const previousMode = previousHome?.mode ?? (previousDefault ? 'event' : 'empty');
+      const homeChanged = previousMode !== canonicalOrganizationSettings.homepage.mode || previousDefault?.eventId !== DEMO_IDS.event;
+      await tx.update(organizations).set({ settings: { ...homepageOrganization!.settings,
+        homepage: { mode: canonicalOrganizationSettings.homepage.mode, revision: (previousHome?.revision ?? 0) + (homeChanged ? 1 : 0) },
+      } }).where(eq(organizations.id, DEMO_IDS.organization));
 
       await tx
         .insert(organizationHomepageEvents)

@@ -69,6 +69,10 @@ let analyticsWasActiveInDocument = Boolean(
 onMounted(() => {
   void customer.refresh().catch(() => undefined);
   removeAnalyticsBoundaryGuard = router.beforeEach((to, from) => {
+    if (to.path === '/') {
+      window.location.assign(localAnalyticsBoundaryTarget(to.fullPath));
+      return false;
+    }
     if (
       !requiresAnalyticsDocumentBoundary(
         siteConfiguration.value?.analytics,

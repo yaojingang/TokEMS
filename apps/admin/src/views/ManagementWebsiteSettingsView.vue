@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import type { OrganizationSettingsResult } from '@conference/contracts';
 import SaveStatus from '../components/SaveStatus.vue';
+import HomepageSettingsPanel from '../components/HomepageSettingsPanel.vue';
 import SettingsFormActions from '../components/SettingsFormActions.vue';
 import { useSettingsFormScope } from '../composables/settings-form-state';
 import { conferenceApi, session } from '../lib/api';
@@ -13,6 +14,9 @@ const loaded = ref(false);
 const pending = ref(false);
 const message = ref('');
 const errorMessage = ref('');
+const homepagePanel = ref<InstanceType<typeof HomepageSettingsPanel>>();
+const homepageDirty = ref(false);
+const homepageBusy = ref(false);
 const form = reactive({
   siteName: '',
   seoTitle: '',
@@ -23,21 +27,32 @@ const form = reactive({
   supportEmail: '',
 });
 const canManage = computed(() => session.canAny(['org.settings.manage']));
-const { clearDirty, setBusy, setResetHandler } = useSettingsFormScope();
+const { setBusy, setDirty, setResetHandler } = useSettingsFormScope();
 let baseline: WebsiteSettings | null = null;
 
 function applySettings(settings: WebsiteSettings) {
   Object.assign(form, settings);
   baseline = { ...settings };
-  clearDirty();
+  setDirty(homepageDirty.value);
 }
 
 function resetForm() {
   if (baseline) Object.assign(form, baseline);
+  homepagePanel.value?.reset();
 }
 
 setResetHandler(resetForm);
-watch(pending, setBusy, { immediate: true });
+watch([pending, homepageBusy], ([website, homepage]) => setBusy(website || homepage), {
+  immediate: true,
+});
+watch(
+  [form, homepageDirty],
+  () =>
+    setDirty(
+      homepageDirty.value || Boolean(baseline && JSON.stringify(form) !== JSON.stringify(baseline)),
+    ),
+  { deep: true },
+);
 
 async function load() {
   loading.value = true;
@@ -79,6 +94,11 @@ onMounted(load);
 </script>
 
 <template>
+  <HomepageSettingsPanel
+    ref="homepagePanel"
+    @dirty-change="homepageDirty = $event"
+    @busy-change="homepageBusy = $event"
+  />
   <SaveStatus :message="message" :error="errorMessage" />
   <div v-if="loading" class="admin-loading">正在载入网站设置…</div>
   <div v-else-if="!loaded" class="admin-loading">

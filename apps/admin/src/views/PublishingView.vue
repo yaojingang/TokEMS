@@ -7,12 +7,17 @@ import type {
   EventTemplateBinding,
   TemplateSurface,
   TemplateLogoWall,
+  NavigationItem,
 } from '@conference/contracts';
 import {
   normalizeConferenceTemplateDefinition,
   TemplateLogoWallSchema,
+  NavigationItemsSchema,
+  navigationItems,
+  defaultNavigationItems,
 } from '@conference/contracts';
 import PartnerLogoEditor from '../components/PartnerLogoEditor.vue';
+import NavigationEditor from '../components/NavigationEditor.vue';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import SaveStatus from '../components/SaveStatus.vue';
 import { conferenceApi, publicEventPreviewUrl, session } from '../lib/api';
@@ -55,6 +60,12 @@ const hasStructuredHome = computed(
 );
 const homeForm = reactive({ primaryAction: '', secondaryAction: '' });
 const logoWall = ref<TemplateLogoWall>({ enabled: false, items: [] });
+const menuItems = ref<NavigationItem[]>([]);
+const defaultMenuItems = ref<NavigationItem[]>([]);
+const menuEdited = ref(false);
+const structuredHome = computed(() => experience.value?.definition.presentation.kind === 'structured'
+  ? experience.value.definition.presentation.home : undefined);
+function resetMenu() { menuItems.value = defaultMenuItems.value.map((item) => ({ ...item })); menuEdited.value = true; }
 const logoUploadPending = ref(false);
 const hasCooperationBlock = computed(
   () =>
@@ -86,6 +97,11 @@ function hydrateExperience(
     const home =
       definition.presentation.kind === 'structured' ? definition.presentation.home : undefined;
     const hero = home?.blocks.find((item) => item.nodeKey === 'home.hero');
+    if (home) {
+      menuItems.value = navigationItems(home);
+      defaultMenuItems.value = structuredClone(value.defaultNavigationItems ?? defaultNavigationItems(home));
+      menuEdited.value = false;
+    }
     homeForm.primaryAction = String(hero?.content.primaryAction ?? '立即报名');
     homeForm.secondaryAction = String(hero?.content.secondaryAction ?? '查看议程');
     const wall = TemplateLogoWallSchema.safeParse(
@@ -170,6 +186,10 @@ async function updateBinding(templateVersionId: string) {
 }
 
 async function saveSurface(surface: EditableSiteSurface) {
+  if (surface === 'home' && menuEdited.value) {
+    const result = NavigationItemsSchema.safeParse(menuItems.value);
+    if (!result.success) { errorMessage.value = result.error.issues[0]?.message ?? '菜单设置不完整'; return; }
+  }
   if (!experience.value || logoUploadPending.value) return;
   pending.value = true;
   message.value = '';
@@ -183,6 +203,9 @@ async function saveSurface(surface: EditableSiteSurface) {
       surface === 'home'
         ? {
             ...override.document,
+            ...(menuEdited.value ? { 'home.navigation': {
+              ...homePatch('home.navigation'), content: { ...homePatch('home.navigation').content, items: menuItems.value },
+            } } : {}),
             'home.hero': {
               ...homePatch('home.hero'),
               content: {
@@ -410,6 +433,12 @@ onMounted(() => void load());
           v-model="logoWall"
           :disabled="!canManageExperience || pending"
           @pending-change="logoUploadPending = $event"
+        />
+        <NavigationEditor
+          v-if="structuredHome" v-model="menuItems" :home="structuredHome"
+          :validate="menuEdited"
+          :disabled="!canManageExperience || pending || logoUploadPending"
+          @update:model-value="menuEdited = true" @input="menuEdited = true" @change="menuEdited = true" @reset="resetMenu"
         />
         <div v-if="canManageExperience" class="event-form-actions">
           <button class="button" type="submit" :disabled="pending || logoUploadPending">

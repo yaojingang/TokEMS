@@ -311,6 +311,9 @@ nav#nav.scrolled {
   }
 }
 @media (max-width: 390px) {
+  .nav-inner:has(.conference-navigation) .logo-name {
+    display: none;
+  }
   .logo {
     gap: 7px;
     font-size: 14px;

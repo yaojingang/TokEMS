@@ -12,6 +12,8 @@ import type {
   EventId,
   IntegrationStatus,
   OrganizationHomepageEvent,
+  OrganizationHomepageConfiguration,
+  UpdateOrganizationHomepageConfiguration,
   OrganizationInvitation,
   OrganizationMember,
   OrganizationSettings,
@@ -38,6 +40,7 @@ import {
   analyticsSnippetFromSettings,
   isPublicEventStatus,
   OrganizationSettingsSchema,
+  OrganizationHomepageSettingsSchema,
   WebsiteSettingsSchema,
 } from '@conference/contracts';
 import {
@@ -210,6 +213,9 @@ function normalizeOrganizationSettings(
           seoTitle: organizationName,
         },
     analytics: analytics.success ? analytics.data : DEFAULT_ORGANIZATION_SETTINGS.analytics,
+    ...(value.homepage === undefined
+      ? {}
+      : { homepage: OrganizationHomepageSettingsSchema.parse(value.homepage) }),
   };
 }
 
@@ -2371,107 +2377,229 @@ export class OrganizationAdminService {
     };
   }
 
+  async getHomepageConfiguration(
+    organizationId: string,
+  ): Promise<OrganizationHomepageConfiguration> {
+    return this.readHomepageConfiguration(eq(organizations.id, organizationId));
+  }
+
+  async getHomepageConfigurationBySlug(slug: string): Promise<OrganizationHomepageConfiguration> {
+    return this.readHomepageConfiguration(eq(organizations.slug, slug));
+  }
+
+  private async readHomepageConfiguration(
+    condition: ReturnType<typeof eq>,
+  ): Promise<OrganizationHomepageConfiguration> {
+    const [row] = await this.db()
+      .select({
+        organizationId: organizations.id,
+        settings: organizations.settings,
+        eventId: organizationHomepageEvents.eventId,
+        slug: events.slug,
+        name: events.name,
+        updatedAt: organizations.updatedAt,
+      })
+      .from(organizations)
+      .leftJoin(
+        organizationHomepageEvents,
+        eq(organizationHomepageEvents.organizationId, organizations.id),
+      )
+      .leftJoin(
+        events,
+        and(
+          eq(events.id, organizationHomepageEvents.eventId),
+          eq(events.organizationId, organizations.id),
+        ),
+      )
+      .where(condition)
+      .limit(1);
+    if (!row) throw new DomainError(API_ERROR_CODES.NOT_FOUND, '站点不存在', HttpStatus.NOT_FOUND);
+    const stored =
+      row.settings.homepage === undefined
+        ? undefined
+        : OrganizationHomepageSettingsSchema.parse(row.settings.homepage);
+    return {
+      organizationId: row.organizationId,
+      mode: stored?.mode ?? (row.eventId ? 'event' : 'empty'),
+      revision: stored?.revision ?? 0,
+      eventId: row.eventId,
+      slug: row.slug,
+      name: row.name,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  async homepageCandidates(organizationId: string) {
+    return this.db()
+      .select({ id: events.id, slug: events.slug, name: events.name })
+      .from(events)
+      .innerJoin(
+        eventReleases,
+        and(
+          eq(eventReleases.eventId, events.id),
+          sql`${eventReleases.id}::text = ${events.settings}->>'currentReleaseId'`,
+        ),
+      )
+      .where(
+        and(
+          eq(events.organizationId, organizationId),
+          sql`${events.status} in ('prepublished', 'registration_open', 'in_progress', 'ended')`,
+        ),
+      )
+      .orderBy(desc(events.startsAt));
+  }
+
+  async updateHomepageConfiguration(
+    organizationId: string,
+    actorId: string,
+    input: UpdateOrganizationHomepageConfiguration,
+  ) {
+    return this.changeHomepageConfiguration(organizationId, actorId, input);
+  }
+
   async setHomepageEvent(
     organizationId: string,
     actorId: string,
     eventId: EventId,
   ): Promise<OrganizationHomepageEvent> {
+    const result = await this.changeHomepageConfiguration(organizationId, actorId, {
+      mode: 'event',
+      eventId,
+    });
+    return {
+      organizationId,
+      eventId: result.eventId!,
+      slug: result.slug!,
+      name: result.name!,
+      updatedAt: result.updatedAt,
+    };
+  }
+
+  private async changeHomepageConfiguration(
+    organizationId: string,
+    actorId: string,
+    input: Omit<UpdateOrganizationHomepageConfiguration, 'revision'> & { revision?: number },
+  ): Promise<OrganizationHomepageConfiguration> {
     return this.db().transaction(async (tx) => {
       const [organization] = await tx
-        .select({ id: organizations.id })
+        .select()
         .from(organizations)
         .where(eq(organizations.id, organizationId))
         .for('update')
         .limit(1);
-      if (!organization) {
+      if (!organization)
         throw new DomainError(
           API_ERROR_CODES.NOT_FOUND,
           '组织不存在或无权访问',
           HttpStatus.NOT_FOUND,
         );
-      }
-
-      const [event] = await tx
-        .select({
-          id: events.id,
-          slug: events.slug,
-          name: events.name,
-          status: events.status,
-          settings: events.settings,
-        })
-        .from(events)
-        .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId)))
-        .for('update')
-        .limit(1);
-      if (!event) {
-        throw new DomainError(
-          API_ERROR_CODES.NOT_FOUND,
-          '大会不存在或无权访问',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-      const currentReleaseId = (event.settings as { currentReleaseId?: string }).currentReleaseId;
-      if (!isPublicEventStatus(event.status) || !currentReleaseId) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '只有已发布且前台可访问的大会可以设为首页',
-          HttpStatus.CONFLICT,
-        );
-      }
-      const [release] = await tx
-        .select({ id: eventReleases.id })
-        .from(eventReleases)
-        .where(and(eq(eventReleases.id, currentReleaseId), eq(eventReleases.eventId, event.id)))
-        .limit(1);
-      if (!release) {
-        throw new DomainError(
-          API_ERROR_CODES.INVALID_STATE_TRANSITION,
-          '大会当前发布版本不可用，请重新发布后再设为首页',
-          HttpStatus.CONFLICT,
-        );
-      }
-
       const [current] = await tx
         .select()
         .from(organizationHomepageEvents)
         .where(eq(organizationHomepageEvents.organizationId, organizationId))
         .limit(1);
-      if (current?.eventId === event.id) {
-        return {
-          organizationId,
-          eventId: event.id,
-          slug: event.slug,
-          name: event.name,
-          updatedAt: current.updatedAt.toISOString(),
-        };
+      const stored =
+        organization.settings.homepage === undefined
+          ? undefined
+          : OrganizationHomepageSettingsSchema.parse(organization.settings.homepage);
+      const revision = stored?.revision ?? 0;
+      const currentMode = stored?.mode ?? (current ? 'event' : 'empty');
+      if (input.revision !== undefined && input.revision !== revision) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '首页设置已被其他管理员修改，请重新载入后保存',
+          HttpStatus.CONFLICT,
+          { currentRevision: revision },
+        );
       }
-
-      const now = new Date();
-      const [updated] = await tx
-        .insert(organizationHomepageEvents)
-        .values({ organizationId, eventId: event.id, updatedBy: actorId, updatedAt: now })
-        .onConflictDoUpdate({
-          target: organizationHomepageEvents.organizationId,
-          set: { eventId: event.id, updatedBy: actorId, updatedAt: now },
-        })
-        .returning();
-      await tx.insert(auditLogs).values({
-        organizationId,
-        eventId: event.id,
-        actorId,
-        action: 'organization.homepage_event.update',
-        resourceType: 'organization',
-        resourceId: organizationId,
-        before: { eventId: current?.eventId ?? null },
-        after: { eventId: event.id, slug: event.slug },
-        traceId: crypto.randomUUID(),
-      });
+      const selectedId = input.eventId ?? current?.eventId;
+      if (input.mode === 'event' && !selectedId) {
+        throw new DomainError(
+          API_ERROR_CODES.INVALID_STATE_TRANSITION,
+          '请先选择一场已发布的默认大会',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const [event] = selectedId
+        ? await tx
+            .select({
+              id: events.id,
+              slug: events.slug,
+              name: events.name,
+              status: events.status,
+              settings: events.settings,
+            })
+            .from(events)
+            .where(and(eq(events.id, selectedId), eq(events.organizationId, organizationId)))
+            .for('update')
+            .limit(1)
+        : [];
+      if (selectedId && !event)
+        throw new DomainError(
+          API_ERROR_CODES.NOT_FOUND,
+          '大会不存在或无权访问',
+          HttpStatus.NOT_FOUND,
+        );
+      if (event) {
+        const releaseId = (event.settings as { currentReleaseId?: string }).currentReleaseId;
+        const [release] = releaseId
+          ? await tx
+              .select({ id: eventReleases.id })
+              .from(eventReleases)
+              .where(and(eq(eventReleases.id, releaseId), eq(eventReleases.eventId, event.id)))
+              .limit(1)
+          : [];
+        if (!isPublicEventStatus(event.status) || !release) {
+          throw new DomainError(
+            API_ERROR_CODES.INVALID_STATE_TRANSITION,
+            '只有已发布且前台可访问的大会可以设为默认大会',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+      const changed = currentMode !== input.mode || current?.eventId !== event?.id;
+      const now = changed ? new Date() : organization.updatedAt;
+      if (changed) {
+        if (event && current?.eventId !== event.id)
+          await tx
+            .insert(organizationHomepageEvents)
+            .values({ organizationId, eventId: event.id, updatedBy: actorId, updatedAt: now })
+            .onConflictDoUpdate({
+              target: organizationHomepageEvents.organizationId,
+              set: { eventId: event.id, updatedBy: actorId, updatedAt: now },
+            });
+        await tx
+          .update(organizations)
+          .set({
+            settings: {
+              ...organization.settings,
+              homepage: { mode: input.mode, revision: revision + 1 },
+            },
+            updatedAt: now,
+          })
+          .where(eq(organizations.id, organizationId));
+        await tx
+          .insert(auditLogs)
+          .values({
+            organizationId,
+            ...(event ? { eventId: event.id } : {}),
+            actorId,
+            action: 'organization.homepage_event.update',
+            resourceType: 'organization',
+            resourceId: organizationId,
+            before: { mode: currentMode, eventId: current?.eventId ?? null, revision },
+            after: { mode: input.mode, eventId: event?.id ?? null, revision: revision + 1 },
+            traceId: crypto.randomUUID(),
+          });
+      }
       return {
         organizationId,
-        eventId: event.id,
-        slug: event.slug,
-        name: event.name,
-        updatedAt: updated!.updatedAt.toISOString(),
+        mode: input.mode,
+        eventId: event?.id ?? null,
+        slug: event?.slug ?? null,
+        name: event?.name ?? null,
+        revision: revision + (changed ? 1 : 0),
+        updatedAt: now.toISOString(),
       };
     });
   }

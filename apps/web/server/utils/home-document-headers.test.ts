@@ -33,6 +33,17 @@ describe('homeDocumentResponseHeaders', () => {
     expect(headers['content-type']).toBe('text/html; charset=utf-8');
   });
 
+  it('forwards empty-home markers and indexing policy together with its script-free document policy', () => {
+    const result = new Response('<!doctype html>', { headers: {
+      'Content-Security-Policy': "default-src 'none'", 'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow', 'X-TokEMS-Homepage': 'empty',
+    } });
+    expect(Object.fromEntries(homeDocumentResponseHeaders(result))).toMatchObject({
+      'content-security-policy': "default-src 'none'", 'cache-control': 'no-store',
+      'x-robots-tag': 'noindex, nofollow', 'x-tokems-homepage': 'empty',
+    });
+  });
+
   it('does not leak API document policies into Nuxt error pages', () => {
     const headers = Object.fromEntries(homeDocumentResponseHeaders(response(404)));
 

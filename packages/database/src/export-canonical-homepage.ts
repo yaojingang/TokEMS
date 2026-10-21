@@ -367,7 +367,9 @@ function sanitizeExperience(value: unknown) {
 
 function sanitizeOrganizationSettings(value: unknown) {
   const settings = record(value, 'organization settings');
-  return pick(settings, [
+  const homepage = settings.homepage === undefined ? { mode: 'event' } : record(settings.homepage, 'homepage settings');
+  if (homepage.mode !== 'event' && homepage.mode !== 'empty') throw new Error('Invalid canonical homepage display mode');
+  return { ...pick(settings, [
     'brand',
     'locale',
     'brandName',
@@ -377,7 +379,7 @@ function sanitizeOrganizationSettings(value: unknown) {
     'defaultTemplateId',
     'customerAccounts',
     'website',
-  ]);
+  ]), homepage: { mode: homepage.mode, revision: 0 } };
 }
 
 function referencedAssetIds(value: unknown, found = new Set<string>()) {
@@ -791,6 +793,12 @@ export function validateCanonicalHomepageSnapshot(
   }
   const organization = record(snapshot.organization, 'canonical organization');
   const organizationSettings = record(organization.settings, 'canonical organization settings');
+  if (organizationSettings.homepage !== undefined) {
+    const homepage = record(organizationSettings.homepage, 'canonical root homepage settings');
+    if (!['event', 'empty'].includes(String(homepage.mode)) || (homepage.revision !== undefined && homepage.revision !== 0)) {
+      throw new Error('Canonical root homepage mode is invalid or its revision is not normalized');
+    }
+  }
   if (
     purpose === 'snapshot' &&
     organizationSettings.defaultTemplateId &&

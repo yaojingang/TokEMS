@@ -2339,6 +2339,8 @@ def load_snapshot(file_name):
         organization = snapshot.get("organization")
         settings = organization.get("settings") if isinstance(organization, dict) else None
         if isinstance(settings, dict):
+            homepage = settings.setdefault("homepage", {"mode": "event"})
+            homepage["revision"] = 0
             # These values belong to the running environment.  The canonical
             # snapshot keeps them for local/CI checks, but they are not stable
             # release invariants across production databases.
@@ -4069,6 +4071,125 @@ verify_canonical_full_snapshot() {
   log 'Production canonical homepage and backend settings match a verified release snapshot'
 }
 
+verify_root_homepage_document() {
+  local surface="$1" document="$2" headers="$3"
+  python3 - "$release_source_dir/packages/contracts/src/canonical-homepage.snapshot.json" \
+    "$document" "$headers" "$surface" '/etc/tokems/root-homepage-owner.json' "$PUBLIC_ORIGIN" <<'PY'
+import json
+import os
+import re
+import sys
+from html.parser import HTMLParser
+
+snapshot_path, document_path, headers_path, surface, owner_path, public_origin = sys.argv[1:]
+with open(snapshot_path, encoding="utf-8") as handle:
+    settings = json.load(handle)["organization"]["settings"]
+mode = settings.get("homepage", {}).get("mode", "event")
+if mode not in ("event", "empty"):
+    raise SystemExit("Unknown root homepage mode")
+with open(document_path, encoding="utf-8") as handle:
+    document = handle.read()
+with open(headers_path, encoding="utf-8") as handle:
+    raw_headers = handle.read()
+if not re.search(r"^HTTP/\S+ 200\b", raw_headers, re.MULTILINE):
+    raise SystemExit("Root homepage HEAD did not return HTTP 200")
+headers = {}
+for line in raw_headers.splitlines():
+    if ":" in line:
+        key, value = line.split(":", 1)
+        headers[key.lower()] = value.strip().lower()
+
+class RootDocument(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.empty = False
+        self.body = False
+        self.body_elements = []
+        self.body_text = []
+        self.forbidden = []
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "html":
+            self.empty = attributes.get("data-tokems-homepage") == "empty"
+        if tag in ("script", "iframe", "object", "embed", "link"):
+            self.forbidden.append(tag)
+        if self.body:
+            self.body_elements.append(tag)
+        if tag == "body":
+            self.body = True
+    def handle_endtag(self, tag):
+        if tag == "body":
+            self.body = False
+    def handle_data(self, data):
+        if self.body and data.strip():
+            self.body_text.append(data.strip())
+
+parsed = RootDocument()
+parsed.feed(document)
+if mode == "empty" and surface == "public" and not parsed.empty:
+    if not os.path.isfile(owner_path):
+        raise SystemExit("External root homepage requires its root-homepage-owner.json acceptance record")
+    metadata = os.stat(owner_path)
+    if metadata.st_uid != 0 or metadata.st_mode & 0o022:
+        raise SystemExit("External root homepage record must be root-owned and not writable by others")
+    with open(owner_path, encoding="utf-8") as handle:
+        owner = json.load(handle)
+    required_text = owner.get("requiredText")
+    if owner.get("url") != public_origin.rstrip("/") + "/" or not isinstance(required_text, str) or not required_text.strip():
+        raise SystemExit("External root homepage acceptance record is invalid")
+    if required_text not in document:
+        raise SystemExit("External root homepage does not match its acceptance record")
+elif mode == "empty":
+    if not parsed.empty or parsed.body_elements or parsed.body_text or parsed.forbidden:
+        raise SystemExit("Empty root homepage contains application content or executable resources")
+    if "no-store" not in headers.get("cache-control", "") or "noindex" not in headers.get("x-robots-tag", ""):
+        raise SystemExit("Empty root homepage cache or indexing policy is missing")
+    if "default-src 'none'" not in headers.get("content-security-policy", ""):
+        raise SystemExit("Empty root homepage script isolation policy is missing")
+else:
+    if parsed.empty or not parsed.body_text:
+        raise SystemExit("Conference root homepage has no rendered content")
+PY
+}
+
+verify_conference_home_document() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+from html.parser import HTMLParser
+
+class ConferenceDocument(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.body = False
+        self.ignored = 0
+        self.text = []
+    def handle_starttag(self, tag, attrs):
+        if tag == "body":
+            self.body = True
+        if tag in ("script", "style"):
+            self.ignored += 1
+    def handle_endtag(self, tag):
+        if tag == "body":
+            self.body = False
+        if tag in ("script", "style"):
+            self.ignored = max(0, self.ignored - 1)
+    def handle_data(self, data):
+        if self.body and not self.ignored and data.strip():
+            self.text.append(re.sub(r"\s+", " ", data.strip()))
+
+def rendered_text(path):
+    parsed = ConferenceDocument()
+    with open(path, encoding="utf-8") as handle:
+        parsed.feed(handle.read())
+    return " ".join(parsed.text)
+
+local, public = map(rendered_text, sys.argv[1:])
+if not local or public != local:
+    raise SystemExit("Public independent conference content does not match the verified local page")
+PY
+}
+
 verify_release() {
   local expected_runtime_sha="${1:-$target_sha}"
   local expected_migration="${2:-${BUILD_MIGRATION:-}}"
@@ -4098,6 +4219,9 @@ verify_release() {
     'http://127.0.0.1:8088/admin/version.json' >"$backup_dir/admin-version-after.json"
   curl "${CURL_ARGS[@]}" 'http://127.0.0.1:8088/api/v1/health' >"$backup_dir/health-after.json"
   curl "${CURL_ARGS[@]}" 'http://127.0.0.1:8088/api/v1/homepage' >"$backup_dir/homepage-after.json"
+  curl "${CURL_ARGS[@]}" --max-filesize 5242880 'http://127.0.0.1:8088/' >"$backup_dir/local-root-homepage-after.html"
+  curl "${CURL_ARGS[@]}" --head 'http://127.0.0.1:8088/' >"$backup_dir/local-root-homepage-headers.txt"
+  curl "${CURL_ARGS[@]}" --max-filesize 5242880 'http://127.0.0.1:8088/tokems26' >"$backup_dir/local-conference-document-after.html"
 
   worker_container="$(compose ps -q worker)"
   timeout --foreground --kill-after=10s "${DB_PROOF_TIMEOUT_SECONDS}s" docker exec "$worker_container" node -e \
@@ -4119,6 +4243,7 @@ verify_release() {
   curl "${CURL_ARGS[@]}" --location --max-redirs 5 --max-filesize 5242880 \
     "${PUBLIC_ORIGIN}/" >"$backup_dir/public-homepage-document-after.html"
   curl "${CURL_ARGS[@]}" --head "${PUBLIC_ORIGIN}/" >"$backup_dir/public-homepage-headers.txt"
+  curl "${CURL_ARGS[@]}" --max-filesize 5242880 "${PUBLIC_ORIGIN}/tokems26" >"$backup_dir/public-conference-document-after.html"
   curl "${CURL_ARGS[@]}" --head "${ADMIN_ORIGIN}/admin/" >"$backup_dir/public-admin-headers.txt"
   curl "${CURL_ARGS[@]}" --head "$PAYMENT_URL" >"$backup_dir/public-payment-headers.txt"
   [[ "$(json_sha_from_stdin <"$backup_dir/public-version-after.json")" == "$expected_runtime_sha" ]] || {
@@ -4137,6 +4262,9 @@ verify_release() {
     "$release_source_dir/packages/contracts/src/canonical-homepage.public.json" \
     "$backup_dir/canonical-homepage.snapshot.production.json" \
     "$release_source_dir/packages/contracts/src/canonical-homepage.snapshot.json"
+  verify_root_homepage_document local "$backup_dir/local-root-homepage-after.html" "$backup_dir/local-root-homepage-headers.txt"
+  verify_root_homepage_document public "$backup_dir/public-homepage-document-after.html" "$backup_dir/public-homepage-headers.txt"
+  verify_conference_home_document "$backup_dir/local-conference-document-after.html" "$backup_dir/public-conference-document-after.html"
 
   capture_business_snapshot "$backup_dir/business-counts-after.csv"
   capture_protected_business_ids "$backup_dir/protected-business-ids-after.csv" stable comparison

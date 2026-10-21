@@ -4614,7 +4614,7 @@ export class ConferenceRepository {
           if (homepage) {
             throw new DomainError(
               API_ERROR_CODES.INVALID_STATE_TRANSITION,
-              '当前大会是首页默认大会，请先将另一场已发布大会设为首页',
+              '当前大会是默认业务大会，请先切换到另一场已发布大会后再下线',
               HttpStatus.CONFLICT,
             );
           }

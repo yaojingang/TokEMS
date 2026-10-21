@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
+  resolveNavigationLinks,
   publicEventHomePath,
-  publicEventScopedPath,
   type PublicEvent,
 } from '@conference/contracts';
-import { createError, onBeforeUnmount, useAsyncData } from '#imports';
+import { createError, onBeforeUnmount, useAsyncData, useRequestURL } from '#imports';
 import { resolveEventExperience } from '~/composables/useEventExperience';
 import { copyPlainText } from '~/utils/copy-text';
 
@@ -109,45 +109,8 @@ const navigationCopy = (key: string, fallback: string) => {
     ?.content[key];
   return typeof defaultValue === 'string' ? defaultValue : fallback;
 };
-const navigationLinks = computed(() =>
-  (
-    [
-      ['home.value', 'whyLabel', '背景', `${homeHref.value}#why`],
-      ['home.upgrade', 'editionLabel', '第二届', `${homeHref.value}#upgrade`],
-      ['home.agenda', 'agendaLabel', '议程', `${homeHref.value}#agenda`],
-      ['home.speakers', 'speakersLabel', '嘉宾', `${homeHref.value}#speakers`],
-      ['home.members', 'membersLabel', '会员', `${homeHref.value}#members`],
-      ['home.tickets', 'ticketsLabel', '门票', `${homeHref.value}#tickets`],
-      [
-        'home.cooperation',
-        'cooperationLabel',
-        '合作',
-        publicEventScopedPath('/apply/cooperation', event.value!.slug),
-      ],
-      [
-        'home.faq-summary',
-        'faqLabel',
-        'FAQ',
-        experience.value.faq.mode === 'page'
-          ? publicEventScopedPath('/faq', event.value!.slug)
-          : `${homeHref.value}#faq`,
-      ],
-    ] as const
-  )
-    .filter(([nodeKey]) =>
-      nodeKey === 'home.members'
-        ? Boolean(
-            event.value!.experience?.home?.blocks.find((block) => block.nodeKey === nodeKey)
-              ?.enabled,
-          )
-        : (homeBlock(nodeKey)?.enabled ?? true),
-    )
-    .map(([nodeKey, key, label, href]) => ({
-      nodeKey,
-      label: navigationCopy(key, label),
-      href,
-    })),
-);
+const navigationOrigin = useRequestURL().origin;
+const navigationLinks = computed(() => resolveNavigationLinks(event.value!, experience.value.home, experience.value.faq.mode, { origin: navigationOrigin }));
 </script>
 
 <template>
@@ -156,19 +119,10 @@ const navigationLinks = computed(() =>
       <div class="nav-inner">
         <NuxtLink :to="homeHref" class="logo" aria-label="返回大会首页">
           <span class="logo-mark">{{ navigationCopy('logoMark', 'G') }}</span>
-          <span>{{ navigationCopy('brandLabel', 'GEO大会') }}</span>
+          <span class="logo-name">{{ navigationCopy('brandLabel', 'GEO大会') }}</span>
           <span class="logo-sub">{{ navigationCopy('brandMeta', '2026 · 第二届') }}</span>
         </NuxtLink>
-        <div v-if="homeBlock('home.navigation')?.enabled !== false" class="nav-links">
-          <a
-            v-for="link in navigationLinks"
-            :key="link.nodeKey"
-            :href="link.href"
-            :aria-current="link.nodeKey === 'home.cooperation' ? 'page' : undefined"
-          >
-            {{ link.label }}
-          </a>
-        </div>
+        <ConferenceNavigationLinks :links="navigationLinks" />
         <div class="nav-cta">
           <NuxtLink class="btn btn-outline cooperation-home-link" :to="homeHref">
             <span class="cooperation-home-link__desktop">返回大会首页</span>

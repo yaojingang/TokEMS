@@ -6,7 +6,7 @@
     "skillVersion": "0.2.0",
     "minClientVersion": "0.2.0"
   },
-  "actionCount": 87,
+  "actionCount": 89,
   "actions": [
     {
       "actionId": "organization.members.list",
@@ -194,6 +194,42 @@
       "idempotencyStrategy": "transactional-command",
       "verifyActionId": "organization.settings.get",
       "rollback": "调用同一接口停用网站统计。",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.homepage.get",
+      "method": "GET",
+      "path": "/api/v1/admin/organization/homepage",
+      "requiredGrants": [
+        "org.settings.read"
+      ],
+      "agentScopes": [
+        "tokems:read"
+      ],
+      "dataClass": "internal",
+      "riskBase": "read",
+      "confirmation": "none",
+      "idempotencyStrategy": null,
+      "verifyActionId": null,
+      "rollback": "not-applicable",
+      "minClientVersion": "0.2.0"
+    },
+    {
+      "actionId": "organization.homepage.update",
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/homepage",
+      "requiredGrants": [
+        "org.settings.manage"
+      ],
+      "agentScopes": [
+        "tokems:write"
+      ],
+      "dataClass": "internal",
+      "riskBase": "controlled",
+      "confirmation": "browser",
+      "idempotencyStrategy": "transactional-command",
+      "verifyActionId": "organization.homepage.get",
+      "rollback": "use-domain-history",
       "minClientVersion": "0.2.0"
     },
     {
@@ -2561,6 +2597,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/organization/homepage",
+      "handler": "OrganizationEventsController.organizationHomepage",
+      "actionId": "organization.homepage.get",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/organization/invitations",
       "handler": "OrganizationEventsController.invitations",
       "actionId": null,
@@ -4184,6 +4231,17 @@
       "exclusion": null,
       "requiredAnyGrants": [
         "org.analytics.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/organization/homepage",
+      "handler": "OrganizationEventsController.updateOrganizationHomepage",
+      "actionId": "organization.homepage.update",
+      "exclusion": null,
+      "requiredAnyGrants": [
+        "org.settings.manage"
       ],
       "requiredAllGrants": []
     },
