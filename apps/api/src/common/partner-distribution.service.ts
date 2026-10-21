@@ -10,6 +10,7 @@ import {
   calculateCommissionLine,
   publicEventScopedPath,
   type AdminEditPartnerDetails,
+  type AdminPartnerPromotionView,
   type AdminEnablePartner,
   type AdminUpdatePartner,
   type PartnerProgramDraft,
@@ -653,7 +654,7 @@ export class PartnerDistributionService {
           ),
         )
         .limit(1);
-      if (existing) return { created: false, partner: existing };
+      if (existing) return { created: false, partner: existing, loginMobile: customer.user.mobileE164 };
       const publicSlug = randomBytes(9).toString('base64url').toLowerCase();
       const [partner] = await tx
         .insert(eventPartners)
@@ -730,7 +731,7 @@ export class PartnerDistributionService {
           payload: { deliveryId, partnerId: partner!.id, recipientRole: 'partner' },
         });
       }
-      return { created: true, partner: partner! };
+      return { created: true, partner: partner!, loginMobile: customer.user.mobileE164 };
     });
     return {
       ...(await this.relationship(
@@ -739,6 +740,9 @@ export class PartnerDistributionService {
         organizationId,
       )),
       created: result.created,
+      loginMobile: result.loginMobile,
+      sortOrder: result.partner.sortOrder,
+      internalNote: result.partner.internalNote,
     };
   }
 
@@ -2496,6 +2500,75 @@ export class PartnerDistributionService {
         })),
       ),
     };
+  }
+
+  async adminPromotion(organizationId: string, eventId: number, partnerId: string): Promise<AdminPartnerPromotionView> {
+    const [row] = await this.db().select({ partner: eventPartners, profile: eventPartnerProfileVersions, event: events })
+      .from(eventPartners)
+      .innerJoin(events, and(eq(events.id, eventPartners.eventId), eq(events.organizationId, organizationId)))
+      .innerJoin(eventPartnerProfileVersions, and(
+        eq(eventPartnerProfileVersions.partnerId, eventPartners.id),
+        eq(eventPartnerProfileVersions.version, eventPartners.profileVersion),
+      ))
+      .where(and(eq(eventPartners.organizationId, organizationId), eq(eventPartners.eventId, eventId), eq(eventPartners.id, partnerId)))
+      .limit(1);
+    if (!row) fail(API_ERROR_CODES.NOT_FOUND, '合作伙伴不存在或无权查看', HttpStatus.NOT_FOUND);
+    const [[link], program] = await Promise.all([
+      this.db().select().from(partnerReferralLinks).where(and(
+        eq(partnerReferralLinks.organizationId, organizationId),
+        eq(partnerReferralLinks.eventId, eventId), eq(partnerReferralLinks.partnerId, partnerId),
+      )).orderBy(desc(eq(partnerReferralLinks.status, 'active')), desc(partnerReferralLinks.createdAt)).limit(1),
+      this.activeProgram(organizationId, eventId),
+    ]);
+    let availability: AdminPartnerPromotionView['availability'] = 'unavailable';
+    let reason = '';
+    if (!link) reason = '尚无推广链接，请联系大会管理员处理。';
+    else if (link.status !== 'active') reason = '推广链接已停用。';
+    else if (link.expiresAt && link.expiresAt <= new Date()) reason = '推广链接已过期。';
+    else if (!program) reason = '当前大会分销计划不可用。';
+    else if (row.partner.qualificationStatus === 'paused') reason = '合作伙伴已暂停，当前推广链接不可用。';
+    else if (row.partner.qualificationStatus === 'closed') reason = '合作伙伴已关闭，当前推广链接不可用。';
+    else if (row.partner.qualificationStatus === 'pending_confirmation' && row.partner.currentProgramVersionId === program.id) {
+      availability = 'pending_confirmation';
+      reason = '待合作伙伴确认当前规则，链接暂不可用。可提前领取素材，确认后原链接和二维码自动生效。';
+    } else if (!row.partner.attributionEnabled) reason = '该合作伙伴的推广归因已停用。';
+    else if (row.partner.acceptedProgramVersionId !== program.id || row.partner.currentProgramVersionId !== program.id) reason = '合作规则已更新，请先由合作伙伴确认当前规则。';
+    else if (row.partner.qualificationStatus === 'active') {
+      availability = 'ready';
+      reason = '推广链接已生效，可复制链接或下载素材。';
+    }
+    const allowed = (field: keyof typeof row.profile.posterFields) => row.profile.visibleFields[field] && row.profile.posterFields[field];
+    return {
+      id: partnerId, eventId, eventSlug: row.event.slug, eventName: row.event.name,
+      referralPath: link ? `/r/${encodeURIComponent(link.code)}` : '',
+      qualificationStatus: row.partner.qualificationStatus, availability, reason,
+      version: row.partner.version,
+      profile: {
+        version: row.profile.version,
+        displayName: allowed('displayName') ? row.profile.displayName : '',
+        company: allowed('company') ? row.profile.company : '',
+        title: allowed('title') ? row.profile.title : '',
+        industry: allowed('industry') ? row.profile.industry : '',
+        businessIntro: allowed('businessIntro') ? row.profile.businessIntro : '',
+        avatarUrl: allowed('avatar') && row.profile.avatarAssetId
+          ? `/admin/events/${eventId}/distribution/partners/${encodeURIComponent(partnerId)}/promotion/avatar?version=${row.profile.version}` : null,
+        visibleFields: row.profile.visibleFields, posterFields: row.profile.posterFields,
+        posterCopy: row.profile.posterCopy,
+      },
+    };
+  }
+
+  async adminPromotionAvatarScope(organizationId: string, eventId: number, partnerId: string, profileVersion: number) {
+    const [row] = await this.db().select({ partner: eventPartners, profile: eventPartnerProfileVersions })
+      .from(eventPartners).innerJoin(eventPartnerProfileVersions, and(
+        eq(eventPartnerProfileVersions.partnerId, eventPartners.id),
+        eq(eventPartnerProfileVersions.version, eventPartners.profileVersion),
+      )).where(and(eq(eventPartners.id, partnerId), eq(eventPartners.organizationId, organizationId), eq(eventPartners.eventId, eventId))).limit(1);
+    if (!row || !row.profile.avatarAssetId || !row.profile.visibleFields.avatar || !row.profile.posterFields.avatar)
+      fail(API_ERROR_CODES.NOT_FOUND, '海报头像不存在或未授权', HttpStatus.NOT_FOUND);
+    if (row.profile.version !== profileVersion)
+      fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴资料已更新，请刷新推广素材');
+    return { organizationId, customerUserId: row.partner.customerUserId, assetId: row.profile.avatarAssetId };
   }
 
   async adminPrograms(organizationId: string, eventId: number) {

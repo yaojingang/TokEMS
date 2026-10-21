@@ -2109,6 +2109,30 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/promotion",
+      "handler": "AdminPartnerController.promotion",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.partner.read",
+        "event.partner.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/promotion/avatar",
+      "handler": "AdminPartnerController.promotionAvatar",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.partner.read",
+        "event.partner.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/distribution/payouts",
       "handler": "AdminPartnerController.payouts",
       "actionId": null,

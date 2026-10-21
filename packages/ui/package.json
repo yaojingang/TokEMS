@@ -4,11 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./posters": "./src/posters/index.ts"
   },
   "scripts": {
     "build": "node ../../tooling/build-ui.mjs",
     "typecheck": "node -e \"process.exit(0)\"",
     "test": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "@conference/contracts": "workspace:*"
   }
 }

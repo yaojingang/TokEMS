@@ -7,6 +7,22 @@ const REQUIRED_GRANTS_METADATA = 'conference.required_grants';
 const REQUIRED_ALL_GRANTS_METADATA = 'conference.required_all_grants';
 
 describe('partner distribution administration permissions', () => {
+  it('protects read-only promotion materials without financial grants and prevents caching', async () => {
+    for (const handler of ['promotion', 'promotionAvatar'] as const) {
+      expect(Reflect.getMetadata(REQUIRED_GRANTS_METADATA, AdminPartnerController.prototype[handler])).toEqual(['event.partner.read', 'event.partner.manage']);
+    }
+    const partners = { adminPromotion: vi.fn().mockResolvedValue({ id: 'partner' }), adminPromotionAvatarScope: vi.fn().mockResolvedValue({ organizationId: 'org', customerUserId: 'customer', assetId: 'avatar' }) };
+    const showcase = { partnerMediaContent: vi.fn().mockResolvedValue(Buffer.from('image')) };
+    const controller = new AdminPartnerController(partners as never, {} as never, showcase as never);
+    const request = { user: { organizationId: 'org' } } as never;
+    const reply = { header: vi.fn(), send: vi.fn() }; reply.header.mockReturnValue(reply);
+    await controller.promotion(request, 101, 'partner', reply as never);
+    await controller.promotionAvatar(request, 101, 'partner', 3, reply as never);
+    expect(partners.adminPromotion).toHaveBeenCalledWith('org', 101, 'partner');
+    expect(partners.adminPromotionAvatarScope).toHaveBeenCalledWith('org', 101, 'partner', 3);
+    expect(showcase.partnerMediaContent).toHaveBeenCalledWith('org', 'customer', 'avatar');
+    expect(reply.header).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+  });
   it('requires an explicit financial grant and prevents caching of recipient details', async () => {
     expect(
       Reflect.getMetadata(
@@ -20,7 +36,7 @@ describe('partner distribution administration permissions', () => {
       ).toBe(false);
     }
     const partners = { recipientDetails: vi.fn().mockResolvedValue({ id: 'recipient' }) };
-    const controller = new AdminPartnerController(partners as never, {} as never);
+    const controller = new AdminPartnerController(partners as never, {} as never, {} as never);
     const reply = { header: vi.fn() };
     reply.header.mockReturnValue(reply);
     await controller.recipientDetails(
@@ -87,7 +103,7 @@ describe('partner distribution administration permissions', () => {
       executeBatch: vi.fn().mockResolvedValue({}),
       queryExecution: vi.fn().mockResolvedValue({}),
     };
-    const controller = new AdminPartnerController(partners as never, transfers as never);
+    const controller = new AdminPartnerController(partners as never, transfers as never, {} as never);
     const request = { user: { organizationId: 'organization-1', sub: 'staff-1' } } as never;
     const batchId = '00000000-0000-4000-8000-000000000001';
     const executionId = '00000000-0000-4000-8000-000000000002';

@@ -617,7 +617,24 @@ export interface AdminPartnerRelationshipView extends PartnerRelationshipView {
   internalNote: string;
 }
 
-export interface AdminEnablePartnerResult extends PartnerRelationshipView {
+export type PartnerPosterProfileView = Pick<PartnerProfileView,
+  'version' | 'displayName' | 'company' | 'title' | 'industry' | 'businessIntro' |
+  'avatarUrl' | 'visibleFields' | 'posterFields' | 'posterCopy'>;
+
+export interface AdminPartnerPromotionView {
+  id: string;
+  eventId: number;
+  eventSlug: string;
+  eventName: string;
+  referralPath: string;
+  qualificationStatus: PartnerQualificationStatus;
+  availability: 'ready' | 'pending_confirmation' | 'unavailable';
+  reason: string;
+  version: number;
+  profile: PartnerPosterProfileView;
+}
+
+export interface AdminEnablePartnerResult extends AdminPartnerRelationshipView {
   created: boolean;
 }
 

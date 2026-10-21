@@ -1,0 +1,604 @@
+import assert from 'node:assert/strict';
+import { after, test } from 'node:test';
+import { mkdir, readFile } from 'node:fs/promises';
+import { chromium } from 'playwright-core';
+import jsQR from 'jsqr';
+const base = process.env.ADMIN_BASE_URL ?? 'http://localhost:3200/admin';
+if (!['localhost', '127.0.0.1', 'admin.localhost', '[::1]'].includes(new URL(base).hostname))
+  throw new Error('Material checks require a local app');
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+after(() => browser.close());
+const output = 'test-results/partner-promotion';
+await mkdir(output, { recursive: true });
+const fields = {
+  avatar: true,
+  displayName: true,
+  company: true,
+  title: true,
+  industry: false,
+  businessIntro: false,
+  businessUrl: false,
+  contactPhone: false,
+  contactEmail: false,
+  wechatId: false,
+  gallery: false,
+};
+const event = {
+  id: 101,
+  organizationId: 'org-materials',
+  slug: 'tokems26',
+  name: '第二届中国GEO大会',
+  shortName: 'GEO大会',
+  startsAt: '2027-11-01T01:00:00Z',
+  endsAt: '2027-11-01T10:00:00Z',
+  timezone: 'Asia/Shanghai',
+  city: '深圳',
+  status: 'registration_open',
+  speakers: [],
+};
+const partner = {
+  id: 'a761c83a-143b-4447-b018-a03c238b2be7',
+  version: 1,
+  eventId: 101,
+  eventSlug: event.slug,
+  eventName: event.name,
+  referralPath: '/r/promotionfixture',
+  qualificationStatus: 'active',
+  attributionEnabled: true,
+  personalRateBps: null,
+  loginMobile: '+8613800138000',
+  sortOrder: 0,
+  internalNote: '内部资料不应出现在海报',
+  balances: { available: 0, reserved: 0 },
+  profile: {
+    version: 1,
+    displayName: '林安',
+    company: '远见数字科技',
+    title: '市场负责人',
+    industry: '',
+    businessIntro: '',
+    businessUrl: '',
+    avatarUrl: null,
+    publicStatus: 'draft',
+    visibleFields: fields,
+    posterFields: fields,
+  },
+};
+async function fixture(
+  t,
+  {
+    width = 1440,
+    readOnly = false,
+    availability = 'ready',
+    created = false,
+    expectedReferrals = 0,
+  } = {},
+) {
+  const context = await browser.newContext({
+    viewport: { width, height: 1000 },
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  t.after(() => context.close());
+  await context.route('https://fonts.googleapis.com/**', (route) =>
+    route.fulfill({ contentType: 'text/css', body: '' }),
+  );
+  await context.addInitScript(() =>
+    localStorage.setItem('conference.admin.token', 'material-fixture'),
+  );
+  const page = await context.newPage();
+  page.setDefaultTimeout(10000);
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  const state = {
+    partner: structuredClone(partner),
+    availability,
+    fail: false,
+    created,
+    writes: [],
+    referrals: 0,
+    late: null,
+  };
+  await context.route('**/api/v1/**', async (route) => {
+    const req = route.request(),
+      path = new URL(req.url()).pathname;
+    if (path.endsWith('/site-config'))
+      return route.fulfill({ json: { website: {}, customerAccounts: {}, analytics: {} } });
+    if (path.endsWith('/auth/me'))
+      return route.fulfill({
+        json: {
+          user: { id: 101, name: '素材管理员' },
+          organization: {
+            id: event.organizationId,
+            slug: 'geo-conference',
+            name: '大会组织',
+            settings: {},
+          },
+          membership: {
+            id: 'membership',
+            role: 'owner',
+            status: 'active',
+            grants: readOnly ? ['event.read', 'event.partner.read'] : ['*'],
+          },
+          adminPreferences: { lastEventId: 101 },
+        },
+      });
+    if (path.endsWith('/admin/event-options'))
+      return route.fulfill({ json: [{ ...event, organizationName: '大会组织' }] });
+    if (
+      /^\/api\/v1\/r\//.test(path) ||
+      path.includes('/partner-referrals') ||
+      path.includes('/referrals/')
+    )
+      state.referrals++;
+    if (req.method() !== 'GET') {
+      state.writes.push({ path, body: req.postDataJSON() });
+      if (path.endsWith('/details')) {
+        Object.assign(state.partner.profile, req.postDataJSON());
+        state.partner.version++;
+        state.partner.profile.version++;
+        return route.fulfill({ json: state.partner });
+      }
+      if (path.endsWith('/partners'))
+        return route.fulfill({ json: { ...state.partner, created: state.created } });
+      return route.fulfill({ json: {} });
+    }
+    if (path.endsWith('/promotion')) {
+      if (state.late) await state.late;
+      if (state.fail)
+        return route.fulfill({ status: 503, json: { message: '素材暂时无法读取，请重试。' } });
+      return route.fulfill({
+        json: {
+          ...state.partner,
+          availability: state.availability,
+          reason:
+            state.availability === 'ready'
+              ? '推广链接已生效'
+              : state.availability === 'pending_confirmation'
+                ? '待合作伙伴确认当前规则，确认后原链接和二维码自动生效。'
+                : '合作伙伴已暂停，当前推广链接不可用。',
+        },
+      });
+    }
+    if (path.endsWith('/overview'))
+      return route.fulfill({
+        json: {
+          program: { mode: 'fixed', fixedRateBps: 1000 },
+          partnerCounts: {},
+          commissionTotals: {},
+          payoutTotals: {},
+        },
+      });
+    if (path.endsWith('/partners')) return route.fulfill({ json: { items: [state.partner] } });
+    if (path.endsWith('/payouts'))
+      return route.fulfill({
+        json: {
+          requests: [],
+          batches: [],
+          inquiries: [],
+          recipients: [],
+          documents: [],
+          reconciliations: [],
+        },
+      });
+    if (path.endsWith('/events/101') || path.endsWith('/events/tokems26'))
+      return route.fulfill({ json: event });
+    return route.fulfill({ json: { items: [] } });
+  });
+  await page.goto(`${base}/events/101/distribution`, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: '合作伙伴列表', exact: true }).waitFor();
+  t.after(() => {
+    assert.deepEqual(errors, []);
+    assert.equal(state.referrals, expectedReferrals, 'preview must not resolve a referral');
+  });
+  return { page, state, context };
+}
+async function open(page) {
+  await page
+    .locator('.partner-directory-table')
+    .getByRole('button', { name: '推广素材', exact: true })
+    .click();
+  const panel = page.getByRole('dialog', { name: '合作伙伴推广素材', exact: true });
+  await panel.getByRole('button', { name: '下载分销海报 PNG' }).waitFor();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector('[aria-label="合作伙伴分销海报预览"]').hidden &&
+      document.querySelector('[aria-label="合作伙伴分销海报预览"]').style.display !== 'none',
+  );
+  return panel;
+}
+async function imageData(canvas) {
+  return canvas.evaluate((el) => {
+    const c = el.getContext('2d'),
+      p = c.getImageData(0, 0, el.width, el.height);
+    return { data: Array.from(p.data), width: p.width, height: p.height };
+  });
+}
+for (const width of [1440, 375, 320])
+  test(`promotion exports at ${width}px use the frontend link and exact poster preview`, async (t) => {
+    const { page, state } = await fixture(t, { width });
+    const panel = await open(page);
+    const link = await panel.getByLabel('专属分销链接').inputValue();
+    assert.equal(link, 'http://localhost:3000/r/promotionfixture');
+    const canvas = panel.getByLabel('合作伙伴分销海报预览');
+    const png = await canvas.evaluate((el) => el.toDataURL('image/png'));
+    const downloadEvent = page.waitForEvent('download');
+    await panel.getByRole('button', { name: '下载分销海报 PNG' }).click();
+    const download = await downloadEvent;
+    assert.deepEqual(
+      await readFile(await download.path()),
+      Buffer.from(png.split(',')[1], 'base64'),
+    );
+    assert.ok(!download.suggestedFilename().includes('13800138000'));
+    const qrDownloadEvent = page.waitForEvent('download');
+    await panel.getByRole('button', { name: '下载二维码 PNG' }).click();
+    const qrDownload = await qrDownloadEvent;
+    await qrDownload.saveAs(`${output}/qr-${width}.png`);
+    const encodedQr = (await readFile(await qrDownload.path())).toString('base64');
+    const exportedQr = await page.evaluate(async (encoded) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${encoded}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const p = ctx.getImageData(0, 0, c.width, c.height);
+      return { data: Array.from(p.data), width: p.width, height: p.height };
+    }, encodedQr);
+    assert.equal(
+      jsQR(new Uint8ClampedArray(exportedQr.data), exportedQr.width, exportedQr.height).data,
+      link,
+    );
+    const qrData = await imageData(panel.locator('.material-qr canvas'));
+    assert.equal(jsQR(new Uint8ClampedArray(qrData.data), qrData.width, qrData.height).data, link);
+    const posterQr = await canvas.evaluate((el) => {
+      const p = el.getContext('2d').getImageData(780, 1088, 228, 228);
+      return { data: Array.from(p.data), width: p.width, height: p.height };
+    });
+    assert.equal(
+      jsQR(new Uint8ClampedArray(posterQr.data), posterQr.width, posterQr.height).data,
+      link,
+    );
+    await panel.getByRole('button', { name: '复制分销链接' }).click();
+    await panel.getByText('分销链接已复制。', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), link);
+    const box = await panel.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
+    assert.equal(
+      await panel.evaluate((el) => el.scrollWidth <= el.clientWidth),
+      true,
+      'no horizontal overflow',
+    );
+    await panel.locator('.partner-promotion').evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await panel.screenshot({ path: `${output}/materials-${width}.png` });
+    assert.equal(state.writes.filter((item) => item.path.includes('/distribution/')).length, 0);
+  });
+test('pending materials can be prepared; paused materials are blocked; read permission is sufficient', async (t) => {
+  const { page, state } = await fixture(t, {
+    readOnly: true,
+    availability: 'pending_confirmation',
+  });
+  const panel = await open(page);
+  assert.equal(await panel.getByRole('button', { name: '基本资料', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '新增合作伙伴', exact: true }).count(), 0);
+  assert.equal(await panel.getByRole('button', { name: '下载分销海报 PNG' }).isEnabled(), true);
+  state.availability = 'unavailable';
+  await panel.getByRole('button', { name: '刷新素材', exact: true }).click();
+  await panel.getByText('合作伙伴已暂停，当前推广链接不可用。').waitFor();
+  assert.equal(await panel.getByRole('button', { name: '复制分销链接' }).isDisabled(), true);
+  assert.equal(await panel.getByRole('button', { name: '下载二维码 PNG' }).isDisabled(), true);
+  assert.equal(state.writes.filter((item) => item.path.includes('/distribution/')).length, 0);
+});
+test('new partner creation stays successful through material failure and supports retry', async (t) => {
+  const { page, state } = await fixture(t, { created: true });
+  state.fail = true;
+  await page.getByRole('button', { name: '新增合作伙伴', exact: true }).click();
+  const invite = page.getByRole('dialog', { name: '新增合作伙伴', exact: true });
+  await invite.locator('input[type=tel]').fill('13800138000');
+  await invite.getByRole('button', { name: '邀请并开通' }).click();
+  const panel = page.getByRole('dialog', { name: '合作伙伴推广素材', exact: true });
+  await panel.getByText('素材暂时无法读取，请重试。').waitFor();
+  await panel.getByText(/合作伙伴创建成功/).waitFor();
+  state.fail = false;
+  await panel.getByRole('button', { name: '重新加载素材' }).click();
+  await page.waitForFunction(() => !document.querySelector('.material-poster .button').disabled);
+  assert.equal(state.writes.filter((x) => x.path.endsWith('/partners')).length, 1);
+});
+test('saved changes regenerate the poster and unsaved form input survives tab switching', async (t) => {
+  const { page, state } = await fixture(t);
+  await page
+    .locator('.partner-directory-table')
+    .getByRole('button', { name: '编辑', exact: true })
+    .click();
+  const dialog = page.locator('dialog[open]');
+  await dialog.getByLabel('姓名 / 展示名称', { exact: false }).fill('林安更新');
+  await dialog.getByRole('button', { name: '推广素材', exact: true }).click();
+  await dialog.getByText('资料尚未保存，请先保存修改后领取最新素材。').waitFor();
+  assert.equal(await dialog.getByRole('button', { name: '下载分销海报 PNG' }).isDisabled(), true);
+  await dialog.getByRole('button', { name: '基本资料', exact: true }).click();
+  assert.equal(
+    await dialog.getByLabel('姓名 / 展示名称', { exact: false }).inputValue(),
+    '林安更新',
+  );
+  await dialog.getByRole('button', { name: '保存修改' }).click();
+  await dialog.getByText('资料已保存，推广素材已按最新资料更新。').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.material-poster .button').disabled);
+  assert.equal(state.partner.profile.displayName, '林安更新');
+  const downloadEvent = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: '下载分销海报 PNG' }).click();
+  assert.ok((await downloadEvent).suggestedFilename().startsWith('林安更新-'));
+});
+
+test('download refreshes a changed profile and refuses a stale or stopped snapshot', async (t) => {
+  const { page, state } = await fixture(t);
+  const panel = await open(page);
+  state.partner.profile.displayName = '林知远';
+  state.partner.profile.version++;
+  state.partner.version++;
+  const downloadEvent = page.waitForEvent('download');
+  await panel.getByRole('button', { name: '下载分销海报 PNG' }).click();
+  assert.ok((await downloadEvent).suggestedFilename().startsWith('林知远-'));
+  state.fail = true;
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  await panel.getByRole('button', { name: '下载分销海报 PNG' }).click();
+  await panel.getByText('素材暂时无法读取，请重试。').waitFor();
+  assert.equal(downloads, 0);
+  state.fail = false;
+  state.availability = 'unavailable';
+  await panel.getByRole('button', { name: '刷新素材', exact: true }).click();
+  await panel.getByText('合作伙伴已暂停，当前推广链接不可用。').waitFor();
+  assert.equal(await panel.getByRole('button', { name: '下载分销海报 PNG' }).isDisabled(), true);
+});
+
+test('an authorized avatar failure keeps links usable while blocking an incomplete poster', async (t) => {
+  const { page, state } = await fixture(t);
+  state.partner.profile.avatarUrl =
+    '/admin/events/101/distribution/partners/fixture/promotion/avatar?version=1';
+  await page.route('**/promotion/avatar?version=*', (route) =>
+    route.fulfill({ status: 503, json: { message: 'avatar unavailable' } }),
+  );
+  await page
+    .locator('.partner-directory-table')
+    .getByRole('button', { name: '推广素材', exact: true })
+    .click();
+  const panel = page.locator('dialog[open]');
+  await panel.getByText('海报头像读取失败，请刷新素材后重试。').waitFor();
+  assert.equal(await panel.getByRole('button', { name: '下载分销海报 PNG' }).isDisabled(), true);
+  await panel.getByRole('button', { name: '复制分销链接' }).click();
+  await panel.getByText('分销链接已复制。').waitFor();
+});
+
+test('closing a loading panel discards its late response', async (t) => {
+  const { page, state } = await fixture(t);
+  let release;
+  state.late = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page
+    .locator('.partner-directory-table')
+    .getByRole('button', { name: '推广素材', exact: true })
+    .click();
+  const panel = page.locator('dialog[open]');
+  await panel.getByRole('button', { name: '关闭', exact: true }).click();
+  release();
+  state.late = null;
+  await open(page);
+  assert.equal(await page.locator('dialog[open]').count(), 1);
+});
+
+test('saving directly from promotion replaces the visible poster immediately', async (t) => {
+  const { page } = await fixture(t);
+  await open(page);
+  const panel = page.locator('dialog[open]');
+  const before = await panel.getByLabel('合作伙伴分销海报预览').evaluate((el) => el.toDataURL());
+  await panel.getByRole('button', { name: '基本资料', exact: true }).click();
+  await panel.getByLabel('姓名 / 展示名称', { exact: false }).fill('林知远');
+  await panel.getByRole('button', { name: '推广素材', exact: true }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector('.partner-promotion').getAttribute('aria-busy') ||
+      document.querySelector('.partner-promotion').getAttribute('aria-busy') === 'false',
+  );
+  await panel.getByRole('button', { name: '保存修改' }).click();
+  await panel.getByText('资料已保存，推广素材已按最新资料更新。').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.material-poster .button').disabled);
+  const after = await panel.getByLabel('合作伙伴分销海报预览').evaluate((el) => el.toDataURL());
+  assert.notEqual(after, before, 'the visible preview must refresh before download is clicked');
+});
+
+test('administrator and partner account render the same saved poster', async (t) => {
+  const { page, state, context } = await fixture(t);
+  const panel = await open(page);
+  const adminPng = await panel.getByLabel('合作伙伴分销海报预览').evaluate((el) => el.toDataURL());
+  await context.route('**/api/v1/customer-auth/session', (route) =>
+    route.fulfill({
+      json: {
+        authenticated: true,
+        csrfToken: 'fixture',
+        customer: {
+          id: 12345,
+          organizationId: 'org-materials',
+          mobile: '+8613800138000',
+          maskedMobile: '138****8000',
+          profile: {
+            realName: '林安',
+            nickname: '林安',
+            company: '远见数字科技',
+            title: '市场负责人',
+            email: '',
+            city: '深圳',
+            version: 1,
+          },
+        },
+      },
+    }),
+  );
+  await context.route('**/api/v1/customer/partnerships/101', (route) =>
+    route.fulfill({
+      json: {
+        ...state.partner,
+        publicSlug: 'fixture',
+        currentProgram: {
+          id: 'program',
+          attributionDays: 30,
+          termsTitle: '规则',
+          termsContent: '规则',
+          promotionPolicy: '真实推广',
+        },
+        acceptedProgramVersionId: 'program',
+        settlementHold: false,
+        balances: {
+          pending: 0,
+          available: 0,
+          reserved: 0,
+          paid: 0,
+          recoveryDue: 0,
+          currency: 'CNY',
+        },
+        profile: {
+          ...state.partner.profile,
+          gallery: [],
+          searchIndexingEnabled: false,
+          contactPhone: '',
+          contactEmail: '',
+          wechatId: '',
+        },
+      },
+    }),
+  );
+  await context.route('**/api/v1/customer/partnerships/101/inquiries', (route) =>
+    route.fulfill({ json: { items: [], hasMore: false } }),
+  );
+  const front = await context.newPage();
+  await front.goto('http://localhost:3000/account/partnerships/101?tab=promotion', {
+    waitUntil: 'networkidle',
+  });
+  const canvas = front.getByLabel('合作伙伴推广海报预览');
+  await canvas.waitFor({ state: 'visible', timeout: 10000 });
+  const accountPng = await canvas.evaluate((el) => el.toDataURL());
+  assert.equal(
+    adminPng === accountPng,
+    true,
+    'both surfaces must render the same saved fields, defaults, event information and QR',
+  );
+});
+
+test(
+  'slow avatar loading does not block link copying or independent QR download',
+  { timeout: 15_000 },
+  async (t) => {
+    const { page, state } = await fixture(t);
+    state.partner.profile.avatarUrl =
+      '/admin/events/101/distribution/partners/fixture/promotion/avatar?version=1';
+    let releaseAvatar;
+    const avatarGate = new Promise((resolve) => {
+      releaseAvatar = resolve;
+    });
+    t.after(() => releaseAvatar());
+    let avatarRequested;
+    const avatarStarted = new Promise((resolve) => {
+      avatarRequested = resolve;
+    });
+    await page.route('**/promotion/avatar?version=*', async (route) => {
+      avatarRequested();
+      await avatarGate;
+      await route.fulfill({ status: 503, json: { message: 'avatar unavailable' } });
+    });
+    await page
+      .locator('.partner-directory-table')
+      .getByRole('button', { name: '推广素材', exact: true })
+      .click();
+    await avatarStarted;
+    const panel = page.locator('dialog[open]');
+    assert.equal(
+      await panel.getByRole('button', { name: '复制分销链接', exact: true }).isEnabled(),
+      true,
+      'copy must depend only on loaded metadata',
+    );
+    await panel.getByRole('button', { name: '复制分销链接', exact: true }).click();
+    await panel.getByText('分销链接已复制。', { exact: true }).waitFor({ timeout: 3000 });
+    const downloadEvent = page.waitForEvent('download', { timeout: 3000 });
+    await panel.getByRole('button', { name: '下载二维码 PNG', exact: true }).click();
+    assert.ok((await downloadEvent).suggestedFilename().endsWith('分销二维码.png'));
+    assert.equal(
+      await panel.getByRole('button', { name: '下载分销海报 PNG', exact: true }).isDisabled(),
+      true,
+    );
+    releaseAvatar();
+  },
+);
+
+test(
+  'validation from promotion reveals and focuses the invalid profile field',
+  { timeout: 15_000 },
+  async (t) => {
+    const { page } = await fixture(t);
+    await page
+      .locator('.partner-directory-table')
+      .getByRole('button', { name: '编辑', exact: true })
+      .click();
+    const panel = page.locator('dialog[open]');
+    await panel.getByLabel('业务链接', { exact: false }).fill('ftp://example.com');
+    await panel.getByRole('button', { name: '推广素材', exact: true }).click();
+    await panel.getByRole('button', { name: '保存修改', exact: true }).click();
+    const input = panel.getByLabel('业务链接', { exact: false });
+    assert.equal(await input.isVisible(), true);
+    assert.equal(await input.evaluate((el) => el === document.activeElement), true);
+  },
+);
+
+test(
+  'typing during a pending save remains a draft after that save completes',
+  { timeout: 15_000 },
+  async (t) => {
+    const { page, state } = await fixture(t);
+    let releaseSave, saveStarted;
+    const saveGate = new Promise((resolve) => {
+      releaseSave = resolve;
+    });
+    const saveSeen = new Promise((resolve) => {
+      saveStarted = resolve;
+    });
+    await page.route('**/partners/*/details', async (route) => {
+      const submitted = route.request().postDataJSON();
+      saveStarted();
+      await saveGate;
+      Object.assign(state.partner.profile, submitted);
+      state.partner.version++;
+      await route.fulfill({ json: state.partner });
+    });
+    await page
+      .locator('.partner-directory-table')
+      .getByRole('button', { name: '编辑', exact: true })
+      .click();
+    const panel = page.locator('dialog[open]');
+    const input = panel.getByLabel('姓名 / 展示名称', { exact: false });
+    await input.fill('本次保存的姓名');
+    await panel.getByRole('button', { name: '保存修改', exact: true }).click();
+    await saveSeen;
+    await input.fill('等待期间的新姓名');
+    releaseSave();
+    await panel.getByText('本次资料已保存，后续修改尚未保存。', { exact: true }).waitFor();
+    assert.equal(await input.isVisible(), true, 'the unsaved edit must remain visible');
+    assert.equal(await input.inputValue(), '等待期间的新姓名');
+    let confirmation;
+    page.once('dialog', async (dialog) => {
+      confirmation = dialog.message();
+      await dialog.dismiss();
+    });
+    await panel.getByRole('button', { name: '取消', exact: true }).click();
+    assert.ok(confirmation?.includes('尚未保存'));
+    assert.equal(await panel.isVisible(), true);
+  },
+);
+
+// Positive control for the referral counter used by every preview and export test.
+test('promotion fixture detects requests to the actual referral resolver route', async (t) => {
+  const { page, state } = await fixture(t, { expectedReferrals: 1 });
+  await page.evaluate(() => fetch('/api/v1/r/referral-counter-control'));
+  assert.equal(state.referrals, 1);
+});

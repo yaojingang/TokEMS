@@ -100,6 +100,7 @@ jobs:
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: Conference2026
       PUBLIC_WEB_URL: http://localhost:3000
+      VITE_PUBLIC_WEB_URL: http://localhost:3000
       ADMIN_WEB_URL: http://localhost:3200
       NUXT_PUBLIC_API_BASE: http://localhost:4100/api/v1
       VITE_API_BASE: http://localhost:4100/api/v1

@@ -549,6 +549,7 @@ export class AdminPartnerController {
   constructor(
     @Inject(PartnerDistributionService) private readonly partners: PartnerDistributionService,
     @Inject(MerchantTransferService) private readonly transfers: MerchantTransferService,
+    @Inject(AttendeeShowcaseService) private readonly showcase: AttendeeShowcaseService,
   ) {}
 
   @Get('overview')
@@ -561,6 +562,34 @@ export class AdminPartnerController {
   @RequireGrant('event.partner.read')
   list(@Req() request: AdminRequest, @Param('eventId', ParseIntPipe) eventId: number) {
     return this.partners.adminPartners(request.user.organizationId, eventId);
+  }
+
+  @Get('partners/:partnerId/promotion')
+  @RequireGrant('event.partner.read', 'event.partner.manage')
+  promotion(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('partnerId', ParseUUIDPipe) partnerId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    return this.partners.adminPromotion(request.user.organizationId, eventId, partnerId);
+  }
+
+  @Get('partners/:partnerId/promotion/avatar')
+  @RequireGrant('event.partner.read', 'event.partner.manage')
+  async promotionAvatar(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('partnerId', ParseUUIDPipe) partnerId: string,
+    @Query('version', ParseIntPipe) version: number,
+    @Res() reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    const scope = await this.partners.adminPromotionAvatarScope(request.user.organizationId, eventId, partnerId, version);
+    const body = await this.showcase.partnerMediaContent(scope.organizationId, scope.customerUserId, scope.assetId);
+    return reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache')
+      .header('Content-Type', 'image/webp').header('X-Content-Type-Options', 'nosniff').send(body);
   }
 
   @Post('partners')

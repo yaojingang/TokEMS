@@ -25,6 +25,8 @@ vi.mock('../lib/api', async () => {
   };
 });
 
+vi.mock('vue-router', () => ({ onBeforeRouteLeave: vi.fn(), onBeforeRouteUpdate: vi.fn() }));
+
 vi.mock('vue', async (original) => ({
   ...(await original<typeof import('vue')>()),
   onBeforeUnmount: vi.fn(),
@@ -40,6 +42,8 @@ interface State {
   partnerEditorIssues: Ref<Array<{ field: string; message: string }>>;
   partnerEditorNotice: Ref<string>;
   pending: Ref<boolean>;
+  partnerEditorTab: Ref<'profile' | 'promotion'>;
+  partnerFormDirty: Ref<boolean>;
   openPartnerInvitation: () => void;
   closePartnerInvitation: () => void;
   enableForm: {
@@ -82,6 +86,8 @@ describe('partner distribution quick enable', () => {
     vi.clearAllMocks();
     api.publishPartnerProgram.mockResolvedValue({});
     api.enableEventPartner.mockResolvedValue({
+      profile: { displayName: '张三', company: '', title: '', industry: '', businessIntro: '', businessUrl: '' },
+      eventId: 101, eventName: '大会', personalRateBps: null,
       id: 'a761c83a-143b-4447-b018-a03c238b2be7',
       created: true,
       qualificationStatus: 'pending_confirmation',
@@ -171,7 +177,7 @@ describe('partner distribution quick enable', () => {
       sendInvitation: true,
     });
     expect(view.successMessage.value).toBe(
-      '合作伙伴资格已就绪，对方可使用该手机号验证码登录并确认合作规则。',
+      '合作伙伴创建成功。',
     );
     expect(view.enableForm.mobile).toBe('');
     expect(view.enableForm.displayName).toBe('');
@@ -180,6 +186,8 @@ describe('partner distribution quick enable', () => {
     expect(view.enableForm.ratePercent).toBe('');
     expect(view.enableForm.note).toBe('');
     expect(view.partnerInvitationOpen.value).toBe(false);
+    expect(view.partnerEditorTab.value).toBe('promotion');
+    expect(view.editingPartner.value?.id).toBe('a761c83a-143b-4447-b018-a03c238b2be7');
   });
 
   it('keeps failed invitations open with their input and allows a successful retry', async () => {
@@ -208,7 +216,7 @@ describe('partner distribution quick enable', () => {
     view.overview.value = { program: { mode: 'fixed', fixedRateBps: 1000 } };
     view.openPartnerInvitation();
     view.enableForm.mobile = '13800138000';
-    let finish!: (value: { id: string; created: boolean }) => void;
+    let finish!: (value: Record<string, unknown>) => void;
     api.enableEventPartner.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -223,7 +231,7 @@ describe('partner distribution quick enable', () => {
     expect(view.pending.value).toBe(true);
     expect(view.partnerInvitationOpen.value).toBe(true);
     expect(api.enableEventPartner).toHaveBeenCalledTimes(1);
-    finish({ id: 'a761c83a-143b-4447-b018-a03c238b2be7', created: true });
+    finish({ id: 'a761c83a-143b-4447-b018-a03c238b2be7', created: true, profile: { displayName: '张三' }, personalRateBps: null });
     await submission;
     expect(view.partnerInvitationOpen.value).toBe(false);
   });
@@ -294,14 +302,51 @@ describe('partner distribution quick enable', () => {
     view.overview.value = { program: { mode: 'fixed', fixedRateBps: 1000 } };
     view.enableForm.mobile = '13800138000';
     api.enableEventPartner.mockResolvedValue({ ...partner, created: false });
-    api.getEventPartners.mockResolvedValue({ items: [partner] });
+    api.getEventPartners.mockResolvedValue({ items: [{ ...partner, sortOrder: 99, internalNote: '旧列表备注' }] });
 
     await view.enablePartner();
 
     expect(view.editingPartner.value?.id).toBe(partner.id);
+    expect(view.editForm.sortOrder).toBe('0');
+    expect(view.editForm.internalNote).toBe('');
     expect(view.partnerEditorNotice.value).toContain('该手机号已是本大会的合作伙伴');
     expect(view.partnerInvitationOpen.value).toBe(false);
     expect(view.successMessage.value).toBe('该手机号已经是合作伙伴，已为你打开资料编辑。');
+  });
+
+  it('keeps edits made while a save is in flight marked as unsaved', async () => {
+    const view = state();
+    const partner = {
+      id: 'a761c83a-143b-4447-b018-a03c238b2be7', version: 1, eventId: 101,
+      loginMobile: '+8613800138000', sortOrder: 0, internalNote: '', personalRateBps: null,
+      profile: { displayName: '林安', company: '', title: '', industry: '', businessIntro: '', businessUrl: '' },
+    };
+    view.openPartnerEditor(partner);
+    view.editForm.displayName = '第一次提交';
+    let finish!: (result: Record<string, unknown>) => void;
+    api.updateEventPartnerDetails.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saving = view.savePartnerDetails();
+    expect(view.pending.value).toBe(true);
+    view.editForm.displayName = '等待期间的新输入';
+    finish({ ...partner, version: 2, profile: { ...partner.profile, displayName: '第一次提交' } });
+    await saving;
+    expect(view.editForm.displayName).toBe('等待期间的新输入');
+    expect(view.partnerFormDirty.value).toBe(true);
+    expect(view.partnerEditorTab.value).toBe('profile');
+  });
+
+  it('returns to the profile tab when validation fails from promotion', async () => {
+    const view = state();
+    view.openPartnerEditor({
+      id: 'a761c83a-143b-4447-b018-a03c238b2be7', version: 1, eventId: 101,
+      loginMobile: '+8613800138000', sortOrder: 0, internalNote: '', personalRateBps: null,
+      profile: { displayName: '林安', company: '', title: '', industry: '', businessIntro: '', businessUrl: '' },
+    });
+    view.editForm.businessUrl = 'ftp://example.com';
+    view.partnerEditorTab.value = 'promotion';
+    await view.savePartnerDetails();
+    expect(view.partnerEditorTab.value).toBe('profile');
+    expect(api.updateEventPartnerDetails).not.toHaveBeenCalled();
   });
 
   it.each([
