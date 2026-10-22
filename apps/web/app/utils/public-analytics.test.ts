@@ -73,6 +73,19 @@ describe('public analytics route scope', () => {
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/speakers/123')).toBe(false);
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/s/tyzb')).toBe(false);
     expect(
+      requiresAnalyticsDocumentBoundary(
+        googleSettings,
+        '/apply/cooperation',
+        '/partners/partner-1',
+      ),
+    ).toBe(false);
+    expect(
+      requiresAnalyticsDocumentBoundary(googleSettings, '/apply/cooperation', '/account'),
+    ).toBe(true);
+    expect(
+      requiresAnalyticsDocumentBoundary(googleSettings, '/account', '/apply/cooperation'),
+    ).toBe(true);
+    expect(
       requiresAnalyticsDocumentBoundary({ ...googleSettings, enabled: false }, '/faq', '/register'),
     ).toBe(false);
     expect(
