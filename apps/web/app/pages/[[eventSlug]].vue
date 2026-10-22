@@ -1025,7 +1025,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="hero-chips reveal in" data-d="2">
             <span class="chip"><span class="ic">◷</span><b>{{ eventDate.full }}</b>&nbsp;{{ eventDate.weekdays }}</span>
-            <span class="chip"><span class="ic">◎</span><b>中国 · {{ event.city }}</b>&nbsp;{{ event.venue }}</span>
+            <span class="chip"><span class="ic">◎</span><b>{{ event.city }}</b>&nbsp;{{ event.venue }}</span>
             <span class="chip"><span class="ic">✦</span>{{ primaryTicket.name }}&nbsp;<b>{{
               money(primaryTicket.price)
             }}</b></span>
