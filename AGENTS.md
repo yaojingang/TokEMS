@@ -26,6 +26,7 @@
 - Release descriptor schema 2 同时携带目标提交的完整 Git Bundle 和 descriptor verifier，并固定两者 SHA-256。生产机只允许在 descriptor provenance、Bundle 目标 ref、目标 SHA 和 Fast-forward 历史全部通过后更新 `refs/remotes/origin/main`；标准发布不得依赖生产机直连 `github.com` Git Smart HTTP。
 - `/etc/tokems/ghcr-read-token` 仅保存 `read:packages` PAT classic，权限固定为 `root:root 0600`。临时 Docker 登录目录只允许位于 `/run/lock/tokems-production-deploy`，发布日志和证据不得包含 Token。
 - `--build-on-host` 只作为人工应急入口，继续执行 10 GiB 构建内存门禁。自动化受限入口不得传入该参数。
+- 用户已批准只增强原 `tooling/production-deploy.sh` 的网络层：可选 `--proxy` 仅用于 GitHub 校验、provenance 和镜像下载。保留原备份、支付保护、规范同步、迁移、写冻结及验收流程；不启用蓝绿、不重启或修改 Docker 守护进程。代理只接受 SSH 回环地址，下载失败不得回退直连，完整镜像摘要验证后才能本地导入。
 - 普通发布必须在预检、停服前和停服后核验支付结清；存在进行中交易、待确认通知或已付款缺票时不得继续迁移。停服后发现竞态，只能在数据库尚未变更且原版本身份核验通过时恢复原容器并取消发布；不得借用 `--resume-recovery` 绕过普通发布门禁。
 - 常规发布固定使用 `SEED_DEMO_DATA=false`。只有已确认需要同步仓库规范模板时，才允许按 Runbook 的“规范模板同步”流程临时运行 `SEED_DEMO_DATA=true`。
 - 自动检测到规范漂移或显式执行 `deploy --sync-canonical` 时，目标规范快照与当前运行提交完全一致，且目标差异仅包含部署脚本、部署测试、协作文档或运维文档，脚本允许复用当前已验证镜像完成规范同步。该流程仍要执行数据库备份、写冻结、生产数据保护和完整验收；其余目标使用通过证明的预构建镜像。
@@ -43,7 +44,7 @@
 
 ## 蓝绿发布入口的独立规则
 
-- 用户已批准新增 `tooling/production-bluegreen.sh`，保留原 `tooling/production-deploy.sh` 不变。蓝绿入口执行 `docs/production-bluegreen-deployment.md`；上文关于原入口的 canonical 漂移同步、写冻结、db-init、thaw watchdog 及覆盖 `:local` 标签的要求不套用到蓝绿流程。
+- 用户已批准新增 `tooling/production-bluegreen.sh`，保留原 `tooling/production-deploy.sh` 的业务发布流程；旧入口仅允许上文明确批准的可选代理网络增强。蓝绿入口执行 `docs/production-bluegreen-deployment.md`；上文关于原入口的 canonical 漂移同步、写冻结、db-init、thaw watchdog 及覆盖 `:local` 标签的要求不套用到蓝绿流程。
 - 蓝绿切换只能在 Docker Gateway 内完成；宿主机宝塔 Nginx 保持固定 `127.0.0.1:8088`，禁止发布脚本修改或重载宿主机 Nginx。首次接管旧只读 Gateway 允许在镜像与候选环境就绪后短暂交接入口端口，后续只热重载常驻入口容器。
 - 蓝绿发布只使用同样经过 main PR、CI、descriptor、Bundle 和 provenance 验证的私有预构建镜像。完整下载、验证、容量检查和更新分类必须先于任何应用停启、数据库更新和切流量。
 - 蓝绿下载可显式使用 SSH 回环代理；代理环境只传入准备阶段的网络客户端，不进入业务容器、验收或恢复。代理拉取使用 `crane` 加本地导入，保留 provenance 和全部摘要验证，不自动改写或重启 Docker 守护进程，也不在代理失败时回退直连。

@@ -127,11 +127,10 @@ pnpm check
 发布验收会分别保存本机根页面及 HEAD、公网根页面及 HEAD、独立大会页面，并按目标快照核验本机根页面。空白响应必须具备空白标识、空 body、禁止脚本的 CSP、`no-store` 和 `noindex`。公网根地址已接入其他页面时，需提前在 `/etc/tokems/root-homepage-owner.json` 保存接入验收记录，要求 root 所有且禁止其他用户写入，例如：
 
 ```json
-{"url":"https://hui.ailingdaoli.com/","requiredText":"其他首页的固定公开标题"}
+{ "url": "https://hui.ailingdaoli.com/", "requiredText": "其他首页的固定公开标题" }
 ```
 
 该记录只包含公开 URL 和可识别的固定页面文字，不包含凭据。发布脚本核对实际根页面包含此文字；大会内容、构建版本和生产数据仍通过 TokEMS 保留的路径独立验收。接入配置参考 `docker/root-homepage-coexist.nginx.conf.example` 和 [首页与导航说明](homepage-navigation.md)。回退旧代码前先恢复大会根首页及旧菜单；外部首页接入另按接入记录恢复入口配置。
-
 
 仓库的 `pre-push` 门禁还会读取 Git 提供的待推送 ref/SHA，要求受保护的规范文件在工作区和暂存区保持干净，并确认每个实际待推送提交包含刚刚校验过的快照、导出器、同步器和 API 实例证明逻辑。推送其他分支或标签时同样执行此规则。
 
@@ -237,6 +236,57 @@ sudo /usr/local/sbin/tokems-deploy deploy --target-sha <origin-main-full-sha>
 sudo /usr/local/sbin/tokems-deploy check
 sudo /usr/local/sbin/tokems-deploy deploy
 ```
+
+### 通过电脑的 SSH 隧道加速原入口
+
+`check` 和 `deploy` 可显式添加 `--proxy <回环代理地址>`。它覆盖 GitHub API、GHCR 元数据、GitHub provenance、descriptor/Bundle 和六个镜像的下载；不改变原发布拓扑、备份、支付保护、规范同步、写冻结、数据库迁移和验收。此模式不启动蓝绿候选服务，也没有蓝绿的 4 GiB 空闲内存门禁；原数据验证内存与磁盘容量检查继续生效。常规发布仍有维护窗口，下载加速不等于零停机。
+
+首次使用前，先按上方 SCP 流程安装**包含此选项、已经合并且 main CI 和镜像发布成功**的稳定入口。旧版本在读取远端脚本前就解析参数，不能把 `--proxy` 直接传给尚未更新的旧入口。`--help` 应包含此参数。保持稳定入口与当前已验证发布脚本一致，也能避免因脚本版本不同而重启引导、重复执行全套验证；不能跳过任何来源验证来提速。
+
+服务器还需要 root 安装的 `crane >= 0.20.3`，位于固定系统 PATH 且不可被组或其他用户写入。以下为当前 x86_64 生产主机的一次性安装示例，下载在电脑上完成。归档和固定校验值来自 [crane v0.20.3 官方发布](https://github.com/google/go-containerregistry/releases/tag/v0.20.3)：
+
+```bash
+# 在电脑执行；如本地终端也需要代理，可为 curl 显式添加 --proxy http://127.0.0.1:1082。
+proxy_tools="$(mktemp -d)"
+curl --fail --location --connect-timeout 10 --max-time 120 \
+  https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz \
+  --output "$proxy_tools/crane.tar.gz"
+printf '%s  %s\n' '36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059' "$proxy_tools/crane.tar.gz" \
+  | shasum -a 256 --check && tar -xzf "$proxy_tools/crane.tar.gz" -C "$proxy_tools" crane
+shasum -a 256 "$proxy_tools/crane"
+scp "$proxy_tools/crane" ecs-user@<生产服务器>:/tmp/tokems-crane
+```
+
+在服务器核对上传后二进制 SHA-256 与电脑一致，再安装（Linux 二进制不能在 macOS 上直接运行）：
+
+```bash
+sha256sum /tmp/tokems-crane
+sudo install -o root -g root -m 0755 /tmp/tokems-crane /usr/local/bin/crane
+sudo /usr/local/bin/crane version
+```
+
+以后每次更新只需保持电脑代理开启，并使用两个终端。示例假设电脑 HTTP 代理监听 `127.0.0.1:1082`，生产服务器为 `39.105.148.20`：
+
+```bash
+# 电脑终端一：保持此命令运行；服务器端代理仅监听回环地址。
+ssh -NT -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:1080:127.0.0.1:1082 ecs-user@39.105.148.20
+```
+
+```bash
+# 电脑终端二：登录服务器，使用原入口。
+ssh ecs-user@39.105.148.20
+sudo /usr/local/sbin/tokems-deploy check --proxy http://127.0.0.1:1080
+# check 成功且进入允许发布的窗口后执行；也可追加 --target-sha <完整已验证 SHA>。
+sudo /usr/local/sbin/tokems-deploy deploy --proxy http://127.0.0.1:1080
+```
+
+地址只接受带端口的 `http://`、`https://`、`socks5://` 或 `socks5h://`，主机必须是 `127.0.0.1`、`localhost` 或 `[::1]`，不能含凭据、查询串或额外路径。SOCKS5 自动使用代理端 DNS。电脑保持唤醒，隧道保持到命令结束；结束后在终端一按 Ctrl-C 关闭。不要开放服务器公网代理端口。
+
+代理环境仅传给下载和校验客户端，业务容器、本机/公网验收与恢复不会继承。Docker 守护进程不读取当前 Shell 的代理变量，因此此模式使用 `crane` 下载、逐一验证 manifest/config/layer 摘要，再由本机 Docker 导入独立缓存标签；完整验证前不改应用镜像标签。缓存身份完全匹配时可复用，仍重新核验远端来源证明。代理断开、工具缺失、摘要不符或归档空间不足时停止准备，不静默改走直连。日志按服务显示元数据、provenance 和下载阶段及耗时。
+
+不传 `--proxy` 继续走原直接下载路径。此选项不能与 `--build-on-host` 同用，也不用于本地离线恢复命令；不要把代理写进生产环境文件或 Docker 守护进程配置。镜像下载需要临时磁盘空间（单个镜像压缩大小的两倍加 1 GiB），不会同时在内存中保存整份归档。
 
 ### 发布期间的支付保护
 

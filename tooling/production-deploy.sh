@@ -83,6 +83,8 @@ readonly -a CANONICAL_SNAPSHOT_PATHS=(
 mode=''
 canonical_mode='auto'
 build_on_host='false'
+download_proxy=''
+download_proxy_env=(HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= 'NO_PROXY=*' 'no_proxy=*')
 requested_target_sha=''
 target_sha=''
 source_head_before=''
@@ -189,6 +191,7 @@ Options:
   --skip-canonical              Allowed only when Git snapshots and production already match.
   --resume-recovery             Allow deploy to continue a verified read-only recovery state.
   --build-on-host               Emergency path: build all images on this host after the 10 GiB gate.
+  --proxy <loopback-url>        Use an SSH HTTP/SOCKS proxy for release downloads and verification.
   -h, --help                    Show this help.
 
 The default canonical mode is automatic. A Git snapshot change or production database
@@ -780,6 +783,11 @@ parse_arguments() {
         build_on_host='true'
         shift
         ;;
+      --proxy)
+        [[ $# -ge 2 && -n "$2" && -z "$download_proxy" ]] || die '--proxy requires one loopback URL'
+        download_proxy="$2"
+        shift 2
+        ;;
       -h | --help)
         usage
         exit 0
@@ -800,6 +808,31 @@ parse_arguments() {
   if [[ "$build_on_host" == 'true' && "$mode" != 'check' && "$mode" != 'deploy' ]]; then
     die '--build-on-host applies only to check and deploy modes.'
   fi
+  configure_download_proxy
+}
+
+configure_download_proxy() {
+  [[ -n "$download_proxy" ]] || return 0
+  [[ "$mode" == 'check' || "$mode" == 'deploy' ]] || die '--proxy applies only to check and deploy modes.'
+  [[ "$build_on_host" == 'false' ]] || die '--proxy requires prebuilt images; it cannot proxy a host build.'
+  download_proxy="$(python3 - "$download_proxy" <<'PROXY_URL'
+import re, sys
+match = re.fullmatch(r'(https?|socks5h?)://(127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})/?', sys.argv[1])
+if not match or not 1 <= int(match.group(3)) <= 65535:
+    raise SystemExit('Use a loopback HTTP/HTTPS/SOCKS5 URL with an explicit port and no credentials.')
+scheme = 'socks5h' if match.group(1).startswith('socks5') else match.group(1)
+print('{}://{}:{}'.format(scheme, match.group(2), int(match.group(3))))
+PROXY_URL
+)" || die 'Invalid download proxy.'
+  download_proxy_env=(
+    "HTTP_PROXY=$download_proxy" "HTTPS_PROXY=$download_proxy" "ALL_PROXY=$download_proxy"
+    "http_proxy=$download_proxy" "https_proxy=$download_proxy" "all_proxy=$download_proxy"
+    'NO_PROXY=localhost,127.0.0.1,::1' 'no_proxy=localhost,127.0.0.1,::1'
+  )
+}
+
+download_network() {
+  env -i "PATH=$SAFE_PATH" 'HOME=/root' "${download_proxy_env[@]}" "$@"
 }
 
 assert_target_selection() {
@@ -819,6 +852,7 @@ pin_local_runtime_controls() {
   unset COMPOSE_PATH_SEPARATOR COMPOSE_CONVERT_WINDOWS_PATHS COMPOSE_IGNORE_ORPHANS
   unset BUILD_SHA BUILD_TIME BUILD_MIGRATION BUILD_MIGRATION_HASH
   unset GH_TOKEN GITHUB_TOKEN
+  unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy NO_PROXY no_proxy
   unset TOKEMS_READ_ONLY_DATABASE_URL SEED_DEMO_DATA COMPOSE_PARALLEL_LIMIT
 }
 
@@ -1345,7 +1379,7 @@ github_get() {
     -H 'X-GitHub-Api-Version: 2022-11-28'
     -H 'User-Agent: TokEMS-production-deploy'
   )
-  curl "${CURL_ARGS[@]}" --location "${headers[@]}" "$url"
+  download_network curl "${CURL_ARGS[@]}" --location "${headers[@]}" "$url"
 }
 
 github_main_sha() {
@@ -1485,8 +1519,295 @@ expected_release_platform() {
   esac
 }
 
+registry_local_image() {
+  local reference="$1" identifier digest
+  if [[ -z "$download_proxy" ]]; then
+    printf '%s\n' "$reference"
+    return
+  fi
+  [[ "$reference" =~ ^ghcr[.]io/yaojingang/tokems-production-private@sha256:[0-9a-f]{64}$ ]] || {
+    die 'Expected a private immutable image reference.'
+  }
+  digest="${reference##*:}"
+  [[ -f "$registry_auth_dir/image-$digest" && ! -L "$registry_auth_dir/image-$digest" ]] || {
+    die 'Verified proxy image cache is unavailable.'
+  }
+  identifier="$(<"$registry_auth_dir/image-$digest")"
+  [[ "$identifier" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Invalid proxy image cache identity.'
+  printf '%s\n' "$identifier"
+}
+
+proxy_pull_image() {
+  python3 - "$download_proxy" "$registry_auth_dir" "$BACKUP_ROOT" "$@" <<'LEGACY_PROXY_DOWNLOAD'
+"""Standalone proxy transport embedded in the legacy deployment entrypoint."""
+import hashlib
+import io
+import json
+import re
+import shutil
+import signal
+import tarfile
+from pathlib import Path
+import os
+import subprocess
+import sys
+import tempfile
+
+SAFE_ENV = dict(PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                HOME='/root', DOCKER_HOST='unix:///var/run/docker.sock')
+
+
+class DeployError(Exception):
+    pass
+
+
+class DownloadInterrupted(Exception):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise DeployError(message)
+
+
+def run(args, data=None, timeout=180, env=None, binary=False):
+    try:
+        result = subprocess.run([str(a) for a in args],
+                                input=data if binary or data is None else data.encode(),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=timeout, env=dict(SAFE_ENV, **(env or {})))
+    except (OSError, subprocess.TimeoutExpired):
+        raise DeployError('Command unavailable or timed out: ' + str(args[0]))
+    # Never echo tool errors: registry redirects can contain signed credentials.
+    require(result.returncode == 0, 'Command failed: ' + str(args[0]) +
+            ' (exit {})'.format(result.returncode))
+    return result.stdout if binary else result.stdout.decode().strip()
+
+
+def atomic(path, value):
+    data = value if isinstance(value, str) else json.dumps(value) + '\n'
+    temporary = path.with_name(path.name + '.new')
+    fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as output:
+        output.write(data)
+        output.flush()
+        os.fsync(output.fileno())
+    temporary.replace(path)
+
+
+def proxy_url(value):
+    if value is None:
+        return None
+    require(isinstance(value, str), 'downloadProxy must be null or a loopback proxy URL')
+    match = re.fullmatch(r'(https?|socks5h?)://(127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})/?', value)
+    require(match is not None and 1 <= int(match.group(3)) <= 65535,
+            'Use an HTTP/HTTPS/SOCKS5 loopback proxy URL with an explicit port and no credentials')
+    scheme = 'socks5h' if match.group(1).startswith('socks5') else match.group(1)
+    return '{}://{}:{}'.format(scheme, match.group(2), int(match.group(3)))
+
+
+def proxy_environment(value):
+    value = proxy_url(value)
+    if value is None:
+        return {}
+    result = {key: value for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy')}
+    result.update(NO_PROXY='localhost,127.0.0.1,::1', no_proxy='localhost,127.0.0.1,::1')
+    return result
+
+
+def verified_json(raw, expected):
+    # crane prints one extra newline; never hash reserialized JSON or strip payload whitespace.
+    require(re.fullmatch(r'sha256:[a-f0-9]{64}', expected or ''), 'Invalid OCI content digest')
+    for payload in (raw, raw[:-1] if raw.endswith(b'\n') else raw):
+        if 'sha256:' + hashlib.sha256(payload).hexdigest() == expected:
+            return json.loads(payload.decode()), payload
+    require(False, 'Registry content differs from the verified digest')
+
+
+def cache_tag(identifier):
+    require(re.fullmatch(r'sha256:[a-f0-9]{64}', identifier or ''), 'Invalid imported image ID')
+    return 'tokems-download-cache:sha256-' + identifier[7:]
+
+
+def verify_archive(path, manifest, reference, imported=False):
+    """Bind every imported config/layer to the attested manifest before docker load."""
+    hashes, records = {}, None
+    with tarfile.open(str(path), mode='r|') as archive:
+        for member in archive:
+            require(member.isfile() and '/' not in member.name and member.name not in hashes,
+                    'Unexpected image archive entry')
+            require(len(hashes) < len(manifest['layers']) + 2, 'Unexpected image archive contents')
+            source = archive.extractfile(member)
+            fingerprint = hashlib.sha256()
+            if member.name == 'manifest.json':
+                require(member.size <= 1024 * 1024, 'Image archive manifest is too large')
+                data = source.read()
+                records = json.loads(data.decode())
+                fingerprint.update(data)
+            else:
+                while True:
+                    data = source.read(1024 * 1024)
+                    if not data:
+                        break
+                    fingerprint.update(data)
+            hashes[member.name] = 'sha256:' + fingerprint.hexdigest()
+    require(isinstance(records, list) and len(records) == 1, 'Expected one image in archive')
+    record = records[0]
+    tags = record.get('RepoTags')
+    expected_tag = cache_tag(manifest['config']['digest']) if imported else reference.rsplit('@', 1)[0] + ':i-was-a-digest'
+    require((not tags or tags == [expected_tag]) and not record.get('LayerSources'),
+            'Archive contains unexpected tags or foreign layers')
+    require(hashes.get(record['Config']) == manifest['config']['digest'], 'Image config digest mismatch')
+    require(len(record['Layers']) == len(manifest['layers']), 'Incomplete image layers')
+    require(set(hashes) == set(record['Layers'] + [record['Config'], 'manifest.json']), 'Unexpected archive members')
+    for filename, layer in zip(record['Layers'], manifest['layers']):
+        require(hashes.get(filename) == layer['digest'], 'Image layer digest mismatch')
+    return record
+
+
+def set_archive_cache_tag(path, record, identifier):
+    # Classic Docker silently ignores untagged archives. Use one content-addressed local tag.
+    temporary = path.with_name(path.name + '.cache-tag')
+    record = dict(record, RepoTags=[cache_tag(identifier)])
+    try:
+        with tarfile.open(str(path), 'r|') as source, tarfile.open(str(temporary), 'w|') as output:
+            for member in source:
+                if member.name == 'manifest.json':
+                    data = json.dumps([record]).encode()
+                    member.size = len(data)
+                    output.addfile(member, io.BytesIO(data))
+                else:
+                    output.addfile(member, source.extractfile(member))
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+class ImageSource:
+    def __init__(self, proxy=None):
+        self.proxy = proxy_url(proxy)
+        self.env = proxy_environment(self.proxy)
+        self.crane = None
+        if self.proxy:
+            executable = shutil.which('crane', path=SAFE_ENV['PATH'])
+            require(executable is not None, 'Proxy image downloads require crane >= 0.20.3; see the production runbook')
+            path = Path(executable).resolve()
+            require(path.is_file() and path.stat().st_uid == 0 and not path.stat().st_mode & 0o022,
+                    'crane must be installed by root without group/other write permission')
+            self.crane = str(path)
+            version = run([self.crane, 'version'])
+            match = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)', version)
+            require(match and tuple(map(int, match.groups())) >= (0, 20, 3), 'crane >= 0.20.3 is required')
+
+    def manifest(self, reference):
+        raw = run([self.crane, 'manifest', reference], env=self.env, binary=True)
+        manifest, payload = verified_json(raw, reference.rsplit('@', 1)[-1])
+        # The production workflow publishes one platform with provenance stored separately.
+        require(manifest.get('schemaVersion') == 2 and 'manifests' not in manifest and
+                isinstance(manifest.get('config'), dict) and isinstance(manifest.get('layers'), list),
+                'Expected a single-platform production image manifest')
+        return manifest, payload
+
+    def pull(self, reference, platform, directory, name):
+        require(self.proxy is not None, 'An explicit proxy is required for archive downloads')
+        manifest, payload = self.manifest(reference)
+        needed = 2 * (sum(layer['size'] for layer in manifest['layers']) + manifest['config']['size']) + 1024 ** 3
+        require(shutil.disk_usage(str(directory)).free >= needed, 'Insufficient space for proxy image archive')
+        archive = Path(directory) / (name + '-download.tar')
+        try:
+            run([self.crane, 'pull', '--platform', platform, '--format=tarball', reference, archive],
+                env=self.env, timeout=1800)
+            record = verify_archive(archive, manifest, reference)
+            config_digest = manifest['config']['digest']
+            set_archive_cache_tag(archive, record, config_digest)
+            run(['docker', 'load', '--input', archive], timeout=1800)
+            # Classic storage uses config IDs; containerd storage uses manifest IDs.
+            # Resolve the imported, content-addressed cache tag once, then pin the actual ID.
+            identifier = run(['docker', 'image', 'inspect', '--format', '{{.Id}}', cache_tag(config_digest)])
+            require(re.fullmatch(r'sha256:[a-f0-9]{64}', identifier), 'Invalid imported image identity')
+            atomic(Path(directory) / (name + '-source-manifest.json'), payload.decode())
+            return identifier
+        finally:
+            if archive.exists():
+                archive.unlink()
+
+
+def main(args):
+    proxy, auth, backup, reference = args[:4]
+    require(bool(proxy), 'An explicit proxy is required for archive downloads')
+    network = ImageSource(proxy)
+    if reference == '--check':
+        return
+    require(len(args) == 5, 'Expected an immutable image reference and platform')
+    platform = args[4]
+    require(platform in ('linux/amd64', 'linux/arm64'), 'Unsupported image platform')
+    require(re.fullmatch(r'ghcr\.io/yaojingang/tokems-production-private@sha256:[a-f0-9]{64}', reference),
+            'Proxy downloads require a private production digest')
+    network.env['DOCKER_CONFIG'] = auth
+    manifest, payload = network.manifest(reference)
+    expected = manifest['config']['digest']
+    # Classic Docker IDs are config digests. Also reuse images from earlier direct pulls,
+    # regardless of their tags, but only when their immutable config identity matches.
+    identifier = None
+    try:
+        cached = run(['docker', 'image', 'inspect', '--format', '{{.Id}}', expected])
+        if cached == expected:
+            identifier = cached
+    except DeployError:
+        pass
+    if identifier is None:
+        directory = Path(tempfile.mkdtemp(prefix='.image-download-', dir=backup))
+        try:
+            identifier = network.pull(reference, platform, directory, 'image')
+        finally:
+            shutil.rmtree(str(directory))
+    require(re.fullmatch(r'sha256:[a-f0-9]{64}', identifier), 'Invalid cached image identity')
+    atomic(Path(auth) / ('image-' + reference.rsplit(':', 1)[-1]), identifier + '\n')
+    print('Verified proxy image cache: ' + reference)
+
+
+def interrupt_download(signum, frame):
+    # Let subprocess.run kill/wait its child, then finish our archive cleanup.
+    for value in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(value, signal.SIG_IGN)
+    raise DownloadInterrupted('Proxy image download interrupted')
+
+
+if __name__ == '__main__':
+    for value in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(value, interrupt_download)
+    try:
+        main(sys.argv[1:])
+    except (DeployError, DownloadInterrupted, OSError, ValueError, KeyError, tarfile.TarError) as error:
+        # Arbitrary parser/tool exceptions must not disclose registry credentials.
+        print(str(error) if isinstance(error, (DeployError, DownloadInterrupted)) else 'Invalid proxy download or local I/O failure',
+              file=sys.stderr)
+        sys.exit(1)
+LEGACY_PROXY_DOWNLOAD
+}
+
 registry_docker() {
   [[ -n "$registry_auth_dir" && -d "$registry_auth_dir" ]] || die 'Temporary GHCR authentication is unavailable.'
+  if [[ -n "$download_proxy" ]]; then
+    case "$1" in
+      pull)
+        [[ $# -eq 4 && "$2" == '--platform' ]] || die 'Unexpected proxy image pull arguments.'
+        proxy_pull_image "$4" "$3"
+        return
+        ;;
+      create)
+        local local_ref
+        local_ref="$(registry_local_image "$2")"
+        shift 2
+        set -- create "$local_ref" "$@"
+        ;;
+      buildx)
+        download_network "DOCKER_HOST=$LOCAL_DOCKER_HOST" "DOCKER_CONFIG=$registry_auth_dir" docker "$@"
+        return
+        ;;
+    esac
+  fi
   env -i \
     "PATH=$SAFE_PATH" \
     'HOME=/root' \
@@ -1500,9 +1821,7 @@ registry_gh() {
   local token
   token="$(<"$GHCR_TOKEN_FILE")"
   [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
-  env -i \
-    "PATH=$SAFE_PATH" \
-    'HOME=/root' \
+  download_network \
     "XDG_CACHE_HOME=$registry_auth_dir/cache" \
     "DOCKER_CONFIG=$registry_auth_dir" \
     "GH_TOKEN=$token" \
@@ -1516,7 +1835,7 @@ login_ghcr() {
 
   local network_status
   network_status="$({
-    env -i "PATH=$SAFE_PATH" 'HOME=/root' curl \
+    download_network curl \
       --silent \
       --show-error \
       --connect-timeout 10 \
@@ -1538,36 +1857,49 @@ login_ghcr() {
   local token login_error login_status attempt
   token="$(<"$GHCR_TOKEN_FILE")"
   [[ -n "$token" && "$token" != *[[:space:]]* ]] || die 'GHCR read token file contains an invalid value.'
-  login_error="$registry_auth_dir/login.err"
-  login_status=1
-  for ((attempt = 1; attempt <= GHCR_LOGIN_ATTEMPTS; attempt += 1)); do
+  if [[ -n "$download_proxy" ]]; then
+    # Client-side auth avoids an unproxied Docker daemon login request.
+    printf '%s' "$token" | python3 -c '
+import base64, json, os, sys
+value = base64.b64encode(("yaojingang:" + sys.stdin.read()).encode()).decode()
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w") as output:
+    json.dump({"auths": {"ghcr.io": {"auth": value}}}, output)
+' "$registry_auth_dir/config.json"
+    # Validate the optional tool before creating any release backup or stopping services.
+    proxy_pull_image --check
+  else
+    login_error="$registry_auth_dir/login.err"
+    login_status=1
+    for ((attempt = 1; attempt <= GHCR_LOGIN_ATTEMPTS; attempt += 1)); do
+      : >"$login_error"
+      if printf '%s' "$token" \
+        | timeout --foreground --kill-after=10s "${GHCR_LOGIN_TIMEOUT_SECONDS}s" \
+          env -i \
+            "PATH=$SAFE_PATH" \
+            'HOME=/root' \
+            "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
+            "DOCKER_CONFIG=$registry_auth_dir" \
+            docker login "$GHCR_REGISTRY" --username "$GHCR_USERNAME" --password-stdin \
+            >/dev/null 2>"$login_error"; then
+        login_status=0
+        break
+      else
+        login_status=$?
+      fi
+      [[ "$attempt" -eq "$GHCR_LOGIN_ATTEMPTS" ]] || sleep "$GHCR_LOGIN_RETRY_SECONDS"
+    done
+    if [[ "$login_status" -ne 0 ]]; then
+      if [[ "$login_status" -eq 124 || "$login_status" -eq 137 ]]; then
+        die 'GHCR authentication timed out after bounded retries.'
+      fi
+      if grep -Eqi 'unauthorized|denied|forbidden|authentication required' "$login_error"; then
+        die 'GHCR authentication failed; the read token may be expired or invalid.'
+      fi
+      die 'GHCR authentication transport failed after bounded retries.'
+    fi
     : >"$login_error"
-    if printf '%s' "$token" \
-      | timeout --foreground --kill-after=10s "${GHCR_LOGIN_TIMEOUT_SECONDS}s" \
-        env -i \
-          "PATH=$SAFE_PATH" \
-          'HOME=/root' \
-          "DOCKER_HOST=$LOCAL_DOCKER_HOST" \
-          "DOCKER_CONFIG=$registry_auth_dir" \
-          docker login "$GHCR_REGISTRY" --username "$GHCR_USERNAME" --password-stdin \
-          >/dev/null 2>"$login_error"; then
-      login_status=0
-      break
-    else
-      login_status=$?
-    fi
-    [[ "$attempt" -eq "$GHCR_LOGIN_ATTEMPTS" ]] || sleep "$GHCR_LOGIN_RETRY_SECONDS"
-  done
-  if [[ "$login_status" -ne 0 ]]; then
-    if [[ "$login_status" -eq 124 || "$login_status" -eq 137 ]]; then
-      die 'GHCR authentication timed out after bounded retries.'
-    fi
-    if grep -Eqi 'unauthorized|denied|forbidden|authentication required' "$login_error"; then
-      die 'GHCR authentication failed; the read token may be expired or invalid.'
-    fi
-    die 'GHCR authentication transport failed after bounded retries.'
   fi
-  : >"$login_error"
   local package_name package_visibility
   package_name="${GHCR_PACKAGE##*/}"
   package_visibility="$(registry_gh api "/users/yaojingang/packages/container/${package_name}" --jq .visibility)" || {
@@ -1784,8 +2116,10 @@ verify_release_descriptor() {
   source_migration_hash="$(git_as_owner show "${target_sha}:packages/database/drizzle/${source_migration}" | sha256sum | awk '{ print $1 }')"
   [[ "$source_migration_hash" == "$descriptor_migration_hash" ]] || die 'Descriptor migration hash differs from target source.'
 
-  local service image_ref metadata_file attestation_file
+  local service image_ref metadata_file attestation_file verify_started
   for service in "${BUILD_SERVICES[@]}"; do
+    verify_started=$SECONDS
+    log "Verifying ${service}: image metadata"
     image_ref="$(descriptor_image_ref "$service")"
     metadata_file="$descriptor_evidence_dir/image-${service}.json"
     attestation_file="$descriptor_evidence_dir/attestation-${service}.json"
@@ -1800,6 +2134,7 @@ verify_release_descriptor() {
       --migration "$descriptor_migration" \
       --migration-hash "$descriptor_migration_hash" \
       --platform "$descriptor_platform"
+    log "Verifying ${service}: GitHub provenance"
     registry_gh attestation verify "oci://${image_ref}" \
       --repo "$GITHUB_REPOSITORY" \
       --signer-workflow "${GITHUB_REPOSITORY}/${IMAGE_PUBLISH_WORKFLOW}" \
@@ -1807,6 +2142,7 @@ verify_release_descriptor() {
       --source-ref refs/heads/main \
       --deny-self-hosted-runners \
       --format json >"$attestation_file"
+    log "Verified ${service} in $((SECONDS - verify_started))s"
   done
   log "Verified release descriptor ${descriptor_digest} for ${descriptor_platform}."
 }
@@ -3325,10 +3661,12 @@ pull_prebuilt_images() {
   [[ -n "$descriptor_evidence_dir" && -d "$descriptor_evidence_dir" ]] || {
     die 'Verified release descriptor evidence is unavailable.'
   }
-  local verifier service image_ref image_name metadata_file pull_log
+  local verifier service image_ref image_name metadata_file pull_log pull_started
   verifier="$descriptor_evidence_dir/release-descriptor.py"
   log "Pulling six digest-pinned images for ${target_sha}"
   for service in "${BUILD_SERVICES[@]}"; do
+    pull_started=$SECONDS
+    log "Preparing image ${service}"
     image_ref="$(descriptor_image_ref "$service")"
     image_name="$(local_image_for_service "$service")"
     pull_log="$backup_dir/pull-${service}.log"
@@ -3337,7 +3675,7 @@ pull_prebuilt_images() {
       die "Prebuilt image pull failed for ${service}; running containers and release tags are unchanged."
     fi
     metadata_file="$backup_dir/pulled-image-${service}.json"
-    docker image inspect --format '{{json .}}' "$image_ref" >"$metadata_file"
+    docker image inspect --format '{{json .}}' "$(registry_local_image "$image_ref")" >"$metadata_file"
     python3 "$verifier" verify-service \
       --metadata-file "$metadata_file" \
       --service "$service" \
@@ -3348,12 +3686,13 @@ pull_prebuilt_images() {
       --platform "$descriptor_platform"
     printf 'service=%s\nimage=%s\nsource=%s\n' "$service" "$image_name" "$image_ref" \
       >"$backup_dir/pulled-image-${service}.txt"
+    log "Prepared ${service} in $((SECONDS - pull_started))s"
   done
 
   for service in "${BUILD_SERVICES[@]}"; do
     image_ref="$(descriptor_image_ref "$service")"
     image_name="$(local_image_for_service "$service")"
-    docker tag "$image_ref" "${image_name}:candidate-${release_stamp}"
+    docker tag "$(registry_local_image "$image_ref")" "${image_name}:candidate-${release_stamp}"
   done
   log 'All candidate images were pulled and verified without changing release tags.'
 }
