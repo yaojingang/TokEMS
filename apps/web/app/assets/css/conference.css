@@ -503,6 +503,7 @@ h1.hero-h .accent {
 }
 .chip b {
   font-weight: 600;
+  white-space: nowrap;
 }
 .chip .ic {
   color: var(--accent);
