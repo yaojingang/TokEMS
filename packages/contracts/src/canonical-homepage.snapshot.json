@@ -266,7 +266,7 @@
   ],
   "backend": {
     "event": {
-      "address": "广东省深圳市宝安区（酒店信息报名后群内通知）",
+      "address": "广东省深圳市宝安区（酒店报名后群内通知）",
       "city": "深圳",
       "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
       "endsAt": "2026-11-22T10:00:00.000Z",
@@ -333,7 +333,7 @@
       "status": "registration_open",
       "tagline": "让好的品牌被 AI 正确推荐",
       "timezone": "Asia/Shanghai",
-      "venue": "宝安区（酒店信息报名后群内通知）"
+      "venue": "宝安区（酒店报名后群内通知）"
     },
     "registrationForm": {
       "fields": [
@@ -1692,7 +1692,7 @@
     }
   },
   "publicEvent": {
-    "address": "广东省深圳市宝安区（酒店信息报名后群内通知）",
+    "address": "广东省深圳市宝安区（酒店报名后群内通知）",
     "city": "深圳",
     "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
     "endsAt": "2026-11-22T10:00:00.000Z",
@@ -3152,16 +3152,16 @@
       }
     ],
     "timezone": "Asia/Shanghai",
-    "venue": "宝安区（酒店信息报名后群内通知）"
+    "venue": "宝安区（酒店报名后群内通知）"
   },
   "release": {
     "activationKind": "save",
     "changeScope": "event",
     "changeSummary": "更新大会基本信息",
-    "id": "629795e7-da39-41f0-921b-c55c432f8420",
+    "id": "864e4a1f-16ce-4baa-b170-6ec2474fd184",
     "snapshot": {
       "event": {
-        "address": "广东省深圳市宝安区（酒店信息报名后群内通知）",
+        "address": "广东省深圳市宝安区（酒店报名后群内通知）",
         "city": "深圳",
         "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
         "endsAt": "2026-11-22T10:00:00.000Z",
@@ -3228,7 +3228,7 @@
         "status": "registration_open",
         "tagline": "让好的品牌被 AI 正确推荐",
         "timezone": "Asia/Shanghai",
-        "venue": "宝安区（酒店信息报名后群内通知）"
+        "venue": "宝安区（酒店报名后群内通知）"
       },
       "experience": {
         "faq": {
@@ -4837,7 +4837,7 @@
     },
     "templateKey": "editorial-blue",
     "templateVersionId": "34d20872-9f8e-4d70-be07-0765e103f85e",
-    "version": 195
+    "version": 196
   },
   "schemaVersion": 1,
   "source": {
