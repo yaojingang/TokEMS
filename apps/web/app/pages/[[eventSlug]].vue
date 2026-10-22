@@ -944,7 +944,7 @@ onBeforeUnmount(() => {
 
 <template>
   <a class="skip-link" href="#hero">跳转到主要内容</a>
-  <div class="conference-page" lang="zh-CN">
+  <div class="conference-page conference-home" lang="zh-CN">
     <!-- ── NAV ── -->
     <nav
       v-if="blockEnabled('home.navigation')"
@@ -1498,6 +1498,64 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section
+      v-if="featuredPartners?.items.length"
+      id="event-partners"
+      class="event-partners"
+      aria-labelledby="event-partners-title"
+      :style="blockStyle('home.speakers')"
+    >
+      <div class="wrap">
+        <div class="sec-head center reveal">
+          <span class="kicker">EVENT PARTNERS</span>
+          <h2 id="event-partners-title" class="sec-title">与大会同行的合作伙伴</h2>
+          <p class="sec-sub">汇聚专业经验与行业资源，让每一次连接都有新的可能。</p>
+        </div>
+        <div class="spk-grid">
+          <NuxtLink
+            v-for="(item, index) in featuredPartners.items"
+            :key="item.publicSlug"
+            class="spk-card reveal"
+            :data-d="index % 4 || undefined"
+            :to="publicEventScopedPath(`/partners/${encodeURIComponent(item.publicSlug)}`, event.slug)"
+            :aria-label="`查看合作伙伴 ${item.displayName} 的公开资料`"
+          >
+            <div class="spk-meta">
+              <span class="spk-no">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="spk-kind">Partner</span>
+            </div>
+            <div class="spk-profile">
+              <div class="spk-avatar">
+                <img
+                  v-if="item.avatarUrl"
+                  :src="item.avatarUrl"
+                  :alt="`${item.displayName}的头像`"
+                  width="56"
+                  height="56"
+                  loading="lazy"
+                />
+                <span v-else aria-hidden="true">{{ attendeeAvatarInitial(item.displayName) }}</span>
+              </div>
+              <div>
+                <h4>{{ item.displayName }}</h4>
+                <div class="role">{{ [item.company, item.title].filter(Boolean).join(' · ') }}</div>
+              </div>
+            </div>
+            <div v-if="item.businessIntro" class="spk-talk">
+              {{ Array.from(item.businessIntro.trim()).slice(0, 80).join('') }}
+            </div>
+            <div v-if="item.industry" class="spk-tags"><span>{{ item.industry }}</span></div>
+            <span class="spk-open" aria-hidden="true">查看资料 →</span>
+          </NuxtLink>
+        </div>
+        <div class="event-partners__footer reveal">
+          <NuxtLink class="btn btn-outline" :to="publicEventScopedPath('/partners', event.slug)">
+            查看全部合作伙伴 <span aria-hidden="true">→</span>
+          </NuxtLink>
+        </div>
+      </div>
+    </section>
+
     <!-- ── REGISTERED MEMBERS ── -->
     <section
       v-if="memberDirectoryState.visible"
@@ -1506,7 +1564,7 @@ onBeforeUnmount(() => {
       :style="blockStyle('home.members')"
     >
       <div class="wrap">
-        <div class="sec-head reveal member-head">
+        <div class="sec-head center reveal member-head">
           <div>
             <span class="kicker">{{ blockCopy('home.members', 'kicker', 'ATTENDEES') }}</span>
             <h2 class="sec-title">
@@ -1618,38 +1676,6 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="featuredPartners?.items.length" id="event-partners" class="event-partners">
-      <div class="wrap">
-        <div class="sec-head reveal event-partners__head">
-          <div>
-            <span class="kicker">EVENT PARTNERS</span>
-            <h2 class="sec-title">与大会同行的合作伙伴</h2>
-            <p class="sec-sub">认识他们的专业背景与合作方向，也可以通过专属入口完成报名。</p>
-          </div>
-          <NuxtLink :to="publicEventScopedPath('/partners', event.slug)">查看全部 <span>→</span></NuxtLink>
-        </div>
-        <div class="event-partners__grid">
-          <NuxtLink
-            v-for="item in featuredPartners.items"
-            :key="item.publicSlug"
-            class="event-partner-card reveal"
-            :to="publicEventScopedPath(`/partners/${encodeURIComponent(item.publicSlug)}`, event.slug)"
-          >
-            <span class="event-partner-card__avatar">
-              <img v-if="item.avatarUrl" :src="item.avatarUrl" :alt="`${item.displayName}的头像`" loading="lazy">
-              <b v-else>{{ attendeeAvatarInitial(item.displayName) }}</b>
-            </span>
-            <span class="event-partner-card__copy">
-              <small>{{ item.industry || 'PARTNER' }}</small>
-              <strong>{{ item.displayName }}</strong>
-              <em>{{ [item.company, item.title].filter(Boolean).join(' · ') }}</em>
-            </span>
-            <span aria-hidden="true">↗</span>
-          </NuxtLink>
-        </div>
-      </div>
-    </section>
-
     <!-- ── HOSTS ── -->
     <section
       v-if="blockEnabled('home.organizer')"
@@ -1725,11 +1751,10 @@ onBeforeUnmount(() => {
       :style="blockStyle('home.cooperation')"
     >
       <div class="wrap cooperation-band reveal">
-        <div class="cooperation-band__index" aria-hidden="true">PARTNER<br />WITH US</div>
-        <div class="cooperation-band__copy">
+        <div class="sec-head cooperation-band__copy">
           <span class="kicker">{{ blockCopy('home.cooperation', 'kicker', 'PARTNERSHIP') }}</span>
-          <h2>{{ blockCopy('home.cooperation', 'title', '让合作，成为大会内容的一部分') }}</h2>
-          <p>
+          <h2 class="sec-title">{{ blockCopy('home.cooperation', 'title', '让合作，成为大会内容的一部分') }}</h2>
+          <p class="sec-sub">
             {{
               blockCopy(
                 'home.cooperation',

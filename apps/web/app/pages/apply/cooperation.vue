@@ -3,9 +3,10 @@ import {
   DEFAULT_CONFERENCE_TEMPLATE_DEFINITION,
   resolveNavigationLinks,
   publicEventHomePath,
+  publicEventScopedPath,
   type PublicEvent,
 } from '@conference/contracts';
-import { createError, onBeforeUnmount, useAsyncData, useRequestURL } from '#imports';
+import { createError, onBeforeUnmount, onMounted, useAsyncData, useRequestURL, watch } from '#imports';
 import { resolveEventExperience } from '~/composables/useEventExperience';
 import { copyPlainText } from '~/utils/copy-text';
 
@@ -62,13 +63,6 @@ const cooperationDirections = [
   },
 ] as const;
 
-const conversationGuide = [
-  { no: '01', label: '所在机构', detail: '简单介绍公司和业务' },
-  { no: '02', label: '合作方向', detail: '说明希望参与的方式' },
-  { no: '03', label: '可用资源', detail: '分享双方可以投入的资源' },
-  { no: '04', label: '合作目标', detail: '说清希望共同达成的结果' },
-] as const;
-
 const api = useConferenceApi();
 const route = useRoute();
 const eventSlug = computed(() => {
@@ -92,6 +86,53 @@ if (eventError.value || !event.value) {
 }
 
 useHead(() => ({ title: `合作联系 · ${event.value?.name ?? '大会'}` }));
+
+const resolvedEventSlug = computed(() => event.value?.slug ?? '');
+const {
+  data: partnerDirectory,
+  error: partnerError,
+  status: partnerStatus,
+} = await useAsyncData(
+  () => `cooperation-partners-${resolvedEventSlug.value}`,
+  async () => {
+    const slug = resolvedEventSlug.value;
+    const result = await api.getEventPartners(slug, 100, 'directory');
+    return { eventSlug: slug, items: result.items };
+  },
+  { deep: false },
+);
+const failedPartnerAvatars = ref(new Set<string>());
+const partnerList = ref<HTMLOListElement | null>(null);
+const partners = computed(() => {
+  if (
+    partnerError.value ||
+    partnerStatus.value !== 'success' ||
+    partnerDirectory.value?.eventSlug !== resolvedEventSlug.value ||
+    (eventSlug.value && eventSlug.value !== resolvedEventSlug.value)
+  )
+    return [];
+  const seen = new Set<string>();
+  return partnerDirectory.value.items.filter((item) => {
+    if (seen.has(item.publicSlug)) return false;
+    seen.add(item.publicSlug);
+    return true;
+  });
+});
+function recoverFailedPartnerAvatars() {
+  for (const image of partnerList.value?.querySelectorAll<HTMLImageElement>('img') ?? []) {
+    if (image.complete && image.naturalWidth === 0) {
+      const src = image.getAttribute('src');
+      if (src) failedPartnerAvatars.value.add(src);
+    }
+  }
+}
+onMounted(recoverFailedPartnerAvatars);
+watch(partners, recoverFailedPartnerAvatars, { flush: 'post' });
+watch(resolvedEventSlug, () => {
+  failedPartnerAvatars.value = new Set();
+});
+const partnerInitial = (name: string) => Array.from(name.trim())[0] || '伙';
+const partnerIntro = (intro: string) => Array.from(intro.trim()).slice(0, 80).join('');
 
 const homeHref = computed(() => publicEventHomePath(event.value!.slug));
 const experience = computed(() => resolveEventExperience(event.value!));
@@ -134,28 +175,79 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
     </nav>
 
     <main id="main-content" class="cooperation-shell" tabindex="-1">
-      <header class="cooperation-intro">
-        <div class="cooperation-intro__copy">
-          <p class="flow-eyebrow">PARTNERSHIP</p>
-          <h1 class="flow-title">一起把好内容带到现场</h1>
-          <p class="flow-lead">
-            围绕品牌、产品、媒体、内容、社群和团队参会，与
-            {{ event?.name }}
-            一起创造更有价值的现场连接。
+      <section
+        v-if="partners.length"
+        class="cooperation-partners"
+        aria-labelledby="cooperation-partners-title"
+      >
+        <header class="cooperation-partners__head">
+          <div>
+            <p class="flow-eyebrow">OUR PARTNERS</p>
+            <h1 id="cooperation-partners-title">与大会同行的伙伴</h1>
+          </div>
+          <p class="cooperation-partners__count" aria-live="polite">
+            <strong>{{ partners.length.toString().padStart(2, '0') }}</strong>
+            <span>位伙伴</span>
           </p>
+        </header>
+        <p class="cooperation-partners__lead">汇聚专业经验与行业资源，让每一次连接都有新的可能。</p>
+        <ol id="cooperation-partner-list" ref="partnerList" class="cooperation-partners__list">
+          <li v-for="item in partners" :key="item.publicSlug" class="cooperation-partner">
+            <div class="cooperation-partner__identity">
+              <span class="cooperation-partner__avatar" aria-hidden="true">
+                <img
+                  v-if="item.avatarUrl && !failedPartnerAvatars.has(item.avatarUrl)"
+                  :src="item.avatarUrl"
+                  alt=""
+                  width="48"
+                  height="48"
+                  loading="lazy"
+                  decoding="async"
+                  @error="failedPartnerAvatars.add(item.avatarUrl!)"
+                />
+                <span v-else>{{ partnerInitial(item.displayName) }}</span>
+              </span>
+              <div>
+                <h2>{{ item.displayName }}</h2>
+                <p v-if="item.company || item.title" class="cooperation-partner__company">
+                  {{ [item.company, item.title].filter(Boolean).join(' · ') }}
+                </p>
+              </div>
+            </div>
+            <p v-if="item.businessIntro" class="cooperation-partner__intro">
+              {{ partnerIntro(item.businessIntro) }}
+            </p>
+            <div class="cooperation-partner__footer">
+              <span v-if="item.industry">{{ item.industry }}</span>
+              <NuxtLink
+                class="cooperation-partner__link"
+                :to="
+                  publicEventScopedPath(
+                    `/partners/${encodeURIComponent(item.publicSlug)}`,
+                    resolvedEventSlug,
+                  )
+                "
+                :aria-label="`查看${item.displayName}的公开资料`"
+              >
+                查看资料 <span aria-hidden="true">↗</span>
+              </NuxtLink>
+            </div>
+          </li>
+        </ol>
+        <div class="cooperation-partners__footer">
+          <span>更多伙伴，陆续加入</span>
+          <a href="#cooperation-contact">成为合作伙伴 <span aria-hidden="true">↗</span></a>
         </div>
-        <div class="cooperation-intro__aside">
-          <span>PARTNER WITH US</span>
-          <strong>合作从一次清晰的对话开始。</strong>
-          <p>添加大会发起人微信，直接说明你的想法与资源。</p>
-        </div>
-      </header>
+      </section>
+      <p v-else-if="partnerError" class="cooperation-partners__error" role="status">
+        伙伴资料暂时无法加载，请稍后刷新。你仍可通过下方合作方向与我们联系。
+      </p>
 
       <section class="cooperation-layout" aria-label="合作方向与联系方式">
         <div class="cooperation-scope">
           <div class="cooperation-section-head">
             <p class="flow-eyebrow">WHAT WE CAN BUILD</p>
-            <h2>可以一起做什么</h2>
+            <component :is="partners.length ? 'h2' : 'h1'">可以一起做什么</component>
             <p>选择一个最接近的方向开启沟通，具体形式可以根据双方资源继续展开。</p>
           </div>
 
@@ -172,23 +264,11 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
           <p class="cooperation-scope__other">
             有其他合作想法，也欢迎直接沟通。我们会结合大会内容和现场安排一起判断可行方式。
           </p>
-
-          <section class="conversation-guide" aria-labelledby="conversation-guide-title">
-            <div class="conversation-guide__head">
-              <p class="flow-eyebrow">LET'S TALK</p>
-              <h2 id="conversation-guide-title">首次沟通建议带上</h2>
-            </div>
-            <ol>
-              <li v-for="item in conversationGuide" :key="item.no">
-                <span>{{ item.no }}</span>
-                <strong>{{ item.label }}</strong>
-                <p>{{ item.detail }}</p>
-              </li>
-            </ol>
-          </section>
         </div>
 
-        <aside class="direct-contact" aria-label="大会合作微信">
+        <aside id="cooperation-contact" class="direct-contact" aria-label="合作联系" tabindex="-1">
+          <p class="flow-eyebrow">LET'S TALK</p>
+          <p class="direct-contact__lead">添加大会发起人微信，聊聊你的合作方向与资源。</p>
           <figure class="direct-contact__qr">
             <img
               :src="organizerContact.qrSrc"
@@ -241,71 +321,25 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
 }
 
 .cooperation-shell {
+  --cooperation-column-gap: 32px;
   width: 100%;
   max-width: var(--max-w);
   margin: 0 auto;
   padding: 132px var(--pad) 84px;
 }
 
-.cooperation-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  align-items: end;
-  gap: clamp(48px, 6vw, 82px);
-  padding-bottom: 46px;
-  border-bottom: 1px solid var(--line);
-}
-
-.cooperation-intro .flow-title {
-  max-width: 720px;
-  font-size: clamp(36px, 4.2vw, 52px);
-  line-height: 1.06;
-}
-
-.cooperation-intro .flow-lead {
-  max-width: 720px;
-  margin-top: 20px;
-  font-size: 16px;
-  line-height: 1.8;
-  text-wrap: pretty;
-}
-
-.cooperation-intro__aside {
-  display: grid;
-  gap: 9px;
-  padding-top: 20px;
-  border-top: 2px solid var(--accent);
-}
-
-.cooperation-intro__aside > span {
-  color: var(--accent);
-  font-family: var(--conference-font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.cooperation-intro__aside strong {
-  font-size: 17px;
-  line-height: 1.5;
-}
-
-.cooperation-intro__aside p {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
 .cooperation-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
-  gap: clamp(40px, 5vw, 64px);
-  padding: 52px 0 56px;
+  gap: var(--cooperation-column-gap);
+  padding: 0 0 56px;
 }
 
 .cooperation-scope {
+  display: flex;
+  flex-direction: column;
+  grid-column: span 2;
   min-width: 0;
 }
 
@@ -314,10 +348,10 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
   margin-bottom: 25px;
 }
 
-.cooperation-section-head h2,
-.conversation-guide__head h2 {
+.cooperation-section-head :is(h1, h2) {
   margin: 0;
-  font-size: clamp(26px, 3vw, 36px);
+  font-size: clamp(26px, 2.5vw, 32px);
+  font-weight: 700;
   line-height: 1.18;
   text-wrap: balance;
 }
@@ -332,25 +366,24 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
 
 .cooperation-scope__list {
   display: grid;
+  flex: 1;
   grid-template-columns: 1fr 1fr;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--line);
   list-style: none;
 }
 
 .cooperation-scope__list li {
   display: grid;
+  align-content: center;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
   padding: 21px 0;
-  border-bottom: 1px solid var(--line);
 }
 
 .cooperation-scope__list li:nth-child(odd) {
   padding-right: 24px;
-  border-right: 1px solid var(--line);
 }
 
 .cooperation-scope__list li:nth-child(even) {
@@ -387,16 +420,17 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
 
 .direct-contact {
   display: grid;
-  align-content: center;
-  padding: 30px 32px 28px;
+  align-content: start;
+  scroll-margin-top: 132px;
+  padding: 28px;
   border-radius: 0 0 18px 18px;
   background: #1d4ed8;
   color: #eff6ff;
 }
 
 .direct-contact__qr {
-  width: min(100%, 236px);
-  margin: 0 auto 24px;
+  width: min(100%, 180px);
+  margin: 20px auto;
   overflow: hidden;
   border-radius: 8px;
   outline: 1px solid rgb(23 23 23 / 10%);
@@ -417,12 +451,10 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  border-top: 1px solid rgb(239 246 255 / 24%);
-  border-bottom: 1px solid rgb(239 246 255 / 24%);
 }
 
 .direct-contact__wechat > span {
-  color: rgb(239 246 255 / 58%);
+  color: #dbeafe;
   font-size: 11px;
   letter-spacing: 0.05em;
 }
@@ -436,7 +468,7 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
 }
 
 .direct-contact__wechat button {
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 10px;
   border: 1px solid rgb(239 246 255 / 36%);
   border-radius: 5px;
@@ -458,7 +490,7 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
 
 .direct-contact__note {
   margin: 16px 0 0;
-  color: rgb(239 246 255 / 72%);
+  color: #dbeafe;
   font-size: 11px;
   line-height: 1.7;
   text-align: center;
@@ -473,58 +505,207 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
   text-align: center;
 }
 
-.conversation-guide {
+.direct-contact > .flow-eyebrow {
+  color: #dbeafe;
+  font-size: 10px;
+}
+
+.direct-contact__lead {
+  margin: 10px 0 0;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.85;
+}
+
+.cooperation-partners {
+  margin-bottom: 48px;
+  padding: 0 0 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cooperation-partners__head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cooperation-partners__head h1 {
+  margin: 0;
+  font-size: clamp(26px, 2.8vw, 36px);
+  font-weight: 700;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.cooperation-partners__head .flow-eyebrow {
+  margin-bottom: 8px;
+}
+
+.cooperation-partners__count {
+  display: flex;
+  align-items: baseline;
+  flex: none;
+  gap: 5px;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.cooperation-partners__count strong {
+  color: var(--accent);
+  font: 500 27px var(--conference-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cooperation-partners__lead {
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.85;
+}
+
+.cooperation-partners__list {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: clamp(28px, 4vw, 46px);
-  margin-top: 28px;
-  padding: 28px 0 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--cooperation-column-gap);
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
   border-top: 1px solid var(--line);
 }
 
-.conversation-guide__head h2 {
-  font-size: 20px;
-  line-height: 1.4;
-}
-
-.conversation-guide ol {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.conversation-guide li {
+.cooperation-partner {
+  display: flex;
   min-width: 0;
-  padding: 0 18px;
+  flex-direction: column;
+  padding: 24px 0 20px;
 }
 
-.conversation-guide li:first-child {
-  padding-left: 0;
+.cooperation-partner__identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.conversation-guide li + li {
-  border-left: 1px solid var(--line);
+.cooperation-partner__identity > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.conversation-guide li > span {
-  display: block;
-  margin-bottom: 12px;
+.cooperation-partner h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.cooperation-partner__avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--accent-light);
   color: var(--accent);
-  font-family: var(--conference-font-mono);
-  font-size: 11px;
+  font-size: 22px;
+  font-weight: 650;
 }
 
-.conversation-guide li strong {
-  font-size: 14px;
+.cooperation-partner__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.conversation-guide li p {
-  margin: 5px 0 0;
+.cooperation-partner__company {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.cooperation-partner__intro {
+  margin: 16px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+
+.cooperation-partner__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
   color: var(--ink-muted);
   font-size: 11px;
-  line-height: 1.65;
+}
+
+.cooperation-partner__footer > span {
+  overflow-wrap: anywhere;
+}
+
+.cooperation-partner__link,
+.cooperation-partners__footer a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  color: var(--accent);
+  font-size: 12px;
+  transition: transform 120ms ease;
+}
+
+.cooperation-partner__link {
+  flex: none;
+  margin-left: auto;
+}
+
+.cooperation-partner__link > span {
+  transition: transform 120ms ease;
+}
+
+.cooperation-partners__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 12px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.cooperation-partners__error {
+  margin: 0 0 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.85;
+}
+
+.cooperation-partner__link:active,
+.cooperation-partners__footer a:active {
+  transform: scale(0.97);
+}
+
+.cooperation-partner__link:focus-visible,
+.cooperation-partners__footer a:focus-visible,
+.direct-contact button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+@media (hover: hover) {
+  .cooperation-partner__link:hover > span {
+    transform: translateX(3px);
+  }
 }
 
 @media (max-width: 1200px) {
@@ -553,81 +734,64 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
   }
 }
 
-@media (max-width: 900px) {
-  .cooperation-intro {
-    grid-template-columns: 1fr;
-    align-items: start;
-    gap: 30px;
+@media (max-width: 1000px) {
+  .cooperation-layout {
+    grid-template-columns: minmax(0, 1fr) 270px;
   }
 
-  .cooperation-layout {
-    grid-template-columns: minmax(0, 1fr) 310px;
-    gap: 32px;
+  .cooperation-scope {
+    grid-column: auto;
+  }
+
+  .cooperation-partners__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .direct-contact {
-    padding-inline: 26px;
-  }
-
-  .conversation-guide {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .conversation-guide ol {
-    grid-template-columns: 1fr 1fr;
-    row-gap: 20px;
-  }
-
-  .conversation-guide li:nth-child(3) {
-    padding-left: 0;
-    border-left: 0;
+    padding-inline: 22px;
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .cooperation-shell {
     padding: 148px 20px 56px;
   }
 
-  .cooperation-intro {
-    gap: 25px;
-    padding-bottom: 32px;
-  }
-
-  .cooperation-intro .flow-title {
-    font-size: clamp(28px, 8.5vw, 36px);
-    line-height: 1.08;
-    white-space: nowrap;
-  }
-
-  .cooperation-intro .flow-lead {
-    margin-top: 16px;
-    font-size: 15px;
-    line-height: 1.75;
-  }
-
   .cooperation-layout {
     grid-template-columns: 1fr;
-    gap: 40px;
-    padding: 32px 0 46px;
+    gap: 32px;
+    padding: 0 0 46px;
   }
 
   .direct-contact {
-    order: -1;
     padding: 26px 22px 24px;
   }
 
   .direct-contact__qr {
-    width: min(100%, 224px);
+    width: min(100%, 210px);
   }
 
   .direct-contact__wechat button {
     min-height: 44px;
+    font-size: 12px;
   }
 
   .cooperation-section-head {
     margin-bottom: 20px;
+  }
+
+  .cooperation-partners {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+  }
+
+  .cooperation-partners__list {
+    grid-template-columns: 1fr;
+    margin-top: 22px;
+  }
+
+  .cooperation-partner {
+    padding-block: 20px;
   }
 
   .cooperation-scope__list {
@@ -637,35 +801,16 @@ const navigationLinks = computed(() => resolveNavigationLinks(event.value!, expe
   .cooperation-scope__list li:nth-child(odd),
   .cooperation-scope__list li:nth-child(even) {
     padding: 18px 0;
-    border-right: 0;
   }
+}
 
-  .conversation-guide {
-    padding-top: 34px;
-  }
-
-  .conversation-guide ol {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .conversation-guide li,
-  .conversation-guide li:first-child {
-    padding: 17px 16px;
-    border-top: 1px solid var(--line);
-  }
-
-  .conversation-guide li:nth-child(odd) {
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .conversation-guide li:nth-child(even) {
-    padding-right: 0;
-    border-left: 1px solid var(--line);
-  }
-
-  .conversation-guide li > span {
-    margin-bottom: 8px;
+@media (prefers-reduced-motion: reduce) {
+  .cooperation-partner__link,
+  .cooperation-partner__link > span,
+  .cooperation-partners__footer a,
+  .direct-contact__wechat button {
+    transition: none;
+    transform: none;
   }
 }
 
