@@ -17,6 +17,7 @@ from pathlib import Path
 from download import ImageSource, cache_tag, proxy_environment
 from system import SAFE_ENV, run
 from test_download import fingerprint, image_fixture
+from test_legacy_download import legacy, LegacyShellTests
 
 CRANE = os.environ.get('TOKEMS_BLUEGREEN_TEST_CRANE')
 HOST = 'registry.tokems-proxy-test.invalid'
@@ -38,7 +39,7 @@ def receive(connection, length):
 
 @unittest.skipUnless(CRANE and sys.platform.startswith('linux'), 'explicit Linux crane binary and local Docker integration not requested')
 class ProxyIntegrationTests(unittest.TestCase):
-    def exercise(self, protocol):
+    def exercise(self, protocol, legacy_entrypoint=False):
         unique = str(uuid.uuid4())
         manifest, config, blob = image_fixture(unique)
         manifest_bytes = json.dumps(manifest).encode()
@@ -125,7 +126,7 @@ class ProxyIntegrationTests(unittest.TestCase):
                 thread.start()
             container = None
             try:
-                source = object.__new__(ImageSource)
+                source = object.__new__(legacy.ImageSource if legacy_entrypoint else ImageSource)
                 source.proxy = protocol + '://127.0.0.1:' + str(tunnel.server_address[1])
                 source.env = proxy_environment(source.proxy)
                 source.env.update(SSL_CERT_FILE=str(root / 'cert.pem'), DOCKER_CONFIG=str(root))
@@ -138,27 +139,35 @@ class ProxyIntegrationTests(unittest.TestCase):
                     if args[:2] == ['docker', 'load']:
                         self.assertIn('Loaded image', result.stdout.decode(), result.stdout.decode() + result.stderr.decode())
                     return result.stdout if kwargs.get('binary') else result.stdout.decode().strip()
-                with patch('download.run', side_effect=diagnostic_run):
-                    self.assertEqual(source.digest(reference), fingerprint(manifest_bytes))
-                    self.assertEqual(source.labels(reference)['com.tokems.proxy-test'], unique)
+                if legacy_entrypoint:
+                    patched_run = patch.object(legacy, 'run', side_effect=diagnostic_run)
+                    expected_tag = legacy.cache_tag(image_id)
+                else:
+                    patched_run = patch('download.run', side_effect=diagnostic_run)
+                    expected_tag = cache_tag(image_id)
+                with patched_run:
+                    if not legacy_entrypoint:
+                        self.assertEqual(source.digest(reference), fingerprint(manifest_bytes))
+                        self.assertEqual(source.labels(reference)['com.tokems.proxy-test'], unique)
                     result = source.pull(reference, 'linux/amd64', root, 'test')
                 self.assertRegex(result, '^sha256:[a-f0-9]{64}$')
                 self.assertGreaterEqual(len(destinations), 3, 'Manifest, config and layer must use the tunnel')
                 metadata = json.loads(run(['docker', 'image', 'inspect', '--format', '{{json .}}', result]))
                 self.assertEqual(metadata['Config']['Labels']['com.tokems.proxy-test'], unique)
                 self.assertEqual(metadata['RootFS']['Layers'], json.loads(config.decode())['rootfs']['diff_ids'])
-                self.assertEqual(metadata.get('RepoTags'), [cache_tag(image_id)])
+                self.assertEqual(metadata.get('RepoTags'), [expected_tag])
                 self.assertFalse(list(root.glob('*download.tar*')))
                 container = run(['docker', 'create', '--label', 'com.tokems.proxy-test=' + unique, result, '/not-executed'])
                 self.assertEqual(run(['docker', 'inspect', '--format', '{{.Image}}', container]), result)
             finally:
                 if container:
                     run(['docker', 'rm', container])
-                owned = run(['docker', 'image', 'ls', '--quiet', '--no-trunc', '--filter', 'reference=' + cache_tag(image_id)])
+                cleanup_tag = legacy.cache_tag(image_id) if legacy_entrypoint else cache_tag(image_id)
+                owned = run(['docker', 'image', 'ls', '--quiet', '--no-trunc', '--filter', 'reference=' + cleanup_tag])
                 if owned:
                     metadata = json.loads(run(['docker', 'image', 'inspect', '--format', '{{json .}}', owned]))
                     if metadata['Config']['Labels'].get('com.tokems.proxy-test') == unique:
-                        run(['docker', 'image', 'rm', cache_tag(image_id)])
+                        run(['docker', 'image', 'rm', cleanup_tag])
                 for server in (tunnel, registry):
                     server.shutdown()
                     server.server_close()
@@ -170,6 +179,12 @@ class ProxyIntegrationTests(unittest.TestCase):
 
     def test_real_socks5_proxy_remote_dns_and_local_import(self):
         self.exercise('socks5h')
+
+    def test_legacy_http_proxy_download_and_local_import(self):
+        self.exercise('http', legacy_entrypoint=True)
+
+    def test_legacy_socks5_proxy_remote_dns_and_local_import(self):
+        self.exercise('socks5h', legacy_entrypoint=True)
 
 
 if __name__ == '__main__':
