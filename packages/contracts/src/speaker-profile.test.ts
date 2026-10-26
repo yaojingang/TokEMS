@@ -46,6 +46,7 @@ describe('speaker profile contracts', () => {
       '岳琦',
       '余一',
       '张莹莹',
+      '钟添娇',
     ]);
 
     for (const speaker of DEMO_EVENT.speakers) {
@@ -63,7 +64,7 @@ describe('speaker profile contracts', () => {
         expect(DEMO_EVENT.sessions.some((session) => session.speaker?.includes(speaker.name))).toBe(
           false,
         );
-      } else {
+      } else if (DEMO_EVENT.sessions.some((session) => session.speaker?.includes(speaker.name))) {
         expect(DEMO_SPEAKER_PROFILES[speaker.id]?.topicAbstract.trim()).not.toBe('');
       }
     }

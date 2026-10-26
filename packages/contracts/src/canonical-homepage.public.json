@@ -1348,7 +1348,7 @@
         "publicCode": "tgsv",
         "role": "Dageno AI 创始人",
         "tags": [],
-        "topic": "分享主题待公布"
+        "topic": "如何通过数据驱动科学的GEO"
       },
       {
         "accentFrom": "#2563eb",
@@ -1362,7 +1362,7 @@
         "tags": [
           "卫生健康"
         ],
-        "topic": "分享主题待公布"
+        "topic": "分论坛医药板块主持"
       },
       {
         "accentFrom": "#ea580c",
@@ -1418,7 +1418,7 @@
           "AI 工具",
           "生成式 AI"
         ],
-        "topic": "分享主题待公布"
+        "topic": "大会秘书"
       },
       {
         "accentFrom": "#2563eb",
@@ -1547,6 +1547,22 @@
           "闭环增长"
         ],
         "topic": "GEO 圆桌：从生意视角看 GEO 与达人营销"
+      },
+      {
+        "accentFrom": "#2448a8",
+        "accentTo": "#102759",
+        "avatarUrl": "/assets/templates/f26186a0-1b42-44b2-949b-d6610bef2af3",
+        "id": "e852f079-efcf-485e-bec3-0dee295c6c01",
+        "initials": "钟",
+        "name": "钟添娇",
+        "publicCode": "vytr",
+        "role": "41财经 & Winseed 创始人",
+        "tags": [
+          "AI营销",
+          "品牌增长",
+          "全球信源"
+        ],
+        "topic": "从流量争夺到答案争夺：AI时代品牌营销基础设施的重构"
       }
     ],
     "startsAt": "2026-11-21T01:00:00.000Z",
@@ -1861,7 +1877,7 @@
       "socialLinks": [],
       "sortOrder": 13,
       "tags": [],
-      "topic": "分享主题待公布",
+      "topic": "如何通过数据驱动科学的GEO",
       "topicAbstract": null,
       "websiteUrl": null
     },
@@ -1879,7 +1895,7 @@
       "tags": [
         "卫生健康"
       ],
-      "topic": "分享主题待公布",
+      "topic": "分论坛医药板块主持",
       "topicAbstract": null,
       "websiteUrl": null
     },
@@ -1955,7 +1971,7 @@
         "AI 工具",
         "生成式 AI"
       ],
-      "topic": "分享主题待公布",
+      "topic": "大会秘书",
       "topicAbstract": null,
       "websiteUrl": null
     },
@@ -2128,6 +2144,26 @@
       ],
       "topic": "GEO 圆桌：从生意视角看 GEO 与达人营销",
       "topicAbstract": "参与 GEO 圆桌论坛，从生意视角讨论 GEO 中容易被忽略的生意本质，以及 GEO 如何与达人营销打通，让 GEO 从曝光跃迁为闭环增量的增长引擎。",
+      "websiteUrl": null
+    },
+    {
+      "accentFrom": "#2448a8",
+      "accentTo": "#102759",
+      "avatarAssetId": "f26186a0-1b42-44b2-949b-d6610bef2af3",
+      "bio": "连续创业者，10年创业老兵，19岁大学期间赚得第一个100万，中国服贸协会理事。\n\n2015年至2018年：从事虚拟现实与增强现实技术，相关项目后被收购。\n\n2018年至今：广州四一技术有限公司（41财经）。\n\n2025年至今：创立AI营销基建平台Winseed。\n\n2026年：投资广东环海邦OPC出海社区产业园，园区于2026年5月8日获佛山政府授牌。",
+      "id": "e852f079-efcf-485e-bec3-0dee295c6c01",
+      "initials": "钟",
+      "name": "钟添娇",
+      "role": "41财经 & Winseed 创始人",
+      "socialLinks": [],
+      "sortOrder": 28,
+      "tags": [
+        "AI营销",
+        "品牌增长",
+        "全球信源"
+      ],
+      "topic": "从流量争夺到答案争夺：AI时代品牌营销基础设施的重构",
+      "topicAbstract": "Winseed × 41财经：以AI技术与全球信源网络，构建品牌增长新路径",
       "websiteUrl": null
     }
   ],
