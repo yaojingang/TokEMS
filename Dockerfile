@@ -22,7 +22,6 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 WORKDIR /workspace
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
-COPY patches ./patches
 
 RUN --mount=type=cache,id=tokems-pnpm-store,target=/pnpm/store \
     pnpm fetch --frozen-lockfile
