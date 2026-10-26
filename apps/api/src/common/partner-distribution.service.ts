@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   API_ERROR_CODES,
@@ -48,7 +49,7 @@ import {
   ticketTypes,
 } from '@conference/database';
 import { normalizeMainlandMobile, openSecret, sealSecret } from '@conference/security';
-import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lte, or, sql, sum } from 'drizzle-orm';
 import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
@@ -128,6 +129,18 @@ function serializeProgram(program: ProgramRow | undefined | null) {
     effectiveAt: asIso(program.effectiveAt),
     createdAt: program.createdAt.toISOString(),
   };
+}
+
+function staffPartnerMediaUploadScope(organizationId: string, eventId: number, partnerId: string) {
+  return and(
+    sql`${auditLogs.resourceId} = ${customerMediaAssets.id}::text`,
+    eq(auditLogs.resourceType, 'customer_media_asset'),
+    eq(auditLogs.organizationId, organizationId),
+    eq(auditLogs.eventId, eventId),
+    eq(auditLogs.action, 'partner.media.upload_prepared'),
+    eq(auditLogs.actorType, 'staff'),
+    sql`${auditLogs.after}->>'partnerId' = ${partnerId}`,
+  );
 }
 
 function profileAvatarUrl(eventSlug: string, publicSlug: string, profile: ProfileRow) {
@@ -405,6 +418,7 @@ export class PartnerDistributionService {
           eq(eventPartnerProgramVersions.organizationId, organizationId),
           eq(eventPartnerProgramVersions.eventId, eventId),
           eq(eventPartnerProgramVersions.status, 'active'),
+          or(isNull(eventPartnerProgramVersions.effectiveAt), lte(eventPartnerProgramVersions.effectiveAt, new Date())),
         ),
       )
       .orderBy(desc(eventPartnerProgramVersions.version))
@@ -421,6 +435,7 @@ export class PartnerDistributionService {
     await this.eventForOrganization(organizationId, eventId);
     const db = this.db();
     return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`partner-program:${organizationId}:${eventId}`}, 0))`);
       const [latest] = await tx
         .select({ version: eventPartnerProgramVersions.version })
         .from(eventPartnerProgramVersions)
@@ -481,9 +496,6 @@ export class PartnerDistributionService {
           .update(eventPartners)
           .set({
             currentProgramVersionId: program!.id,
-            acceptedProgramVersionId: null,
-            qualificationStatus: 'pending_confirmation',
-            attributionEnabled: false,
             version: sql`${eventPartners.version} + 1`,
             updatedAt: new Date(),
           })
@@ -491,13 +503,6 @@ export class PartnerDistributionService {
             and(
               eq(eventPartners.organizationId, organizationId),
               eq(eventPartners.eventId, eventId),
-              or(
-                eq(eventPartners.qualificationStatus, 'pending_confirmation'),
-                and(
-                  eq(eventPartners.qualificationStatus, 'active'),
-                  eq(eventPartners.attributionEnabled, true),
-                ),
-              ),
             ),
           );
       }
@@ -538,6 +543,7 @@ export class PartnerDistributionService {
     }
     const db = this.db();
     const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`partner-program:${organizationId}:${eventId}`}, 0))`);
       const [program] = await tx
         .select()
         .from(eventPartnerProgramVersions)
@@ -546,6 +552,7 @@ export class PartnerDistributionService {
             eq(eventPartnerProgramVersions.organizationId, organizationId),
             eq(eventPartnerProgramVersions.eventId, eventId),
             eq(eventPartnerProgramVersions.status, 'active'),
+            or(isNull(eventPartnerProgramVersions.effectiveAt), lte(eventPartnerProgramVersions.effectiveAt, new Date())),
           ),
         )
         .orderBy(desc(eventPartnerProgramVersions.version))
@@ -654,7 +661,7 @@ export class PartnerDistributionService {
           ),
         )
         .limit(1);
-      if (existing) return { created: false, partner: existing, loginMobile: customer.user.mobileE164 };
+      if (existing) return { created: false, partner: existing };
       const publicSlug = randomBytes(9).toString('base64url').toLowerCase();
       const [partner] = await tx
         .insert(eventPartners)
@@ -664,6 +671,9 @@ export class PartnerDistributionService {
           customerUserId,
           publicSlug,
           currentProgramVersionId: program.id,
+          qualificationStatus: 'active',
+          attributionEnabled: true,
+          activatedAt: new Date(),
           personalRateBps: input.personalRateBps,
           sortOrder: input.sortOrder,
           internalNote: input.internalNote,
@@ -718,7 +728,7 @@ export class PartnerDistributionService {
           channel: 'sms',
           recipient: customer.user.mobileE164,
           subject: `${event.name} 合作伙伴邀请`,
-          body: `你的${event.name}合作伙伴权限已开通。请登录个人中心确认合作规则，随后即可使用专属推广链接。`,
+          body: `你的${event.name}合作伙伴权限已开通。可登录个人中心查看合作规则并使用专属推广链接。`,
           businessKey: `partner-invitation:${partner!.id}:${program.id}`,
           purpose: 'partner-invitation',
           recipientSource: 'partner-customer',
@@ -731,18 +741,16 @@ export class PartnerDistributionService {
           payload: { deliveryId, partnerId: partner!.id, recipientRole: 'partner' },
         });
       }
-      return { created: true, partner: partner!, loginMobile: customer.user.mobileE164 };
+      return { created: true, partner: partner! };
     });
     return {
       ...(await this.relationship(
         result.partner.id,
         result.partner.customerUserId,
         organizationId,
+        { adminMetadata: true },
       )),
       created: result.created,
-      loginMobile: result.loginMobile,
-      sortOrder: result.partner.sortOrder,
-      internalNote: result.partner.internalNote,
     };
   }
 
@@ -789,6 +797,7 @@ export class PartnerDistributionService {
     input: AdminUpdatePartner,
   ) {
     const updated = await this.db().transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`partner-program:${organizationId}:${eventId}`}, 0))`);
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`partner-payout-gate:${organizationId}:${eventId}`}, 0))`,
       );
@@ -810,12 +819,12 @@ export class PartnerDistributionService {
       if (!partner || partner.version !== input.expectedVersion) {
         fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴资料已更新，请刷新后重试');
       }
-      let qualificationStatus = input.qualificationStatus ?? partner.qualificationStatus;
-      let attributionEnabled = input.attributionEnabled ?? partner.attributionEnabled;
+      const qualificationStatus = input.qualificationStatus ?? partner.qualificationStatus;
+      const attributionEnabled = input.attributionEnabled ??
+        (input.qualificationStatus === 'active' ? true : partner.attributionEnabled);
       let programChange:
         | {
             currentProgramVersionId: string;
-            acceptedProgramVersionId: null;
           }
         | undefined;
       if (
@@ -830,6 +839,7 @@ export class PartnerDistributionService {
               eq(eventPartnerProgramVersions.organizationId, organizationId),
               eq(eventPartnerProgramVersions.eventId, eventId),
               eq(eventPartnerProgramVersions.status, 'active'),
+              or(isNull(eventPartnerProgramVersions.effectiveAt), lte(eventPartnerProgramVersions.effectiveAt, new Date())),
             ),
           )
           .orderBy(desc(eventPartnerProgramVersions.version))
@@ -837,11 +847,7 @@ export class PartnerDistributionService {
         if (!program) {
           fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '请先发布当前大会的合作伙伴规则');
         }
-        if (partner.acceptedProgramVersionId !== program.id) {
-          qualificationStatus = 'pending_confirmation';
-          attributionEnabled = false;
-          programChange = { currentProgramVersionId: program.id, acceptedProgramVersionId: null };
-        }
+        programChange = { currentProgramVersionId: program.id };
       }
       const [result] = await tx
         .update(eventPartners)
@@ -887,7 +893,7 @@ export class PartnerDistributionService {
       });
       return result;
     });
-    return this.relationship(updated.id, updated.customerUserId, organizationId);
+    return this.relationship(updated.id, updated.customerUserId, organizationId, { adminMetadata: true, expectedPartnerVersion: updated.version });
   }
 
   async updatePartnerDetails(
@@ -930,6 +936,24 @@ export class PartnerDistributionService {
         fail(API_ERROR_CODES.NOT_FOUND, '合作伙伴资料不存在', HttpStatus.NOT_FOUND);
       }
 
+      if (input.avatarAssetId && input.avatarAssetId !== profile.avatarAssetId) {
+        const [owned] = await tx.select({ asset: customerMediaAssets }).from(customerMediaAssets)
+          .innerJoin(auditLogs, staffPartnerMediaUploadScope(organizationId, eventId, partnerId)).where(and(
+          eq(customerMediaAssets.id, input.avatarAssetId),
+          eq(customerMediaAssets.organizationId, organizationId),
+          eq(customerMediaAssets.customerUserId, partner.customerUserId),
+          eq(customerMediaAssets.kind, 'partner_avatar'),
+          eq(customerMediaAssets.status, 'ready'),
+        )).for('share').limit(1);
+        if (!owned?.asset.confirmedAt || !owned.asset.outputStorageKey) {
+          fail(API_ERROR_CODES.VALIDATION_ERROR, '头像尚未处理完成或无权使用', HttpStatus.BAD_REQUEST);
+        }
+      }
+      if (input.posterFields && Object.entries(input.posterFields).some(
+        ([key, enabled]) => enabled && !profile.visibleFields[key as keyof typeof profile.visibleFields],
+      )) {
+        fail(API_ERROR_CODES.VALIDATION_ERROR, '海报字段必须先获得公开展示授权', HttpStatus.BAD_REQUEST);
+      }
       const profileValues = {
         displayName: input.displayName,
         company: input.company,
@@ -937,20 +961,23 @@ export class PartnerDistributionService {
         industry: input.industry,
         businessIntro: input.businessIntro,
         businessUrl: input.businessUrl,
+        avatarAssetId: input.avatarAssetId === undefined ? profile.avatarAssetId : input.avatarAssetId,
+        posterCopy: input.posterCopy === undefined ? profile.posterCopy : input.posterCopy,
+        posterFields: input.posterFields === undefined ? profile.posterFields : input.posterFields,
       };
       const profileChanged = Object.entries(profileValues).some(
-        ([key, value]) => profile[key as keyof typeof profileValues] !== value,
+        ([key, value]) => !isDeepStrictEqual(profile[key as keyof typeof profileValues], value),
       );
       const changedFields = [
         ...Object.entries(profileValues)
-          .filter(([key, value]) => profile[key as keyof typeof profileValues] !== value)
+          .filter(([key, value]) => !isDeepStrictEqual(profile[key as keyof typeof profileValues], value))
           .map(([key]) => `profile.${key}`),
         ...(partner.personalRateBps === input.personalRateBps ? [] : ['personalRateBps']),
         ...(partner.sortOrder === input.sortOrder ? [] : ['sortOrder']),
         ...(partner.internalNote === input.internalNote ? [] : ['internalNote']),
       ];
       if (!changedFields.length) {
-        return { customerUserId: partner.customerUserId };
+        return { customerUserId: partner.customerUserId, version: partner.version };
       }
 
       const timestamp = new Date();
@@ -985,7 +1012,7 @@ export class PartnerDistributionService {
             eq(eventPartners.version, partner.version),
           ),
         )
-        .returning({ customerUserId: eventPartners.customerUserId });
+        .returning({ customerUserId: eventPartners.customerUserId, version: eventPartners.version });
       if (!updated) {
         fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴资料已更新，请刷新后重试');
       }
@@ -1010,14 +1037,23 @@ export class PartnerDistributionService {
       });
       return updated;
     });
-    return this.relationship(partnerId, result.customerUserId, organizationId);
+    return this.relationship(partnerId, result.customerUserId, organizationId, { adminMetadata: true, expectedPartnerVersion: result.version });
   }
 
-  private async relationship(partnerId: string, customerUserId: string, organizationId: string) {
+  private async relationship(
+    partnerId: string,
+    customerUserId: string,
+    organizationId: string,
+    options?: { adminMetadata: true; expectedPartnerVersion?: number },
+  ) {
     const db = this.db();
     const [row] = await db
-      .select({ partner: eventPartners, event: events, profile: eventPartnerProfileVersions })
+      .select({ partner: eventPartners, event: events, profile: eventPartnerProfileVersions, loginMobile: customerUsers.mobileE164 })
       .from(eventPartners)
+      .innerJoin(customerUsers, and(
+        eq(customerUsers.id, eventPartners.customerUserId),
+        eq(customerUsers.organizationId, eventPartners.organizationId),
+      ))
       .innerJoin(events, eq(events.id, eventPartners.eventId))
       .innerJoin(
         eventPartnerProfileVersions,
@@ -1035,6 +1071,9 @@ export class PartnerDistributionService {
       )
       .limit(1);
     if (!row) fail(API_ERROR_CODES.NOT_FOUND, '合作伙伴关系不存在', HttpStatus.NOT_FOUND);
+    if (options?.expectedPartnerVersion !== undefined && row.partner.version !== options.expectedPartnerVersion) {
+      fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴资料已更新，请刷新后重试');
+    }
     const [[program], [link], balanceRows] = await Promise.all([
       row.partner.currentProgramVersionId
         ? db
@@ -1062,6 +1101,8 @@ export class PartnerDistributionService {
         .where(eq(partnerLedgerEntries.partnerId, partnerId))
         .groupBy(partnerLedgerEntries.balanceBucket),
     ]);
+    const programActive = program?.status === 'active' && (!program.effectiveAt || program.effectiveAt <= new Date());
+    const validLink = programActive && link && !link.disabledAt && (!link.expiresAt || link.expiresAt > new Date()) ? link : null;
     const balances = Object.fromEntries(
       balanceRows.map((item) => [item.bucket, Number(item.value ?? 0)]),
     );
@@ -1072,7 +1113,7 @@ export class PartnerDistributionService {
       eventName: row.event.name,
       publicSlug: row.partner.publicSlug,
       referralCode: link?.code ?? '',
-      referralPath: link ? `/r/${encodeURIComponent(link.code)}` : '',
+      referralPath: validLink ? `/r/${encodeURIComponent(validLink.code)}` : '',
       qualificationStatus: row.partner.qualificationStatus,
       attributionEnabled: row.partner.attributionEnabled,
       settlementHold: row.partner.settlementHold,
@@ -1091,6 +1132,11 @@ export class PartnerDistributionService {
       directoryEnabled: Boolean(program?.publicDirectoryEnabled),
       profile: serializeProfile(row.event.id, row.profile),
       version: row.partner.version,
+      ...(options?.adminMetadata ? {
+        loginMobile: row.loginMobile,
+        sortOrder: row.partner.sortOrder,
+        internalNote: row.partner.internalNote,
+      } : {}),
     };
   }
 
@@ -1182,67 +1228,44 @@ export class PartnerDistributionService {
     userAgent: string,
   ) {
     const partner = await this.ownPartner(session, eventId);
-    if (partner.version !== expectedPartnerVersion) {
-      fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴规则已更新，请刷新后确认');
-    }
-    if (
-      partner.qualificationStatus !== 'pending_confirmation' ||
-      partner.currentProgramVersionId !== programVersionId
-    ) {
-      fail(
-        API_ERROR_CODES.INVALID_STATE_TRANSITION,
-        '当前合作伙伴资格未开放规则确认，请联系大会管理员',
-      );
-    }
-    const [program] = await this.db()
-      .select()
-      .from(eventPartnerProgramVersions)
-      .where(
-        and(
-          eq(eventPartnerProgramVersions.id, programVersionId),
-          eq(eventPartnerProgramVersions.organizationId, session.organizationId),
-          eq(eventPartnerProgramVersions.eventId, eventId),
-          eq(eventPartnerProgramVersions.status, 'active'),
-        ),
-      )
-      .limit(1);
-    if (!program) fail(API_ERROR_CODES.NOT_FOUND, '当前规则不存在或尚未生效', HttpStatus.NOT_FOUND);
     await this.db().transaction(async (tx) => {
-      await tx
-        .insert(eventPartnerRuleAcceptances)
-        .values({
-          partnerId: partner.id,
-          organizationId: session.organizationId,
-          eventId,
-          programVersionId,
-          customerUserId: session.customerUserId,
-          termsContentHash: program.contentHash,
-          requestIpHash: createHash('sha256').update(requestIp).digest('hex'),
-          userAgentHash: createHash('sha256').update(userAgent).digest('hex'),
-        })
-        .onConflictDoNothing();
-      const [updated] = await tx
-        .update(eventPartners)
-        .set({
-          acceptedProgramVersionId: programVersionId,
-          currentProgramVersionId: programVersionId,
-          qualificationStatus: 'active',
-          attributionEnabled: true,
-          activatedAt: new Date(),
-          version: sql`${eventPartners.version} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(eventPartners.id, partner.id),
-            eq(eventPartners.version, expectedPartnerVersion),
-            eq(eventPartners.qualificationStatus, 'pending_confirmation'),
-            eq(eventPartners.currentProgramVersionId, programVersionId),
-          ),
-        )
-        .returning({ id: eventPartners.id });
-      if (!updated)
-        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴状态已更新，请刷新后重试');
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`partner-program:${session.organizationId}:${eventId}`}, 0))`);
+      const [current] = await tx.select().from(eventPartners).where(and(
+        eq(eventPartners.id, partner.id),
+        eq(eventPartners.organizationId, session.organizationId),
+        eq(eventPartners.eventId, eventId),
+        eq(eventPartners.customerUserId, session.customerUserId),
+      )).for('update').limit(1);
+      if (!current || current.qualificationStatus !== 'active' || !current.attributionEnabled ||
+          current.currentProgramVersionId !== programVersionId) {
+        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '当前合作伙伴资格不可确认规则，请联系大会管理员');
+      }
+      const [program] = await tx.select().from(eventPartnerProgramVersions).where(and(
+        eq(eventPartnerProgramVersions.id, programVersionId),
+        eq(eventPartnerProgramVersions.organizationId, session.organizationId),
+        eq(eventPartnerProgramVersions.eventId, eventId),
+        eq(eventPartnerProgramVersions.status, 'active'),
+      )).for('share').limit(1);
+      if (!program) fail(API_ERROR_CODES.NOT_FOUND, '当前规则不存在或尚未生效', HttpStatus.NOT_FOUND);
+      if (current.acceptedProgramVersionId === programVersionId) return;
+      if (current.version !== expectedPartnerVersion) {
+        fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴规则已更新，请刷新后确认');
+      }
+      await tx.insert(eventPartnerRuleAcceptances).values({
+        partnerId: current.id,
+        organizationId: session.organizationId,
+        eventId,
+        programVersionId,
+        customerUserId: session.customerUserId,
+        termsContentHash: program.contentHash,
+        requestIpHash: createHash('sha256').update(requestIp).digest('hex'),
+        userAgentHash: createHash('sha256').update(userAgent).digest('hex'),
+      }).onConflictDoNothing();
+      await tx.update(eventPartners).set({
+        acceptedProgramVersionId: programVersionId,
+        version: sql`${eventPartners.version} + 1`,
+        updatedAt: new Date(),
+      }).where(eq(eventPartners.id, current.id));
     });
     return this.relationship(partner.id, session.customerUserId, session.organizationId);
   }
@@ -1571,11 +1594,11 @@ export class PartnerDistributionService {
         ),
       )
       .limit(1);
-    if (!row || (row.link.expiresAt && row.link.expiresAt <= new Date())) {
+    if (!row || row.link.disabledAt || (row.link.expiresAt && row.link.expiresAt <= new Date())) {
       fail(API_ERROR_CODES.NOT_FOUND, '推广链接无效或已停止使用', HttpStatus.NOT_FOUND);
     }
     const program = await this.activeProgram(row.partner.organizationId, row.partner.eventId);
-    if (!program) fail(API_ERROR_CODES.NOT_FOUND, '推广计划尚未启用', HttpStatus.NOT_FOUND);
+    if (!program || row.partner.currentProgramVersionId !== program.id) fail(API_ERROR_CODES.NOT_FOUND, '推广计划尚未启用', HttpStatus.NOT_FOUND);
     const expiresAt = new Date(Date.now() + program.attributionDays * 24 * 60 * 60 * 1000);
     const localDate = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Shanghai',
@@ -2471,34 +2494,16 @@ export class PartnerDistributionService {
 
   async adminPartners(organizationId: string, eventId: number) {
     const rows = await this.db()
-      .select({
-        id: eventPartners.id,
-        customerUserId: eventPartners.customerUserId,
-        loginMobile: customerUsers.mobileE164,
-        sortOrder: eventPartners.sortOrder,
-        internalNote: eventPartners.internalNote,
-      })
+      .select({ id: eventPartners.id, customerUserId: eventPartners.customerUserId })
       .from(eventPartners)
-      .innerJoin(
-        customerUsers,
-        and(
-          eq(customerUsers.id, eventPartners.customerUserId),
-          eq(customerUsers.organizationId, eventPartners.organizationId),
-        ),
-      )
       .where(
         and(eq(eventPartners.organizationId, organizationId), eq(eventPartners.eventId, eventId)),
       )
       .orderBy(asc(eventPartners.sortOrder), desc(eventPartners.createdAt));
     return {
-      items: await Promise.all(
-        rows.map(async (row) => ({
-          ...(await this.relationship(row.id, row.customerUserId, organizationId)),
-          loginMobile: row.loginMobile,
-          sortOrder: row.sortOrder,
-          internalNote: row.internalNote,
-        })),
-      ),
+      items: await Promise.all(rows.map(row => this.relationship(
+        row.id, row.customerUserId, organizationId, { adminMetadata: true },
+      ))),
     };
   }
 
@@ -2523,16 +2528,14 @@ export class PartnerDistributionService {
     let availability: AdminPartnerPromotionView['availability'] = 'unavailable';
     let reason = '';
     if (!link) reason = '尚无推广链接，请联系大会管理员处理。';
-    else if (link.status !== 'active') reason = '推广链接已停用。';
+    else if (link.status !== 'active' || link.disabledAt) reason = '推广链接已停用。';
     else if (link.expiresAt && link.expiresAt <= new Date()) reason = '推广链接已过期。';
     else if (!program) reason = '当前大会分销计划不可用。';
     else if (row.partner.qualificationStatus === 'paused') reason = '合作伙伴已暂停，当前推广链接不可用。';
     else if (row.partner.qualificationStatus === 'closed') reason = '合作伙伴已关闭，当前推广链接不可用。';
-    else if (row.partner.qualificationStatus === 'pending_confirmation' && row.partner.currentProgramVersionId === program.id) {
-      availability = 'pending_confirmation';
-      reason = '待合作伙伴确认当前规则，链接暂不可用。可提前领取素材，确认后原链接和二维码自动生效。';
-    } else if (!row.partner.attributionEnabled) reason = '该合作伙伴的推广归因已停用。';
-    else if (row.partner.acceptedProgramVersionId !== program.id || row.partner.currentProgramVersionId !== program.id) reason = '合作规则已更新，请先由合作伙伴确认当前规则。';
+    else if (row.partner.qualificationStatus === 'pending_confirmation') reason = '合作伙伴尚未启用，请联系大会管理员。';
+    else if (!row.partner.attributionEnabled) reason = '该合作伙伴的推广归因已停用。';
+    else if (row.partner.currentProgramVersionId !== program.id) reason = '合作规则尚未同步，请联系大会管理员。';
     else if (row.partner.qualificationStatus === 'active') {
       availability = 'ready';
       reason = '推广链接已生效，可复制链接或下载素材。';
@@ -2556,6 +2559,26 @@ export class PartnerDistributionService {
         posterCopy: row.profile.posterCopy,
       },
     };
+  }
+
+  async adminPartnerMediaScope(organizationId: string, eventId: number, partnerId: string, assetId?: string) {
+    const [partner] = await this.db().select({ customerUserId: eventPartners.customerUserId })
+      .from(eventPartners).where(and(eq(eventPartners.id, partnerId),
+        eq(eventPartners.organizationId, organizationId), eq(eventPartners.eventId, eventId))).limit(1);
+    if (!partner) fail(API_ERROR_CODES.NOT_FOUND, '合作伙伴不存在或无权管理', HttpStatus.NOT_FOUND);
+    if (!assetId) return { organizationId, customerUserId: partner.customerUserId };
+    const [asset] = await this.db().select({
+      id: customerMediaAssets.id, status: customerMediaAssets.status, failureReason: customerMediaAssets.failureReason,
+    }).from(customerMediaAssets).innerJoin(auditLogs, staffPartnerMediaUploadScope(organizationId, eventId, partnerId)).where(and(eq(customerMediaAssets.id, assetId), eq(customerMediaAssets.organizationId, organizationId),
+      eq(customerMediaAssets.customerUserId, partner.customerUserId), eq(customerMediaAssets.kind, 'partner_avatar'))).limit(1);
+    if (!asset) fail(API_ERROR_CODES.NOT_FOUND, '图片不存在或无权管理', HttpStatus.NOT_FOUND);
+    return { organizationId, customerUserId: partner.customerUserId, asset };
+  }
+
+  async adminPartnerMediaStatus(organizationId: string, eventId: number, partnerId: string, assetId: string) {
+    const scope = await this.adminPartnerMediaScope(organizationId, eventId, partnerId, assetId);
+    return { assetId: scope.asset!.id, status: scope.asset!.status as 'processing' | 'ready' | 'failed',
+      failureReason: scope.asset!.failureReason };
   }
 
   async adminPromotionAvatarScope(organizationId: string, eventId: number, partnerId: string, profileVersion: number) {

@@ -15,6 +15,9 @@ const fieldMessages: Record<string, string> = {
   personalRateBps: '个人佣金比例：请填写 0 至 100 之间的数字，或留空继承大会规则。',
   sortOrder: '展示顺序：请填写 -1000000 至 1000000 之间的整数。',
   internalNote: '内部备注：最多填写 2000 个字符。',
+  posterCopy: '海报文案：请检查字数限制，避免使用不支持的字符。',
+  posterFields: '海报展示内容：只能使用已获公开授权的字段。',
+  avatarAssetId: '合作伙伴头像：请等待图片处理完成，或重新上传。',
 };
 
 /** Turn local and server validation paths into the same actionable field messages. */

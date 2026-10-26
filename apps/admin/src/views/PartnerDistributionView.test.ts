@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ref } from 'vue';
+import { DEFAULT_PARTNER_POSTER_FIELDS, PARTNER_POSTER_DEFAULT_COPY } from '@conference/contracts';
 import PartnerDistributionView from './PartnerDistributionView.vue';
 
 const api = vi.hoisted(() => ({
@@ -44,6 +45,7 @@ interface State {
   pending: Ref<boolean>;
   partnerEditorTab: Ref<'profile' | 'promotion'>;
   partnerFormDirty: Ref<boolean>;
+  pendingAvatarAssetId: Ref<string | null | undefined>;
   openPartnerInvitation: () => void;
   closePartnerInvitation: () => void;
   enableForm: {
@@ -144,7 +146,7 @@ describe('partner distribution quick enable', () => {
       publicDirectoryEnabled: false,
       homepageLimit: 12,
     });
-    expect(view.successMessage.value).toBe('分销功能已开启。合作伙伴确认规则后即可开始推广归因。');
+    expect(view.successMessage.value).toBe('分销功能已开启，后台添加合作伙伴后即可开始推广归因。');
     expect(view.enableDialogOpen.value).toBe(false);
   });
 
@@ -241,6 +243,7 @@ describe('partner distribution quick enable', () => {
     const partner = {
       id: 'a761c83a-143b-4447-b018-a03c238b2be7',
       version: 4,
+      eventId: 101,
       loginMobile: '+8613800138000',
       sortOrder: 8,
       internalNote: '原备注',
@@ -275,7 +278,9 @@ describe('partner distribution quick enable', () => {
       personalRateBps: 0,
       sortOrder: 3,
       internalNote: '线下签约',
-    });
+      posterCopy: PARTNER_POSTER_DEFAULT_COPY,
+      posterFields: DEFAULT_PARTNER_POSTER_FIELDS,
+    }, partner.eventId);
     expect(view.successMessage.value).toBe('合作伙伴资料和佣金设置已更新。');
   });
 
@@ -347,6 +352,48 @@ describe('partner distribution quick enable', () => {
     await view.savePartnerDetails();
     expect(view.partnerEditorTab.value).toBe('profile');
     expect(api.updateEventPartnerDetails).not.toHaveBeenCalled();
+  });
+
+  it('clears the saved avatar draft while retaining text entered during its save', async () => {
+    const view = state();
+    const partner = {
+      id: 'a761c83a-143b-4447-b018-a03c238b2be7', version: 1, eventId: 101,
+      loginMobile: '+8613800138000', sortOrder: 0, internalNote: '', personalRateBps: null,
+      profile: { displayName: '林安', company: '', title: '', industry: '', businessIntro: '', businessUrl: '' },
+    };
+    view.openPartnerEditor(partner);
+    view.pendingAvatarAssetId.value = 'ead73b17-b02e-431a-a05d-7db3a0918260';
+    let finish!: (result: Record<string, unknown>) => void;
+    api.updateEventPartnerDetails.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saving = view.savePartnerDetails();
+    view.editForm.displayName = '等待期间的新输入';
+    finish({ ...partner, version: 2 });
+    await saving;
+    expect(view.partnerFormDirty.value).toBe(true);
+    expect(view.pendingAvatarAssetId.value).toBeUndefined();
+    view.editForm.displayName = '林安';
+    expect(view.partnerFormDirty.value).toBe(false);
+  });
+
+  it('ignores a save response after another editor session opens', async () => {
+    const view = state();
+    const partner = {
+      id: 'a761c83a-143b-4447-b018-a03c238b2be7', version: 1, eventId: 101,
+      loginMobile: '+8613800138000', sortOrder: 0, internalNote: '', personalRateBps: null,
+      profile: { displayName: '林安', company: '', title: '', industry: '', businessIntro: '', businessUrl: '' },
+    };
+    view.openPartnerEditor(partner);
+    view.editForm.displayName = '旧会话提交';
+    let finish!: (result: Record<string, unknown>) => void;
+    api.updateEventPartnerDetails.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saving = view.savePartnerDetails();
+    view.openPartnerEditor(partner);
+    view.editForm.displayName = '新会话草稿';
+    finish({ ...partner, version: 2, profile: { ...partner.profile, displayName: '旧会话提交' } });
+    await saving;
+    expect(view.editingPartner.value?.version).toBe(1);
+    expect(view.editForm.displayName).toBe('新会话草稿');
+    expect(view.partnerEditorNotice.value).toBe('');
   });
 
   it.each([

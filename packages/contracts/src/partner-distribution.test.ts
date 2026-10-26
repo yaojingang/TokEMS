@@ -214,4 +214,17 @@ describe('partner distribution contracts', () => {
       }).success,
     ).toBe(false);
   });
+  it('accepts optional atomic avatar and poster fields while preserving omissions', () => {
+    const base = { expectedVersion: 1, displayName: '伙伴', personalRateBps: null };
+    const original = AdminEditPartnerDetailsSchema.parse(base);
+    expect(original).not.toHaveProperty('avatarAssetId');
+    expect(original).not.toHaveProperty('posterCopy');
+    expect(original).not.toHaveProperty('posterFields');
+    const fields = { avatar: true, displayName: true, company: true, title: true, industry: false,
+      businessIntro: false, businessUrl: false, contactPhone: false, contactEmail: false, wechatId: false, gallery: false };
+    expect(AdminEditPartnerDetailsSchema.parse({ ...base, avatarAssetId: null, posterCopy: { invitation: '现场见', introduction: '合作交流' }, posterFields: fields })).toMatchObject({ avatarAssetId: null, posterFields: fields });
+    expect(AdminEditPartnerDetailsSchema.safeParse({ ...base, avatarAssetId: 'invalid' }).success).toBe(false);
+    expect(AdminEditPartnerDetailsSchema.safeParse({ ...base, posterCopy: { invitation: '<script>', introduction: '介绍' } }).success).toBe(false);
+  });
+
 });

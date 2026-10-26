@@ -2109,6 +2109,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media/:assetId/status",
+      "handler": "AdminPartnerController.partnerMediaStatus",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.partner.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/promotion",
       "handler": "AdminPartnerController.promotion",
       "actionId": null,
@@ -3284,6 +3295,28 @@
       "method": "POST",
       "path": "/api/v1/admin/events/:eventId/distribution/partners",
       "handler": "AdminPartnerController.enable",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.partner.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media-confirmations",
+      "handler": "AdminPartnerController.confirmPartnerMedia",
+      "actionId": null,
+      "exclusion": "Partner financial administration is reserved for human operators",
+      "requiredAnyGrants": [
+        "event.partner.manage"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media-uploads",
+      "handler": "AdminPartnerController.preparePartnerMedia",
       "actionId": null,
       "exclusion": "Partner financial administration is reserved for human operators",
       "requiredAnyGrants": [

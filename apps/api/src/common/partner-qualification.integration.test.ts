@@ -123,35 +123,18 @@ persistent('partner qualification authorization with real PostgreSQL', () => {
     return { organizationId, actorId, event: event!, draft, program, service, partner };
   }
 
-  it('activates a pending invitation after the customer confirms its current program', async () => {
+  it('keeps repeated acceptance requests compatible for an active partner', async () => {
     const scope = await fixture();
-    const { row, session } = await scope.partner('pending_confirmation', false);
-    const result = await scope.service.acceptProgram(
-      session,
-      scope.event.id,
-      scope.program.id,
-      row.version,
-      '127.0.0.1',
-      'qualification-test',
-    );
-    expect(result).toMatchObject({
-      qualificationStatus: 'active',
-      attributionEnabled: true,
-      acceptedProgramVersionId: scope.program.id,
-    });
-    expect(
-      await connection.db
-        .select()
-        .from(eventPartnerRuleAcceptances)
-        .where(eq(eventPartnerRuleAcceptances.partnerId, row.id)),
-    ).toHaveLength(1);
+    const { row, session } = await scope.partner('active', true);
+    const result = await scope.service.acceptProgram(session, scope.event.id, scope.program.id, row.version, '127.0.0.1', 'test');
+    expect(result).toMatchObject({ qualificationStatus: 'active', attributionEnabled: true, version: row.version });
   });
 
   it.each([
     ['paused', false],
     ['closed', false],
     ['active', false],
-    ['active', true],
+    ['pending_confirmation', false],
   ] as const)(
     'rejects a fresh rule acceptance for %s with attribution=%s',
     async (status, attribution) => {
@@ -212,9 +195,9 @@ persistent('partner qualification authorization with real PostgreSQL', () => {
       expect(stored).toMatchObject({
         qualificationStatus: row.qualificationStatus,
         attributionEnabled: false,
-        currentProgramVersionId: scope.program.id,
+        currentProgramVersionId: next.id,
         acceptedProgramVersionId: scope.program.id,
-        version: row.version,
+        version: row.version + 1,
       });
     }
     for (const { row } of [enabled, invited]) {
@@ -223,17 +206,17 @@ persistent('partner qualification authorization with real PostgreSQL', () => {
         .from(eventPartners)
         .where(eq(eventPartners.id, row.id));
       expect(stored).toMatchObject({
-        qualificationStatus: 'pending_confirmation',
-        attributionEnabled: false,
+        qualificationStatus: row.qualificationStatus,
+        attributionEnabled: row.attributionEnabled,
         currentProgramVersionId: next.id,
-        acceptedProgramVersionId: null,
+        acceptedProgramVersionId: row.acceptedProgramVersionId,
         version: row.version + 1,
       });
     }
   });
 
   it.each(['paused', 'active'] as const)(
-    'requires confirmation of the latest rules when an administrator resumes a %s partner',
+    'binds current rules and activates immediately when an administrator resumes a %s partner',
     async (status) => {
       const scope = await fixture();
       const { row, session } = await scope.partner(status, false);
@@ -259,10 +242,10 @@ persistent('partner qualification authorization with real PostgreSQL', () => {
         },
       );
       expect(reopened).toMatchObject({
-        qualificationStatus: 'pending_confirmation',
-        attributionEnabled: false,
+        qualificationStatus: 'active',
+        attributionEnabled: true,
         currentProgram: { id: next.id },
-        acceptedProgramVersionId: null,
+        acceptedProgramVersionId: scope.program.id,
       });
       const activated = await scope.service.acceptProgram(
         session,

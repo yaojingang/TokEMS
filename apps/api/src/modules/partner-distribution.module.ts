@@ -592,6 +592,49 @@ export class AdminPartnerController {
       .header('Content-Type', 'image/webp').header('X-Content-Type-Options', 'nosniff').send(body);
   }
 
+  @Post('partners/:partnerId/media-uploads')
+  @RequireGrant('event.partner.manage')
+  async preparePartnerMedia(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('partnerId', ParseUUIDPipe) partnerId: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    const input = parse(PartnerMediaUploadSchema.refine(value => value.kind === 'avatar'), body, '头像上传信息校验失败');
+    const scope = await this.partners.adminPartnerMediaScope(request.user.organizationId, eventId, partnerId);
+    return this.showcase.preparePartnerMediaUpload(scope, eventId, input, { actorId: request.user.sub, partnerId });
+  }
+
+  @Post('partners/:partnerId/media-confirmations')
+  @RequireGrant('event.partner.manage')
+  async confirmPartnerMedia(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('partnerId', ParseUUIDPipe) partnerId: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    const input = parse(PartnerMediaConfirmSchema, body, '头像确认信息校验失败');
+    const scope = await this.partners.adminPartnerMediaScope(request.user.organizationId, eventId, partnerId, input.uploadToken);
+    return this.showcase.confirmPartnerMedia(scope, eventId, input, { actorId: request.user.sub, partnerId });
+  }
+
+  @Get('partners/:partnerId/media/:assetId/status')
+  @RequireGrant('event.partner.manage')
+  partnerMediaStatus(
+    @Req() request: AdminRequest,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('partnerId', ParseUUIDPipe) partnerId: string,
+    @Param('assetId', ParseUUIDPipe) assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    reply.header('Cache-Control', 'private, no-store').header('Pragma', 'no-cache');
+    return this.partners.adminPartnerMediaStatus(request.user.organizationId, eventId, partnerId, assetId);
+  }
+
   @Post('partners')
   @RequireGrant('event.partner.manage')
   enable(

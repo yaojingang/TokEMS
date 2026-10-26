@@ -594,9 +594,10 @@ export class AttendeeShowcaseService {
   }
 
   async preparePartnerMediaUpload(
-    session: AuthenticatedCustomer,
+    session: Pick<AuthenticatedCustomer, 'organizationId' | 'customerUserId'>,
     eventId: number,
     input: unknown,
+    staff?: { actorId: string; partnerId: string },
   ): Promise<AttendeeAvatarUploadResult> {
     const parsed = PartnerMediaUploadSchema.parse(input);
     const uploadToken = randomUUID();
@@ -648,6 +649,11 @@ export class AttendeeShowcaseService {
         contentDigest: parsed.contentDigest.toLowerCase(),
         status: 'processing',
       });
+      if (staff) await tx.insert(auditLogs).values({
+        organizationId: session.organizationId, eventId, actorId: staff.actorId, actorType: 'staff',
+        action: 'partner.media.upload_prepared', resourceType: 'customer_media_asset', resourceId: uploadToken,
+        before: {}, after: { partnerId: staff.partnerId, kind }, traceId: randomUUID(),
+      });
     });
     return {
       uploadToken,
@@ -662,9 +668,10 @@ export class AttendeeShowcaseService {
   }
 
   async confirmPartnerMedia(
-    session: AuthenticatedCustomer,
+    session: Pick<AuthenticatedCustomer, 'organizationId' | 'customerUserId'>,
     eventId: number,
     input: AttendeeAvatarConfirm,
+    staff?: { actorId: string; partnerId: string },
   ) {
     const [asset] = await this.db()
       .select()
@@ -738,6 +745,11 @@ export class AttendeeShowcaseService {
         eventType: 'CustomerAvatarProcessingRequested',
         correlationId: `partner-media:${asset.id}`,
         payload: { assetId: asset.id },
+      });
+      if (staff) await tx.insert(auditLogs).values({
+        organizationId: session.organizationId, eventId, actorId: staff.actorId, actorType: 'staff',
+        action: 'partner.media.confirmed', resourceType: 'customer_media_asset', resourceId: asset.id,
+        before: {}, after: { partnerId: staff.partnerId, kind: asset.kind }, traceId: randomUUID(),
       });
     });
     return { assetId: asset.id, status: 'processing' as const };

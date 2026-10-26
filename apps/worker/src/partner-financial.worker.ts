@@ -1453,7 +1453,7 @@ export async function queryPendingPartnerPayouts(db: ConferenceDatabase) {
 
 export async function activateScheduledPartnerPrograms(db: ConferenceDatabase) {
   const due = await db
-    .select({ id: eventPartnerProgramVersions.id })
+    .select({ id: eventPartnerProgramVersions.id, organizationId: eventPartnerProgramVersions.organizationId, eventId: eventPartnerProgramVersions.eventId })
     .from(eventPartnerProgramVersions)
     .where(
       and(
@@ -1465,6 +1465,7 @@ export async function activateScheduledPartnerPrograms(db: ConferenceDatabase) {
     .limit(100);
   for (const candidate of due) {
     await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`partner-program:${candidate.organizationId}:${candidate.eventId}`}, 0))`);
       const [program] = await tx
         .select()
         .from(eventPartnerProgramVersions)
@@ -1496,9 +1497,6 @@ export async function activateScheduledPartnerPrograms(db: ConferenceDatabase) {
         .update(eventPartners)
         .set({
           currentProgramVersionId: program.id,
-          acceptedProgramVersionId: null,
-          qualificationStatus: 'pending_confirmation',
-          attributionEnabled: false,
           version: sql`${eventPartners.version} + 1`,
           updatedAt: new Date(),
         })
@@ -1506,13 +1504,6 @@ export async function activateScheduledPartnerPrograms(db: ConferenceDatabase) {
           and(
             eq(eventPartners.organizationId, program.organizationId),
             eq(eventPartners.eventId, program.eventId),
-            or(
-              eq(eventPartners.qualificationStatus, 'pending_confirmation'),
-              and(
-                eq(eventPartners.qualificationStatus, 'active'),
-                eq(eventPartners.attributionEnabled, true),
-              ),
-            ),
           ),
         );
     });

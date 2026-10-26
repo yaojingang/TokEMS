@@ -170,7 +170,7 @@ watch(activeTab, async () => {
   }
 });
 const statusText: Record<string, string> = {
-  pending_confirmation: '待确认合作规则',
+  pending_confirmation: '待启用',
   active: '合作中',
   paused: '已暂停',
   closed: '已关闭',
@@ -211,16 +211,14 @@ const visibleChoices: Array<{ key: keyof PartnerVisibleFields; label: string }> 
   { key: 'wechatId', label: '微信号' },
   { key: 'gallery', label: '图片资料' },
 ];
+const promotionAvailable = computed(() => Boolean(
+  partner.value?.qualificationStatus === 'active' && partner.value.attributionEnabled &&
+  partner.value.currentProgram?.status === 'active' && partner.value.referralPath,
+));
 const referralUrl = computed(() => {
-  const path = partner.value?.referralPath ?? '';
+  const path = promotionAvailable.value ? partner.value?.referralPath ?? '' : '';
   return import.meta.client && path ? new URL(path, window.location.origin).toString() : path;
 });
-const confirmed = computed(() =>
-  Boolean(
-    partner.value?.currentProgram?.id &&
-    partner.value.acceptedProgramVersionId === partner.value.currentProgram.id,
-  ),
-);
 const verifiedRecipients = computed(() =>
   recipients.value.filter((item) => item.status === 'verified'),
 );
@@ -368,20 +366,6 @@ async function run(action: () => Promise<void>, message: string) {
   } finally {
     pending.value = false;
   }
-}
-function acceptRules() {
-  const current = partner.value?.currentProgram;
-  if (!partner.value || !current) return;
-  return run(
-    async () =>
-      hydrate(
-        await customer.acceptPartnerProgram(eventId.value, {
-          programVersionId: current.id,
-          expectedPartnerVersion: partner.value!.version,
-        }),
-      ),
-    '合作规则已确认，专属推广链接已经生效',
-  );
 }
 function saveProfile() {
   if (!partner.value) return;
@@ -724,27 +708,17 @@ useHead({ title: '合作伙伴中心' });
               <span aria-hidden="true">{{ errorMessage ? '!' : '✓' }}</span>
               <p>{{ errorMessage || successMessage }}</p>
             </div>
-            <section
-              v-if="!confirmed && partner.currentProgram"
-              class="account-surface rules-card"
-              aria-labelledby="rules-title"
-            >
-              <span class="section-index">BEFORE YOU START</span>
-              <h2 id="rules-title">{{ partner.currentProgram.termsTitle }}</h2>
-              <p class="hint">确认本期合作规则后，即可开始推广。</p>
-              <div class="rules-copy" tabindex="0" aria-label="合作规则正文">
-                {{ partner.currentProgram.termsContent }}
-              </div>
-              <p class="hint">{{ partner.currentProgram.promotionPolicy }}</p>
-              <button
-                type="button"
-                class="account-primary"
-                :disabled="pending"
-                @click="acceptRules"
-              >
-                确认规则并开通推广 <span aria-hidden="true">→</span>
-              </button>
+            <section v-if="partner.qualificationStatus !== 'active' || !partner.attributionEnabled" class="account-surface rules-card">
+              <h2>推广暂不可用</h2>
+              <p class="hint">{{ partner.qualificationStatus === 'pending_confirmation' ? '合作伙伴资料待启用，请联系大会管理员。' : '当前合作伙伴资格或推广归因已停用，请联系大会管理员。' }}</p>
             </section>
+
+            <details v-if="partner.currentProgram" class="account-surface rules-card">
+              <summary>{{ partner.currentProgram.termsTitle }}</summary>
+              <p class="hint">已启用的合作伙伴可直接使用推广链接，当前规则适用于后续订单。</p>
+              <div class="rules-copy" tabindex="0" aria-label="合作规则正文">{{ partner.currentProgram.termsContent }}</div>
+              <p class="hint">{{ partner.currentProgram.promotionPolicy }}</p>
+            </details>
 
             <section
               id="partner-module"
@@ -941,7 +915,7 @@ useHead({ title: '合作伙伴中心' });
                     {{ partner.currentProgram?.attributionDays ?? 30 }} 天。
                   </p>
                   <div class="link-box">
-                    <code>{{ referralUrl || '确认合作规则后生成' }}</code>
+                    <code>{{ referralUrl || '推广链接暂不可用' }}</code>
                   </div>
                   <button
                     type="button"
@@ -969,7 +943,7 @@ useHead({ title: '合作伙伴中心' });
                     >预览公开详情 ↗</a>
                   </div>
                   <p v-if="!partner.directoryEnabled" class="field-hint">
-                    主办方尚未开放公开目录，个人详情暂不可访问；专属推广链接确认规则后仍可使用。
+                    主办方尚未开放公开目录，个人详情暂不可访问；已启用的专属推广链接可继续使用。
                   </p>
                   <p v-else-if="partner.profile.publicStatus !== 'published'" class="field-hint">
                     请在资料设置中选择公开发布后查看个人详情。
@@ -1050,7 +1024,7 @@ useHead({ title: '合作伙伴中心' });
                     <p>
                       {{
                         posterError ||
-                          (referralUrl ? '正在生成推广海报…' : '确认合作规则后生成专属海报')
+                          (referralUrl ? '正在生成推广海报…' : '推广启用后可生成专属海报')
                       }}
                     </p>
                     <button
