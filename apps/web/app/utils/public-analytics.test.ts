@@ -26,6 +26,8 @@ describe('public analytics route scope', () => {
     '/faq/',
     '/members/member-1',
     '/partners/partner-1',
+    '/supporters/hiapi',
+    '/supporters/up-to-her/?event=tokems26',
     '/speakers/0d647797-fc67-43f5-9257-e2b4a9212646',
     '/speakers/tyzb',
     '/s/tyzb',
@@ -103,6 +105,18 @@ describe('public analytics route scope', () => {
     expect(entries).toHaveLength(2);
     expect(entries.every((entry) => entry['data-tok-analytics'])).toBe(true);
     expect(entries.every((entry) => entry.tagPosition === 'head')).toBe(true);
+  });
+
+  it('isolates supporter details from account and registration documents', () => {
+    const supporter = '/supporters/hiapi?event=tokems26';
+    expect(requiresAnalyticsDocumentBoundary(googleSettings, '/apply/cooperation', supporter)).toBe(false);
+    for (const sensitive of ['/account', '/register/tokems26', '/order/example', '/invoice/example']) {
+      expect(requiresAnalyticsDocumentBoundary(googleSettings, supporter, sensitive)).toBe(true);
+      expect(requiresAnalyticsDocumentBoundary(googleSettings, sensitive, supporter)).toBe(true);
+      expect(analyticsNavigationContext(googleSettings, sensitive).eligible).toBe(false);
+    }
+    expect(analyticsNavigationContext(googleSettings, supporter).eligible).toBe(true);
+    expect(isPublicAnalyticsPath(supporter, true)).toBe(false);
   });
 
   it('keeps document-boundary destinations on the current origin', () => {

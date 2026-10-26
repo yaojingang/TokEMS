@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "webPages": 23,
+  "webPages": 24,
   "adminViews": 41,
   "migrations": 73,
   "latestMigration": "0072_absent_skaar.sql",
   "databaseTables": 105,
   "apiControllers": 46,
   "apiOperations": 369,
-  "testFiles": 245
+  "testFiles": 246
 }

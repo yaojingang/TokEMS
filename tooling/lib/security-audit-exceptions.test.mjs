@@ -3,14 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-// Approved on 2026-10-10 for the reviewed Nuxt build/development dependency paths.
+// Renewed with explicit maintainer approval on 2026-10-26 for the reviewed Nuxt build/development dependency paths.
 const approved = {
-  ignoreGhsas: ['GHSA-86w9-cpqp-85rv', 'GHSA-vfj7-8cjw-p6xm'],
+  ignoreGhsas: ['GHSA-86w9-cpqp-85rv'],
 };
-const expiresAt = Date.parse('2026-10-24T00:00:00Z');
+const expiresAt = Date.parse('2026-11-09T00:00:00Z');
 
 function verifyExceptions(config, now) {
-  assert.deepEqual(config, approved, 'Audit exceptions must match the two approved advisories');
+  assert.deepEqual(config, approved, 'Audit exceptions must match the approved advisory');
   assert.ok(
     now < expiresAt,
     'Temporary audit exceptions expired; remove or explicitly re-review them',
