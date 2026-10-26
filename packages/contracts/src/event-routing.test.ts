@@ -26,7 +26,7 @@ describe('public event routing contracts', () => {
     expect(publicEventSlugFromPathSegment('%E0%A4%A')).toBeUndefined();
   });
 
-  it.each(['register', 'account', 'api', 'healthz'])('rejects the reserved slug %s', (slug) => {
+  it.each(['register', 'account', 'api', 'healthz', 'supporters'])('rejects the reserved slug %s', (slug) => {
     expect(EventSlugSchema.safeParse(slug).success).toBe(false);
   });
 

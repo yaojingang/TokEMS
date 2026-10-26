@@ -43,6 +43,7 @@ import {
   type AttendeeNeedsLastSuccess,
 } from '~/utils/attendee-needs';
 import { visiblePartnerLogos } from '~/utils/partner-logos';
+import { SUPPORTERS_EVENT_SLUG } from '~/utils/conference-supporters';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
 import { resolveHomeRegistrationCta, resolveSelfRegistrationState } from '~/utils/purchase-journey';
@@ -96,11 +97,25 @@ if (eventLoadError.value) {
   });
 }
 if (loadedEvent.value) event.value = loadedEvent.value;
-const { data: featuredPartners } = await useAsyncData<{ items: PublicPartnerSummary[] }>(
-  `conference-partners-${eventRouteKey.value}`,
-  () => api.getEventPartners(event.value.slug, 24, 'homepage').catch(() => ({ items: [], nextCursor: null })),
-  { deep: false, watch: [eventRouteKey] },
+const { data: partnerDirectory, status: partnerStatus } = await useAsyncData<{
+  eventSlug: string;
+  items: PublicPartnerSummary[];
+}>(
+  () => `conference-partners-${event.value.slug}`,
+  async () => {
+    const slug = event.value.slug;
+    const showFullDirectory = slug === SUPPORTERS_EVENT_SLUG;
+    const result = await api.getEventPartners(
+      slug, showFullDirectory ? 100 : 24, showFullDirectory ? 'directory' : 'homepage',
+    ).catch(() => ({ items: [] }));
+    return { eventSlug: slug, items: result.items };
+  },
+  { deep: false },
 );
+const partners = computed(() => partnerStatus.value === 'success'
+  && partnerDirectory.value?.eventSlug === event.value.slug
+  && (!requestedEventSlug.value || requestedEventSlug.value === event.value.slug)
+  ? partnerDirectory.value.items : []);
 const livePublicMetrics = ref({ ...event.value.publicMetrics });
 const activeDay = ref(1);
 const openFaq = ref<number | null>(null);
@@ -108,8 +123,7 @@ const experience = computed(() => resolveEventExperience(event.value));
 const homeBlocks = computed(() => experience.value.home.blocks);
 const navigationOrigin = useRequestURL().origin;
 const navigationLinks = computed(() => resolveNavigationLinks(event.value, experience.value.home, experience.value.faq.mode, {
-  onHome: true, membersVisible: memberDirectoryState.value.visible,
-  partnersVisible: Boolean(featuredPartners.value?.items.length), origin: navigationOrigin,
+  onHome: true, membersVisible: memberDirectoryState.value.visible, partnersVisible: Boolean(partners.value.length), origin: navigationOrigin,
 }));
 const membersBlock = computed(() =>
   event.value.experience?.home?.blocks.find((block) => block.nodeKey === 'home.members'),
@@ -1498,61 +1512,19 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <div v-if="event.slug === SUPPORTERS_EVENT_SLUG" class="wrap" :style="blockStyle('home.speakers')">
+      <ConferenceSupporters context="home" />
+    </div>
+
     <section
-      v-if="featuredPartners?.items.length"
+      v-if="partners.length"
       id="event-partners"
       class="event-partners"
       aria-labelledby="event-partners-title"
       :style="blockStyle('home.speakers')"
     >
       <div class="wrap">
-        <div class="sec-head center reveal">
-          <span class="kicker">EVENT PARTNERS</span>
-          <h2 id="event-partners-title" class="sec-title">与大会同行的合作伙伴</h2>
-          <p class="sec-sub">汇聚专业经验与行业资源，让每一次连接都有新的可能。</p>
-        </div>
-        <div class="spk-grid">
-          <NuxtLink
-            v-for="(item, index) in featuredPartners.items"
-            :key="item.publicSlug"
-            class="spk-card reveal"
-            :data-d="index % 4 || undefined"
-            :to="publicEventScopedPath(`/partners/${encodeURIComponent(item.publicSlug)}`, event.slug)"
-            :aria-label="`查看合作伙伴 ${item.displayName} 的公开资料`"
-          >
-            <div class="spk-meta">
-              <span class="spk-no">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="spk-kind">Partner</span>
-            </div>
-            <div class="spk-profile">
-              <div class="spk-avatar">
-                <img
-                  v-if="item.avatarUrl"
-                  :src="item.avatarUrl"
-                  :alt="`${item.displayName}的头像`"
-                  width="56"
-                  height="56"
-                  loading="lazy"
-                />
-                <span v-else aria-hidden="true">{{ attendeeAvatarInitial(item.displayName) }}</span>
-              </div>
-              <div>
-                <h4>{{ item.displayName }}</h4>
-                <div class="role">{{ [item.company, item.title].filter(Boolean).join(' · ') }}</div>
-              </div>
-            </div>
-            <div v-if="item.businessIntro" class="spk-talk">
-              {{ Array.from(item.businessIntro.trim()).slice(0, 80).join('') }}
-            </div>
-            <div v-if="item.industry" class="spk-tags"><span>{{ item.industry }}</span></div>
-            <span class="spk-open" aria-hidden="true">查看资料 →</span>
-          </NuxtLink>
-        </div>
-        <div class="event-partners__footer reveal">
-          <NuxtLink class="btn btn-outline" :to="publicEventScopedPath('/partners', event.slug)">
-            查看全部合作伙伴 <span aria-hidden="true">→</span>
-          </NuxtLink>
-        </div>
+        <ConferencePartners :items="partners" :event-slug="event.slug" context="home" />
       </div>
     </section>
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "webPages": 23,
+  "webPages": 24,
   "adminViews": 41,
   "migrations": 73,
   "latestMigration": "0072_absent_skaar.sql",

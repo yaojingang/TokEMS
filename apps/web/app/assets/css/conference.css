@@ -2102,12 +2102,13 @@ h1.hero-h .accent {
   background: #fff;
 }
 .event-partners {
-  background: var(--bg2);
+  background: #fff;
 }
 
-.event-partners__footer {
-  margin-top: 36px;
-  text-align: center;
+@media (max-width: 760px) {
+  .event-partners > .wrap {
+    padding-inline: 20px;
+  }
 }
 
 .partner-wall__logos {

@@ -66,6 +66,7 @@ export default defineNuxtConfig({
     '/members/**': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
     '/partners': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
     '/partners/**': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
+    '/supporters/**': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
     '/apply/cooperation': { headers: { 'cache-control': 'no-cache, must-revalidate' } },
     '/r/**': {
       ssr: false,

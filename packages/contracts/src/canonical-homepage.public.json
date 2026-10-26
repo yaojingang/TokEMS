@@ -75,6 +75,64 @@
               "cooperationLabel": "合作",
               "editionLabel": "第二届",
               "faqLabel": "FAQ",
+              "items": [
+                {
+                  "enabled": true,
+                  "id": "why",
+                  "kind": "section",
+                  "label": "背景",
+                  "newWindow": false,
+                  "target": "home.value"
+                },
+                {
+                  "enabled": true,
+                  "id": "agenda",
+                  "kind": "section",
+                  "label": "议程",
+                  "newWindow": false,
+                  "target": "home.agenda"
+                },
+                {
+                  "enabled": true,
+                  "id": "speakers",
+                  "kind": "section",
+                  "label": "嘉宾",
+                  "newWindow": false,
+                  "target": "home.speakers"
+                },
+                {
+                  "enabled": true,
+                  "id": "members",
+                  "kind": "section",
+                  "label": "会员",
+                  "newWindow": false,
+                  "target": "home.members"
+                },
+                {
+                  "enabled": true,
+                  "id": "tickets",
+                  "kind": "section",
+                  "label": "门票",
+                  "newWindow": false,
+                  "target": "home.tickets"
+                },
+                {
+                  "enabled": true,
+                  "id": "cooperation",
+                  "kind": "page",
+                  "label": "合作",
+                  "newWindow": false,
+                  "target": "cooperation"
+                },
+                {
+                  "enabled": true,
+                  "id": "faq",
+                  "kind": "page",
+                  "label": "FAQ",
+                  "newWindow": false,
+                  "target": "faq"
+                }
+              ],
               "logoMark": "G",
               "membersLabel": "会员",
               "speakersLabel": "嘉宾",
@@ -449,6 +507,15 @@
                     "group": "speaker",
                     "id": "aeb07576-e155-4c2c-afa6-70ea659a49a5",
                     "name": "GEOFlow",
+                    "scale": 1
+                  },
+                  {
+                    "assetId": "cff5d4a4-56b2-4561-8aa0-483cb9508539",
+                    "background": "light",
+                    "enabled": true,
+                    "group": "speaker",
+                    "id": "8571fdf5-4e84-48c0-aed5-9b2d286fe83d",
+                    "name": "猎看科技",
                     "scale": 1
                   }
                 ]
@@ -1097,6 +1164,22 @@
         "topic": "WaytoGrowth 海外营销增长策略"
       },
       {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "avatarUrl": "/assets/templates/35a17556-3c60-45d7-baec-8e03e1433faf",
+        "id": "8cc52a0d-739d-4fec-973c-83f745c36fbd",
+        "initials": "艾奇",
+        "name": "艾奇先生",
+        "publicCode": "lqjg",
+        "role": "艾奇在线创始人 · 资深互联网营销实战专家",
+        "tags": [
+          "GEO 词包策划",
+          "场景拓词",
+          "内容资产"
+        ],
+        "topic": "从关键词到高维场景，AI时代GEO全场景词包策划方法论"
+      },
+      {
         "accentFrom": "#d97706",
         "accentTo": "#78350f",
         "avatarUrl": "/assets/templates/7506dfb0-15b6-4f7a-b16e-5743ffdbca3a",
@@ -1257,6 +1340,31 @@
         "topic": "品牌企业如何做好 GEO：内容建设与增长实践"
       },
       {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "id": "ea9b68d7-c9bc-48e7-9051-6576bd71442f",
+        "initials": "路",
+        "name": "路浩",
+        "publicCode": "tgsv",
+        "role": "Dageno AI 创始人",
+        "tags": [],
+        "topic": "分享主题待公布"
+      },
+      {
+        "accentFrom": "#2563eb",
+        "accentTo": "#1e3a8a",
+        "avatarUrl": "/assets/templates/874358f2-5e3c-4bfb-9631-12e9dea44a4d",
+        "id": "49831523-3205-4bfa-bdf7-4bd9375011d8",
+        "initials": "宁",
+        "name": "宁海",
+        "publicCode": "cbuf",
+        "role": "亚太卫生健康协会联合创始人 · 执行主席",
+        "tags": [
+          "卫生健康"
+        ],
+        "topic": "分享主题待公布"
+      },
+      {
         "accentFrom": "#ea580c",
         "accentTo": "#7c2d12",
         "id": "b7d67299-de07-4f6d-aa47-3bcd1be91486",
@@ -1325,6 +1433,18 @@
           "内容公信力"
         ],
         "topic": "主流媒体在 AI 答案时代的内容价值与可信表达"
+      },
+      {
+        "accentFrom": "#2448a8",
+        "accentTo": "#102759",
+        "avatarUrl": "/assets/templates/f9baa4e8-f712-446f-aaeb-291bc96f8310",
+        "id": "647bec1c-deb8-495b-bb78-791b932f4931",
+        "initials": "谭",
+        "name": "谭少卿",
+        "publicCode": "hsci",
+        "role": "Floatboat 创始人兼 CEO",
+        "tags": [],
+        "topic": "分享主题待公布"
       },
       {
         "accentFrom": "#1677ff",
@@ -1490,6 +1610,26 @@
       "websiteUrl": null
     },
     {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "avatarAssetId": "35a17556-3c60-45d7-baec-8e03e1433faf",
+      "bio": "艾奇先生，艾奇在线创始人，资深互联网营销实战专家，具备 16 年一线营销操盘经验。先后创办艾奇SEM、U渠道等行业标杆型营销学习交流平台。\n\n自 2024 年发力 AI 营销赛道，作为国内首批 GEO 优化布道者，深度参与 GEO 优化行业标准共建，自研艾奇GEO优化系统，输出多套成熟、可落地的 GEO 优化方法论与策略体系。",
+      "id": "8cc52a0d-739d-4fec-973c-83f745c36fbd",
+      "initials": "艾奇",
+      "name": "艾奇先生",
+      "role": "艾奇在线创始人 · 资深互联网营销实战专家",
+      "socialLinks": [],
+      "sortOrder": 1,
+      "tags": [
+        "GEO 词包策划",
+        "场景拓词",
+        "内容资产"
+      ],
+      "topic": "从关键词到高维场景，AI时代GEO全场景词包策划方法论",
+      "topicAbstract": "1、洞察：用户到底在 AI 里面搜什么？\n2、实操：高维场景拓词方法论与案例\n3、承接：从词包到内容资产",
+      "websiteUrl": null
+    },
+    {
       "accentFrom": "#d97706",
       "accentTo": "#78350f",
       "avatarAssetId": "7506dfb0-15b6-4f7a-b16e-5743ffdbca3a",
@@ -1499,7 +1639,7 @@
       "name": "拔刀刘",
       "role": "AIDSO 爱搜 AI 合伙人",
       "socialLinks": [],
-      "sortOrder": 1,
+      "sortOrder": 2,
       "tags": [
         "数据底座",
         "GEO 监测"
@@ -1518,7 +1658,7 @@
       "name": "Berryxia",
       "role": "AI 博主 · 提示词小子",
       "socialLinks": [],
-      "sortOrder": 2,
+      "sortOrder": 3,
       "tags": [
         "AI 内容",
         "内容变现"
@@ -1537,7 +1677,7 @@
       "name": "苍何",
       "role": "微软 MVP · 前排 GEO 研究院主任 · AI KOL",
       "socialLinks": [],
-      "sortOrder": 3,
+      "sortOrder": 4,
       "tags": [
         "GEO",
         "落地服务"
@@ -1556,7 +1696,7 @@
       "name": "陈峥",
       "role": "欧博东方 CEO",
       "socialLinks": [],
-      "sortOrder": 4,
+      "sortOrder": 5,
       "tags": [
         "经营增长",
         "组织落地"
@@ -1575,7 +1715,7 @@
       "name": "大尤",
       "role": "大有可为创始人 · 《红利思维》作者",
       "socialLinks": [],
-      "sortOrder": 5,
+      "sortOrder": 6,
       "tags": [
         "企业实战",
         "增长闭环"
@@ -1594,7 +1734,7 @@
       "name": "夫唯",
       "role": "特邀嘉宾 · SEOWHY 搜外创始人 · 搜索营销专家",
       "socialLinks": [],
-      "sortOrder": 6,
+      "sortOrder": 7,
       "tags": [
         "特邀嘉宾",
         "搜索营销"
@@ -1613,7 +1753,7 @@
       "name": "高军",
       "role": "媒介匣创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 7,
+      "sortOrder": 8,
       "tags": [
         "GEO 治理",
         "品牌管理"
@@ -1637,7 +1777,7 @@
           "url": "https://new.web.cafe/about"
         }
       ],
-      "sortOrder": 8,
+      "sortOrder": 9,
       "tags": [
         "SEO",
         "GEO",
@@ -1657,7 +1797,7 @@
       "name": "岚叔",
       "role": "AI 博主 · 大厂技术专家",
       "socialLinks": [],
-      "sortOrder": 9,
+      "sortOrder": 10,
       "tags": [
         "企业服务",
         "交付增长"
@@ -1676,7 +1816,7 @@
       "name": "冷洪利",
       "role": "曝光率GEO创始人",
       "socialLinks": [],
-      "sortOrder": 10,
+      "sortOrder": 11,
       "tags": [
         "豆包 GEO",
         "视频矩阵"
@@ -1700,7 +1840,7 @@
           "url": "https://u.wechat.com/EMaid8xByc7aAZP39vPWdlo?s=2"
         }
       ],
-      "sortOrder": 11,
+      "sortOrder": 12,
       "tags": [
         "品牌GEO",
         "增长实践"
@@ -1708,6 +1848,40 @@
       "topic": "品牌企业如何做好 GEO：内容建设与增长实践",
       "topicAbstract": "围绕品牌在AI搜索中的内容建设与增长实践，分享如何梳理高价值问题、补充可信信息，并持续观察品牌在 AI 答案中的引用表现",
       "websiteUrl": "https://zhituishidai.com/"
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "avatarAssetId": null,
+      "bio": "路浩，Dageno AI 创始人。",
+      "id": "ea9b68d7-c9bc-48e7-9051-6576bd71442f",
+      "initials": "路",
+      "name": "路浩",
+      "role": "Dageno AI 创始人",
+      "socialLinks": [],
+      "sortOrder": 13,
+      "tags": [],
+      "topic": "分享主题待公布",
+      "topicAbstract": null,
+      "websiteUrl": null
+    },
+    {
+      "accentFrom": "#2563eb",
+      "accentTo": "#1e3a8a",
+      "avatarAssetId": "874358f2-5e3c-4bfb-9631-12e9dea44a4d",
+      "bio": "宁海，亚太卫生健康协会联合创始人，现担任亚太卫生健康协会执行主席。",
+      "id": "49831523-3205-4bfa-bdf7-4bd9375011d8",
+      "initials": "宁",
+      "name": "宁海",
+      "role": "亚太卫生健康协会联合创始人 · 执行主席",
+      "socialLinks": [],
+      "sortOrder": 14,
+      "tags": [
+        "卫生健康"
+      ],
+      "topic": "分享主题待公布",
+      "topicAbstract": null,
+      "websiteUrl": null
     },
     {
       "accentFrom": "#ea580c",
@@ -1719,7 +1893,7 @@
       "name": "彭超",
       "role": "ClawTime 首席 AI 专家 · 火山核心开发者",
       "socialLinks": [],
-      "sortOrder": 12,
+      "sortOrder": 15,
       "tags": [
         "Agentic",
         "智能体"
@@ -1738,7 +1912,7 @@
       "name": "彭涛",
       "role": "HiAPI 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 13,
+      "sortOrder": 16,
       "tags": [
         "AI 产品",
         "海外增长"
@@ -1757,7 +1931,7 @@
       "name": "乔向阳",
       "role": "知名 AI 自媒体人",
       "socialLinks": [],
-      "sortOrder": 14,
+      "sortOrder": 17,
       "tags": [
         "AI内容",
         "产品传播"
@@ -1776,7 +1950,7 @@
       "name": "任开心",
       "role": "短视频科技博主 · 「开心 AI 工具集」账号作者",
       "socialLinks": [],
-      "sortOrder": 15,
+      "sortOrder": 18,
       "tags": [
         "AI 工具",
         "生成式 AI"
@@ -1795,7 +1969,7 @@
       "name": "任强",
       "role": "北京日报社京报移动副总经理",
       "socialLinks": [],
-      "sortOrder": 16,
+      "sortOrder": 19,
       "tags": [
         "主流媒体",
         "内容公信力"
@@ -1803,6 +1977,22 @@
       "topic": "主流媒体在 AI 答案时代的内容价值与可信表达",
       "topicAbstract": "从主流媒体视角讨论 AI 答案时代的内容价值，分析专业采编、权威信源与可验证表达如何帮助高质量信息进入 AI 知识生态。",
       "websiteUrl": null
+    },
+    {
+      "accentFrom": "#2448a8",
+      "accentTo": "#102759",
+      "avatarAssetId": "f9baa4e8-f712-446f-aaeb-291bc96f8310",
+      "bio": "谭少卿，Floatboat 创始人兼 CEO。",
+      "id": "647bec1c-deb8-495b-bb78-791b932f4931",
+      "initials": "谭",
+      "name": "谭少卿",
+      "role": "Floatboat 创始人兼 CEO",
+      "socialLinks": [],
+      "sortOrder": 20,
+      "tags": [],
+      "topic": "分享主题待公布",
+      "topicAbstract": "",
+      "websiteUrl": "https://floatboat.ai/"
     },
     {
       "accentFrom": "#1677ff",
@@ -1814,7 +2004,7 @@
       "name": "杨攀",
       "role": "Bilink 创始人",
       "socialLinks": [],
-      "sortOrder": 17,
+      "sortOrder": 21,
       "tags": [
         "AI 趋势",
         "创业机会"
@@ -1833,7 +2023,7 @@
       "name": "姚金刚",
       "role": "猎河科技创始人 · GEOFlow 创始人",
       "socialLinks": [],
-      "sortOrder": 18,
+      "sortOrder": 22,
       "tags": [
         "GEO战略",
         "企业落地"
@@ -1852,7 +2042,7 @@
       "name": "姚诗成",
       "role": "思迈特 CEO",
       "socialLinks": [],
-      "sortOrder": 19,
+      "sortOrder": 23,
       "tags": [
         "企业数据",
         "智能决策"
@@ -1871,7 +2061,7 @@
       "name": "玉伯",
       "role": "YouMind 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 20,
+      "sortOrder": 24,
       "tags": [
         "内容创作",
         "产品增长"
@@ -1890,7 +2080,7 @@
       "name": "岳琦",
       "role": "每经科技首席产品官 · GEO 圆桌主持人",
       "socialLinks": [],
-      "sortOrder": 21,
+      "sortOrder": 25,
       "tags": [
         "GEO 圆桌",
         "企业实践"
@@ -1909,7 +2099,7 @@
       "name": "余一",
       "role": "HowOneAI 主理人",
       "socialLinks": [],
-      "sortOrder": 22,
+      "sortOrder": 26,
       "tags": [
         "AI 研究",
         "行业研究"
@@ -1928,7 +2118,7 @@
       "name": "张莹莹",
       "role": "成长最美、HOCOMO LIMITED创始人",
       "socialLinks": [],
-      "sortOrder": 23,
+      "sortOrder": 27,
       "tags": [
         "达人营销",
         "GEO营销",

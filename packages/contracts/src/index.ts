@@ -101,6 +101,7 @@ export const RESERVED_PUBLIC_EVENT_SLUGS = [
   'payout',
   'r',
   'register',
+  'supporters',
   'ticket',
 ] as const;
 

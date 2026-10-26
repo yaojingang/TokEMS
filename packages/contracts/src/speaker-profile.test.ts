@@ -19,6 +19,7 @@ describe('speaker profile contracts', () => {
   it('publishes the alphabetical guest lineup with the confirmed speaking roles', () => {
     expect(DEMO_EVENT.speakers.map((speaker) => speaker.name)).toEqual([
       'AJ',
+      '艾奇先生',
       '拔刀刘',
       'Berryxia',
       '苍何',
@@ -30,11 +31,14 @@ describe('speaker profile contracts', () => {
       '岚叔',
       '冷洪利',
       '刘树勋',
+      '路浩',
+      '宁海',
       '彭超',
       '彭涛',
       '乔向阳',
       '任开心',
       '任强',
+      '谭少卿',
       '杨攀',
       '姚金刚',
       '姚诗成',
