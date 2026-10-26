@@ -432,7 +432,9 @@ export class AttendeeServiceHubService {
   }
 
   private async organizerAccess(session: AuthenticatedCustomer, registrationId: string) {
-    const registration = await this.accounts.registration(session, registrationId);
+    const registration = await this.accounts.registration(session, registrationId, {
+      attendeeOnly: true,
+    });
     const activeRegistration = ACTIVE_REGISTRATION_STATUSES.includes(
       registration.registrationStatus as never,
     );
@@ -457,7 +459,9 @@ export class AttendeeServiceHubService {
     session: AuthenticatedCustomer,
     registrationId: string,
   ): Promise<CustomerAttendeeServiceHub> {
-    const registration = await this.accounts.registration(session, registrationId);
+    const registration = await this.accounts.registration(session, registrationId, {
+      attendeeOnly: true,
+    });
     const [showcaseResult, needsResult, configRow, confirmedAt, latestPaymentStatus] =
       await Promise.all([
         this.showcases.customerShowcase(session, registrationId).catch(() => null),

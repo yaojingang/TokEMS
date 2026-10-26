@@ -29,6 +29,7 @@ import { BatchOrderManagementService } from './batch-order-management.service.js
 import { BatchClaimInvitationService } from './batch-claim-invitation.service.js';
 import { WeChatPayService } from './wechat-pay.service.js';
 import { claimAttendeeItem } from './attendee-item-claim.js';
+import { CustomerAccountService } from './customer-account.service.js';
 import type { AuthenticatedCustomer } from './customer-auth.service.js';
 import type { CustomerRegistrationActor } from './conference.repository.js';
 
@@ -339,6 +340,111 @@ persistent('batch checkout with real PostgreSQL transactions', () => {
     expect(rows[0]!.registration.customerUserId).toBe(actor.customerUserId);
     expect(rows[2]!.registration.customerUserId).toBeNull();
     await expect(items.detail(checkout.order.id, attendee)).rejects.toThrow('无权访问');
+  });
+  it('lets the purchaser read each ticket before and after claim while keeping attendee services private', async () => {
+    const scope = await fixture(0);
+    const actor = await customer(scope.organizationId);
+    const request = await input(scope, actor, 3);
+    const checkout = await batch.create(request, randomUUID(), actor);
+    const account = new CustomerAccountService(database);
+    const buyer = sessionFor(actor);
+    const target = checkout.items[1]!;
+    const targetDetail = await account.registration(buyer, target.registrationId);
+    expect(targetDetail).toMatchObject({
+      id: target.registrationId,
+      isSelf: false,
+      canManageOrder: true,
+      canEditRegistrationInfo: false,
+      ticketStatus: 'valid',
+      ticketCode: expect.any(String),
+    });
+    const [ticket] = await database
+      .db!.select()
+      .from(tickets)
+      .where(eq(tickets.registrationId, target.registrationId));
+    expect(targetDetail.ticketCode).toBe(ticket!.code);
+    expect(await account.registration(buyer, checkout.items[0]!.registrationId)).toMatchObject({
+      isSelf: true,
+    });
+    expect((await account.registrations(buyer)).items.map((row) => row.id)).toEqual([
+      checkout.items[0]!.registrationId,
+    ]);
+
+    const invitation = await new BatchClaimInvitationService(items).generate(
+      checkout.order.id,
+      target.id,
+      { expectedVersion: target.version, notify: false },
+      randomUUID(),
+      actor,
+    );
+    const claimToken = new URLSearchParams(
+      new URL(invitation.claimUrl!, 'https://example.com').hash.slice(1),
+    ).get('claim')!;
+    const [user] = await database
+      .db!.insert(customerUsers)
+      .values({
+        organizationId: scope.organizationId,
+        mobileE164: request.attendees[1]!.attendee.mobile,
+      })
+      .returning();
+    const attendee = sessionFor({ ...actor, customerUserId: user!.id, mobile: user!.mobileE164 });
+    await claimAttendeeItem(database.db!, items, attendee, {
+      registrationId: target.registrationId,
+      claimToken,
+    });
+    expect(await account.registration(buyer, target.registrationId)).toMatchObject({
+      ticketCode: ticket!.code,
+      isSelf: false,
+    });
+    expect(await account.registration(attendee, target.registrationId)).toMatchObject({
+      ticketCode: ticket!.code,
+      isSelf: true,
+      canManageOrder: false,
+      orderId: null,
+    });
+    for (const stranger of [
+      sessionFor(await customer(scope.organizationId)),
+      { ...buyer, organizationId: randomUUID() },
+      { ...buyer, customerUserId: randomUUID() },
+      attendee,
+    ]) {
+      await expect(
+        account.registration(stranger, checkout.items[2]!.registrationId),
+      ).rejects.toMatchObject({ status: 404 });
+    }
+    await expect(
+      account.registration(buyer, target.registrationId, { attendeeOnly: true }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(
+      await account.registration(attendee, target.registrationId, { attendeeOnly: true }),
+    ).toMatchObject({ isSelf: true });
+    await database
+      .db!.update(registrations)
+      .set({ supersededAt: new Date() })
+      .where(eq(registrations.id, target.registrationId));
+    await expect(account.registration(buyer, target.registrationId)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+  it('supports ticket access for a pure proxy purchaser and a legacy single-seat order', async () => {
+    const scope = await fixture(0);
+    const actor = await customer(scope.organizationId);
+    const account = new CustomerAccountService(database);
+    const checkout = await batch.create(await input(scope, actor, 1, false), randomUUID(), actor);
+    const registrationId = checkout.items[0]!.registrationId;
+    expect(await account.registration(sessionFor(actor), registrationId)).toMatchObject({
+      isSelf: false,
+      ticketStatus: 'valid',
+    });
+    await database
+      .db!.update(orders)
+      .set({ modelVersion: 1, registrationId })
+      .where(eq(orders.id, checkout.order.id));
+    expect(await account.registration(sessionFor(actor), registrationId)).toMatchObject({
+      isSelf: false,
+      canManageOrder: true,
+      ticketCode: expect.any(String),
+    });
   });
   it('records late verified money without reopening cancelled seats', async () => {
     const scope = await fixture();

@@ -2766,6 +2766,7 @@ export const CustomerRegistrationDetailSchema = z.preprocess(
   z.discriminatedUnion('canManageOrder', [
     CustomerManagedRegistrationSummarySchema.extend({
       attendee: CustomerRegistrationAttendeeSchema,
+      isSelf: z.boolean().optional(),
       canEditRegistrationInfo: z.boolean().default(false),
       registrationEditVersion: z.string().nullable().default(null),
       registrationEditFields: z.array(RegistrationFieldSchema).default([]),
@@ -2774,6 +2775,7 @@ export const CustomerRegistrationDetailSchema = z.preprocess(
     }),
     CustomerAttendeeRegistrationSummarySchema.extend({
       attendee: CustomerRegistrationAttendeeSchema,
+      isSelf: z.boolean().optional(),
       canEditRegistrationInfo: z.literal(false).default(false),
     }),
   ]),

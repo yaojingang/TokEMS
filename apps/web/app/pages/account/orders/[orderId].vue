@@ -902,7 +902,7 @@ onBeforeUnmount(() => {
             <span>{{ detail.items.length }} 位 · 每人独立电子票</span>
           </div>
           <p class="section-help">
-            购票人可管理允许修改的资料。参会人使用对应手机号登录后，领取自己的电子票。
+            购票人可查看每位参会人的电子票与参会二维码，并管理允许修改的资料。参会人也可使用对应手机号登录，领取自己的电子票。
           </p>
           <article v-for="item in detail.items" :key="item.id" class="order-person">
             <header>
@@ -933,10 +933,10 @@ onBeforeUnmount(() => {
             <p v-if="item.unavailableReason" class="section-help">{{ item.unavailableReason }}</p>
             <div class="person-actions">
               <NuxtLink
-                v-if="item.isSelf && item.state === 'active'"
+                v-if="item.state === 'active'"
                 :to="eventPath(`/account/registrations/${item.registrationId}`)"
               >
-                查看本人电子票与参会服务
+                {{ item.isSelf ? '查看本人电子票与参会服务' : '查看电子票与参会服务' }}
               </NuxtLink><NuxtLink
                 v-if="item.canEditAttendee && item.isSelf"
                 :to="eventPath(`/account/registrations/${item.registrationId}/edit`)"

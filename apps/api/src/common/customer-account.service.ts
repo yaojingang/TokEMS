@@ -293,11 +293,18 @@ export class CustomerAccountService {
   private async registrationRows(
     organizationId: string,
     customerUserId: string,
-    options: { registrationId?: string; cursor?: string; limit?: number } = {},
+    options: {
+      registrationId?: string;
+      cursor?: string;
+      limit?: number;
+      includePurchased?: boolean;
+    } = {},
   ) {
     const conditions: SQL[] = [
       eq(registrations.organizationId, organizationId),
-      eq(registrations.customerUserId, customerUserId),
+      options.includePurchased
+        ? or(eq(registrations.customerUserId, customerUserId), this.purchaserScope(customerUserId))!
+        : eq(registrations.customerUserId, customerUserId),
       isNull(registrations.supersededAt),
     ];
     if (options.registrationId) conditions.push(eq(registrations.id, options.registrationId));
@@ -831,20 +838,24 @@ export class CustomerAccountService {
   async registration(
     session: AuthenticatedCustomer,
     registrationId: string,
+    options: { attendeeOnly?: boolean } = {},
   ): Promise<CustomerRegistrationDetail> {
     const [row] = await this.registrationRows(session.organizationId, session.customerUserId, {
       registrationId,
       limit: 1,
+      includePurchased: !options.attendeeOnly,
     });
     if (!row) {
       throw new DomainError(API_ERROR_CODES.NOT_FOUND, '报名记录不存在', HttpStatus.NOT_FOUND);
     }
     const summary = this.registrationSummary(row, session.customerUserId);
+    const isSelf = row.registration.customerUserId === session.customerUserId;
     const [item] = row.order.modelVersion === 2 ? await this.db().select().from(orderItems).where(eq(orderItems.registrationId, registrationId)).limit(1) : [];
     if (!summary.canManageOrder)
-      return { ...summary, attendee: row.registration.attendee, canEditRegistrationInfo: false };
+      return { ...summary, isSelf, attendee: row.registration.attendee, canEditRegistrationInfo: false };
     return {
       ...summary,
+      isSelf,
       attendee: row.registration.attendee,
       ...(item ? { orderItemId: item.id, orderItemVersion: item.version } : {}),
       registrationEditVersion: this.registrationEditVersion(row.registration, row.order),

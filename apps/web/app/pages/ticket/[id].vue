@@ -8,6 +8,7 @@ import {
 } from '~/composables/useEventExperience';
 
 const route = useRoute();
+const purchaserView = computed(() => route.query.view === 'purchaser');
 const api = useConferenceApi();
 const ticket = ref<Ticket>();
 const checkout = ref(api.readCheckout());
@@ -91,6 +92,14 @@ const organizerHref = computed(() => {
   });
   return api.resolveConferenceUrl(path);
 });
+const registrationHref = computed(() =>
+  ticket.value
+    ? api.resolveConferenceUrl(publicEventScopedPath(
+        `/account/registrations/${encodeURIComponent(ticket.value.registrationId)}`,
+        event.value.slug,
+      ))
+    : '/account',
+);
 useHead(() => ({ title: `电子票 · ${ticket.value?.eventName ?? event.value.name}` }));
 
 onMounted(async () => {
@@ -130,6 +139,7 @@ function printTicket() {
         <p v-else>请在入场时出示下方二维码。建议截图保存，弱网环境下也可完成验票。</p>
       </div>
       <FlowStepper
+        v-if="!purchaserView"
         :active="activeStep"
         :payment-required="paymentRequired"
         :steps="interactiveFlowSteps"
@@ -194,9 +204,10 @@ function printTicket() {
       >
         <NuxtLink v-if="invoiceHref" class="flow-action" :to="invoiceHref"> 填写发票信息 </NuxtLink>
         <button class="flow-action" type="button" @click="printTicket">打印 / 导出电子票</button>
-        <a v-if="paymentSurface" class="flow-action is-secondary" :href="homeHref">返回大会首页</a>
+        <a v-if="purchaserView" class="flow-action is-secondary" :href="registrationHref">返回参会详情</a>
+        <a v-else-if="paymentSurface" class="flow-action is-secondary" :href="homeHref">返回大会首页</a>
         <NuxtLink v-else class="flow-action is-secondary" :to="homeHref">返回大会首页</NuxtLink>
-        <div v-if="ticket.status !== 'cancelled'" class="ticket-organizer-action">
+        <div v-if="!purchaserView && ticket.status !== 'cancelled'" class="ticket-organizer-action">
           <NuxtLink class="flow-action is-organizer" :to="organizerHref"> 添加大会组织者 </NuxtLink>
           <small>添加后，等待邀请进入会员群</small>
         </div>
