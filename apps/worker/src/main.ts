@@ -4,6 +4,7 @@ import { syncLegacyOrderItemState } from '@conference/database';
 import { findExpiredInventoryOrders } from '@conference/database';
 import { eraseUnavailableClaimInvitationReplays } from '@conference/database';
 import { expireBatchOrder } from './batch-inventory.worker.js';
+import { cleanupExpiredCustomerAvatarSources } from './customer-avatar-cleanup.worker.js';
 import { deliverInvoiceSms, synchronizeInvoiceSmsStatus, maintainInvoiceSms, finalizeInvoiceSmsFailure, createInvoiceSmsRateGate, type InvoiceSmsRateGate } from './invoice-sms-notification.worker.js';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -4095,80 +4096,6 @@ async function maintainAgentAccessData(db: ConferenceDatabase) {
     );
 }
 
-async function cleanupExpiredCustomerAvatarSources(db: ConferenceDatabase) {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60_000);
-  const assets = await db
-    .select()
-    .from(customerMediaAssets)
-    .where(
-      or(
-        and(
-          inArray(customerMediaAssets.status, ['processing', 'failed']),
-          isNull(customerMediaAssets.confirmedAt),
-          isNull(customerMediaAssets.sourceDeletedAt),
-          lt(customerMediaAssets.createdAt, cutoff),
-        ),
-        and(eq(customerMediaAssets.status, 'ready'), isNull(customerMediaAssets.sourceDeletedAt)),
-      ),
-    )
-    .orderBy(asc(customerMediaAssets.createdAt))
-    .limit(100);
-  for (const asset of assets) {
-    const expiredUnconfirmed = !asset.confirmedAt && asset.status !== 'ready';
-    if (expiredUnconfirmed) {
-      const [claimed] = await db
-        .update(customerMediaAssets)
-        .set({
-          status: 'failed',
-          failureReason: `${asset.failureReason ?? '头像上传已过期'} [cleanup-claimed]`.slice(
-            0,
-            2_000,
-          ),
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(customerMediaAssets.id, asset.id),
-            isNull(customerMediaAssets.confirmedAt),
-            isNull(customerMediaAssets.sourceDeletedAt),
-            lt(customerMediaAssets.createdAt, cutoff),
-          ),
-        )
-        .returning({ id: customerMediaAssets.id });
-      if (!claimed) continue;
-    }
-    const url = objectStorageUrl(asset.sourceStorageKey, 'DELETE');
-    if (!url) return;
-    try {
-      const response = await fetch(url, {
-        method: 'DELETE',
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!response.ok && response.status !== 404) continue;
-      await db
-        .update(customerMediaAssets)
-        .set({
-          ...(expiredUnconfirmed
-            ? {
-                failureReason: `${asset.failureReason ?? '头像上传已过期'} [source-cleaned]`.slice(
-                  0,
-                  2_000,
-                ),
-              }
-            : {}),
-          sourceDeletedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(customerMediaAssets.id, asset.id));
-    } catch (error) {
-      console.warn(
-        `[avatar] expired source cleanup failed asset=${asset.id}`,
-        error instanceof Error ? error.message : error,
-      );
-    }
-  }
-}
-
 async function reconcileAliyunSmsDeliveries(db: ConferenceDatabase) {
   await maintainInvoiceSms(db);
   if (reconcilingSmsReceipts) return;
@@ -4502,7 +4429,7 @@ async function start() {
   await deploymentControl.run(() => eraseUnavailableClaimInvitationReplays(db));
   await deploymentControl.run(() => maintainCustomerAuthData(db));
   await deploymentControl.run(() => maintainAgentAccessData(db));
-  await deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db));
+  await deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db, objectStorageUrl));
   await deploymentControl.run(() => reconcileAliyunSmsDeliveries(db));
   await deploymentControl.run(() => processPartnerFinancialInbox(db));
   await deploymentControl.run(() => releasePartnerCommissions(db));
@@ -4553,7 +4480,7 @@ async function start() {
   const customerAuthMaintenanceTimer = setInterval(
     () => {
       void deploymentControl.run(() => maintainCustomerAuthData(db));
-      void deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db));
+      void deploymentControl.run(() => cleanupExpiredCustomerAvatarSources(db, objectStorageUrl));
     },
     6 * 60 * 60_000,
   );
