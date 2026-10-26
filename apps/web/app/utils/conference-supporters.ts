@@ -107,7 +107,8 @@ export const CONFERENCE_SUPPORTERS = [
     id: 'hiapi',
     name: 'HiAPI',
     category: 'AI 模型与开发服务',
-    logo: '/images/supporters/hiapi.svg',
+    logo: '/images/supporters/hiapi-horizontal.png',
+    detailLogo: '/images/supporters/hiapi-square.png',
     summary: '用统一 API 连接图像、视频与音频模型，让 AI 创意进入实际工作流。',
     intro:
       'HiAPI 面向开发者与创意团队，提供多种生成式 AI 模型的统一接入服务，覆盖图像生成与编辑、视频生成、音乐与语音等场景。',

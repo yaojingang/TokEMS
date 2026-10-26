@@ -26,6 +26,7 @@ if (error.value || !event.value) {
   });
 }
 
+const detailLogo = 'detailLogo' in supporter ? supporter.detailLogo : supporter.logo;
 const cooperationPath = `${publicEventScopedPath('/apply/cooperation', eventSlug)}#supporters`;
 const websiteLabel = supporter.website ? new URL(supporter.website).hostname : '';
 
@@ -51,8 +52,7 @@ useHead({
           <p class="supporter-hero__summary">{{ supporter.summary }}</p>
         </div>
         <div class="supporter-brand" :class="`supporter-brand--${supporter.id}`">
-          <img :src="supporter.logo" :alt="`${supporter.name}标识`" width="220" height="110" />
-          <span v-if="supporter.id === 'hiapi'" aria-hidden="true">hiapi</span>
+          <img :src="detailLogo" :alt="`${supporter.name}标识`" width="220" :height="supporter.id === 'hiapi' ? 220 : 110" />
         </div>
       </header>
 
@@ -192,13 +192,8 @@ useHead({
   object-fit: contain;
 }
 .supporter-brand--hiapi img {
-  width: 60px;
-  height: 60px;
-}
-.supporter-brand--hiapi span {
-  font-size: 42px;
-  font-weight: 750;
-  letter-spacing: -2px;
+  width: 220px;
+  max-height: 220px;
 }
 .supporter-layout {
   display: grid;
@@ -406,11 +401,8 @@ useHead({
     max-height: 80px;
   }
   .supporter-brand--hiapi img {
-    width: 44px;
-    height: 44px;
-  }
-  .supporter-brand--hiapi span {
-    font-size: 32px;
+    width: 160px;
+    max-height: 160px;
   }
   .supporter-layout {
     grid-template-columns: 1fr;
