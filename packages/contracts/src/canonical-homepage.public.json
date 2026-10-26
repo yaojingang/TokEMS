@@ -1444,7 +1444,7 @@
         "publicCode": "hsci",
         "role": "Floatboat 创始人兼 CEO",
         "tags": [],
-        "topic": "分享主题待公布"
+        "topic": "如何打造属于自己的超级Agent"
       },
       {
         "accentFrom": "#1677ff",
@@ -1982,7 +1982,7 @@
       "accentFrom": "#2448a8",
       "accentTo": "#102759",
       "avatarAssetId": "f9baa4e8-f712-446f-aaeb-291bc96f8310",
-      "bio": "谭少卿，Floatboat 创始人兼 CEO。",
+      "bio": "谭少卿，Floatboat 创始人兼 CEO。\n\n公司介绍\nFloatboat 面向独立创业者、创作者和小团队，提供以日历驱动的 AI 智能体工作空间，将日程、资料与工具连接到任务执行中，衔接准备、执行和后续跟进。\n\n产品亮点\n1. 日历驱动：围绕会议、截止日期与固定工作安排，提前准备资料、生成草稿，并完成后续跟进。\n2. 持续工作空间：每个事件保留独立空间，保存文件、运行记录、模型选择和相关决策，方便任务持续推进。\n3. 连接工作工具：通过连接器和 MCP，在用户授权范围内读取邮件、日历、文档及业务系统资料，推进跨工具任务。\n4. 技能与工作流：通过 Combo Store 和 Workflow Store 组织可复用技能与自动化，支持内容制作、业务跟进等场景。\n\n公司与产品信息整理自 Floatboat 官方网站。",
       "id": "647bec1c-deb8-495b-bb78-791b932f4931",
       "initials": "谭",
       "name": "谭少卿",
@@ -1990,8 +1990,8 @@
       "socialLinks": [],
       "sortOrder": 20,
       "tags": [],
-      "topic": "分享主题待公布",
-      "topicAbstract": "",
+      "topic": "如何打造属于自己的超级Agent",
+      "topicAbstract": "围绕个人超级 Agent 的构建与应用展开分享。",
       "websiteUrl": "https://floatboat.ai/"
     },
     {
