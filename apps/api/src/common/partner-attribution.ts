@@ -4,7 +4,7 @@ import {
   partnerAttributionRevisions,
   partnerReferralLinks,
 } from '@conference/database';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import type { BatchReader } from './order-items.service.js';
 import type { PartnerReferralContext } from './partner-distribution.service.js';
 
@@ -66,17 +66,20 @@ export async function lockPartnerAttribution(
             eq(partnerReferralLinks.id, context.referralLinkId),
             eq(partnerReferralLinks.partnerId, context.partnerId),
             eq(partnerReferralLinks.status, 'active'),
+            isNull(partnerReferralLinks.disabledAt),
+            or(isNull(partnerReferralLinks.expiresAt), gt(partnerReferralLinks.expiresAt, new Date())),
             eq(eventPartners.organizationId, order.organizationId),
             eq(eventPartners.eventId, order.eventId),
             eq(eventPartners.qualificationStatus, 'active'),
             eq(eventPartners.attributionEnabled, true),
             eq(eventPartnerProgramVersions.status, 'active'),
+            or(isNull(eventPartnerProgramVersions.effectiveAt), lte(eventPartnerProgramVersions.effectiveAt, new Date())),
           ),
         )
         .limit(1);
-      if (!scope || scope.partner.acceptedProgramVersionId !== scope.program.id) {
+      if (!scope) {
         decision = 'ineligible';
-        decisionReason = '合作伙伴资格或规则确认状态已变化';
+        decisionReason = '合作伙伴资格或当前规则已变化';
       } else {
         partnerId = scope.partner.id;
         referralLinkId = scope.link.id;

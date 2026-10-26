@@ -17,12 +17,13 @@ const partner = {
   settlementHold: false,
   currentProgram: {
     id: 'program-fixture',
+    status: 'active',
     termsTitle: '大会合作伙伴推广规则',
     termsContent: '佣金按有效订单计算。请确认公开资料和推广规则。',
     promotionPolicy: '请真实、准确地介绍大会内容。',
     attributionDays: 30,
   },
-  acceptedProgramVersionId: 'program-fixture',
+  acceptedProgramVersionId: null,
   personalRateBps: null,
   balances: {
     pending: 24800,
@@ -96,9 +97,9 @@ const session = {
     },
   },
 };
-async function fixtures(page, { empty = false, unauthenticated = false, profile = {}, directoryEnabled = false } = {}) {
+async function fixtures(page, { empty = false, unauthenticated = false, profile = {}, directoryEnabled = false, relationship = {} } = {}) {
   const writes = [];
-  const state = { partner: { ...structuredClone(partner), directoryEnabled }, reject: false };
+  const state = { partner: { ...structuredClone(partner), ...relationship, directoryEnabled }, reject: false };
   Object.assign(state.partner.profile, profile);
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request();
@@ -616,3 +617,31 @@ test('all three poster areas have defaults and custom scan copy survives reload'
   await assertFits(page);
   await page.screenshot({ path: `${output}/poster-three-defaults-375.png`, fullPage: true });
 });
+
+test('administrator-enabled partners can promote without a personal rule acceptance', async (t) => {
+  const { page, state, writes } = await setup(t);
+  assert.equal(state.partner.acceptedProgramVersionId, null);
+  await selectModule(page, '推广素材');
+  await page.getByLabel('合作伙伴推广海报预览').waitFor({ state: 'visible' });
+  assert.equal(await page.getByRole('button', { name: '复制推广链接' }).isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: '下载 1080 × 1440 海报' }).isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: '确认规则并开通推广' }).count(), 0);
+  assert.equal(writes.some(write => write.path.endsWith('/rule-acceptances')), false);
+});
+
+for (const [label, relationship] of [
+  ['paused qualification', { qualificationStatus: 'paused' }],
+  ['independently disabled attribution', { attributionEnabled: false }],
+  ['retired program', { currentProgram: { ...partner.currentProgram, status: 'retired' } }],
+  ['missing referral link', { referralPath: '' }],
+]) {
+  test(`partner promotion remains unavailable for ${label}`, async (t) => {
+    const { page, writes } = await setup(t, 375, { relationship });
+    await selectModule(page, '推广素材');
+    await page.getByText('推广链接暂不可用', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '复制推广链接' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '下载 1080 × 1440 海报' }).isDisabled(), true);
+    assert.equal(await page.getByRole('link', { name: '测试推广入口' }).count(), 0);
+    assert.equal(writes.some(write => write.path.endsWith('/rule-acceptances')), false);
+  });
+}

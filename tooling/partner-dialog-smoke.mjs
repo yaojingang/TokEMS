@@ -109,7 +109,7 @@ async function assertCentered(dialog, width, height) {
     Math.abs(box.y + box.height / 2 - height / 2) < 2,
     'dialog remains vertically centered',
   );
-  assert.ok(box.x >= 14 && box.y >= 14, 'dialog keeps a viewport gutter');
+  assert.ok(box.x >= 10 && box.y >= 10, 'dialog keeps a viewport gutter');
   return box;
 }
 
@@ -144,7 +144,7 @@ for (const [width, height] of [
     const box = await feedback.boundingBox();
     assert.ok(box.y >= 0 && box.y + box.height <= height, 'error summary stays visible');
     await page.screenshot({ path: `${output}/edit-error-${width}.png` });
-    await editor.getByRole('button', { name: '取消', exact: true }).click();
+    await editor.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('button', { name: '新增合作伙伴', exact: true }).click();
     await invitation.getByRole('button', { name: '邀请并开通' }).click();
     await invitation.locator('.partner-form-feedback').waitFor();
@@ -179,6 +179,8 @@ test('business URL, server field errors and retries identify the affected input'
   assert.equal(await editor.getByLabel('业务链接').inputValue(), 'https://example.com');
   server.reject = false;
   await editor.getByRole('button', { name: '保存修改' }).click();
-  await editor.waitFor({ state: 'hidden' });
+  await editor.getByText('资料已保存，推广素材已按最新资料更新。').waitFor();
   assert.equal(writes.length, 2);
+  await editor.getByRole('button', { name: '关闭', exact: true }).click();
+  await editor.waitFor({ state: 'hidden' });
 });

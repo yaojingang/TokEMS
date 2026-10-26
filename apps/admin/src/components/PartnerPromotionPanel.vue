@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import type { AdminPartnerPromotionView, PublicEvent } from '@conference/contracts';
+import type { AdminPartnerPromotionView, PartnerPosterProfileView, PublicEvent } from '@conference/contracts';
 import QRCode from 'qrcode.vue';
 import {
   partnerPosterFilename,
@@ -16,7 +16,11 @@ const props = defineProps<{
   eventId: number;
   version: number;
   unsaved: boolean;
+  draft?: Partial<PartnerPosterProfileView> | undefined;
+  embedded?: boolean;
+  headless?: boolean;
 }>();
+const emit = defineEmits<{ avatar: [url: string | null] }>();
 const material = ref<AdminPartnerPromotionView | null>(null);
 const busy = ref(false);
 const rendering = ref(false);
@@ -31,17 +35,24 @@ const available = computed(() =>
   Boolean(url.value && material.value && material.value.availability !== 'unavailable'),
 );
 let revision = 0;
+let renderRevision = 0;
+let cachedEvent: PublicEvent | null | undefined;
+let cachedAvatarVersion = 0;
+let previewPending = false;
 let avatarUrl: string | undefined;
 let avatarRequest: AbortController | undefined;
 function releaseAvatar() {
   if (avatarUrl) URL.revokeObjectURL(avatarUrl);
   avatarUrl = undefined;
+  cachedAvatarVersion = 0;
 }
 
 type MaterialSnapshot = { data: AdminPartnerPromotionView; current: number };
 
 async function readMaterial(): Promise<MaterialSnapshot | null> {
   const current = ++revision;
+  ++renderRevision;
+  cachedEvent = undefined;
   avatarRequest?.abort();
   busy.value = true;
   rendering.value = false;
@@ -50,6 +61,7 @@ async function readMaterial(): Promise<MaterialSnapshot | null> {
   error.value = '';
   notice.value = '';
   releaseAvatar();
+  emit('avatar', null);
   try {
     const data = await conferenceApi.getPartnerPromotion(props.partnerId, props.eventId);
     if (current !== revision) return null;
@@ -64,56 +76,76 @@ async function readMaterial(): Promise<MaterialSnapshot | null> {
   }
 }
 
-async function renderMaterial({ data, current }: MaterialSnapshot) {
+async function renderMaterial({ data, current }: MaterialSnapshot, useDraft = true) {
   if (current !== revision) return false;
+  const render = ++renderRevision;
   rendering.value = true;
+  error.value = '';
+  avatarRequest?.abort();
   const request = new AbortController();
   avatarRequest = request;
   let nextAvatar: string | undefined;
   try {
-    const event: PublicEvent | null = await conferenceApi
-      .getEvent(data.eventSlug, props.eventId)
-      .catch(() => null);
-    if (current !== revision) return false;
-    if (data.profile.avatarUrl) {
+    const event: PublicEvent | null = cachedEvent === undefined
+      ? await conferenceApi.getEvent(data.eventSlug, props.eventId).catch(() => null)
+      : cachedEvent;
+    if (current !== revision || render !== renderRevision) return false;
+    cachedEvent = event;
+    const draft = useDraft && props.unsaved ? props.draft : undefined;
+    const draftAvatar = draft && Object.prototype.hasOwnProperty.call(draft, 'avatarUrl');
+    if (data.profile.avatarUrl && !draftAvatar && cachedAvatarVersion !== data.profile.version) {
       const blob = await conferenceApi.getPartnerPromotionAvatar(
         data.id,
         data.profile.version,
         data.eventId,
         request.signal,
       );
-      if (current !== revision) return false;
+      if (current !== revision || render !== renderRevision) return false;
       nextAvatar = URL.createObjectURL(blob);
       // Verify the authenticated image before rendering so an incomplete avatar cannot produce a downloadable poster.
       const image = new Image();
       image.src = nextAvatar;
       await image.decode();
     }
-    if (current !== revision) return false;
+    if (current !== revision || render !== renderRevision) return false;
     const profile = {
       ...data.profile,
       posterCopy: resolvePartnerPosterCopy(data.profile),
-      avatarUrl: nextAvatar ?? null,
+      ...draft,
+      avatarUrl: draftAvatar ? draft!.avatarUrl ?? null : nextAvatar ?? avatarUrl ?? null,
     };
     await nextTick();
     const qr = qrHolder.value?.querySelector('canvas');
-    if (current !== revision || !qr || !poster.value) return false;
+    if (current !== revision || render !== renderRevision || !qr || !poster.value) return false;
+    const buffer = document.createElement('canvas');
+    buffer.width = 1080;
+    buffer.height = 1440;
     const rendered = await renderPersonalEventPoster(
-      poster.value,
+      buffer,
       qr,
       resolvePartnerPosterOptions(data, resolvePartnerPosterContent(profile), event),
     );
-    if (current !== revision || !rendered) return false;
-    avatarUrl = nextAvatar;
+    if (current !== revision || render !== renderRevision || !rendered) return false;
+    const context = poster.value.getContext('2d');
+    if (!context) throw new Error('浏览器暂不支持海报预览。');
+    poster.value.width = buffer.width;
+    poster.value.height = buffer.height;
+    context.drawImage(buffer, 0, 0);
+    if (nextAvatar) {
+      releaseAvatar();
+      avatarUrl = nextAvatar;
+      cachedAvatarVersion = data.profile.version;
+      emit('avatar', avatarUrl);
+    }
     ready.value = true;
     return true;
   } catch (failure) {
-    if (current === revision)
+    if (current === revision && render === renderRevision)
       error.value = failure instanceof Error ? failure.message : '海报生成失败，请重试。';
     return false;
   } finally {
     if (nextAvatar && nextAvatar !== avatarUrl) URL.revokeObjectURL(nextAvatar);
-    if (current === revision) rendering.value = false;
+    if (current === revision && render === renderRevision) rendering.value = false;
   }
 }
 
@@ -123,17 +155,17 @@ async function refresh() {
 }
 
 async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
-  if (acting.value || props.unsaved) return;
+  if (acting.value || (kind === 'poster' && props.unsaved)) return;
   acting.value = true;
   let current = revision;
   try {
     const snapshot = await readMaterial();
-    if (!snapshot || props.unsaved) return;
+    if (!snapshot || (kind === 'poster' && props.unsaved)) return;
     current = snapshot.current;
-    const renderingPoster = renderMaterial(snapshot);
+    const renderingPoster = renderMaterial(snapshot, false);
     if (kind === 'poster' && !(await renderingPoster)) return;
     await nextTick();
-    if (current !== revision || !available.value || props.unsaved) return;
+    if (current !== revision || !available.value || (kind === 'poster' && props.unsaved)) return;
     if (kind === 'link') {
       if (!navigator.clipboard?.writeText)
         throw new Error('浏览器未允许自动复制，请选中上方链接手动复制。');
@@ -161,7 +193,12 @@ async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
         'image/png',
       ),
     );
-    if (current !== revision || props.unsaved) return;
+    if (current !== revision || (kind === 'poster' && props.unsaved)) return false;
+    const latest = await conferenceApi.getPartnerPromotion(props.partnerId, props.eventId);
+    if (current !== revision || (kind === 'poster' && props.unsaved)) return false;
+    if (latest.availability === 'unavailable' || latest.version !== snapshot.data.version ||
+      latest.profile.version !== snapshot.data.profile.version || latest.referralPath !== snapshot.data.referralPath)
+      throw new Error('合作伙伴状态或资料已变化，请刷新素材后重新下载。');
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = objectUrl;
@@ -174,6 +211,7 @@ async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     notice.value = kind === 'poster' ? '分销海报下载已开始。' : '分销二维码下载已开始。';
+    return true;
   } catch (failure) {
     if (current === revision)
       error.value =
@@ -182,8 +220,13 @@ async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
           : failure instanceof Error
             ? failure.message
             : '下载失败，请重试。';
+    return false;
   } finally {
     acting.value = false;
+    if (previewPending && material.value && !busy.value) {
+      previewPending = false;
+      void renderMaterial({ data: material.value, current: revision });
+    }
   }
 }
 
@@ -195,6 +238,12 @@ watch(
   },
   { immediate: true },
 );
+watch(() => props.draft, () => {
+  if (acting.value) previewPending = true;
+  else if (material.value && !busy.value)
+    void renderMaterial({ data: material.value, current: revision });
+}, { deep: true });
+defineExpose({ downloadPoster: () => exportMaterial('poster'), downloadError: computed(() => error.value || material.value?.reason || '') });
 onBeforeUnmount(() => {
   ++revision;
   avatarRequest?.abort();
@@ -204,7 +253,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="partner-promotion" aria-label="合作伙伴推广素材" :aria-busy="busy || rendering">
+  <section class="partner-promotion" :class="{ embedded, headless }" :inert="headless" :aria-hidden="headless || undefined" aria-label="合作伙伴推广素材" :aria-busy="busy || rendering">
     <div class="material-heading">
       <div>
         <h3>{{ material?.eventName || '推广素材' }}</h3>
@@ -249,7 +298,7 @@ onBeforeUnmount(() => {
         <button
           class="button"
           type="button"
-          :disabled="!available || busy || acting || unsaved"
+          :disabled="!available || busy || acting"
           @click="exportMaterial('link')"
         >
           复制分销链接
@@ -261,7 +310,7 @@ onBeforeUnmount(() => {
         <button
           class="button secondary"
           type="button"
-          :disabled="!available || busy || acting || unsaved"
+          :disabled="!available || busy || acting"
           @click="exportMaterial('qr')"
         >
           下载二维码 PNG
@@ -308,6 +357,20 @@ onBeforeUnmount(() => {
   overflow: auto;
   min-height: 0;
   color: #17385e;
+}
+.partner-promotion.headless { position: fixed; left: -10000px; top: 0; width: 600px; pointer-events: none; }
+.partner-promotion.embedded { padding: 24px; background: #f5f8fc; border-left: 1px solid #e1e8f0; }
+.embedded .material-heading h3 { font-size: 15px; }
+.embedded .material-layout { display: flex; flex-direction: column-reverse; gap: 24px; }
+.embedded .material-poster { margin: 0; }
+.embedded .material-details { padding-top: 20px; border-top: 1px solid #dbe5f0; }
+.embedded .material-poster canvas { max-width: 270px; margin-inline: auto; }
+.embedded .material-qr { width: 112px; padding: 12px; }
+.embedded .material-qr :deep(canvas) { width: 112px !important; height: 112px !important; }
+.embedded .material-status { padding: 8px 10px; font-size: 12px; }
+.embedded .material-hint { font-size: 12px; }
+@media (max-width: 800px) {
+  .partner-promotion.embedded { overflow: visible; border-left: 0; border-top: 1px solid #e1e8f0; }
 }
 .material-heading {
   display: flex;

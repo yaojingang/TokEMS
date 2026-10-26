@@ -2165,6 +2165,29 @@ export const conferenceApi = {
       { cache: 'no-store' },
     );
   },
+  async uploadPartnerAvatar(partnerId: string, eventId: EventId, file: File, signal?: AbortSignal) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || !file.size || file.size > 5 * 1024 * 1024)
+      throw new Error('请选择 5MB 以内的 JPG、PNG 或 WebP 图片。');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())))
+      .map((value) => value.toString(16).padStart(2, '0')).join('');
+    const path = `/admin/events/${eventScope(eventId)}/distribution/partners/${encodeURIComponent(partnerId)}`;
+    const upload = await request<{ uploadToken: string; uploadUrl: string; headers: Record<string, string> }>(`${path}/media-uploads`, {
+      method: 'POST', signal: signal ?? null,
+      body: JSON.stringify({ kind: 'avatar', fileName: file.name, mediaType: file.type, size: file.size, contentDigest: digest }),
+    });
+    const response = await fetch(upload.uploadUrl, { method: 'PUT', headers: upload.headers, body: file, signal: signal ?? null });
+    if (!response.ok) throw new Error('头像上传失败，请重试。');
+    return request<{ assetId: string; status: 'processing' }>(`${path}/media-confirmations`, {
+      method: 'POST', signal: signal ?? null,
+      body: JSON.stringify({ uploadToken: upload.uploadToken, contentDigest: digest }),
+    });
+  },
+  getPartnerAvatarStatus(partnerId: string, assetId: string, eventId: EventId, signal?: AbortSignal) {
+    return request<{ assetId: string; status: 'processing' | 'ready' | 'failed'; failureReason?: string | null }>(
+      `/admin/events/${eventScope(eventId)}/distribution/partners/${encodeURIComponent(partnerId)}/media/${encodeURIComponent(assetId)}/status`,
+      { cache: 'no-store', signal: signal ?? null },
+    );
+  },
   async getPartnerPromotionAvatar(partnerId: string, profileVersion: number, eventId: EventId, signal?: AbortSignal) {
     const response = await fetch(
       `${baseURL}/admin/events/${eventScope(eventId)}/distribution/partners/${encodeURIComponent(partnerId)}/promotion/avatar?version=${profileVersion}`,

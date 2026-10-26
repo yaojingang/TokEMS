@@ -23,6 +23,33 @@ describe('partner distribution administration permissions', () => {
     expect(showcase.partnerMediaContent).toHaveBeenCalledWith('org', 'customer', 'avatar');
     expect(reply.header).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
   });
+  it('scopes staff avatar upload, confirmation and status to the target partner with manage permission', async () => {
+    for (const name of ['preparePartnerMedia', 'confirmPartnerMedia', 'partnerMediaStatus'] as const) {
+      expect(Reflect.getMetadata(REQUIRED_GRANTS_METADATA, AdminPartnerController.prototype[name])).toEqual(['event.partner.manage']);
+    }
+    const scope = { organizationId: 'org', customerUserId: 'target' };
+    const partners = { adminPartnerMediaScope: vi.fn().mockResolvedValue(scope), adminPartnerMediaStatus: vi.fn().mockResolvedValue({ status: 'ready' }) };
+    const showcase = { preparePartnerMediaUpload: vi.fn().mockResolvedValue({ uploadToken: 'token' }), confirmPartnerMedia: vi.fn().mockResolvedValue({ status: 'processing' }) };
+    const controller = new AdminPartnerController(partners as never, {} as never, showcase as never);
+    const request = { user: { organizationId: 'org', sub: 'staff' } } as never;
+    const input = { kind: 'avatar', fileName: 'avatar.png', mediaType: 'image/png', size: 12, contentDigest: '0'.repeat(64) };
+    const reply = { header: vi.fn() }; reply.header.mockReturnValue(reply);
+    await controller.preparePartnerMedia(request, 101, 'partner', input, reply as never);
+    expect(reply.header).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    reply.header.mockClear();
+    const confirmation = { uploadToken: '00000000-0000-4000-8000-000000000001', contentDigest: input.contentDigest };
+    await controller.confirmPartnerMedia(request, 101, 'partner', confirmation, reply as never);
+    expect(reply.header).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    reply.header.mockClear();
+    await controller.partnerMediaStatus(request, 101, 'partner', confirmation.uploadToken, reply as never);
+    expect(partners.adminPartnerMediaScope).toHaveBeenCalledWith('org', 101, 'partner', confirmation.uploadToken);
+    expect(showcase.preparePartnerMediaUpload).toHaveBeenCalledWith(scope, 101, input, { actorId: 'staff', partnerId: 'partner' });
+    expect(showcase.confirmPartnerMedia).toHaveBeenCalledWith(scope, 101, confirmation, { actorId: 'staff', partnerId: 'partner' });
+    expect(partners.adminPartnerMediaStatus).toHaveBeenCalledWith('org', 101, 'partner', confirmation.uploadToken);
+    expect(reply.header).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    await expect(controller.preparePartnerMedia(request, 101, 'partner', { ...input, kind: 'gallery' }, reply as never)).rejects.toThrow();
+  });
+
   it('requires an explicit financial grant and prevents caching of recipient details', async () => {
     expect(
       Reflect.getMetadata(

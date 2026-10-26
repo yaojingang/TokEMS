@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { AdminEnablePartnerSchema, AdminEditPartnerDetailsSchema, type AdminPartnerRelationshipView } from '@conference/contracts';
+import { AdminEnablePartnerSchema, AdminEditPartnerDetailsSchema, DEFAULT_PARTNER_POSTER_FIELDS, DEFAULT_PARTNER_VISIBLE_FIELDS, PARTNER_POSTER_DEFAULT_COPY, type AdminPartnerRelationshipView, type PartnerPosterProfileView } from '@conference/contracts';
+import { resolvePartnerPosterCopy } from '@conference/ui/posters';
 import { partnerFieldIssues, partnerServerFieldIssues, type PartnerFieldIssue } from '../lib/partner-form-feedback';
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import { conferenceApi, session } from '../lib/api';
@@ -56,7 +57,36 @@ const editingPartner = ref<AdminPartnerRelationshipView | null>(null);
 const partnerEditor = ref<HTMLDialogElement>();
 const partnerEditorTab = ref<'profile' | 'promotion'>('profile');
 const originalPartnerForm = ref('');
-const partnerFormDirty = computed(() => Boolean(editingPartner.value && JSON.stringify(editForm) !== originalPartnerForm.value));
+const posterDraft = reactive({ ...PARTNER_POSTER_DEFAULT_COPY } as { invitation: string; introduction: string; callToAction: string; scanHint: string });
+const posterFields = reactive({ ...DEFAULT_PARTNER_POSTER_FIELDS });
+const pendingAvatarAssetId = ref<string | null | undefined>(undefined);
+const uploadedAvatarPreview = ref('');
+const savedAvatarPreview = ref('');
+const avatarBusy = ref(false);
+const avatarError = ref('');
+const avatarStatus = ref('');
+let avatarRequest: AbortController | undefined;
+let avatarRevision = 0;
+let editorRevision = 0;
+let downloadRevision = 0;
+const promotionPanel = ref<InstanceType<typeof PartnerPromotionPanel>>();
+const directDownloadPanel = ref<InstanceType<typeof PartnerPromotionPanel>>();
+const downloadingPartner = ref<AdminPartnerRelationshipView | null>(null);
+const posterFieldOptions = [
+  { key: 'avatar', label: '头像' }, { key: 'displayName', label: '姓名' },
+  { key: 'company', label: '公司' }, { key: 'title', label: '职务' },
+  { key: 'industry', label: '行业' }, { key: 'businessIntro', label: '业务介绍' },
+] as const;
+function draftSnapshot() {
+  return JSON.stringify({ ...editForm, posterCopy: { ...posterDraft }, posterFields: { ...posterFields }, avatarAssetId: pendingAvatarAssetId.value });
+}
+const partnerFormDirty = computed(() => Boolean(editingPartner.value && draftSnapshot() !== originalPartnerForm.value));
+const editorPosterDraft = computed<Partial<PartnerPosterProfileView>>(() => ({
+  displayName: editForm.displayName, company: editForm.company, title: editForm.title,
+  industry: editForm.industry, businessIntro: editForm.businessIntro,
+  posterCopy: { ...posterDraft }, posterFields: { ...posterFields },
+  ...(pendingAvatarAssetId.value === null ? { avatarUrl: null } : uploadedAvatarPreview.value ? { avatarUrl: uploadedAvatarPreview.value } : {}),
+}));
 const partnerEditorError = ref('');
 const partnerEditorIssues = ref<PartnerFieldIssue[]>([]);
 const partnerEditorNotice = ref('');
@@ -165,7 +195,7 @@ function mobileDisplay(value: string) {
 
 function label(value: unknown) {
   const labels: Record<string, string> = {
-    pending_confirmation: '待确认',
+    pending_confirmation: '待启用',
     active: '生效中',
     paused: '已暂停',
     closed: '已关闭',
@@ -381,7 +411,8 @@ function fieldAttributes(kind: PartnerFormKind, field: string) {
 
 async function focusPartnerFeedback(kind: PartnerFormKind, field?: string) {
   const targetField = field ?? fieldIssues(kind).value[0]?.field;
-  if (kind === 'edit' && targetField) partnerEditorTab.value = 'profile';
+  if (kind === 'edit' && targetField)
+    partnerEditorTab.value = ['posterCopy', 'posterFields'].includes(targetField) ? 'promotion' : 'profile';
   await nextTick();
   const dialog = kind === 'invite' ? partnerInvitation.value : partnerEditor.value;
   const input = targetField ? dialog?.querySelector<HTMLElement>(`[name="${targetField}"]`) : null;
@@ -453,20 +484,24 @@ async function enablePartner() {
     return;
   }
   pending.value = true;
+  const currentEditor = editorRevision;
+  const currentEvent = session.activeEvent.value?.id;
   errorMessage.value = '';
   successMessage.value = '';
   try {
     const enabledPartner = await conferenceApi.enableEventPartner(parsed.data);
+    if (currentEditor !== editorRevision || currentEvent !== session.activeEvent.value?.id) return;
     partnerInvitationOpen.value = false;
     await nextTick();
     openPartnerEditor(enabledPartner, enabledPartner.created ? 'promotion' : 'profile');
     partnerEditorNotice.value = enabledPartner.created
-      ? '合作伙伴创建成功。对方确认当前合作规则后，原分销链接和二维码即可生效。'
+      ? '合作伙伴创建成功，分销已生效，可直接下载海报或复制链接开始推广。'
       : '该手机号已是本大会的合作伙伴，已打开已有资料供你编辑。';
     successMessage.value = enabledPartner.created ? '合作伙伴创建成功。' : '该手机号已经是合作伙伴，已为你打开资料编辑。';
     await load();
     Object.assign(enableForm, { mobile: '', displayName: '', company: '', title: '', ratePercent: '', note: '' });
   } catch (error) {
+    if (currentEditor !== editorRevision || currentEvent !== session.activeEvent.value?.id) return;
     partnerInvitationIssues.value = partnerServerFieldIssues(error);
     partnerInvitationError.value = error instanceof Error ? error.message : '合作伙伴开通失败，请重试。';
   } finally {
@@ -488,6 +523,10 @@ function updatePartner(item: AdminPartnerRelationshipView, status: 'active' | 'p
 }
 
 function openPartnerEditor(item: AdminPartnerRelationshipView, tab: 'profile' | 'promotion' = 'profile') {
+  ++editorRevision;
+  ++downloadRevision;
+  downloadingPartner.value = null;
+  resetAvatarDraft();
   partnerEditorTab.value = tab;
   partnerEditorReturnFocus =
     typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
@@ -505,21 +544,25 @@ function openPartnerEditor(item: AdminPartnerRelationshipView, tab: 'profile' | 
   editForm.ratePercent = item.personalRateBps === null ? '' : String(item.personalRateBps / 100);
   editForm.sortOrder = String(item.sortOrder);
   editForm.internalNote = item.internalNote;
-  originalPartnerForm.value = JSON.stringify(editForm);
+  Object.assign(posterDraft, resolvePartnerPosterCopy(item.profile));
+  Object.assign(posterFields, item.profile.posterFields ?? DEFAULT_PARTNER_POSTER_FIELDS);
+  originalPartnerForm.value = draftSnapshot();
   editingPartner.value = item;
 }
 
 function closePartnerEditor() {
   if (pending.value || !confirmPartnerDraft()) return;
+  resetAvatarDraft();
+  ++editorRevision;
   editingPartner.value = null;
   partnerEditorError.value = '';
 }
 
 function confirmPartnerDraft() {
-  return !partnerFormDirty.value || window.confirm('合作伙伴资料尚未保存，确定离开？');
+  return (!partnerFormDirty.value && !avatarBusy.value) || window.confirm('合作伙伴资料尚未保存，确定离开？');
 }
 function guardPartnerUnload(event: BeforeUnloadEvent) {
-  if (partnerFormDirty.value) { event.preventDefault(); event.returnValue = ''; }
+  if (partnerFormDirty.value || avatarBusy.value) { event.preventDefault(); event.returnValue = ''; }
 }
 onBeforeRouteLeave(confirmPartnerDraft);
 onBeforeRouteUpdate(confirmPartnerDraft);
@@ -528,9 +571,87 @@ function handlePartnerEditorCancel(event: Event) {
   closePartnerEditor();
 }
 
-async function savePartnerDetails() {
+function resetAvatarDraft() {
+  ++avatarRevision;
+  avatarRequest?.abort();
+  avatarRequest = undefined;
+  if (uploadedAvatarPreview.value) URL.revokeObjectURL(uploadedAvatarPreview.value);
+  uploadedAvatarPreview.value = '';
+  savedAvatarPreview.value = '';
+  pendingAvatarAssetId.value = undefined;
+  avatarBusy.value = false;
+  avatarError.value = '';
+  avatarStatus.value = '';
+}
+
+async function uploadPartnerAvatar(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  const partner = editingPartner.value;
+  if (!file || !partner || pending.value || !canManagePartners.value) return;
+  const current = ++avatarRevision;
+  avatarRequest?.abort();
+  const request = new AbortController();
+  avatarRequest = request;
+  avatarBusy.value = true;
+  avatarError.value = '';
+  avatarStatus.value = '头像上传中…';
+  try {
+    const uploaded = await conferenceApi.uploadPartnerAvatar(partner.id, partner.eventId, file, request.signal);
+    if (current !== avatarRevision) return;
+    avatarStatus.value = '头像处理中…';
+    let ready = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (current !== avatarRevision) return;
+      const status = await conferenceApi.getPartnerAvatarStatus(partner.id, uploaded.assetId, partner.eventId, request.signal);
+      if (status.status === 'failed') throw new Error(status.failureReason || '头像处理失败，请重新上传。');
+      if (status.status === 'ready') { ready = true; break; }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1000));
+    }
+    if (current !== avatarRevision) return;
+    if (!ready) throw new Error('头像处理超时，请稍后重新上传。');
+    if (uploadedAvatarPreview.value) URL.revokeObjectURL(uploadedAvatarPreview.value);
+    uploadedAvatarPreview.value = URL.createObjectURL(file);
+    pendingAvatarAssetId.value = uploaded.assetId;
+    avatarStatus.value = '头像已就绪，保存后生效。';
+  } catch (failure) {
+    if (current === avatarRevision) {
+      avatarError.value = failure instanceof Error ? failure.message : '头像上传失败，请重试。';
+      avatarStatus.value = '';
+    }
+  } finally {
+    if (current === avatarRevision) avatarBusy.value = false;
+  }
+}
+
+function removePartnerAvatar() {
+  resetAvatarDraft();
+  pendingAvatarAssetId.value = null;
+  avatarStatus.value = '头像将在保存后移除。';
+}
+
+async function downloadPartnerPoster(item: AdminPartnerRelationshipView) {
+  if (downloadingPartner.value) return;
+  const current = ++downloadRevision;
+  downloadingPartner.value = item;
+  errorMessage.value = '';
+  try {
+    await nextTick();
+    if (current !== downloadRevision) return;
+    const panel = directDownloadPanel.value;
+    const downloaded = await panel?.downloadPoster();
+    if (current !== downloadRevision) return;
+    if (downloaded) successMessage.value = '分销海报下载已开始。';
+    else errorMessage.value = panel?.downloadError || '海报下载未完成，请打开编辑查看素材状态后重试。';
+  } finally {
+    if (current === downloadRevision) downloadingPartner.value = null;
+  }
+}
+
+async function savePartnerDetails(downloadAfter = false) {
   const item = editingPartner.value;
-  if (!item || pending.value || !canManagePartners.value) return;
+  if (!item || pending.value || avatarBusy.value || !canManagePartners.value) return;
   partnerEditorError.value = '';
   partnerEditorIssues.value = [];
   const parsed = AdminEditPartnerDetailsSchema.safeParse({
@@ -546,6 +667,9 @@ async function savePartnerDetails() {
       : NaN,
     sortOrder: Number(editForm.sortOrder),
     internalNote: editForm.internalNote.trim(),
+    posterCopy: { ...posterDraft },
+    posterFields: { ...posterFields },
+    ...(pendingAvatarAssetId.value !== undefined ? { avatarAssetId: pendingAvatarAssetId.value } : {}),
   });
   if (!parsed.success) {
     partnerEditorIssues.value = partnerFieldIssues(parsed.error.issues);
@@ -553,21 +677,36 @@ async function savePartnerDetails() {
     await focusPartnerFeedback('edit');
     return;
   }
-  const submittedForm = JSON.stringify(editForm);
+  const submittedForm = draftSnapshot();
+  const currentEditor = editorRevision;
   pending.value = true;
   errorMessage.value = '';
   successMessage.value = '';
   try {
-    const updated = await conferenceApi.updateEventPartnerDetails(item.id, parsed.data);
+    const updated = await conferenceApi.updateEventPartnerDetails(item.id, parsed.data, item.eventId);
+    if (currentEditor !== editorRevision || editingPartner.value?.id !== item.id) return;
     editingPartner.value = { ...item, ...updated, sortOrder: parsed.data.sortOrder, internalNote: parsed.data.internalNote };
-    originalPartnerForm.value = submittedForm;
+    const changedDuringSave = draftSnapshot() !== submittedForm;
+    pendingAvatarAssetId.value = undefined;
+    originalPartnerForm.value = changedDuringSave
+      ? JSON.stringify({ ...JSON.parse(submittedForm), avatarAssetId: undefined })
+      : draftSnapshot();
     partnerEditorTab.value = partnerFormDirty.value ? 'profile' : 'promotion';
     partnerEditorNotice.value = partnerFormDirty.value
       ? '本次资料已保存，后续修改尚未保存。'
       : '资料已保存，推广素材已按最新资料更新。';
     successMessage.value = '合作伙伴资料和佣金设置已更新。';
     await load();
+    if (downloadAfter && !partnerFormDirty.value && currentEditor === editorRevision) {
+      await nextTick();
+      if (currentEditor !== editorRevision) return;
+      const downloaded = await promotionPanel.value?.downloadPoster();
+      if (currentEditor !== editorRevision) return;
+      if (!downloaded)
+        partnerEditorNotice.value = '修改已保存，海报下载未完成，请重试下载。';
+    }
   } catch (error) {
+    if (currentEditor !== editorRevision) return;
     partnerEditorIssues.value = partnerServerFieldIssues(error);
     partnerEditorError.value = error instanceof Error ? error.message : '合作伙伴资料保存失败，请重试。';
   } finally {
@@ -579,7 +718,7 @@ async function savePartnerDetails() {
 function publishProgram() {
   return run(
     () => conferenceApi.publishPartnerProgram(programPayload()),
-    '新版分销规则已发布，现有合作伙伴需重新确认。',
+    '新版分销规则已发布，正常合作伙伴持续生效，后续新订单使用新规则。',
   );
 }
 
@@ -594,7 +733,7 @@ async function enableDistribution() {
   await run(async () => {
     await conferenceApi.publishPartnerProgram(defaultProgramPayload());
     published = true;
-  }, '分销功能已开启。合作伙伴确认规则后即可开始推广归因。');
+  }, '分销功能已开启，后台添加合作伙伴后即可开始推广归因。');
   if (published) enableDialogOpen.value = false;
 }
 
@@ -852,12 +991,15 @@ watch(editingPartner, async (item) => {
   partnerEditorReturnFocus = null;
 });
 onBeforeUnmount(() => {
+  ++editorRevision;
+  ++downloadRevision;
+  resetAvatarDraft();
   window.removeEventListener('beforeunload', guardPartnerUnload);
   if (partnerInvitation.value?.open) partnerInvitation.value.close();
   if (partnerEditor.value?.open) partnerEditor.value.close();
 });
 onMounted(() => { window.addEventListener('beforeunload', guardPartnerUnload); void load(); });
-watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; partnerInvitationOpen.value = false; });
+watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadRevision; resetAvatarDraft(); downloadingPartner.value = null; editingPartner.value = null; partnerInvitationOpen.value = false; });
 </script>
 
 <template>
@@ -890,7 +1032,7 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
   <template v-else-if="activeTab === 'overview'">
     <section class="partner-metrics">
       <article>
-        <span>有效合作伙伴</span><strong>{{ counts.active ?? 0 }}</strong><small>待确认 {{ counts.pending_confirmation ?? 0 }} 人</small>
+        <span>有效合作伙伴</span><strong>{{ counts.active ?? 0 }}</strong><small>待启用 {{ counts.pending_confirmation ?? 0 }} 人</small>
       </article>
       <article>
         <span>等待释放佣金</span><strong>{{ money(commissionTotals.pending) }}</strong><small>按当前结算等待期及退款窗口释放</small>
@@ -1024,7 +1166,8 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
               </td>
               <td data-label="操作">
                 <div class="row-actions">
-                  <button v-if="canReadPartners" type="button" @click="openPartnerEditor(item, 'promotion')">推广素材</button>
+                  <button v-if="canReadPartners" type="button" :disabled="!!downloadingPartner || item.qualificationStatus !== 'active' || !item.attributionEnabled" :title="item.qualificationStatus !== 'active' || !item.attributionEnabled ? '当前分销未生效，请查看伙伴状态' : '直接下载最新已保存的海报'" @click="downloadPartnerPoster(item)">{{ downloadingPartner?.id === item.id ? '生成中…' : '下载海报' }}</button>
+                  <button v-if="canReadPartners && !canManagePartners" type="button" @click="openPartnerEditor(item, 'promotion')">查看素材</button>
                   <button v-if="canManagePartners" type="button" @click="openPartnerEditor(item)">
                     编辑
                   </button>
@@ -1632,7 +1775,7 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
             <p class="eyebrow">NEW PARTNER</p>
             <h2 id="partner-invite-title">新增合作伙伴</h2>
             <p id="partner-invite-description">
-              输入手机号即可邀请。新手机号会自动建立普通用户账号，对方使用验证码登录后确认合作规则。
+              输入手机号即可开通分销。新手机号会自动建立普通用户账号，对方使用验证码登录后即可使用推广功能。
             </p>
           </div>
           <button
@@ -1798,16 +1941,16 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
   <Teleport to="body">
     <dialog
       ref="partnerEditor"
-      :class="['partner-dialog partner-edit-dialog', { 'partner-material-dialog': partnerEditorTab === 'promotion' }]"
+      class="partner-dialog partner-edit-dialog partner-material-dialog"
       aria-labelledby="partner-edit-title"
       @cancel="handlePartnerEditorCancel"
     >
-      <form v-if="editingPartner" class="partner-modal-form partner-edit-form" novalidate @input="clearPartnerFieldError('edit', $event)" @submit.prevent="savePartnerDetails">
+      <form v-if="editingPartner" class="partner-modal-form partner-edit-form" novalidate @input="clearPartnerFieldError('edit', $event)" @submit.prevent="savePartnerDetails()">
         <header class="partner-edit-head">
           <div>
             <p class="eyebrow">PARTNER</p>
-            <h2 id="partner-edit-title">{{ partnerEditorTab === 'promotion' ? '合作伙伴推广素材' : '编辑合作伙伴' }}</h2>
-            <p>{{ partnerEditorTab === 'promotion' ? '查看并领取该合作伙伴的专属分销链接、二维码和海报。' : '资料修改仅作用于当前大会，佣金比例从后续符合条件的订单开始生效。' }}</p>
+            <h2 id="partner-edit-title">{{ canManagePartners ? '编辑合作伙伴' : '合作伙伴推广素材' }}</h2>
+            <p>{{ editingPartner.profile.displayName }} · {{ editingPartner.eventName }} <span class="partner-editor-state">{{ label(editingPartner.qualificationStatus) }}</span></p>
           </div>
           <button
             class="partner-edit-close"
@@ -1822,10 +1965,9 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
 
         <nav v-if="canManagePartners" class="partner-editor-tabs" aria-label="合作伙伴详情">
           <button type="button" :class="{ active: partnerEditorTab === 'profile' }" :aria-pressed="partnerEditorTab === 'profile'" @click="partnerEditorTab = 'profile'">基本资料</button>
-          <button type="button" :class="{ active: partnerEditorTab === 'promotion' }" :aria-pressed="partnerEditorTab === 'promotion'" @click="partnerEditorTab = 'promotion'">推广素材</button>
+          <button type="button" :class="{ active: partnerEditorTab === 'promotion' }" :aria-pressed="partnerEditorTab === 'promotion'" @click="partnerEditorTab = 'promotion'">海报设置</button>
         </nav>
         <p v-if="partnerEditorNotice" class="partner-editor-notice" role="status">{{ partnerEditorNotice }}</p>
-        <PartnerPromotionPanel v-if="partnerEditorTab === 'promotion'" :partner-id="editingPartner.id" :event-id="editingPartner.eventId" :unsaved="partnerFormDirty" :version="editingPartner.version" />
 
         <section v-if="partnerEditorError || partnerEditorIssues.length" class="partner-form-feedback" role="alert" tabindex="-1">
           <span class="partner-feedback-icon" aria-hidden="true">!</span>
@@ -1841,118 +1983,163 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
         </section>
 
 
-        <div v-show="partnerEditorTab === 'profile' && canManagePartners" class="partner-edit-body">
-          <section class="partner-edit-section" aria-labelledby="partner-basic-title">
-            <div>
-              <h3 id="partner-basic-title">基础资料</h3>
-              <p>这些资料用于当前大会的合作伙伴名片和详情页。</p>
-            </div>
-            <label>登录手机号
-              <input :value="mobileDisplay(editingPartner.loginMobile)" type="tel" readonly />
-              <small>手机号是登录账号。如需更换，请在系统用户管理中处理。</small>
-            </label>
-            <label><span>姓名 / 展示名称 <span class="required-mark">必填</span></span>
-              <input
-                v-model="editForm.displayName"
-                v-bind="fieldAttributes('edit', 'displayName')" maxlength="80" required
-              />
-              <small v-if="fieldError('edit', 'displayName')" id="partner-edit-displayName-error" class="partner-field-error">
-                {{ fieldError('edit', 'displayName') }}
-              </small>
-            </label>
-            <label><span>公司 <span class="optional-mark">选填</span></span>
-              <input
-                v-model="editForm.company"
-                v-bind="fieldAttributes('edit', 'company')" maxlength="160"
-              />
-              <small v-if="fieldError('edit', 'company')" id="partner-edit-company-error" class="partner-field-error">
-                {{ fieldError('edit', 'company') }}
-              </small>
-            </label>
-            <label><span>职务 <span class="optional-mark">选填</span></span>
-              <input
-                v-model="editForm.title"
-                v-bind="fieldAttributes('edit', 'title')" maxlength="100"
-              />
-              <small v-if="fieldError('edit', 'title')" id="partner-edit-title-error" class="partner-field-error">
-                {{ fieldError('edit', 'title') }}
-              </small>
-            </label>
-            <label><span>行业 <span class="optional-mark">选填</span></span>
-              <input
-                v-model="editForm.industry"
-                v-bind="fieldAttributes('edit', 'industry')" maxlength="80"
-              />
-              <small v-if="fieldError('edit', 'industry')" id="partner-edit-industry-error" class="partner-field-error">
-                {{ fieldError('edit', 'industry') }}
-              </small>
-            </label>
-            <label><span>个人 / 业务介绍 <span class="optional-mark">选填</span></span>
-              <textarea
-                v-model="editForm.businessIntro"
-                v-bind="fieldAttributes('edit', 'businessIntro')" maxlength="2000" rows="5"
-              />
-              <small v-if="fieldError('edit', 'businessIntro')" id="partner-edit-businessIntro-error" class="partner-field-error">
-                {{ fieldError('edit', 'businessIntro') }}
-              </small>
-            </label>
-            <label><span>业务链接 <span class="optional-mark">选填</span></span>
-              <input
-                v-model="editForm.businessUrl"
-                v-bind="fieldAttributes('edit', 'businessUrl')"
-                type="url"
-                maxlength="500"
-                placeholder="https://"
-              />
-              <small v-if="fieldError('edit', 'businessUrl')" id="partner-edit-businessUrl-error" class="partner-field-error">
-                {{ fieldError('edit', 'businessUrl') }}
-              </small>
-            </label>
-            <p class="partner-edit-tip">
-              联系方式和公开范围由合作伙伴登录个人中心确认，后台不会代替本人公开隐私信息。
-            </p>
-          </section>
+        <div class="partner-editor-workspace" :class="{ 'is-readonly': !canManagePartners }">
+          <div v-if="canManagePartners" class="partner-editor-fields">
+            <div v-show="partnerEditorTab === 'profile'" class="partner-edit-body">
+              <section class="partner-edit-section" aria-labelledby="partner-basic-title">
+                <div>
+                  <h3 id="partner-basic-title">基础资料</h3>
+                  <p>这些资料用于当前大会的合作伙伴名片和详情页。</p>
+                </div>
+                <div class="partner-avatar-editor">
+                  <div class="partner-avatar-preview">
+                    <img v-if="(uploadedAvatarPreview || savedAvatarPreview) && pendingAvatarAssetId !== null" :src="uploadedAvatarPreview || savedAvatarPreview" alt="合作伙伴头像预览" />
+                    <span v-else>{{ Array.from(editForm.displayName || '伙伴')[0] }}</span>
+                  </div>
+                  <div>
+                    <strong>合作伙伴头像</strong>
+                    <p>{{ pendingAvatarAssetId === null ? '已选择移除头像' : editingPartner.profile.avatarUrl ? '当前头像可在右侧海报查看' : '上传头像，让分享海报更容易辨认' }}</p>
+                    <div class="partner-avatar-actions">
+                      <label class="file-action">{{ avatarBusy ? '正在处理…' : '上传 / 替换头像' }}<input type="file" accept="image/jpeg,image/png,image/webp" :disabled="pending || avatarBusy" @change="uploadPartnerAvatar" /></label>
+                      <button type="button" class="button secondary compact" :disabled="pending || avatarBusy" @click="removePartnerAvatar">移除头像</button>
+                    </div>
+                    <small>JPG、PNG、WebP，最大 5MB。处理完成后随资料一起保存。</small>
+                    <p v-if="avatarStatus" class="partner-avatar-status" role="status">{{ avatarStatus }}</p>
+                    <p v-if="avatarError" class="partner-field-error" role="alert">{{ avatarError }}</p>
+                    <small v-if="!(editingPartner.profile.visibleFields ?? DEFAULT_PARTNER_VISIBLE_FIELDS).avatar || !posterFields.avatar">头像展示已关闭，上传后仍遵守原展示设置。</small>
+                  </div>
+                </div>
+                <label>登录手机号
+                  <input :value="mobileDisplay(editingPartner.loginMobile)" type="tel" readonly />
+                  <small>手机号是登录账号。如需更换，请在系统用户管理中处理。</small>
+                </label>
+                <label><span>姓名 / 展示名称 <span class="required-mark">必填</span></span>
+                  <input
+                    v-model="editForm.displayName"
+                    v-bind="fieldAttributes('edit', 'displayName')" maxlength="80" required
+                  />
+                  <small v-if="fieldError('edit', 'displayName')" id="partner-edit-displayName-error" class="partner-field-error">
+                    {{ fieldError('edit', 'displayName') }}
+                  </small>
+                </label>
+                <label><span>公司 <span class="optional-mark">选填</span></span>
+                  <input
+                    v-model="editForm.company"
+                    v-bind="fieldAttributes('edit', 'company')" maxlength="160"
+                  />
+                  <small v-if="fieldError('edit', 'company')" id="partner-edit-company-error" class="partner-field-error">
+                    {{ fieldError('edit', 'company') }}
+                  </small>
+                </label>
+                <label><span>职务 <span class="optional-mark">选填</span></span>
+                  <input
+                    v-model="editForm.title"
+                    v-bind="fieldAttributes('edit', 'title')" maxlength="100"
+                  />
+                  <small v-if="fieldError('edit', 'title')" id="partner-edit-title-error" class="partner-field-error">
+                    {{ fieldError('edit', 'title') }}
+                  </small>
+                </label>
+                <label><span>行业 <span class="optional-mark">选填</span></span>
+                  <input
+                    v-model="editForm.industry"
+                    v-bind="fieldAttributes('edit', 'industry')" maxlength="80"
+                  />
+                  <small v-if="fieldError('edit', 'industry')" id="partner-edit-industry-error" class="partner-field-error">
+                    {{ fieldError('edit', 'industry') }}
+                  </small>
+                </label>
+                <label><span>个人 / 业务介绍 <span class="optional-mark">选填</span></span>
+                  <textarea
+                    v-model="editForm.businessIntro"
+                    v-bind="fieldAttributes('edit', 'businessIntro')" maxlength="2000" rows="5"
+                  />
+                  <small v-if="fieldError('edit', 'businessIntro')" id="partner-edit-businessIntro-error" class="partner-field-error">
+                    {{ fieldError('edit', 'businessIntro') }}
+                  </small>
+                </label>
+                <label><span>业务链接 <span class="optional-mark">选填</span></span>
+                  <input
+                    v-model="editForm.businessUrl"
+                    v-bind="fieldAttributes('edit', 'businessUrl')"
+                    type="url"
+                    maxlength="500"
+                    placeholder="https://"
+                  />
+                  <small v-if="fieldError('edit', 'businessUrl')" id="partner-edit-businessUrl-error" class="partner-field-error">
+                    {{ fieldError('edit', 'businessUrl') }}
+                  </small>
+                </label>
+                <p class="partner-edit-tip">
+                  联系方式和公开范围由合作伙伴登录个人中心确认，后台不会代替本人公开隐私信息。
+                </p>
+              </section>
 
-          <section class="partner-edit-section" aria-labelledby="partner-commercial-title">
-            <div>
-              <h3 id="partner-commercial-title">推广设置</h3>
-              <p>调整只影响后续新订单，已经入账的佣金保留原计算结果。</p>
+              <section class="partner-edit-section" aria-labelledby="partner-commercial-title">
+                <div>
+                  <h3 id="partner-commercial-title">推广设置</h3>
+                  <p>调整用于后续创建的新订单，已锁定归因的订单保留原规则和比例。</p>
+                </div>
+                <label><span>个人佣金比例 <span class="optional-mark">选填</span></span>
+                  <span class="input-unit">
+                    <input
+                      v-model="editForm.ratePercent"
+                      v-bind="fieldAttributes('edit', 'personalRateBps')"
+                      inputmode="decimal"
+                      placeholder="留空按大会规则"
+                    />
+                    <span>%</span>
+                  </span>
+                  <small>留空继承大会规则；填写 0 表示不计佣金。</small>
+                  <small v-if="fieldError('edit', 'personalRateBps')" id="partner-edit-personalRateBps-error" class="partner-field-error">
+                    {{ fieldError('edit', 'personalRateBps') }}
+                  </small>
+                </label>
+                <label><span>展示顺序</span>
+                  <input
+                    v-model="editForm.sortOrder"
+                    v-bind="fieldAttributes('edit', 'sortOrder')" inputmode="numeric"
+                  />
+                  <small>数值越小，在公开目录中的位置越靠前。</small>
+                  <small v-if="fieldError('edit', 'sortOrder')" id="partner-edit-sortOrder-error" class="partner-field-error">
+                    {{ fieldError('edit', 'sortOrder') }}
+                  </small>
+                </label>
+                <label><span>内部备注 <span class="optional-mark">选填，仅后台可见</span></span>
+                  <textarea
+                    v-model="editForm.internalNote"
+                    v-bind="fieldAttributes('edit', 'internalNote')" maxlength="2000" rows="4"
+                  />
+                  <small v-if="fieldError('edit', 'internalNote')" id="partner-edit-internalNote-error" class="partner-field-error">
+                    {{ fieldError('edit', 'internalNote') }}
+                  </small>
+                </label>
+              </section>
             </div>
-            <label><span>个人佣金比例 <span class="optional-mark">选填</span></span>
-              <span class="input-unit">
-                <input
-                  v-model="editForm.ratePercent"
-                  v-bind="fieldAttributes('edit', 'personalRateBps')"
-                  inputmode="decimal"
-                  placeholder="留空按大会规则"
-                />
-                <span>%</span>
-              </span>
-              <small>留空继承大会规则；填写 0 表示不计佣金。</small>
-              <small v-if="fieldError('edit', 'personalRateBps')" id="partner-edit-personalRateBps-error" class="partner-field-error">
-                {{ fieldError('edit', 'personalRateBps') }}
-              </small>
-            </label>
-            <label><span>展示顺序</span>
-              <input
-                v-model="editForm.sortOrder"
-                v-bind="fieldAttributes('edit', 'sortOrder')" inputmode="numeric"
-              />
-              <small>数值越小，在公开目录中的位置越靠前。</small>
-              <small v-if="fieldError('edit', 'sortOrder')" id="partner-edit-sortOrder-error" class="partner-field-error">
-                {{ fieldError('edit', 'sortOrder') }}
-              </small>
-            </label>
-            <label><span>内部备注 <span class="optional-mark">选填，仅后台可见</span></span>
-              <textarea
-                v-model="editForm.internalNote"
-                v-bind="fieldAttributes('edit', 'internalNote')" maxlength="2000" rows="4"
-              />
-              <small v-if="fieldError('edit', 'internalNote')" id="partner-edit-internalNote-error" class="partner-field-error">
-                {{ fieldError('edit', 'internalNote') }}
-              </small>
-            </label>
-          </section>
+            <div v-show="partnerEditorTab === 'promotion'" class="partner-edit-body">
+              <section class="partner-edit-section" aria-labelledby="partner-poster-copy-title">
+                <div><h3 id="partner-poster-copy-title">海报文案</h3><p>文案将显示在该伙伴的分享海报上，右侧即时预览。</p></div>
+                <label>邀请语 <small>{{ Array.from(posterDraft.invitation).length }}/32</small><input v-model="posterDraft.invitation" name="posterCopy" maxlength="64" /></label>
+                <label>海报合作介绍 <small>{{ Array.from(posterDraft.introduction).length }}/80</small><textarea v-model="posterDraft.introduction" name="posterCopy" rows="4" maxlength="160" /></label>
+                <label>扫码引导标题 <small>{{ Array.from(posterDraft.callToAction).length }}/20</small><input v-model="posterDraft.callToAction" name="posterCopy" maxlength="40" /></label>
+                <label>扫码说明 <small>{{ Array.from(posterDraft.scanHint).length }}/32</small><input v-model="posterDraft.scanHint" name="posterCopy" maxlength="64" /></label>
+                <p v-if="fieldError('edit', 'posterCopy')" class="partner-field-error">{{ fieldError('edit', 'posterCopy') }}</p>
+                <button type="button" class="button secondary compact poster-reset" :disabled="pending" @click="Object.assign(posterDraft, PARTNER_POSTER_DEFAULT_COPY)">恢复默认文案</button>
+              </section>
+              <section class="partner-edit-section" aria-labelledby="partner-poster-fields-title">
+                <div><h3 id="partner-poster-fields-title">海报展示内容</h3><p>个人资料的自动带入遵守伙伴已有公开授权。</p></div>
+                <div class="partner-poster-fields">
+                  <label v-for="field in posterFieldOptions" :key="field.key">
+                    <input v-model="posterFields[field.key]" type="checkbox" name="posterFields" :disabled="!(editingPartner.profile.visibleFields ?? DEFAULT_PARTNER_VISIBLE_FIELDS)[field.key]" />
+                    <span>{{ field.label }}<small v-if="!(editingPartner.profile.visibleFields ?? DEFAULT_PARTNER_VISIBLE_FIELDS)[field.key]">该字段未获公开授权</small></span>
+                  </label>
+                </div>
+                <p v-if="fieldError('edit', 'posterFields')" class="partner-field-error">{{ fieldError('edit', 'posterFields') }}</p>
+                <p class="partner-edit-tip">保存海报设置会保留原资料发布状态、联系方式和公开范围。</p>
+              </section>
+            </div>
+          </div>
+          <PartnerPromotionPanel ref="promotionPanel" :key="editingPartner.id" embedded :partner-id="editingPartner.id" :event-id="editingPartner.eventId" :unsaved="partnerFormDirty || avatarBusy" :version="editingPartner.version" :draft="canManagePartners ? editorPosterDraft : undefined" @avatar="savedAvatarPreview = $event ?? ''" />
         </div>
         <footer class="partner-edit-footer">
           <button
@@ -1961,16 +2148,17 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
             :disabled="pending"
             @click="closePartnerEditor"
           >
-            {{ partnerEditorTab === 'promotion' ? '关闭' : '取消' }}
+            关闭
           </button>
           <button
-            v-if="canManagePartners && (partnerEditorTab === 'profile' || partnerFormDirty)"
+            v-if="canManagePartners"
             class="button"
             type="submit"
-            :disabled="pending"
+            :disabled="pending || avatarBusy || !partnerFormDirty"
           >
             {{ pending ? '正在保存…' : '保存修改' }}
           </button>
+          <button v-if="canManagePartners" type="button" class="button" :disabled="pending || avatarBusy || editingPartner.qualificationStatus !== 'active' || !editingPartner.attributionEnabled" @click="savePartnerDetails(true)">保存并下载</button>
         </footer>
       </form>
     </dialog>
@@ -1979,7 +2167,7 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
   <AdminConfirmDialog
     :open="enableDialogOpen"
     title="确认开启合作伙伴分销？"
-    description="确认后将立即发布默认分销规则。新的推广点击可建立归因，合作伙伴需先确认规则。"
+    description="确认后将立即发布默认分销规则，后台添加的合作伙伴即可使用专属链接开展推广。"
     confirm-label="确认开启"
     :busy="pending"
     :error="errorMessage"
@@ -1993,6 +2181,7 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
     @confirm="enableDistribution"
     @cancel="enableDialogOpen = false"
   />
+  <PartnerPromotionPanel v-if="downloadingPartner" ref="directDownloadPanel" :key="downloadingPartner.id" headless :partner-id="downloadingPartner.id" :event-id="downloadingPartner.eventId" :version="downloadingPartner.version" :unsaved="false" />
 </template>
 
 <style scoped>
@@ -2697,5 +2886,41 @@ watch(() => session.activeEvent.value?.id, () => { editingPartner.value = null; 
 </style>
 
 <style scoped>
-.partner-material-dialog{width:min(900px,calc(100vw - 32px))}.partner-editor-tabs{display:flex;gap:8px;padding:0 30px 12px;flex-shrink:0}.partner-editor-tabs button{border:1px solid #dbe5f0;border-radius:8px;background:#fff;padding:9px 16px;color:#526176;cursor:pointer}.partner-editor-tabs button.active{background:#0e2b50;border-color:#0e2b50;color:#fff}.partner-editor-tabs button:focus-visible{outline:2px solid #2463a5;outline-offset:3px}.partner-editor-tabs button:active{transform:translateY(1px)}@media(max-width:640px){.partner-editor-tabs{padding:0 20px 12px}}
+.partner-material-dialog { width: min(1200px, calc(100vw - 40px)); }
+.partner-editor-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; overflow: hidden; }
+.partner-editor-workspace.is-readonly { grid-template-columns: 1fr; }
+.partner-editor-fields { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.partner-editor-fields .partner-edit-body { flex: 1; min-height: 0; }
+.partner-editor-tabs { display: flex; gap: 8px; padding: 14px 30px 12px; flex-shrink: 0; border-bottom: 1px solid #e1e8f0; }
+.partner-editor-tabs button { border: 1px solid #dbe5f0; border-radius: 8px; background: #fff; padding: 9px 16px; color: #526176; cursor: pointer; }
+.partner-editor-tabs button.active { background: #17385e; border-color: #17385e; color: #fff; }
+.partner-editor-tabs button:focus-visible, .partner-avatar-actions label:focus-within { outline: 2px solid #2463a5; outline-offset: 3px; }
+.partner-editor-tabs button:active { transform: translateY(1px); }
+.partner-editor-state { display: inline-block; margin-left: 8px; padding: 2px 8px; background: #e9f2ee; color: #28735c; border-radius: 5px; font-size: 12px; }
+.partner-avatar-editor { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid #e1e8f0; }
+.partner-avatar-preview { display: grid; width: 72px; height: 72px; flex: 0 0 72px; place-items: center; border-radius: 50%; overflow: hidden; background: #e8eef5; color: #21466f; font-size: 24px; font-weight: 700; }
+.partner-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.partner-avatar-editor strong { display: block; font-size: 14px; }
+.partner-avatar-editor p { margin: 6px 0; color: #69788a; font-size: 12px; line-height: 1.6; }
+.partner-avatar-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
+.partner-avatar-actions .file-action { display: inline-flex; align-items: center; padding: 8px 10px; border: 1px solid #c9d6e5; border-radius: 8px; background: #fff; color: #21466f; font-size: 12px; font-weight: 600; cursor: pointer; }
+.partner-avatar-actions input { display: block; position: absolute; width: 1px; height: 1px; opacity: 0; padding: 0; border: 0; }
+.partner-avatar-editor .partner-avatar-status { color: #28735c; }
+.partner-edit-section .partner-field-error { color: #b42318; }
+.poster-reset { justify-self: start; }
+.partner-poster-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.partner-poster-fields label { display: flex; align-items: flex-start; gap: 9px; line-height: 1.6; }
+.partner-poster-fields input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: #17385e; }
+.partner-poster-fields small { display: block; }
+.row-actions button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 800px) {
+  .partner-material-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+  .partner-material-dialog .partner-modal-form { max-height: calc(100dvh - 26px); }
+  .partner-editor-workspace { display: block; overflow: auto; }
+  .partner-editor-fields .partner-edit-body { overflow: visible; }
+  .partner-editor-tabs { padding: 12px 18px; }
+  .partner-edit-footer { flex-wrap: wrap; gap: 8px; }
+  .partner-edit-footer .button { padding-inline: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .partner-editor-tabs button:active { transform: none; } }
 </style>

@@ -22,7 +22,7 @@ persistent('scheduled partner program qualification with real PostgreSQL', () =>
     await connection.pool.end();
   });
 
-  it('preserves administrator restrictions while requesting confirmation from eligible partners', async () => {
+  it('preserves administrator restrictions and acceptance history when current rules change', async () => {
     const db = connection.db;
     const organizationId = randomUUID();
     await db.insert(organizations).values({
@@ -100,6 +100,7 @@ persistent('scheduled partner program qualification with real PostgreSQL', () =>
           publicSlug: `scheduled-${partnerId.slice(0, 12)}`,
           qualificationStatus,
           attributionEnabled,
+          settlementHold: index === 0 || index === 3,
           currentProgramVersionId: current!.id,
           acceptedProgramVersionId:
             qualificationStatus === 'pending_confirmation' ? null : current!.id,
@@ -117,10 +118,11 @@ persistent('scheduled partner program qualification with real PostgreSQL', () =>
         .where(eq(eventPartners.id, partner.id));
       expect(stored).toMatchObject({
         qualificationStatus: partner.qualificationStatus,
+        settlementHold: partner.settlementHold,
         attributionEnabled: false,
-        currentProgramVersionId: current!.id,
+        currentProgramVersionId: scheduled!.id,
         acceptedProgramVersionId: current!.id,
-        version: partner.version,
+        version: partner.version + 1,
       });
     }
     for (const partner of partners.slice(3)) {
@@ -129,10 +131,11 @@ persistent('scheduled partner program qualification with real PostgreSQL', () =>
         .from(eventPartners)
         .where(eq(eventPartners.id, partner.id));
       expect(stored).toMatchObject({
-        qualificationStatus: 'pending_confirmation',
-        attributionEnabled: false,
+        qualificationStatus: partner.qualificationStatus,
+        settlementHold: partner.settlementHold,
+        attributionEnabled: partner.attributionEnabled,
         currentProgramVersionId: scheduled!.id,
-        acceptedProgramVersionId: null,
+        acceptedProgramVersionId: partner.acceptedProgramVersionId,
         version: partner.version + 1,
       });
     }

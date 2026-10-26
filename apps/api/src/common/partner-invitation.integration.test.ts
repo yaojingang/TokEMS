@@ -229,8 +229,10 @@ persistent('partner mobile invitations with real PostgreSQL', () => {
     expect(publicIdentities).toHaveLength(1);
     expect(partners).toHaveLength(1);
     expect(partners[0]).toMatchObject({
-      qualificationStatus: 'pending_confirmation',
-      attributionEnabled: false,
+      qualificationStatus: 'active',
+      attributionEnabled: true,
+      acceptedProgramVersionId: null,
+      activatedAt: expect.any(Date),
       personalRateBps: null,
     });
     expect(deliveries).toHaveLength(1);

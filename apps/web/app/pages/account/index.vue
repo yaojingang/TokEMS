@@ -162,7 +162,7 @@ const statusLabels: Record<string, string> = {
   rejected: '已驳回',
   adjustment_required: '待调整',
   voided: '已作废',
-  pending_confirmation: '待确认规则',
+  pending_confirmation: '待启用',
   active: '合作中',
   paused: '已暂停',
 };
