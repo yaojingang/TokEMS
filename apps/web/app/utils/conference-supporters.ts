@@ -207,6 +207,40 @@ export const CONFERENCE_SUPPORTERS = [
     source: '京报移动智源 GEO 官网',
   },
   {
+    id: '41caijing-winseed',
+    name: '41财经 & Winseed',
+    category: 'AI 营销基建与全球信源',
+    logo: '/images/supporters/41caijing-winseed.svg',
+    summary: '以 AI 技术与全球信源网络，构建品牌增长新路径。',
+    intro:
+      '41财经与 Winseed 由钟添娇创立，围绕财经信息与 AI 营销基础设施，探索 AI 时代的品牌增长路径。',
+    overview: [
+      '41财经对应广州四一技术有限公司，自 2018 年起持续开展业务。创始人钟添娇是连续创业者，拥有 10 年创业经历，并担任中国服贸协会理事。',
+      'Winseed 创立于 2025 年，定位为 AI 营销基建平台。本次大会上，Winseed 与 41财经将围绕 AI 技术与全球信源网络，分享品牌营销基础设施的重构思路。',
+    ],
+    focusTitle: '从流量争夺到答案争夺',
+    focus: [
+      '钟添娇将在大会分享《从流量争夺到答案争夺：AI时代品牌营销基础设施的重构》。',
+      '演讲副标题为“Winseed × 41财经：以AI技术与全球信源网络，构建品牌增长新路径”，聚焦 AI 时代品牌营销基础设施与增长路径。',
+    ],
+    highlights: [
+      {
+        title: '41财经',
+        body: '广州四一技术有限公司，创始人钟添娇自 2018 年起持续创业。',
+      },
+      {
+        title: 'Winseed',
+        body: '2025 年创立的 AI 营销基建平台。',
+      },
+      {
+        title: '品牌增长新路径',
+        body: '围绕 AI 技术与全球信源网络，探讨品牌营销基础设施的重构。',
+      },
+    ],
+    website: '',
+    source: '大会嘉宾提供资料',
+  },
+  {
     id: 'liekan',
     name: '猎看科技',
     category: '品牌 GEO 与 AI 可见度',

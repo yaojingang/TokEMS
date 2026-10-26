@@ -72,11 +72,6 @@ const registrationPath = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.event-public-nav .nav-links a.is-current {
-  border-color: rgb(31 95 232 / 16%);
-  background: #edf3ff;
-  color: #1f5fe8;
-}
 .event-public-nav__spacer {
   height: 69px;
 }
