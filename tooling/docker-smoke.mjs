@@ -278,7 +278,7 @@ await waitFor('Nuxt 大会前台可访问', async () => {
       headers: { 'X-Organization-Slug': publicOrganizationSlug },
     }),
   ]);
-  assert(body.includes('第二届中国GEO大会'), 'Web page did not render the conference shell');
+  assert(body.includes('第二届GEO大会'), 'Web page did not render the conference shell');
   assert(
     body.includes('customer-account-action'),
     'Web page did not render the customer account entry',

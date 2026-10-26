@@ -2,7 +2,7 @@
   "publicEvent": {
     "address": "广东省深圳市宝安区（酒店报名后群内通知）",
     "city": "深圳",
-    "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+    "description": "当十亿用户开始向 AI 提问，「被引用、被理解、被推荐」就是新的流量入口。两天时间，与 GEO 一线实践者交流，把方法带回业务现场。",
     "endsAt": "2026-11-22T10:00:00.000Z",
     "experience": {
       "faq": {
@@ -39,7 +39,7 @@
             "question": "工作坊需要什么准备？"
           },
           {
-            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
             "category": "参会权益",
             "enabled": true,
             "nodeKey": "faq.materials",
@@ -152,7 +152,7 @@
               "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
               "answerRank1Badge": "推荐",
               "answerRank1Body": "深圳两日主会场 + 工作坊",
-              "answerRank1Title": "第二届中国GEO大会",
+              "answerRank1Title": "第二届GEO大会",
               "answerRank2Badge": "可信源",
               "answerRank2Body": "平台引用机制与效果基准",
               "answerRank2Title": "行业白皮书首发",
@@ -164,7 +164,7 @@
               "answerTitle": "AI Answer Preview",
               "descriptionLead": "当十亿用户开始向 AI 提问，",
               "descriptionStrong": "「被引用、被理解、被推荐」",
-              "descriptionTail": "就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+              "descriptionTail": "就是新的流量入口。两天时间，与 GEO 一线实践者交流，把方法带回业务现场。",
               "eyebrow": "ANNUAL CONFERENCE",
               "note": "第一届全部售罄",
               "openingMetricSuffix": "开幕",
@@ -173,7 +173,7 @@
               "secondaryAction": "查看两日议程",
               "slogan": "让好的品牌被 AI 正确推荐",
               "titleEvent": "GEO大会",
-              "titlePrefix": "第二届中国",
+              "titlePrefix": "第二届",
               "topicsMetricLabel": "干货主题",
               "viewsBase": "10000",
               "viewsLabel": "大会访问量"
@@ -261,20 +261,20 @@
               "item3NewVenue": "深圳主会场",
               "item3OldVenue": "北京单会场",
               "item3Title": "从聚会到行业大会",
-              "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
+              "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准，为 GEO 实践提供可参考的行业基准。",
               "item4New": "行业基准",
               "item4Old": "方法分享",
-              "item4Title": "首发《中国GEO行业白皮书》",
+              "item4Title": "首发《GEO 行业白皮书 2026》",
               "item5Body": "多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。",
               "item5New": "数据复盘",
               "item5Old": "案例讲述",
               "item5Title": "真实账号 · 真实数据",
-              "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。",
+              "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮助品牌提升在全球 AI 搜索中的可见度。",
               "item6New": "全球视野",
-              "item6Old": "国内视角",
+              "item6Old": "单一市场",
               "item6Title": "出海 GEO 专场",
               "kicker": "SECOND EDITION",
-              "quote": "过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
+              "quote": "过去一年，GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
               "subtitle": "首届北京大会全场售罄之后，我们用一年时间收集了数百条参会者反馈。第二届，在每一个维度上全面升级",
               "titleLine1": "第一届回答「GEO 是什么」",
               "titleLine2": "第二届回答「GEO 怎么赢」"
@@ -348,16 +348,16 @@
           },
           {
             "content": {
-              "host1Bio": "深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
+              "host1Bio": "深耕搜索与增长领域十余年，较早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
               "host1Goal": "目标：让每一位参会者都清楚「下周一回去该做什么」。",
               "host1Name": "姚金刚",
               "host1Role": "GEO大会发起人 · 《AI营销：从SEO到GEO》作者",
               "host2Goal": "目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。",
               "host2Name": "乔向阳",
               "host2Role": "GEO大会发起人 · 企业数字增长专家",
-              "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。",
+              "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动 GEO 从业者交流，建设行业共同体。",
               "kicker": "INITIATORS",
-              "subtitle": "从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来",
+              "subtitle": "从首届 GEO 大会，到推动行业白皮书与服务标准，他们想做的，是把这个行业真正建起来",
               "title": "两位深耕行业多年的实战者"
             },
             "enabled": true,
@@ -607,7 +607,7 @@
           },
           {
             "content": {
-              "eventLabel": "第二届中国GEO大会",
+              "eventLabel": "第二届GEO大会",
               "organizer": "GEO大会组委会",
               "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
             },
@@ -619,10 +619,10 @@
           }
         ],
         "seo": {
-          "description": "第二届中国GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+          "description": "第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
           "indexable": true,
           "shareAssetId": null,
-          "title": "第二届中国GEO大会 · 深圳 2026"
+          "title": "第二届GEO大会 · 深圳 2026"
         }
       },
       "presentation": {
@@ -695,8 +695,8 @@
       },
       "template": {
         "id": "18181818-1818-4181-8181-181818181818",
-        "version": 6,
-        "versionId": "34d20872-9f8e-4d70-be07-0765e103f85e"
+        "version": 7,
+        "versionId": "4831edee-1fc2-4a60-9128-f2ead3ea84cf"
       }
     },
     "faqs": [
@@ -717,7 +717,7 @@
         "question": "工作坊需要什么准备？"
       },
       {
-        "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+        "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
         "question": "资料包包含什么，多久发放？"
       },
       {
@@ -730,7 +730,7 @@
       }
     ],
     "id": 101,
-    "name": "第二届中国GEO大会",
+    "name": "第二届GEO大会",
     "organizationId": "11111111-1111-4111-8111-111111111111",
     "publicMetrics": {
       "cityCount": 0,
@@ -1582,7 +1582,7 @@
           "大会 VIP 会员社群",
           "2 本 AI 与 GEO 签名书籍",
           "个人信息展示权益",
-          "《中国 GEO 行业白皮书 2026》",
+          "《GEO 行业白皮书 2026》",
           "20+ 嘉宾干货资料包",
           "大会回放视频"
         ],
@@ -2203,7 +2203,7 @@
             "question": "工作坊需要什么准备？"
           },
           {
-            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《中国 GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
+            "answer": "包含 20+ 嘉宾的方法论文档、案例 PPT、工具清单、提示词与操作模板，以及《GEO 行业白皮书 2026》。会后 3 个工作日内通过大会 VIP 会员社群发放。",
             "category": "参会权益",
             "enabled": true,
             "nodeKey": "faq.materials",
@@ -2289,7 +2289,7 @@
               "大会 VIP 会员社群",
               "2 本 AI 与 GEO 签名书籍",
               "个人信息展示权益",
-              "《中国 GEO 行业白皮书 2026》",
+              "《GEO 行业白皮书 2026》",
               "20+ 嘉宾干货资料包",
               "大会回放视频"
             ],
@@ -2334,7 +2334,7 @@
                 "answerPrompt": "帮我推荐几个适合企业增长负责人的 GEO 大会",
                 "answerRank1Badge": "推荐",
                 "answerRank1Body": "深圳两日主会场 + 工作坊",
-                "answerRank1Title": "第二届中国GEO大会",
+                "answerRank1Title": "第二届GEO大会",
                 "answerRank2Badge": "可信源",
                 "answerRank2Body": "平台引用机制与效果基准",
                 "answerRank2Title": "行业白皮书首发",
@@ -2346,7 +2346,7 @@
                 "answerTitle": "AI Answer Preview",
                 "descriptionLead": "当十亿用户开始向 AI 提问，",
                 "descriptionStrong": "「被引用、被理解、被推荐」",
-                "descriptionTail": "就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。",
+                "descriptionTail": "就是新的流量入口。两天时间，与 GEO 一线实践者交流，把方法带回业务现场。",
                 "eyebrow": "ANNUAL CONFERENCE",
                 "note": "第一届全部售罄",
                 "openingMetricSuffix": "开幕",
@@ -2355,7 +2355,7 @@
                 "secondaryAction": "查看两日议程",
                 "slogan": "让好的品牌被 AI 正确推荐",
                 "titleEvent": "GEO大会",
-                "titlePrefix": "第二届中国",
+                "titlePrefix": "第二届",
                 "topicsMetricLabel": "干货主题",
                 "viewsBase": "10000",
                 "viewsLabel": "大会访问量"
@@ -2443,20 +2443,20 @@
                 "item3NewVenue": "深圳主会场",
                 "item3OldVenue": "北京单会场",
                 "item3Title": "从聚会到行业大会",
-                "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。",
+                "item4Body": "联合多家机构发布年度白皮书：行业数据、效果基准、服务标准，为 GEO 实践提供可参考的行业基准。",
                 "item4New": "行业基准",
                 "item4Old": "方法分享",
-                "item4Title": "首发《中国GEO行业白皮书》",
+                "item4Title": "首发《GEO 行业白皮书 2026》",
                 "item5Body": "多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。",
                 "item5New": "数据复盘",
                 "item5Old": "案例讲述",
                 "item5Title": "真实账号 · 真实数据",
-                "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。",
+                "item6Body": "ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮助品牌提升在全球 AI 搜索中的可见度。",
                 "item6New": "全球视野",
-                "item6Old": "国内视角",
+                "item6Old": "单一市场",
                 "item6Title": "出海 GEO 专场",
                 "kicker": "SECOND EDITION",
-                "quote": "过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
+                "quote": "过去一年，GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。",
                 "subtitle": "首届北京大会全场售罄之后，我们用一年时间收集了数百条参会者反馈。第二届，在每一个维度上全面升级",
                 "titleLine1": "第一届回答「GEO 是什么」",
                 "titleLine2": "第二届回答「GEO 怎么赢」"
@@ -2530,16 +2530,16 @@
             },
             {
               "content": {
-                "host1Bio": "深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
+                "host1Bio": "深耕搜索与增长领域十余年，较早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。",
                 "host1Goal": "目标：让每一位参会者都清楚「下周一回去该做什么」。",
                 "host1Name": "姚金刚",
                 "host1Role": "GEO大会发起人 · 《AI营销：从SEO到GEO》作者",
                 "host2Goal": "目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。",
                 "host2Name": "乔向阳",
                 "host2Role": "GEO大会发起人 · 企业数字增长专家",
-                "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。",
+                "host2Summary": "长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动 GEO 从业者交流，建设行业共同体。",
                 "kicker": "INITIATORS",
-                "subtitle": "从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来",
+                "subtitle": "从首届 GEO 大会，到推动行业白皮书与服务标准，他们想做的，是把这个行业真正建起来",
                 "title": "两位深耕行业多年的实战者"
               },
               "enabled": true,
@@ -2753,7 +2753,7 @@
             },
             {
               "content": {
-                "eventLabel": "第二届中国GEO大会",
+                "eventLabel": "第二届GEO大会",
                 "organizer": "GEO大会组委会",
                 "support": "合作咨询 / 团队购票 / 媒体支持：请联系大会工作人员"
               },
@@ -2765,10 +2765,10 @@
             }
           ],
           "seo": {
-            "description": "第二届中国GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
+            "description": "第二届GEO大会，2026年11月21–22日，深圳。两天密集分享，40+一线专家，让你的品牌被AI看见、被AI理解、被AI推荐。",
             "indexable": true,
             "shareAssetId": null,
-            "title": "第二届中国GEO大会 · 深圳 2026"
+            "title": "第二届GEO大会 · 深圳 2026"
           }
         },
         "kind": "structured"
@@ -2836,7 +2836,7 @@
       }
     },
     "rootId": "18181818-1818-4181-8181-181818181818",
-    "version": 6,
-    "versionId": "34d20872-9f8e-4d70-be07-0765e103f85e"
+    "version": 7,
+    "versionId": "4831edee-1fc2-4a60-9128-f2ead3ea84cf"
   }
 }
