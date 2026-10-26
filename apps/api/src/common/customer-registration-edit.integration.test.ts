@@ -340,8 +340,14 @@ persistent('customer pending registration edits', () => {
       .where(eq(registrations.id, f.registration.id));
     await account.updatePurchasedOrderAttendee(f.session, f.order.id, { name: '代理更正姓名' });
     expect((await f.state()).registration.attendee.name).toBe('代理更正姓名');
-    await expect(account.registration(f.session, f.registration.id)).rejects.toThrow(
-      '报名记录不存在',
-    );
+    await expect(account.registration(f.session, f.registration.id)).resolves.toMatchObject({
+      isSelf: false,
+      canManageOrder: true,
+      canEditRegistrationInfo: true,
+      attendee: { name: '代理更正姓名' },
+    });
+    await expect(
+      account.registration(f.session, f.registration.id, { attendeeOnly: true }),
+    ).rejects.toThrow('报名记录不存在');
   });
 });

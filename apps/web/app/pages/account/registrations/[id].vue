@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AttendeeNeedsProfile, CustomerRegistrationDetail } from '@conference/contracts';
+import { publicEventScopedPath, type AttendeeNeedsProfile, type CustomerRegistrationDetail } from '@conference/contracts';
 import { watch } from 'vue';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import {
@@ -38,15 +38,23 @@ const orderStatusLabels: Record<string, string> = {
   refunded: '已退款',
   closed: '已关闭',
 };
-const canOpenShowcase = computed(() =>
-  ['confirmed', 'checked_in'].includes(detail.value?.registrationStatus ?? ''),
+const canOpenShowcase = computed(
+  () =>
+    detail.value?.isSelf !== false &&
+    ['confirmed', 'checked_in'].includes(detail.value?.registrationStatus ?? ''),
 );
-const canEditNeeds = computed(() =>
-  Boolean(attendeeNeeds.value?.id || attendeeNeeds.value?.canCreate),
+const canEditNeeds = computed(
+  () =>
+    detail.value?.isSelf !== false &&
+    Boolean(attendeeNeeds.value?.id || attendeeNeeds.value?.canCreate),
 );
 const canOpenTicket = computed(() => Boolean(detail.value?.ticketCode));
 const detailTicketHref = computed(() => {
   const value = detail.value;
+  if (value?.ticketCode && value.isSelf === false)
+    return publicEventScopedPath(`/ticket/${encodeURIComponent(value.ticketCode)}`, value.eventSlug, {
+      view: 'purchaser',
+    });
   return value?.ticketCode
     ? customerRegistrationTicketHref(value.ticketCode, value.eventSlug)
     : '/account';
@@ -218,7 +226,12 @@ useHead({ title: '报名详情' });
             <dd>{{ detail.attendee.email || '未填写' }}</dd>
           </div>
         </dl>
-        <p v-if="route.query.updated === '1'" class="detail-edit-notice" role="status">报名信息已更新，请核对后继续支付。</p>
+        <p v-if="detail.isSelf === false" class="detail-edit-notice">
+          可查看此参会人的电子票与入场二维码。参会名片和参会需求由参会人使用对应手机号登录后维护。
+        </p>
+        <p v-if="route.query.updated === '1'" class="detail-edit-notice" role="status">
+          报名信息已更新，请核对后继续支付。
+        </p>
         <div v-if="detail.canEditRegistrationInfo" class="detail-edit-guide">
           <p>信息填错了？可以先返回修改，保存后继续支付。</p>
           <NuxtLink class="detail-secondary" :to="`/account/registrations/${detail.id}/edit?event=${encodeURIComponent(detail.eventSlug)}`">返回修改信息</NuxtLink>
@@ -249,7 +262,7 @@ useHead({ title: '报名详情' });
             编辑参会需求
           </NuxtLink>
           <NuxtLink v-if="canOpenTicket" class="detail-secondary" :to="detailTicketHref">
-            查看电子票
+            查看电子票与参会二维码
           </NuxtLink>
           <NuxtLink
             v-if="canOpenInvoice"

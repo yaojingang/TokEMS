@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
+import jsQR from 'jsqr';
 import {
   DEMO_EVENT,
   UpdatePurchasedOrderAttendeeSchema,
@@ -294,6 +295,55 @@ async function fixture(options = {}) {
       return route.fulfill({ json: detail });
     }
     if (path.endsWith(`/customer/orders/${orderId}`)) return route.fulfill({ json: detail });
+    const registrationItem = detail.items.find((item) =>
+      path.endsWith(`/customer/registrations/${item.registrationId}`),
+    );
+    if (registrationItem)
+      return route.fulfill({
+        json: {
+          id: registrationItem.registrationId,
+          eventId: event.id,
+          eventName: event.name,
+          eventSlug: event.slug,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
+          registrationCode: registrationItem.registration.registrationCode,
+          registrationStatus: registrationItem.registration.status,
+          attendeeName: registrationItem.registration.attendee.name,
+          attendee: registrationItem.registration.attendee,
+          ticketTypeName: event.tickets[0].name,
+          ticketCode: `TOK-T-BATCH-${registrationItem.position}`,
+          ticketStatus: registrationItem.ticketStatus,
+          createdAt: detail.order.createdAt,
+          isSelf: registrationItem.isSelf,
+          canManageOrder: true,
+          orderId,
+          orderNo: detail.order.orderNo,
+          orderStatus: detail.order.status,
+          amount: detail.order.amount,
+          currency: detail.order.currency,
+          invoiceId: null,
+          invoiceStatus: null,
+          canEditRegistrationInfo: false,
+        },
+      });
+    const ticketItem = detail.items.find((item) =>
+      path.endsWith(`/tickets/TOK-T-BATCH-${item.position}`),
+    );
+    if (ticketItem)
+      return route.fulfill({
+        json: {
+          id: ticketItem.id,
+          code: `TOK-T-BATCH-${ticketItem.position}`,
+          registrationId: ticketItem.registrationId,
+          eventName: event.name,
+          attendeeName: ticketItem.registration.attendee.name,
+          ticketTypeName: event.tickets[0].name,
+          qrPayload: `conference:${event.id}:TOK-T-BATCH-${ticketItem.position}`,
+          status: ticketItem.ticketStatus,
+          issuedAt: detail.order.createdAt,
+        },
+      });
     if (path.endsWith(`/orders/${orderId}`))
       return route.fulfill({ json: { ...detail.order, isProxyPurchase: detail.isProxyPurchase } });
     if (path.endsWith(`/payments/mock/${orderId}/capability`))
@@ -688,6 +738,108 @@ test('mobile form keeps five attendees and payment controls within 375px', async
       fullPage: true,
     });
     assert.deepEqual(f.errors, []);
+  } finally {
+    await f.context.close();
+  }
+});
+
+for (const width of [1280, 375]) {
+  test(`the purchaser opens every attendee ticket and a distinct QR at ${width}px`, async () => {
+    const f = await fixture({ people: 3, width });
+    try {
+      // A claimed proxy seat remains accessible to its purchaser.
+      f.getDetail().items[2].attendeeClaimed = true;
+      await f.open(`/account/orders/${orderId}?event=${f.event.slug}`);
+      const people = f.page.locator('.order-person');
+      assert.equal(await people.getByRole('link', { name: /查看.*电子票与参会服务/u }).count(), 3);
+      for (let index = 0; index < 3; index += 1) {
+        assert.equal(
+          await people
+            .nth(index)
+            .getByRole('link', { name: /电子票与参会服务/u })
+            .getAttribute('href'),
+          `/account/registrations/${id(index + 101)}?event=${f.event.slug}`,
+        );
+      }
+      await f.page.screenshot({ path: `${screenshots}/proxy-order-${width}.png`, fullPage: true });
+      for (const index of [1, 2]) {
+        if (index === 2) await f.open(`/account/orders/${orderId}?event=${f.event.slug}`);
+        await people
+          .nth(index)
+          .getByRole('link', { name: '查看电子票与参会服务', exact: true })
+          .click();
+        await f.page.getByRole('link', { name: '查看电子票与参会二维码', exact: true }).waitFor();
+        assert.equal(
+          await f.page.getByRole('link', { name: '完善参会名片', exact: true }).count(),
+          0,
+        );
+        assert.equal(
+          await f.page.getByRole('link', { name: '编辑参会需求', exact: true }).count(),
+          0,
+        );
+        if (index === 1)
+          await f.page.screenshot({
+            path: `${screenshots}/proxy-registration-${width}.png`,
+            fullPage: true,
+          });
+        await f.page.getByRole('link', { name: '查看电子票与参会二维码', exact: true }).click();
+        await f.page.locator('canvas.ticket-qr').waitFor();
+        assert.equal(new URL(f.page.url()).searchParams.get('view'), 'purchaser');
+        assert.equal(await f.page.locator('.flow-stepper a[href*="/showcase"], .flow-stepper a[href*="/needs"]').count(), 0);
+        assert.equal(await f.page.getByRole('link', { name: '添加大会组织者', exact: true }).count(), 0);
+        assert.equal(await f.page.getByRole('link', { name: '返回参会详情', exact: true }).getAttribute('href'),
+          `/account/registrations/${id(index + 101)}?event=${f.event.slug}`);
+        assert.ok(
+          (await f.page.locator('.ticket-meta').innerText()).includes(
+            ['郝明辰', '陆苇宁', '程沛然'][index],
+          ),
+        );
+        const pixels = await f.page.locator('canvas.ticket-qr').evaluate((canvas) => ({
+          width: canvas.width,
+          height: canvas.height,
+          data: [...canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data],
+        }));
+        assert.equal(
+          jsQR(new Uint8ClampedArray(pixels.data), pixels.width, pixels.height)?.data,
+          `conference:${f.event.id}:TOK-T-BATCH-${index + 1}`,
+        );
+        assert.equal(
+          await f.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          true,
+        );
+        if (index === 1)
+          await f.page.screenshot({
+            path: `${screenshots}/proxy-ticket-${width}.png`,
+            fullPage: true,
+          });
+      }
+      await f.open(`/account/orders/${orderId}?event=${f.event.slug}`);
+      await people.nth(0).getByRole('link', { name: '查看本人电子票与参会服务', exact: true }).click();
+      await f.page.getByRole('link', { name: '完善参会名片', exact: true }).waitFor();
+      await f.page.getByRole('link', { name: '查看电子票与参会二维码', exact: true }).click();
+      await f.page.locator('canvas.ticket-qr').waitFor();
+      assert.equal(new URL(f.page.url()).searchParams.has('view'), false);
+      assert.ok(await f.page.locator('.flow-stepper a[href*="/showcase"]').count() > 0);
+      assert.deepEqual(f.errors, []);
+      assert.deepEqual(f.mutations, []);
+    } finally {
+      await f.context.close();
+    }
+  });
+}
+
+test('pending and cancelled seats have no attendee ticket entry', async () => {
+  const f = await fixture({ people: 3, pending: true });
+  try {
+    f.getDetail().items[2].state = 'cancelled';
+    await f.open(`/account/orders/${orderId}`);
+    assert.equal(
+      await f.page
+        .locator('.order-person')
+        .getByRole('link', { name: /电子票与参会服务/u })
+        .count(),
+      0,
+    );
   } finally {
     await f.context.close();
   }
