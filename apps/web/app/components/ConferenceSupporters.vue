@@ -28,7 +28,6 @@ withDefaults(defineProps<{ context?: 'page' | 'home' }>(), { context: 'page' });
         >
           <span class="supporter__logo" :class="`supporter__logo--${item.id}`">
             <img :src="item.logo" alt="" width="180" height="80" decoding="async" />
-            <span v-if="item.id === 'hiapi'" class="supporter__wordmark" aria-hidden="true">hiapi</span>
           </span>
           <span class="supporter__name">{{ item.name }}</span>
           <span class="supporter__category">{{ item.category }}</span>
@@ -141,15 +140,9 @@ withDefaults(defineProps<{ context?: 'page' | 'home' }>(), { context: 'page' });
   max-width: min(100%, 232px);
 }
 .supporter__logo--hiapi img {
-  width: 64px;
-  height: 64px;
-  flex: none;
-}
-.supporter__wordmark {
-  font-size: 44px;
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: -2px;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
 }
 .supporter__logo--liekan img {
   max-width: min(100%, 198px);
@@ -232,12 +225,7 @@ withDefaults(defineProps<{ context?: 'page' | 'home' }>(), { context: 'page' });
     margin-bottom: 10px;
   }
   .supporter__logo--hiapi img {
-    width: clamp(36px, 11vw, 56px);
-    height: clamp(36px, 11vw, 56px);
-  }
-  .supporter__wordmark {
-    font-size: clamp(28px, 8vw, 36px);
-    letter-spacing: -1.5px;
+    max-width: 220px;
   }
   .supporter__logo--up-to-her img {
     height: 76px;
