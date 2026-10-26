@@ -567,7 +567,7 @@ const heroPrimaryAction = computed(() =>
 const heroSecondaryAction = computed(() =>
   blockCopy('home.hero', 'secondaryAction', '查看两日议程'),
 );
-const heroTitlePrefix = computed(() => blockCopy('home.hero', 'titlePrefix', '第二届中国'));
+const heroTitlePrefix = computed(() => blockCopy('home.hero', 'titlePrefix', '第二届'));
 const heroTitleEvent = computed(() => blockCopy('home.hero', 'titleEvent', 'GEO大会'));
 const heroSlogan = computed(() => blockCopy('home.hero', 'slogan', '让好的品牌被 AI 正确推荐'));
 const valueItems = computed(() =>
@@ -620,8 +620,8 @@ const upgradeItems = computed(() =>
     [
       '方法分享',
       '行业基准',
-      '首发《中国GEO行业白皮书》',
-      '联合多家机构发布年度白皮书：行业数据、效果基准、服务标准——给中国 GEO 一把可对照的尺子。',
+      '首发《GEO 行业白皮书 2026》',
+      '联合多家机构发布年度白皮书：行业数据、效果基准、服务标准，为 GEO 实践提供可参考的行业基准。',
     ],
     [
       '案例讲述',
@@ -630,10 +630,10 @@ const upgradeItems = computed(() =>
       '多个标杆企业现场拆解 12 个月 GEO 投入产出全过程：预算、人力、内容量、引用率曲线，全部摊开讲。',
     ],
     [
-      '国内视角',
+      '单一市场',
       '全球视野',
       '出海 GEO 专场',
-      'ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮中国品牌占领全球 AI 答案。',
+      'ChatGPT、Gemini、Perplexity 引用机制逆向研究 + 出海品牌实战，帮助品牌提升在全球 AI 搜索中的可见度。',
     ],
   ].map(([oldValue, newValue, title, body], index) => ({
     oldValue: blockCopy(
@@ -655,13 +655,13 @@ const hosts = computed(() =>
     {
       name: '姚金刚',
       role: 'GEO大会发起人 · 《AI营销：从SEO到GEO》作者',
-      bio: '深耕搜索与增长领域十余年，国内最早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。',
+      bio: '深耕搜索与增长领域十余年，较早系统研究 GEO 方法论的实践者之一。首届大会后持续服务数十家企业的 GEO 落地，把一线踩过的坑和跑通的路，全部带回这个讲台。',
       goal: '目标：让每一位参会者都清楚「下周一回去该做什么」。',
     },
     {
       name: '乔向阳',
       role: 'GEO大会发起人 · 企业数字增长专家',
-      bio: '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动中国 GEO 从聚会走向行业共同体。',
+      bio: '长期关注企业数字增长与品牌建设，坚信 GEO 是未来三年品牌竞争力的关键变量，持续推动 GEO 从业者交流，建设行业共同体。',
       goal: '目标：搭建让 GEO 从业者持续交流、共同成长的行业平台。',
     },
   ].map((host, index) => ({
@@ -724,7 +724,7 @@ type AgendaEntry =
 const agendaHeaders = computed(() => [
   {
     day: 1,
-    beforeTitle: '开幕致辞：中国 GEO 的第二年',
+    beforeTitle: '开幕致辞：GEO 的第二年',
     tag: blockCopy('home.agenda', 'day1MorningTag', '上午场'),
     title: blockCopy('home.agenda', 'day1MorningTitle', '趋势共识 · 行业、平台与新入口'),
     range: blockCopy('home.agenda', 'day1MorningRange', '09:00 – 12:10'),
@@ -1032,7 +1032,7 @@ onBeforeUnmount(() => {
                 blockCopy(
                   'home.hero',
                   'descriptionTail',
-                  '就是新的流量入口。两天时间，与中国 GEO 最前沿的实践者站在一起。',
+                  '就是新的流量入口。两天时间，与 GEO 一线实践者交流，把方法带回业务现场。',
                 )
               }}
             </p>
@@ -1353,7 +1353,7 @@ onBeforeUnmount(() => {
               blockCopy(
                 'home.upgrade',
                 'quote',
-                '过去一年，中国 GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动中国 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。',
+                '过去一年，GEO 从概念走向实践。企业竞争的焦点，正在从搜索时代的「被看见」，升级为生成式时代的「被理解、被引用、被推荐」。第二届大会的使命，是推动 GEO 从零散探索，走向更系统、更专业、更具共识的阶段。',
               )
             }}
           </p>
@@ -1666,7 +1666,7 @@ onBeforeUnmount(() => {
               blockCopy(
                 'home.organizer',
                 'subtitle',
-                '从中国第一场 GEO 大会，到推动行业白皮书与服务标准——他们想做的，是把这个行业真正建起来',
+                '从首届 GEO 大会，到推动行业白皮书与服务标准，他们想做的，是把这个行业真正建起来',
               )
             }}
           </p>
@@ -2074,7 +2074,7 @@ onBeforeUnmount(() => {
     >
       <div class="wrap foot-inner">
         <span>© 2026 {{ blockCopy('home.footer', 'organizer', 'GEO大会组委会') }} ·
-          {{ blockCopy('home.footer', 'eventLabel', '第二届中国GEO大会') }} ·
+          {{ blockCopy('home.footer', 'eventLabel', '第二届GEO大会') }} ·
           {{ event.city }}</span>
         <a class="foot-cooperation" :href="cooperationHref">{{
           blockCopy('home.footer', 'support', '合作咨询 / 团队购票 / 媒体支持：提交合作申请')
