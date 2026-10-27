@@ -88,6 +88,15 @@ describe('partner poster authorization', () => {
     expect(resolvePartnerPosterContent({ ...source, posterFields: { ...source.posterFields, businessIntro: false } }).businessIntro).toBe('定制合作介绍');
   });
 
+  it('keeps long Chinese and emoji download names within filesystem byte limits', () => {
+    for (const name of ['林'.repeat(80), '🌍'.repeat(40)]) {
+      const filename = partnerPosterFilename(name, '大会'.repeat(90));
+      expect(new TextEncoder().encode(filename).length).toBeLessThanOrEqual(240);
+      expect(filename.endsWith('-推广海报.png')).toBe(true);
+      expect(filename.includes('\ufffd')).toBe(false);
+    }
+  });
+
   it('keeps an unshared name out of the download filename', () => {
     expect(partnerPosterFilename(null, 'GEO / AI 大会')).toBe(
       '大会合作伙伴-GEO - AI 大会-推广海报.png',

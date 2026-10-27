@@ -3,6 +3,8 @@ import { after, test } from 'node:test';
 import { mkdir, readFile } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 import jsQR from 'jsqr';
+import { createRequire } from 'node:module';
+const { unzipSync } = createRequire(new URL('../apps/admin/package.json', import.meta.url))('fflate');
 const base = process.env.ADMIN_BASE_URL ?? 'http://localhost:3200/admin';
 const frontendBase = process.env.PARTNER_FRONTEND_BASE_URL ?? 'http://localhost:3000';
 if (!['localhost', '127.0.0.1', 'admin.localhost', '[::1]'].includes(new URL(base).hostname))
@@ -102,7 +104,12 @@ async function fixture(
     late: null,
     avatarStatus: 'ready',
     avatarStatusReads: 0,
+    partners: [],
+    failedPartnerIds: [],
+    promotionReads: {},
+    beforePromotion: null,
   };
+  state.partners = [state.partner];
   await context.route('**/api/v1/**', async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname;
@@ -161,11 +168,14 @@ async function fixture(
     if (path.endsWith('/promotion/avatar')) return route.fulfill({ contentType: 'image/png', body: avatarPng });
     if (path.endsWith('/promotion')) {
       if (state.late) await state.late;
-      if (state.fail)
+      const selected = state.partners.find(item => path.includes(`/${item.id}/`)) ?? state.partner;
+      state.promotionReads[selected.id] = (state.promotionReads[selected.id] ?? 0) + 1;
+      state.beforePromotion?.(selected, state.promotionReads[selected.id]);
+      if (state.fail || state.failedPartnerIds.includes(selected.id))
         return route.fulfill({ status: 503, json: { message: '素材暂时无法读取，请重试。' } });
       return route.fulfill({
         json: {
-          ...state.partner,
+          ...selected,
           availability: state.availability,
           reason:
             state.availability === 'ready'
@@ -185,7 +195,7 @@ async function fixture(
           payoutTotals: {},
         },
       });
-    if (path.endsWith('/partners')) return route.fulfill({ json: { items: [state.partner] } });
+    if (path.endsWith('/partners')) return route.fulfill({ json: { items: state.partners } });
     if (path.endsWith('/payouts'))
       return route.fulfill({
         json: {
@@ -622,6 +632,97 @@ test('list downloads the full poster directly without opening an editor', async 
   assert.equal(png.readUInt32BE(20), 1440);
   assert.equal(await page.locator('dialog[open]').count(), 0);
   assert.equal(state.writes.filter(item => item.path.includes('/distribution/')).length, 0);
+});
+
+test('list explains a missing link and keeps download failures beside their partner', async (t) => {
+  const { page, state } = await fixture(t);
+  state.partner.referralPath = '';
+  await page.getByRole('button', { name: '刷新数据', exact: true }).click();
+  const row = page.locator('.partner-directory-table tbody tr');
+  assert.equal(await row.getByRole('button', { name: '下载海报', exact: true }).isDisabled(), true);
+  await row.getByText('尚无推广链接，请启用推广以补全链接。', { exact: true }).waitFor();
+  await row.getByRole('button', { name: '启用推广', exact: true }).waitFor();
+  state.partner.referralPath = '/r/promotionfixture';
+  await page.getByRole('button', { name: '刷新数据', exact: true }).click();
+  state.fail = true;
+  await row.getByRole('button', { name: '下载海报', exact: true }).click();
+  await row.getByRole('alert').filter({ hasText: '素材暂时无法读取' }).waitFor();
+});
+
+test('batch download packages distinct, complete posters and reports skipped and failed partners', async (t) => {
+  const { page, state } = await fixture(t, { readOnly: true });
+  const copy = (suffix, override = {}) => ({ ...structuredClone(state.partner), id: `partner-${suffix}`, ...override });
+  state.partners.push(copy('same-name', { referralPath: '/r/second-fixture' }),
+    copy('paused', { qualificationStatus: 'paused', attributionEnabled: false }), copy('failure'));
+  state.failedPartnerIds.push('partner-failure');
+  await page.getByRole('button', { name: '刷新数据', exact: true }).click();
+  await page.getByRole('checkbox', { name: '全选合作伙伴', exact: true }).check();
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: '批量下载海报（4）', exact: true }).click();
+  const file = await downloaded;
+  assert.ok(file.suggestedFilename().endsWith('.zip'));
+  const entries = unzipSync(await readFile(await file.path()));
+  assert.equal(Object.keys(entries).length, 2);
+  assert.equal(new Set(Object.keys(entries)).size, 2);
+  const destinations = [];
+  for (const bytes of Object.values(entries)) {
+    const png = Buffer.from(bytes);
+    assert.equal(png.readUInt32BE(16), 1080);
+    assert.equal(png.readUInt32BE(20), 1440);
+    const qr = await page.evaluate(async encoded => {
+      const image = new Image(); image.src = `data:image/png;base64,${encoded}`; await image.decode();
+      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
+      const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+      return Array.from(context.getImageData(780, 1088, 228, 228).data);
+    }, png.toString('base64'));
+    destinations.push(jsQR(new Uint8ClampedArray(qr), 228, 228).data);
+  }
+  assert.deepEqual(destinations, [`${frontendBase}/r/promotionfixture`, `${frontendBase}/r/second-fixture`]);
+  await page.getByText('已打包 2 张海报，2 位伙伴未能下载，原因见下方列表。', { exact: true }).waitFor();
+  assert.equal(await page.locator('.partner-download-feedback[role="alert"]').count(), 2);
+  assert.equal(state.writes.filter(item => item.path.includes('/distribution/')).length, 0);
+  await file.saveAs(`${output}/batch-posters.zip`);
+  await page.screenshot({ path: `${output}/batch-posters-result.png`, fullPage: true });
+});
+
+test('cancelling batch generation prevents a late response from downloading', async (t) => {
+  const { page, state } = await fixture(t, { width: 375 });
+  await page.getByRole('checkbox', { name: '全选合作伙伴', exact: true }).check();
+  let resolveLate;
+  state.late = new Promise(resolve => { resolveLate = resolve; });
+  const downloads = [];
+  page.on('download', file => downloads.push(file));
+  await page.getByRole('button', { name: '批量下载海报（1）', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '新增合作伙伴', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: '取消批量下载', exact: true }).click();
+  resolveLate();
+  await page.getByText('已取消批量下载。', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '新增合作伙伴', exact: true }).isEnabled(), true);
+  assert.equal(await page.locator('.partner-promotion.headless').count(), 0);
+  assert.equal(downloads.length, 0);
+  state.late = null;
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: '批量下载海报（1）', exact: true }).click();
+  await downloaded;
+  assert.equal(downloads.length, 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: `${output}/batch-posters-mobile.png`, fullPage: true });
+});
+
+test('batch archive excludes a poster changed after rendering while delivering the stable partner', async (t) => {
+  const { page, state } = await fixture(t);
+  state.partners.push({ ...structuredClone(state.partner), id: 'stable-partner', referralPath: '/r/stable-partner' });
+  state.beforePromotion = (item, reads) => {
+    if (item.id === partner.id && reads === 4) item.version++;
+  };
+  await page.getByRole('button', { name: '刷新数据', exact: true }).click();
+  await page.getByRole('checkbox', { name: '全选合作伙伴', exact: true }).check();
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: '批量下载海报（2）', exact: true }).click();
+  const file = await downloaded;
+  assert.equal(Object.keys(unzipSync(await readFile(await file.path()))).length, 1);
+  await page.getByText('已打包 1 张海报，1 位伙伴未能下载，原因见下方列表。', { exact: true }).waitFor();
+  await page.getByRole('alert').filter({ hasText: '推广状态或资料已变化' }).waitFor();
 });
 
 test('avatar waits for processing and saves with the poster draft in one request', async (t) => {

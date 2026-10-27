@@ -152,6 +152,49 @@ persistent('administrator partner promotion materials with PostgreSQL', () => {
     expect(changed.availability).toBe('ready');
     expect(changed.referralPath).toBe(result.referralPath);
   });
+  it('completes a historical missing link on explicit activation and preserves financial restrictions', async () => {
+    const f = await fixture();
+    await f.db.delete(partnerReferralLinks).where(eq(partnerReferralLinks.partnerId, f.partner.id));
+    await f.db.update(eventPartners).set({ attributionEnabled: false, settlementHold: true,
+      settlementHoldReason: '独立财务限制', currentProgramVersionId: null }).where(eq(eventPartners.id, f.partner.id));
+    const before = await f.service.adminPromotion(f.organizationId, f.event.id, f.partner.id);
+    const list = await f.service.adminPartners(f.organizationId, f.event.id);
+    expect(list.items[0]?.promotionUnavailableReason).toBe(before.reason);
+    expect(before.reason).toContain('启用推广');
+    const restored = await f.service.updatePartner(f.organizationId, f.event.id, f.partner.id, f.actorId, {
+      expectedVersion: f.partner.version, qualificationStatus: 'active', attributionEnabled: true,
+    });
+    expect(restored).toMatchObject({ attributionEnabled: true, settlementHold: true,
+      acceptedProgramVersionId: null, referralPath: expect.stringMatching(/^\/r\//) });
+    expect((await f.service.adminPromotion(f.organizationId, f.event.id, f.partner.id)).availability).toBe('ready');
+    const repeated = await f.service.updatePartner(f.organizationId, f.event.id, f.partner.id, f.actorId, {
+      expectedVersion: restored.version, qualificationStatus: 'active', attributionEnabled: true,
+    });
+    expect(repeated.referralPath).toBe(restored.referralPath);
+    expect(await f.db.select().from(partnerReferralLinks).where(eq(partnerReferralLinks.partnerId, f.partner.id))).toHaveLength(1);
+  });
+  it('reports a blocked account consistently and refuses to activate its promotion', async () => {
+    const f = await fixture();
+    await f.db.update(customerUsers).set({ status: 'blocked' }).where(eq(customerUsers.id, f.partner.customerUserId));
+    const material = await f.service.adminPromotion(f.organizationId, f.event.id, f.partner.id);
+    expect(material).toMatchObject({ availability: 'unavailable', reason: expect.stringContaining('账号已停用') });
+    const list = await f.service.adminPartners(f.organizationId, f.event.id);
+    expect(list.items[0]?.promotionUnavailableReason).toBe(material.reason);
+    await expect(f.service.updatePartner(f.organizationId, f.event.id, f.partner.id, f.actorId, {
+      expectedVersion: f.partner.version, qualificationStatus: 'active',
+    })).rejects.toMatchObject({ message: expect.stringContaining('账号已停用') });
+  });
+  it('preserves a disabled referral link during explicit activation', async () => {
+    const f = await fixture();
+    await f.db.update(partnerReferralLinks).set({ status: 'disabled', disabledAt: new Date() })
+      .where(eq(partnerReferralLinks.partnerId, f.partner.id));
+    await f.service.updatePartner(f.organizationId, f.event.id, f.partner.id, f.actorId, {
+      expectedVersion: f.partner.version, qualificationStatus: 'active',
+    });
+    const material = await f.service.adminPromotion(f.organizationId, f.event.id, f.partner.id);
+    expect(material).toMatchObject({ availability: 'unavailable', reason: expect.stringContaining('链接已停用') });
+    expect(await f.db.select().from(partnerReferralLinks).where(eq(partnerReferralLinks.partnerId, f.partner.id))).toHaveLength(1);
+  });
   it('returns the latest administrative fields when a mobile already belongs to a partner', async () => {
     const f = await fixture();
     await f.db

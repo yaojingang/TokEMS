@@ -69,6 +69,26 @@ export const PARTNER_REFERRAL_COOKIE_SECONDS = 30 * 24 * 60 * 60;
 type ProfileRow = typeof eventPartnerProfileVersions.$inferSelect;
 type ProgramRow = typeof eventPartnerProgramVersions.$inferSelect;
 
+function promotionUnavailableReason(
+  partner: typeof eventPartners.$inferSelect,
+  customerStatus: string,
+  program: ProgramRow | null | undefined,
+  link: typeof partnerReferralLinks.$inferSelect | undefined,
+) {
+  if (customerStatus !== 'active') return '合作伙伴账号已停用，请先恢复账号。';
+  if (partner.qualificationStatus === 'paused') return '合作伙伴已暂停，当前推广链接不可用。';
+  if (partner.qualificationStatus === 'closed') return '合作伙伴已关闭，当前推广链接不可用。';
+  if (partner.qualificationStatus !== 'active') return '合作伙伴尚未启用，请联系大会管理员。';
+  if (!program || program.status !== 'active' || (program.effectiveAt && program.effectiveAt > new Date()))
+    return '当前大会分销计划不可用。';
+  if (partner.currentProgramVersionId !== program.id) return '合作规则尚未同步，请启用推广以同步当前规则。';
+  if (!partner.attributionEnabled) return '推广归因尚未开通，请启用推广。';
+  if (!link) return '尚无推广链接，请启用推广以补全链接。';
+  if (link.status !== 'active' || link.disabledAt) return '推广链接已停用。';
+  if (link.expiresAt && link.expiresAt <= new Date()) return '推广链接已过期。';
+  return '';
+}
+
 function fail(code: string, message: string, status = HttpStatus.CONFLICT): never {
   throw new DomainError(code, message, status);
 }
@@ -827,10 +847,16 @@ export class PartnerDistributionService {
             currentProgramVersionId: string;
           }
         | undefined;
+      let referralLinkCreated = false;
       if (
         qualificationStatus === 'active' &&
         (input.qualificationStatus === 'active' || input.attributionEnabled === true)
       ) {
+        const [customer] = await tx.select({ status: customerUsers.status }).from(customerUsers)
+          .where(and(eq(customerUsers.id, partner.customerUserId), eq(customerUsers.organizationId, organizationId)))
+          .for('share').limit(1);
+        if (customer?.status !== 'active')
+          fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '合作伙伴账号已停用，请先恢复账号。');
         const [program] = await tx
           .select({ id: eventPartnerProgramVersions.id })
           .from(eventPartnerProgramVersions)
@@ -848,6 +874,18 @@ export class PartnerDistributionService {
           fail(API_ERROR_CODES.INVALID_STATE_TRANSITION, '请先发布当前大会的合作伙伴规则');
         }
         programChange = { currentProgramVersionId: program.id };
+        const [existingLink] = await tx.select({ id: partnerReferralLinks.id }).from(partnerReferralLinks)
+          .where(and(eq(partnerReferralLinks.organizationId, organizationId), eq(partnerReferralLinks.eventId, eventId),
+            eq(partnerReferralLinks.partnerId, partnerId))).limit(1);
+        if (!existingLink) {
+          const [event] = await tx.select({ slug: events.slug }).from(events)
+            .where(and(eq(events.id, eventId), eq(events.organizationId, organizationId))).limit(1);
+          if (!event) fail(API_ERROR_CODES.NOT_FOUND, '大会不存在', HttpStatus.NOT_FOUND);
+          await tx.insert(partnerReferralLinks).values({ organizationId, eventId, partnerId,
+            code: randomBytes(12).toString('base64url'),
+            destinationPath: `/register?event=${encodeURIComponent(event.slug)}` });
+          referralLinkCreated = true;
+        }
       }
       const [result] = await tx
         .update(eventPartners)
@@ -888,7 +926,7 @@ export class PartnerDistributionService {
         resourceType: 'event_partner',
         resourceId: partnerId,
         before: { expectedVersion: input.expectedVersion },
-        after: { ...input, qualificationStatus, attributionEnabled, ...programChange },
+        after: { ...input, qualificationStatus, attributionEnabled, ...programChange, ...(referralLinkCreated ? { referralLinkCreated } : {}) },
         traceId: randomUUID(),
       });
       return result;
@@ -1048,7 +1086,7 @@ export class PartnerDistributionService {
   ) {
     const db = this.db();
     const [row] = await db
-      .select({ partner: eventPartners, event: events, profile: eventPartnerProfileVersions, loginMobile: customerUsers.mobileE164 })
+      .select({ partner: eventPartners, event: events, profile: eventPartnerProfileVersions, loginMobile: customerUsers.mobileE164, customerStatus: customerUsers.status })
       .from(eventPartners)
       .innerJoin(customerUsers, and(
         eq(customerUsers.id, eventPartners.customerUserId),
@@ -1088,10 +1126,9 @@ export class PartnerDistributionService {
         .where(
           and(
             eq(partnerReferralLinks.partnerId, partnerId),
-            eq(partnerReferralLinks.status, 'active'),
           ),
         )
-        .limit(1),
+        .orderBy(desc(eq(partnerReferralLinks.status, 'active')), desc(partnerReferralLinks.createdAt)).limit(1),
       db
         .select({
           bucket: partnerLedgerEntries.balanceBucket,
@@ -1102,7 +1139,10 @@ export class PartnerDistributionService {
         .groupBy(partnerLedgerEntries.balanceBucket),
     ]);
     const programActive = program?.status === 'active' && (!program.effectiveAt || program.effectiveAt <= new Date());
-    const validLink = programActive && link && !link.disabledAt && (!link.expiresAt || link.expiresAt > new Date()) ? link : null;
+    const validLink = programActive && link?.status === 'active' && !link.disabledAt && (!link.expiresAt || link.expiresAt > new Date()) ? link : null;
+    const promotionProgram = options?.adminMetadata
+      ? await this.activeProgram(organizationId, row.event.id)
+      : program;
     const balances = Object.fromEntries(
       balanceRows.map((item) => [item.bucket, Number(item.value ?? 0)]),
     );
@@ -1136,6 +1176,7 @@ export class PartnerDistributionService {
         loginMobile: row.loginMobile,
         sortOrder: row.partner.sortOrder,
         internalNote: row.partner.internalNote,
+        promotionUnavailableReason: promotionUnavailableReason(row.partner, row.customerStatus, promotionProgram, link),
       } : {}),
     };
   }
@@ -2508,8 +2549,9 @@ export class PartnerDistributionService {
   }
 
   async adminPromotion(organizationId: string, eventId: number, partnerId: string): Promise<AdminPartnerPromotionView> {
-    const [row] = await this.db().select({ partner: eventPartners, profile: eventPartnerProfileVersions, event: events })
+    const [row] = await this.db().select({ partner: eventPartners, profile: eventPartnerProfileVersions, event: events, customerStatus: customerUsers.status })
       .from(eventPartners)
+      .innerJoin(customerUsers, and(eq(customerUsers.id, eventPartners.customerUserId), eq(customerUsers.organizationId, organizationId)))
       .innerJoin(events, and(eq(events.id, eventPartners.eventId), eq(events.organizationId, organizationId)))
       .innerJoin(eventPartnerProfileVersions, and(
         eq(eventPartnerProfileVersions.partnerId, eventPartners.id),
@@ -2525,21 +2567,9 @@ export class PartnerDistributionService {
       )).orderBy(desc(eq(partnerReferralLinks.status, 'active')), desc(partnerReferralLinks.createdAt)).limit(1),
       this.activeProgram(organizationId, eventId),
     ]);
-    let availability: AdminPartnerPromotionView['availability'] = 'unavailable';
-    let reason = '';
-    if (!link) reason = '尚无推广链接，请联系大会管理员处理。';
-    else if (link.status !== 'active' || link.disabledAt) reason = '推广链接已停用。';
-    else if (link.expiresAt && link.expiresAt <= new Date()) reason = '推广链接已过期。';
-    else if (!program) reason = '当前大会分销计划不可用。';
-    else if (row.partner.qualificationStatus === 'paused') reason = '合作伙伴已暂停，当前推广链接不可用。';
-    else if (row.partner.qualificationStatus === 'closed') reason = '合作伙伴已关闭，当前推广链接不可用。';
-    else if (row.partner.qualificationStatus === 'pending_confirmation') reason = '合作伙伴尚未启用，请联系大会管理员。';
-    else if (!row.partner.attributionEnabled) reason = '该合作伙伴的推广归因已停用。';
-    else if (row.partner.currentProgramVersionId !== program.id) reason = '合作规则尚未同步，请联系大会管理员。';
-    else if (row.partner.qualificationStatus === 'active') {
-      availability = 'ready';
-      reason = '推广链接已生效，可复制链接或下载素材。';
-    }
+    const unavailableReason = promotionUnavailableReason(row.partner, row.customerStatus, program, link);
+    const availability: AdminPartnerPromotionView['availability'] = unavailableReason ? 'unavailable' : 'ready';
+    const reason = unavailableReason || '推广链接已生效，可复制链接或下载素材。';
     const allowed = (field: keyof typeof row.profile.posterFields) => row.profile.visibleFields[field] && row.profile.posterFields[field];
     return {
       id: partnerId, eventId, eventSlug: row.event.slug, eventName: row.event.name,
