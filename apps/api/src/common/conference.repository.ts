@@ -73,6 +73,7 @@ import {
   organizationHomepageEvents,
   orders,
   orderAccessTokens,
+  orderItems,
   orderStateLogs,
   outboxEvents,
   payments,
@@ -3498,6 +3499,27 @@ export class ConferenceRepository {
     return this.getTicket(ticket.code);
   }
 
+  async countRegistrations(
+    eventId: EventId,
+    organizationId: string,
+    status?: AdminRegistrationListQuery['status'],
+  ): Promise<{ count: number }> {
+    const db = this.database.db;
+    if (!db) {
+      return { count: organizationId !== this.demoEvent.organizationId ? 0 :
+        [...this.memory.registrations.values()].filter((row) =>
+          row.eventId === eventId && (!status || row.status === status),
+        ).length };
+    }
+    const [result] = await db.select({ value: count() }).from(registrations).where(and(
+      eq(registrations.organizationId, organizationId),
+      eq(registrations.eventId, eventId),
+      isNull(registrations.supersededAt),
+      ...(status ? [eq(registrations.status, status)] : []),
+    ));
+    return { count: Number(result?.value ?? 0) };
+  }
+
   async listRegistrations(
     eventId: EventId = DEMO_IDS.event,
     filters: Partial<AdminRegistrationListQuery> = {},
@@ -3664,7 +3686,7 @@ export class ConferenceRepository {
     if (filters.invoiceStatus) {
       conditions.push(sql`${invoiceStatusExpression} = ${filters.invoiceStatus}`);
     }
-    if (filters.q) {
+    if (filters.q?.trim()) {
       const pattern = `%${filters.q.trim()}%`;
       conditions.push(
         or(
@@ -3678,15 +3700,29 @@ export class ConferenceRepository {
         )!,
       );
     }
-    const [totalRow] = await db
-      .select({ value: count() })
-      .from(registrations)
-      .leftJoin(orders, registrationOrderJoin())
-      .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
-      .where(and(...conditions));
+    // Resolve the unique item first; legacy orders use their unique registration link.
+    const orderJoin = eq(orders.id, sql`coalesce(${orderItems.orderId}, (
+      select legacy_order.id from orders legacy_order
+      where legacy_order.registration_id = ${registrations.id}
+    ))`);
+    const needsRelatedFilters = Boolean(filters.q?.trim() || filters.businessStatus || filters.invoiceStatus);
+    const [totalRow] = needsRelatedFilters
+      ? await db.select({ value: count() }).from(registrations)
+        .leftJoin(orderItems, eq(orderItems.registrationId, registrations.id))
+        .leftJoin(orders, orderJoin)
+        .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
+        .where(and(...conditions))
+      : [{ value: (await this.countRegistrations(eventId, organizationId, filters.status)).count }];
     const total = Number(totalRow?.value ?? 0);
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(requestedPage, totalPages);
+    if (!total) return { items: [], total, page, pageSize };
+
+    // Limit before payment/refund calculations on the common unfiltered path.
+    const pageIds = needsRelatedFilters ? undefined : await db.select({ id: registrations.id })
+      .from(registrations).where(and(...conditions))
+      .orderBy(desc(registrations.createdAt), desc(registrations.id))
+      .limit(pageSize).offset((page - 1) * pageSize);
     const rows = await db
       .select({
         registration: registrations,
@@ -3702,12 +3738,13 @@ export class ConferenceRepository {
       })
       .from(registrations)
       .innerJoin(ticketTypes, eq(registrations.ticketTypeId, ticketTypes.id))
-      .leftJoin(orders, registrationOrderJoin())
+      .leftJoin(orderItems, eq(orderItems.registrationId, registrations.id))
+      .leftJoin(orders, orderJoin)
       .leftJoin(invoiceRequests, eq(invoiceRequests.orderId, orders.id))
-      .where(and(...conditions))
+      .where(and(...conditions, pageIds ? inArray(registrations.id, pageIds.map((row) => row.id)) : undefined))
       .orderBy(desc(registrations.createdAt), desc(registrations.id))
       .limit(pageSize)
-      .offset((page - 1) * pageSize);
+      .offset(pageIds ? 0 : (page - 1) * pageSize);
 
     const items: AdminRegistrationRow[] = rows.map(
       ({
@@ -4109,7 +4146,7 @@ export class ConferenceRepository {
         HttpStatus.NOT_FOUND,
       );
     }
-    const [[registrationMetric], [orderMetric], [refundMetric], [checkinMetric], ticketRows] =
+    const [[registrationMetric], [orderMetric], [refundMetric], [checkinMetric], ticketRows, registrationTrend] =
       await Promise.all([
         db
           .select({
@@ -4181,6 +4218,7 @@ export class ConferenceRepository {
           .from(ticketTypes)
           .where(eq(ticketTypes.eventId, eventId))
           .orderBy(asc(ticketTypes.price)),
+        this.registrationTrend(eventId, trendQuery, event.timezone),
       ]);
     const registrationTotal = Number(registrationMetric?.registrations ?? 0);
     const activeSubmitted = Number(registrationMetric?.activeSubmitted ?? 0);
@@ -4205,7 +4243,7 @@ export class ConferenceRepository {
           : 0,
         pendingReview: Number(registrationMetric?.pendingReview ?? 0),
       },
-      registrationTrend: await this.registrationTrend(eventId, trendQuery, event.timezone),
+      registrationTrend,
       ticketBreakdown: ticketRows.map((ticket) => ({
         id: ticket.id,
         name: ticket.name,

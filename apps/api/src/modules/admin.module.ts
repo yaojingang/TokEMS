@@ -159,6 +159,20 @@ class AdminController {
     );
   }
 
+  @Get('events/:eventId/registration-count')
+  @RequireGrant('event.registration.read')
+  registrationCount(
+    @Param('eventId', EventIdPipe) eventId: EventId,
+    @Req() request: FastifyRequest & { user?: AuthenticatedUser },
+    @Query() query: Record<string, unknown>,
+  ) {
+    const parsed = AdminRegistrationListQuerySchema.pick({ status: true }).strict().safeParse(query);
+    if (!parsed.success) {
+      throw new DomainError(API_ERROR_CODES.VALIDATION_ERROR, '报名计数条件校验失败', HttpStatus.BAD_REQUEST);
+    }
+    return this.repository.countRegistrations(eventId, request.user!.organizationId, parsed.data.status);
+  }
+
   @Get(['registrations', 'events/:eventId/registrations'])
   @RequireGrant('event.registration.read')
   registrations(

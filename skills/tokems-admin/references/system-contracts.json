@@ -2400,6 +2400,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/events/:eventId/registration-count",
+      "handler": "AdminController.registrationCount",
+      "actionId": null,
+      "exclusion": "Unlisted handlers remain human-only until added to the Agent catalog",
+      "requiredAnyGrants": [
+        "event.registration.read"
+      ],
+      "requiredAllGrants": []
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/events/:eventId/registration-forms",
       "handler": "ContentFormsController.forms",
       "actionId": "content.registration-forms.get",

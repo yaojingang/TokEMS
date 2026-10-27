@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import RegistrationRefundPanel from '../components/registration/RegistrationRefundPanel.vue';
-import { computed, ref, watch } from 'vue';
+import LoadingValue from '../components/LoadingValue.vue';
+import { createAsyncSection } from '../composables/async-section';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type {
+  AdminRegistrationList,
   RegistrationBusinessStatus,
   RegistrationInvoiceSummaryStatus,
   RegistrationStatus,
@@ -9,19 +12,21 @@ import type {
 } from '@conference/contracts';
 import { RegistrationStatusSchema, RefundApplicationQuerySchema } from '@conference/contracts';
 import { useRoute, useRouter } from 'vue-router';
-import { conferenceApi, publicEventUrl, session, type AdminRegistrationRow } from '../lib/api';
+import { conferenceApi, publicEventUrl, session } from '../lib/api';
 import RegistrationOperationsTabs from '../components/RegistrationOperationsTabs.vue';
 import { dateTime, money, statusClass, statusLabel } from '../lib/format';
 
 const showRefunds = ref(false);
 const refundEventId = computed(() => Number(route.params.eventId));
-const rows = ref<AdminRegistrationRow[]>([]);
-const waitlist = ref<WaitlistEntry[]>([]);
+const registrationSection = createAsyncSection<AdminRegistrationList>('报名数据读取失败');
+const waitlistSection = createAsyncSection<WaitlistEntry[]>('候补名单读取失败');
+const rows = computed(() => registrationSection.data.value?.items ?? []);
+const waitlist = computed(() => waitlistSection.data.value ?? []);
 const q = ref('');
 const status = ref<RegistrationStatus | ''>('');
 const businessStatus = ref<RegistrationBusinessStatus | ''>('');
 const invoiceStatus = ref<RegistrationInvoiceSummaryStatus | ''>('');
-const loading = ref(false);
+const loading = registrationSection.loading;
 const exporting = ref(false);
 const errorMessage = ref('');
 const canExport = session.can('event.registration.export');
@@ -29,16 +34,20 @@ const page = ref(1);
 const pageSize = ref(10);
 const pageSizeDraft = ref('10');
 const jumpPageDraft = ref('1');
-const totalRecords = ref(0);
-let loadRequestId = 0;
+const totalRecords = computed(() => registrationSection.data.value?.total);
+let lastQueryKey = '';
 const route = useRoute();
 const router = useRouter();
 const refundFilter = computed(
   () => RefundApplicationQuerySchema.shape.status.safeParse(route.query.refundStatus).data ?? 'all',
 );
 const registrationUrl = computed(() => publicEventUrl('/register'));
-const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize.value)));
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil((totalRecords.value ?? 0) / pageSize.value)),
+);
 const visibleRange = computed(() => {
+  if (totalRecords.value === undefined)
+    return loading.value ? '正在读取报名记录' : '报名记录暂不可用';
   if (!totalRecords.value) return '0 条';
   const start = (page.value - 1) * pageSize.value + 1;
   const end = start + rows.value.length - 1;
@@ -107,38 +116,54 @@ async function load(resetPage = false) {
       return;
     }
   }
-  const requestId = ++loadRequestId;
   const requestedPage = resetPage ? 1 : page.value;
-  loading.value = true;
   errorMessage.value = '';
-  try {
-    const [result, waiting] = await Promise.all([
-      conferenceApi.getRegistrations({
-        ...(q.value.trim() ? { q: q.value.trim() } : {}),
-        ...(status.value ? { status: status.value } : {}),
-        ...(businessStatus.value ? { businessStatus: businessStatus.value } : {}),
-        ...(invoiceStatus.value ? { invoiceStatus: invoiceStatus.value } : {}),
-        page: requestedPage,
-        pageSize: pageSize.value,
-      }),
-      conferenceApi.getWaitlist(),
-    ]);
-    if (requestId !== loadRequestId) return;
-    rows.value = result.items;
-    waitlist.value = waiting;
-    totalRecords.value = result.total;
+  const eventId = Number(route.params.eventId);
+  const filters = {
+    ...(q.value.trim() ? { q: q.value.trim() } : {}),
+    ...(status.value ? { status: status.value } : {}),
+    ...(businessStatus.value ? { businessStatus: businessStatus.value } : {}),
+    ...(invoiceStatus.value ? { invoiceStatus: invoiceStatus.value } : {}),
+    page: requestedPage,
+    pageSize: pageSize.value,
+  };
+  const key = JSON.stringify({ eventId, ...filters });
+  const clear = key !== lastQueryKey;
+  lastQueryKey = key;
+  const result = await registrationSection.load(
+    (signal) => conferenceApi.getRegistrations(filters, eventId, signal),
+    clear,
+  );
+  if (result && registrationSection.data.value === result && Number(route.params.eventId) === eventId) {
+    lastQueryKey = JSON.stringify({ eventId, ...filters, page: result.page, pageSize: result.pageSize });
     page.value = result.page;
     pageSize.value = result.pageSize;
     pageSizeDraft.value = String(result.pageSize);
     jumpPageDraft.value = String(result.page);
-  } catch (error) {
-    if (requestId === loadRequestId) {
-      errorMessage.value = error instanceof Error ? error.message : '报名数据读取失败';
-    }
-  } finally {
-    if (requestId === loadRequestId) loading.value = false;
   }
 }
+
+function loadWaitlist(clear = false) {
+  const eventId = Number(route.params.eventId);
+  return waitlistSection.load((signal) => conferenceApi.getWaitlist(eventId, signal), clear);
+}
+
+function refresh() {
+  void load();
+  void loadWaitlist();
+}
+
+watch(
+  () => route.params.eventId,
+  () => {
+    void loadWaitlist(true);
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  registrationSection.reset();
+  waitlistSection.reset();
+});
 
 async function exportData() {
   exporting.value = true;
@@ -189,7 +214,10 @@ watch(
         >
           {{ showRefunds ? '收起退款申请' : '退款申请' }}
         </button>
-        <button class="button secondary" type="button" @click="load()">刷新数据</button>
+        <button class="button secondary" type="button" :disabled="loading" @click="refresh">
+          <span v-if="loading" class="admin-refresh-icon" aria-hidden="true">↻</span>
+          {{ loading ? '正在刷新' : '刷新数据' }}
+        </button>
         <button
           v-if="canExport"
           class="button secondary"
@@ -213,7 +241,7 @@ watch(
       v-if="showRefunds && refundEventId"
       :event-id="refundEventId"
       :initial-status="refundFilter"
-      @changed="load()"
+      @changed="refresh"
     />
     <form class="registration-toolbar" role="search" @submit.prevent="load(true)">
       <div class="registration-toolbar-filters">
@@ -294,10 +322,17 @@ watch(
   <section class="admin-panel registration-list-panel reveal is-visible">
     <div class="registration-list-summary">
       <span>
-        <strong>{{ totalRecords }}</strong> 条报名记录 · 每位参会人单独一行
+        <template v-if="totalRecords !== undefined"><strong>{{ totalRecords }}</strong> 条报名记录</template>
+        <span v-else role="status">{{ loading ? '正在读取报名记录…' : '报名记录暂不可用' }}</span>
+        · 每位参会人单独一行
       </span>
+      <span v-if="loading && totalRecords !== undefined" role="status">正在更新…</span>
       <span class="registration-scroll-hint">左右滑动查看完整信息</span>
     </div>
+    <p v-if="registrationSection.error.value" class="admin-section-feedback" role="alert">
+      {{ registrationSection.error.value }}
+      <button class="text-link" type="button" @click="load()">重试</button>
+    </p>
     <div
       class="data-table-wrap registration-table-scroll"
       role="region"
@@ -332,6 +367,16 @@ watch(
           </tr>
         </thead>
         <tbody>
+          <template v-if="loading && totalRecords === undefined">
+            <tr
+              v-for="index in 5"
+              :key="`loading-${index}`"
+              class="admin-skeleton-row"
+              aria-hidden="true"
+            >
+              <td v-for="column in 8" :key="column"><span class="admin-skeleton"></span></td>
+            </tr>
+          </template>
           <tr v-for="row in rows" :key="row.id">
             <td>
               <div class="registration-person-heading">
@@ -408,7 +453,9 @@ watch(
           </tr>
         </tbody>
       </table>
-      <div v-if="!loading && !rows.length" class="admin-empty">当前筛选条件下没有报名记录。</div>
+      <div v-if="totalRecords === 0 && !loading" class="admin-empty">
+        当前筛选条件下没有报名记录。
+      </div>
     </div>
     <footer class="table-footer registration-pagination">
       <span>{{ visibleRange }} · 时间均为 Asia/Shanghai</span>
@@ -416,7 +463,7 @@ watch(
         <button
           type="button"
           aria-label="上一页"
-          :disabled="page === 1 || loading"
+          :disabled="page === 1 || loading || totalRecords === undefined"
           @click="changePage(page - 1)"
         >
           ‹
@@ -429,7 +476,7 @@ watch(
             :class="{ active: item === page }"
             :aria-current="item === page ? 'page' : undefined"
             :aria-label="`第 ${item} 页`"
-            :disabled="loading"
+            :disabled="loading || totalRecords === undefined"
             @click="changePage(item)"
           >
             {{ item }}
@@ -438,7 +485,7 @@ watch(
         <button
           type="button"
           aria-label="下一页"
-          :disabled="page === totalPages || loading"
+          :disabled="page === totalPages || loading || totalRecords === undefined"
           @click="changePage(page + 1)"
         >
           ›
@@ -453,6 +500,7 @@ watch(
             inputmode="numeric"
             min="1"
             max="100"
+            :disabled="loading || totalRecords === undefined"
             aria-label="每页显示条数"
             @change="commitPageSize"
             @keydown.enter.prevent="commitPageSize"
@@ -467,6 +515,7 @@ watch(
             inputmode="numeric"
             min="1"
             :max="totalPages"
+            :disabled="loading || totalRecords === undefined"
             aria-label="跳转页码"
             @change="jumpToPage"
             @keydown.enter.prevent="jumpToPage"
@@ -483,9 +532,21 @@ watch(
         <h2>候补名单</h2>
         <p>库存释放后按队列顺序发放两小时购买资格</p>
       </div>
-      <span class="status-badge">{{ waitlist.length }} WAITING</span>
+      <span class="status-badge">
+        <LoadingValue
+          :loading="waitlistSection.loading.value && !waitlistSection.data.value"
+          :value="waitlistSection.data.value ? `${waitlist.length} 候补` : null"
+        />
+      </span>
     </header>
-    <div class="data-table-wrap">
+    <p v-if="waitlistSection.error.value" class="admin-section-feedback" role="alert">
+      {{ waitlistSection.error.value }}
+      <button class="text-link" type="button" @click="loadWaitlist()">重试</button>
+    </p>
+    <p v-if="waitlistSection.loading.value" class="admin-section-feedback" role="status">
+      正在读取候补名单…
+    </p>
+    <div class="data-table-wrap" :aria-busy="waitlistSection.loading.value">
       <table class="data-table">
         <caption class="sr-only">
           报名候补名单
@@ -501,6 +562,16 @@ watch(
           </tr>
         </thead>
         <tbody>
+          <template v-if="waitlistSection.loading.value && !waitlistSection.data.value">
+            <tr
+              v-for="index in 3"
+              :key="`waiting-${index}`"
+              class="admin-skeleton-row"
+              aria-hidden="true"
+            >
+              <td v-for="column in 6" :key="column"><span class="admin-skeleton"></span></td>
+            </tr>
+          </template>
           <tr v-for="entry in waitlist" :key="entry.id">
             <td>
               <span class="mono-code">#{{ entry.position }}</span>
@@ -520,7 +591,12 @@ watch(
           </tr>
         </tbody>
       </table>
-      <div v-if="!loading && !waitlist.length" class="admin-empty">当前大会没有候补申请。</div>
+      <div
+        v-if="waitlistSection.data.value && !waitlist.length && !waitlistSection.loading.value"
+        class="admin-empty"
+      >
+        当前大会没有候补申请。
+      </div>
     </div>
   </section>
 </template>

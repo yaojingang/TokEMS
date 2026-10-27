@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import LoadingValue from '../components/LoadingValue.vue';
+import { createAsyncSection } from '../composables/async-section';
+import type { AdminDashboard, AdminRegistrationList } from '@conference/contracts';
 import { createDashboardTrendState } from '../composables/dashboard-trend-state';
-import { conferenceApi, session, type AdminRegistrationRow } from '../lib/api';
+import { conferenceApi, session } from '../lib/api';
 import { dateTime, statusClass, statusLabel } from '../lib/format';
 
 const route = useRoute();
-const registrations = ref<AdminRegistrationRow[]>([]);
-const pendingPaymentCount = ref(0);
-const pendingInvoiceCount = ref<number | null>(null);
-const loading = ref(true);
-const errorMessage = ref('');
+const summarySection = createAsyncSection<AdminDashboard>('概览统计读取失败');
+const registrationSection = createAsyncSection<AdminRegistrationList>('最新报名读取失败');
+const paymentSection = createAsyncSection<{ count: number }>('待支付数量读取失败');
+const invoiceSection = createAsyncSection<{ count: number }>('发票数量读取失败');
+const registrations = computed(() => registrationSection.data.value?.items ?? []);
+const pendingPaymentCount = computed(() => paymentSection.data.value?.count);
+const pendingInvoiceCount = computed(() => invoiceSection.data.value?.count);
+const loading = computed(() => summarySection.loading.value && !dashboard.value);
 const trendOptions = [7, 14, 30] as const;
 const trendChartStage = ref<HTMLElement>();
 const trendChartSize = ref({ width: 720, height: 300 });
@@ -25,9 +31,12 @@ const {
   customTrendFrom,
   customTrendTo,
   acceptDashboard,
+  reset: resetTrend,
   selectTrendPreset,
   applyCustomTrend,
-} = createDashboardTrendState((query) => conferenceApi.getDashboard(query));
+} = createDashboardTrendState((query) =>
+  conferenceApi.getDashboard(query, Number(route.params.eventId)),
+);
 const money = (amount = 0, maximumFractionDigits = 0) =>
   `¥${(amount / 100).toLocaleString('zh-CN', { maximumFractionDigits })}`;
 const trendTotal = computed(() =>
@@ -163,34 +172,54 @@ watch(
   { flush: 'post' },
 );
 
-onBeforeUnmount(() => trendChartResizeObserver?.disconnect());
-
-onMounted(async () => {
-  try {
-    const canReadRegistrations = session.can('event.registration.read');
-    const canReadInvoices = session.can('org.invoice.read');
-    const [dashboardResult, latestRegistrations, pendingPayments, pendingInvoices] =
-      await Promise.all([
-        conferenceApi.getDashboard(),
-        canReadRegistrations
-          ? conferenceApi.getRegistrations({ page: 1, pageSize: 5 })
-          : Promise.resolve(undefined),
-        canReadRegistrations
-          ? conferenceApi.getRegistrations({ status: 'pending_payment', page: 1, pageSize: 1 })
-          : Promise.resolve(undefined),
-        canReadInvoices
-          ? conferenceApi.getInvoicePendingCount().catch(() => undefined)
-          : Promise.resolve(undefined),
-      ]);
-    acceptDashboard(dashboardResult);
-    registrations.value = latestRegistrations?.items ?? [];
-    pendingPaymentCount.value = pendingPayments?.total ?? 0;
-    pendingInvoiceCount.value = pendingInvoices?.count ?? null;
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '数据读取失败';
-  } finally {
-    loading.value = false;
+async function loadSummary() {
+  const eventId = Number(route.params.eventId);
+  const result = await summarySection.load((signal) =>
+    conferenceApi.getDashboard({}, eventId, signal),
+  );
+  if (result && summarySection.data.value === result && Number(route.params.eventId) === eventId) {
+    acceptDashboard(result);
   }
+}
+function loadRegistrations() {
+  const eventId = Number(route.params.eventId);
+  return registrationSection.load((signal) =>
+    conferenceApi.getRegistrations({ page: 1, pageSize: 5 }, eventId, signal),
+  );
+}
+function loadPayments() {
+  const eventId = Number(route.params.eventId);
+  return paymentSection.load((signal) =>
+    conferenceApi.getRegistrationCount('pending_payment', eventId, signal),
+  );
+}
+function loadInvoices() {
+  const eventId = Number(route.params.eventId);
+  return invoiceSection.load((signal) => conferenceApi.getInvoicePendingCount(eventId, signal));
+}
+function resetSections() {
+  summarySection.reset();
+  registrationSection.reset();
+  paymentSection.reset();
+  invoiceSection.reset();
+  resetTrend();
+}
+watch(
+  () => route.params.eventId,
+  () => {
+    resetSections();
+    void loadSummary();
+    if (session.can('event.registration.read')) {
+      void loadRegistrations();
+      void loadPayments();
+    }
+    if (session.can('org.invoice.read')) void loadInvoices();
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  resetSections();
+  trendChartResizeObserver?.disconnect();
 });
 </script>
 
@@ -231,74 +260,114 @@ onMounted(async () => {
     </div>
   </header>
 
-  <p v-if="errorMessage" class="admin-error" role="alert">{{ errorMessage }}</p>
-  <div v-if="loading" class="admin-loading">LOADING OPERATIONS DATA…</div>
-  <template v-else-if="dashboard">
-    <section class="admin-metrics reveal is-visible" aria-label="核心指标">
+  <p v-if="summarySection.error.value" class="admin-section-feedback" role="alert">
+    {{ summarySection.error.value }}
+    <button class="text-link" type="button" @click="loadSummary">重试概览统计</button>
+  </p>
+  <div class="dashboard-sections">
+    <section
+      class="admin-metrics reveal is-visible"
+      aria-label="核心指标"
+      :aria-busy="summarySection.loading.value"
+    >
       <article class="admin-metric">
         <span>累计报名</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.registrations.toLocaleString() }}</strong>
+          <strong><LoadingValue
+            :loading="loading"
+            :value="dashboard?.metrics.registrations.toLocaleString()"
+          /></strong>
           <span class="delta neutral">当前大会</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>付费席位</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.paidSeats.toLocaleString() }}</strong>
-          <span class="delta up">{{ dashboard.metrics.conversionRate }}% 转化</span>
+          <strong><LoadingValue
+            :loading="loading"
+            :value="dashboard?.metrics.paidSeats.toLocaleString()"
+          /></strong>
+          <span class="delta up"><template v-if="dashboard">{{ dashboard.metrics.conversionRate }}% 转化</template></span>
         </div>
       </article>
       <article class="admin-metric">
         <span>付费购票人</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.purchasers.toLocaleString() }}</strong>
-          <span class="delta neutral">{{ dashboard.metrics.paidOrders.toLocaleString() }} 笔订单</span>
+          <strong><LoadingValue
+            :loading="loading"
+            :value="dashboard?.metrics.purchasers.toLocaleString()"
+          /></strong>
+          <span class="delta neutral"><template v-if="dashboard">{{ dashboard.metrics.paidOrders.toLocaleString() }} 笔订单</template></span>
         </div>
       </article>
       <article class="admin-metric">
         <span>确认参会人</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.confirmedAttendees.toLocaleString() }}</strong>
+          <strong><LoadingValue
+            :loading="loading"
+            :value="dashboard?.metrics.confirmedAttendees.toLocaleString()"
+          /></strong>
           <span class="delta neutral">含已签到与已完成</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>实收金额</span>
         <div class="admin-metric-value">
-          <strong class="metric-money">{{ money(dashboard.metrics.revenue) }}</strong>
+          <strong class="metric-money"><LoadingValue
+            :loading="loading"
+            :value="dashboard ? money(dashboard.metrics.revenue) : null"
+          /></strong>
           <span class="delta neutral">累计实收</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>发票开具情况</span>
         <div class="admin-metric-value">
-          <strong>{{ pendingInvoiceCount?.toLocaleString() ?? '—' }}</strong>
+          <strong><LoadingValue
+            :loading="invoiceSection.loading.value && pendingInvoiceCount == null"
+            :value="pendingInvoiceCount?.toLocaleString()"
+          /></strong>
           <span class="delta neutral">{{
-            pendingInvoiceCount === null ? '暂不可用' : '项待处理'
+            invoiceSection.loading.value
+              ? '正在读取'
+              : pendingInvoiceCount == null
+                ? session.can('org.invoice.read')
+                  ? '暂不可用'
+                  : '无查看权限'
+                : '项待处理'
           }}</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>退款订单数</span>
         <div class="admin-metric-value">
-          <strong>{{ dashboard.metrics.refundedOrders?.toLocaleString() ?? '—' }}</strong>
+          <strong><LoadingValue
+            :loading="loading"
+            :value="dashboard?.metrics.refundedOrders.toLocaleString()"
+          /></strong>
           <span class="delta neutral">已成功退款</span>
         </div>
       </article>
       <article class="admin-metric">
         <span>退款金额</span>
         <div class="admin-metric-value">
-          <strong class="metric-money">{{
-            dashboard.metrics.refundedAmount == null
-              ? '—'
-              : money(dashboard.metrics.refundedAmount, 2)
-          }}</strong>
+          <strong class="metric-money"><LoadingValue
+            :loading="loading"
+            :value="dashboard ? money(dashboard.metrics.refundedAmount, 2) : null"
+          /></strong>
           <span class="delta neutral">累计已退</span>
         </div>
       </article>
     </section>
 
+    <p v-if="invoiceSection.error.value" class="admin-section-feedback" role="alert">
+      {{ invoiceSection.error.value }}
+      <button class="text-link" type="button" @click="loadInvoices">重试发票数量</button>
+    </p>
+    <p v-if="paymentSection.error.value" class="admin-section-feedback" role="alert">
+      {{ paymentSection.error.value }}
+      <button class="text-link" type="button" @click="loadPayments">重试待支付数量</button>
+    </p>
     <div class="dashboard-overview-grid">
       <section class="admin-panel reveal is-visible" aria-labelledby="ticket-title">
         <header class="admin-panel-header">
@@ -308,8 +377,22 @@ onMounted(async () => {
           </div>
           <span class="status-badge">报名开放</span>
         </header>
+        <div
+          v-if="loading"
+          class="ticket-progress-list"
+          aria-label="正在读取票种库存"
+          aria-busy="true"
+        >
+          <div v-for="index in 3" :key="index" class="ticket-progress">
+            <span class="admin-skeleton"></span>
+          </div>
+        </div>
         <div class="ticket-progress-list">
-          <div v-for="ticket in dashboard.ticketBreakdown" :key="ticket.id" class="ticket-progress">
+          <div
+            v-for="ticket in dashboard?.ticketBreakdown ?? []"
+            :key="ticket.id"
+            class="ticket-progress"
+          >
             <div class="ticket-progress__label">
               <span>{{ ticket.name }}</span><span>{{ ticket.sold }} / {{ ticket.quota }}</span>
             </div>
@@ -318,7 +401,7 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-        <div v-if="!dashboard.ticketBreakdown.length" class="admin-empty">
+        <div v-if="dashboard && !dashboard.ticketBreakdown.length" class="admin-empty">
           当前大会暂无票种库存数据。
         </div>
       </section>
@@ -329,14 +412,17 @@ onMounted(async () => {
             <h2 id="health-title">运营待办</h2>
             <p>需要运营人员关注的状态</p>
           </div>
-          <span class="status-badge pending">{{ dashboard.metrics.pendingReview }} 项待处理</span>
+          <span v-if="dashboard" class="status-badge pending">{{ dashboard.metrics.pendingReview }} 项待处理</span>
         </header>
         <ul class="status-list">
           <li>
-            <i class="status-dot red"></i><span><strong>待审核报名</strong><small>核实参会人身份与企业信息</small></span><b>{{ dashboard.metrics.pendingReview }}</b>
+            <i class="status-dot red"></i><span><strong>待审核报名</strong><small>核实参会人身份与企业信息</small></span><b><LoadingValue :loading="loading" :value="dashboard?.metrics.pendingReview" /></b>
           </li>
           <li>
-            <i class="status-dot gold"></i><span><strong>待支付订单</strong><small>即将超时的库存保留</small></span><b>{{ pendingPaymentCount }}</b>
+            <i class="status-dot gold"></i><span><strong>待支付订单</strong><small>即将超时的库存保留</small></span><b><LoadingValue
+              :loading="paymentSection.loading.value && pendingPaymentCount == null"
+              :value="pendingPaymentCount"
+            /></b>
           </li>
           <li>
             <i class="status-dot"></i><span><strong>大会发布状态</strong><small>报名通道正常开放</small></span><b>正常</b>
@@ -386,7 +472,7 @@ onMounted(async () => {
                 :class="{ active: trendPreset === value }"
                 type="button"
                 :aria-pressed="trendPreset === value"
-                :disabled="trendLoading"
+                :disabled="trendLoading || !dashboard"
                 @click="selectTrendPreset(value)"
               >
                 {{ value }} 天
@@ -396,7 +482,7 @@ onMounted(async () => {
                 :class="{ active: trendPreset === 'custom' }"
                 type="button"
                 :aria-pressed="trendPreset === 'custom'"
-                :disabled="trendLoading"
+                :disabled="trendLoading || !dashboard"
                 @click="selectTrendPreset('custom')"
               >
                 自定义
@@ -432,7 +518,7 @@ onMounted(async () => {
               <button
                 class="button secondary trend-date-apply"
                 type="submit"
-                :disabled="trendLoading"
+                :disabled="trendLoading || !dashboard"
               >
                 {{ trendLoading ? '读取中' : '应用' }}
               </button>
@@ -442,10 +528,12 @@ onMounted(async () => {
             </p>
           </div>
         </header>
-        <div class="trend-wrap" :aria-busy="trendLoading">
+        <div class="trend-wrap" :aria-busy="trendLoading || loading">
           <div class="trend-summary">
-            <strong>{{ trendTotal }}</strong><span>{{ trendRangeSummary }}</span>
-            <small v-if="trendLoading" role="status">正在更新趋势…</small>
+            <strong><LoadingValue :loading="loading" :value="dashboard ? trendTotal : null" /></strong><span>{{ trendRangeSummary }}</span>
+            <small v-if="trendLoading || loading" role="status">{{
+              loading ? '正在读取趋势…' : '正在更新趋势…'
+            }}</small>
           </div>
           <div
             ref="trendChartStage"
@@ -548,7 +636,21 @@ onMounted(async () => {
             查看全部 →
           </RouterLink>
         </header>
-        <ul v-if="registrations.length" class="latest-registration-list">
+        <p v-if="registrationSection.error.value" class="admin-section-feedback" role="alert">
+          {{ registrationSection.error.value }}
+          <button class="text-link" type="button" @click="loadRegistrations">重试最新报名</button>
+        </p>
+        <ul
+          v-if="registrationSection.loading.value && !registrationSection.data.value"
+          class="latest-registration-list"
+          aria-label="正在读取最新报名"
+          aria-busy="true"
+        >
+          <li v-for="index in 5" :key="index" aria-hidden="true">
+            <span class="admin-skeleton"></span>
+          </li>
+        </ul>
+        <ul v-else-if="registrations.length" class="latest-registration-list">
           <li v-for="row in registrations.slice(0, 5)" :key="row.id">
             <div class="latest-registration-person">
               <span class="row-title">{{ row.attendee.name }}</span>
@@ -576,8 +678,10 @@ onMounted(async () => {
             </div>
           </li>
         </ul>
-        <div v-else class="admin-empty">当前大会暂无报名记录。</div>
+        <div v-else-if="registrationSection.data.value" class="admin-empty">
+          当前大会暂无报名记录。
+        </div>
       </section>
     </div>
-  </template>
+  </div>
 </template>
