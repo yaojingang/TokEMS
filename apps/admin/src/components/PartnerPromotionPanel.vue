@@ -154,7 +154,7 @@ async function refresh() {
   if (snapshot) await renderMaterial(snapshot);
 }
 
-async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
+async function exportMaterial(kind: 'link' | 'qr' | 'poster', download = true) {
   if (acting.value || (kind === 'poster' && props.unsaved)) return;
   acting.value = true;
   let current = revision;
@@ -199,13 +199,14 @@ async function exportMaterial(kind: 'link' | 'qr' | 'poster') {
     if (latest.availability === 'unavailable' || latest.version !== snapshot.data.version ||
       latest.profile.version !== snapshot.data.profile.version || latest.referralPath !== snapshot.data.referralPath)
       throw new Error('合作伙伴状态或资料已变化，请刷新素材后重新下载。');
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
     const filename = partnerPosterFilename(
       resolvePartnerPosterContent(snapshot.data.profile).displayName,
       snapshot.data.eventName,
     );
+    if (!download) return { blob, filename, material: snapshot.data };
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
     anchor.download =
       kind === 'poster' ? filename : filename.replace('推广海报.png', '分销二维码.png');
     anchor.click();
@@ -243,7 +244,14 @@ watch(() => props.draft, () => {
   else if (material.value && !busy.value)
     void renderMaterial({ data: material.value, current: revision });
 }, { deep: true });
-defineExpose({ downloadPoster: () => exportMaterial('poster'), downloadError: computed(() => error.value || material.value?.reason || '') });
+defineExpose({
+  downloadPoster: async () => (await exportMaterial('poster')) === true,
+  createPoster: async () => {
+    const result = await exportMaterial('poster', false);
+    return result && typeof result === 'object' ? result : null;
+  },
+  downloadError: computed(() => error.value || material.value?.reason || ''),
+});
 onBeforeUnmount(() => {
   ++revision;
   avatarRequest?.abort();

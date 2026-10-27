@@ -618,6 +618,7 @@ export interface AdminPartnerRelationshipView extends PartnerRelationshipView {
   loginMobile: string;
   sortOrder: number;
   internalNote: string;
+  promotionUnavailableReason?: string;
 }
 
 export type PartnerPosterProfileView = Pick<PartnerProfileView,

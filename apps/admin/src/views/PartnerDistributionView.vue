@@ -6,6 +6,7 @@ import { partnerFieldIssues, partnerServerFieldIssues, type PartnerFieldIssue } 
 import AdminConfirmDialog from '../components/AdminConfirmDialog.vue';
 import { conferenceApi, session } from '../lib/api';
 import PartnerPromotionPanel from '../components/PartnerPromotionPanel.vue';
+import { partnerPosterArchive, partnerPosterUnavailableReason, savePosterFile } from '../lib/partner-poster-download';
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 
 type Tab = 'overview' | 'commissions' | 'payouts' | 'settings';
@@ -72,6 +73,27 @@ let downloadRevision = 0;
 const promotionPanel = ref<InstanceType<typeof PartnerPromotionPanel>>();
 const directDownloadPanel = ref<InstanceType<typeof PartnerPromotionPanel>>();
 const downloadingPartner = ref<AdminPartnerRelationshipView | null>(null);
+const selectedPartnerIds = ref<string[]>([]);
+const batchDownloading = ref(false);
+const posterDownloadNotice = ref('');
+const posterDownloadErrors = ref<Record<string, string>>({});
+const batchProgress = ref('');
+const selectedPartners = computed(() => partners.value.filter(item => selectedPartnerIds.value.includes(item.id)));
+const allPartnersSelected = computed(() => partners.value.length > 0 && selectedPartners.value.length === partners.value.length);
+function selectAllPartners(checked: boolean) {
+  selectedPartnerIds.value = checked ? partners.value.map(item => item.id) : [];
+}
+function cancelPosterDownloads() {
+  ++downloadRevision;
+  downloadingPartner.value = null;
+  batchDownloading.value = false;
+  batchProgress.value = '';
+  posterDownloadNotice.value = '已取消批量下载。';
+}
+function canCompletePromotion(item: AdminPartnerRelationshipView) {
+  const reason = partnerPosterUnavailableReason(item);
+  return item.qualificationStatus === 'active' && /启用推广/.test(reason);
+}
 const posterFieldOptions = [
   { key: 'avatar', label: '头像' }, { key: 'displayName', label: '姓名' },
   { key: 'company', label: '公司' }, { key: 'title', label: '职务' },
@@ -432,6 +454,7 @@ function clearPartnerFieldError(kind: PartnerFormKind, event: Event) {
 }
 
 function openPartnerInvitation() {
+  if (batchDownloading.value || downloadingPartner.value) return;
   if (pending.value || !canManagePartners.value) return;
   Object.assign(enableForm, {
     mobile: '',
@@ -523,6 +546,7 @@ function updatePartner(item: AdminPartnerRelationshipView, status: 'active' | 'p
 }
 
 function openPartnerEditor(item: AdminPartnerRelationshipView, tab: 'profile' | 'promotion' = 'profile') {
+  if (batchDownloading.value || downloadingPartner.value) return;
   ++editorRevision;
   ++downloadRevision;
   downloadingPartner.value = null;
@@ -632,20 +656,88 @@ function removePartnerAvatar() {
 }
 
 async function downloadPartnerPoster(item: AdminPartnerRelationshipView) {
-  if (downloadingPartner.value) return;
+  if (downloadingPartner.value || batchDownloading.value) return;
   const current = ++downloadRevision;
   downloadingPartner.value = item;
   errorMessage.value = '';
+  posterDownloadNotice.value = '';
+  delete posterDownloadErrors.value[item.id];
   try {
     await nextTick();
     if (current !== downloadRevision) return;
     const panel = directDownloadPanel.value;
     const downloaded = await panel?.downloadPoster();
     if (current !== downloadRevision) return;
-    if (downloaded) successMessage.value = '分销海报下载已开始。';
-    else errorMessage.value = panel?.downloadError || '海报下载未完成，请打开编辑查看素材状态后重试。';
+    if (downloaded) posterDownloadNotice.value = `${item.profile.displayName}的海报下载已开始。`;
+    else posterDownloadErrors.value[item.id] = panel?.downloadError || '海报下载未完成，请打开编辑查看素材状态后重试。';
+  } catch (failure) {
+    if (current === downloadRevision) posterDownloadErrors.value[item.id] = failure instanceof Error ? failure.message : '下载失败，请重试。';
   } finally {
     if (current === downloadRevision) downloadingPartner.value = null;
+  }
+}
+
+async function downloadSelectedPosters() {
+  if (batchDownloading.value || downloadingPartner.value || !selectedPartners.value.length) return;
+  const items = [...selectedPartners.value];
+  const current = ++downloadRevision;
+  batchDownloading.value = true;
+  posterDownloadNotice.value = '';
+  posterDownloadErrors.value = {};
+  type PosterFile = NonNullable<Awaited<ReturnType<NonNullable<typeof directDownloadPanel.value>['createPoster']>>>;
+  const generated: Array<{ item: AdminPartnerRelationshipView; file: PosterFile }> = [];
+  try {
+    for (const [index, item] of items.entries()) {
+      if (current !== downloadRevision) return;
+      batchProgress.value = `正在生成 ${index + 1}/${items.length}：${item.profile.displayName}`;
+      const unavailable = partnerPosterUnavailableReason(item);
+      if (unavailable) { posterDownloadErrors.value[item.id] = unavailable; continue; }
+      downloadingPartner.value = item;
+      await nextTick();
+      if (current !== downloadRevision) return;
+      const panel = directDownloadPanel.value;
+      const file = await panel?.createPoster();
+      if (current !== downloadRevision) return;
+      if (file) generated.push({ item, file });
+      else posterDownloadErrors.value[item.id] = panel?.downloadError || '海报生成失败，请重试。';
+      downloadingPartner.value = null;
+      await nextTick();
+    }
+    const verified: PosterFile[] = [];
+    for (const { item, file } of generated) {
+      if (current !== downloadRevision) return;
+      batchProgress.value = `正在核对海报版本：${verified.length + 1}/${generated.length}`;
+      try {
+        const latest = await conferenceApi.getPartnerPromotion(item.id, item.eventId);
+        if (current !== downloadRevision) return;
+        if (latest.availability !== 'ready' || latest.version !== file.material.version ||
+          latest.profile.version !== file.material.profile.version || latest.referralPath !== file.material.referralPath)
+          throw new Error('推广状态或资料已变化，请刷新后重试。');
+        verified.push(file);
+      } catch (failure) {
+        if (current !== downloadRevision) return;
+        posterDownloadErrors.value[item.id] = failure instanceof Error ? failure.message : '素材复核失败，请重试。';
+      }
+    }
+    if (current !== downloadRevision) return;
+    if (verified.length) {
+      batchProgress.value = '正在打包海报…';
+      const archive = await partnerPosterArchive(verified);
+      if (current !== downloadRevision) return;
+      savePosterFile(archive, `合作伙伴海报-${items[0]!.eventId}.zip`);
+    }
+    const skipped = items.length - verified.length;
+    posterDownloadNotice.value = verified.length
+      ? `已打包 ${verified.length} 张海报${skipped ? `，${skipped} 位伙伴未能下载，原因见下方列表` : ''}。`
+      : '没有可下载的海报，原因见下方列表。';
+  } catch (failure) {
+    if (current === downloadRevision) posterDownloadNotice.value = failure instanceof Error ? failure.message : '批量下载失败，请重试。';
+  } finally {
+    if (current === downloadRevision) {
+      batchDownloading.value = false;
+      batchProgress.value = '';
+      downloadingPartner.value = null;
+    }
   }
 }
 
@@ -999,7 +1091,12 @@ onBeforeUnmount(() => {
   if (partnerEditor.value?.open) partnerEditor.value.close();
 });
 onMounted(() => { window.addEventListener('beforeunload', guardPartnerUnload); void load(); });
-watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadRevision; resetAvatarDraft(); downloadingPartner.value = null; editingPartner.value = null; partnerInvitationOpen.value = false; });
+watch(() => session.activeEvent.value?.id, () => {
+  ++editorRevision; ++downloadRevision; resetAvatarDraft();
+  downloadingPartner.value = null; batchDownloading.value = false; batchProgress.value = '';
+  selectedPartnerIds.value = []; posterDownloadErrors.value = {}; posterDownloadNotice.value = '';
+  editingPartner.value = null; partnerInvitationOpen.value = false;
+});
 </script>
 
 <template>
@@ -1114,17 +1211,34 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
         </div>
         <div class="partner-directory-actions">
           <span>{{ partners.length }} 人</span>
+          <label class="partner-selection"><input
+            type="checkbox" aria-label="全选合作伙伴"
+            :checked="allPartnersSelected" :indeterminate="selectedPartners.length > 0 && !allPartnersSelected"
+            :disabled="batchDownloading || !!downloadingPartner"
+            @change="selectAllPartners(($event.target as HTMLInputElement).checked)"
+          />全选</label>
+          <button
+            v-if="canReadPartners" class="button secondary compact" type="button"
+            :disabled="!selectedPartners.length || batchDownloading || !!downloadingPartner"
+            @click="downloadSelectedPosters"
+          >
+            批量下载海报（{{ selectedPartners.length }}）
+          </button>
           <button
             v-if="canManagePartners"
             ref="partnerInvitationTrigger"
             class="button compact"
             type="button"
-            :disabled="pending"
+            :disabled="pending || batchDownloading || !!downloadingPartner"
             @click="openPartnerInvitation"
           >
             新增合作伙伴
           </button>
         </div>
+      </div>
+      <div v-if="batchDownloading || posterDownloadNotice" class="partner-download-summary" role="status" aria-live="polite">
+        <span>{{ batchDownloading ? batchProgress : posterDownloadNotice }}</span>
+        <button v-if="batchDownloading" type="button" class="button secondary compact" @click="cancelPosterDownloads">取消批量下载</button>
       </div>
       <div class="data-table-wrap partner-directory-wrap">
         <table class="data-table partner-directory-table">
@@ -1141,7 +1255,11 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
           <tbody>
             <tr v-for="item in partners" :key="item.id">
               <td data-label="伙伴">
-                <strong>{{ item.profile.displayName }}</strong>
+                <label class="partner-selection"><input
+                                                   v-model="selectedPartnerIds" type="checkbox" :value="item.id"
+                                                   :aria-label="`选择合作伙伴 ${item.profile.displayName}`" :disabled="batchDownloading || !!downloadingPartner"
+                                                 />
+                  <strong>{{ item.profile.displayName }}</strong></label>
                 <small>
                   {{
                     [item.profile.company, item.profile.title].filter(Boolean).join(' · ') ||
@@ -1163,12 +1281,14 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
               </td>
               <td data-label="状态">
                 <span class="status-badge">{{ label(item.qualificationStatus) }}</span>
+                <small>{{ partnerPosterUnavailableReason(item) || '推广已开通' }}</small>
               </td>
               <td data-label="操作">
                 <div class="row-actions">
-                  <button v-if="canReadPartners" type="button" :disabled="!!downloadingPartner || item.qualificationStatus !== 'active' || !item.attributionEnabled" :title="item.qualificationStatus !== 'active' || !item.attributionEnabled ? '当前分销未生效，请查看伙伴状态' : '直接下载最新已保存的海报'" @click="downloadPartnerPoster(item)">{{ downloadingPartner?.id === item.id ? '生成中…' : '下载海报' }}</button>
-                  <button v-if="canReadPartners && !canManagePartners" type="button" @click="openPartnerEditor(item, 'promotion')">查看素材</button>
-                  <button v-if="canManagePartners" type="button" @click="openPartnerEditor(item)">
+                  <button v-if="canReadPartners" type="button" :disabled="batchDownloading || !!downloadingPartner || !!partnerPosterUnavailableReason(item)" :title="partnerPosterUnavailableReason(item) || '直接下载最新已保存的海报'" @click="downloadPartnerPoster(item)">{{ downloadingPartner?.id === item.id ? '生成中…' : '下载海报' }}</button>
+                  <button v-if="canManagePartners && canCompletePromotion(item)" type="button" :disabled="pending || batchDownloading || !!downloadingPartner" @click="updatePartner(item, 'active')">启用推广</button>
+                  <button v-if="canReadPartners && !canManagePartners" type="button" :disabled="batchDownloading || !!downloadingPartner" @click="openPartnerEditor(item, 'promotion')">查看素材</button>
+                  <button v-if="canManagePartners" type="button" :disabled="batchDownloading || !!downloadingPartner" @click="openPartnerEditor(item)">
                     编辑
                   </button>
                   <button
@@ -1191,6 +1311,7 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
                     关闭
                   </button>
                 </div>
+                <p v-if="posterDownloadErrors[item.id]" class="partner-download-feedback" role="alert">{{ posterDownloadErrors[item.id] }}</p>
               </td>
             </tr>
             <tr v-if="!partners.length">
@@ -2158,7 +2279,7 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
           >
             {{ pending ? '正在保存…' : '保存修改' }}
           </button>
-          <button v-if="canManagePartners" type="button" class="button" :disabled="pending || avatarBusy || editingPartner.qualificationStatus !== 'active' || !editingPartner.attributionEnabled" @click="savePartnerDetails(true)">保存并下载</button>
+          <button v-if="canManagePartners" type="button" class="button" :disabled="pending || avatarBusy || !!partnerPosterUnavailableReason(editingPartner)" :title="partnerPosterUnavailableReason(editingPartner)" @click="savePartnerDetails(true)">保存并下载</button>
         </footer>
       </form>
     </dialog>
@@ -2913,6 +3034,10 @@ watch(() => session.activeEvent.value?.id, () => { ++editorRevision; ++downloadR
 .partner-poster-fields input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: #17385e; }
 .partner-poster-fields small { display: block; }
 .row-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.partner-selection { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; }
+.partner-selection input { width: 16px; height: 16px; margin: 0; accent-color: #17385e; flex: 0 0 auto; }
+.partner-download-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; padding: 12px 16px; background: #eef4fa; color: #17385e; border-radius: 8px; font-size: 13px; line-height: 1.7; }
+.partner-download-feedback { margin: 8px 0 0; color: #b42318; font-size: 12px; line-height: 1.7; }
 @media (max-width: 800px) {
   .partner-material-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
   .partner-material-dialog .partner-modal-form { max-height: calc(100dvh - 26px); }

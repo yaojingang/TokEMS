@@ -11,10 +11,11 @@
   },
   "dependencies": {
     "@conference/contracts": "workspace:*",
-    "vue": "3.5.44",
-    "vue-router": "5.4.0",
     "@conference/ui": "workspace:*",
-    "qrcode.vue": "3.11.0"
+    "fflate": "0.8.3",
+    "qrcode.vue": "3.11.0",
+    "vue": "3.5.44",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.10",

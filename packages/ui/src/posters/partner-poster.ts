@@ -32,7 +32,21 @@ export function resolvePartnerPosterContent(
 
 export function partnerPosterFilename(publicName: string | null, eventName: string) {
   const safe = (value: string) => value.replace(/[\\/?%*:|"<>]/gu, '-').trim();
-  return `${safe(publicName || '大会合作伙伴')}-${safe(eventName) || '大会'}-推广海报.png`;
+  return boundedPosterFilename(`${safe(publicName || '大会合作伙伴')}-${safe(eventName) || '大会'}`, '-推广海报.png');
+}
+
+export function boundedPosterFilename(stem: string, suffix = '.png') {
+  const encoder = new TextEncoder();
+  const budget = 240 - encoder.encode(suffix).length;
+  let bytes = 0;
+  let result = '';
+  for (const character of stem) {
+    const size = encoder.encode(character).length;
+    if (bytes + size > budget) break;
+    bytes += size;
+    result += character;
+  }
+  return result + suffix;
 }
 
 export function resolvePartnerPosterOptions(
