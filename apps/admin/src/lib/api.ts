@@ -847,12 +847,12 @@ export const conferenceApi = {
       body: JSON.stringify(input),
     });
   },
-  getDashboard(filters: AdminDashboardQuery = {}, eventId?: EventId) {
+  getDashboard(filters: AdminDashboardQuery = {}, eventId?: EventId, signal?: AbortSignal) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.days) query.set('days', String(filters.days));
     if (filters.from) query.set('from', filters.from);
     if (filters.to) query.set('to', filters.to);
-    return request<AdminDashboard>(`/admin/dashboard?${query}`);
+    return request<AdminDashboard>(`/admin/dashboard?${query}`, { signal: signal ?? null });
   },
   async getEvent(slug?: string, eventId?: EventId) {
     if (!slug) {
@@ -925,7 +925,7 @@ export const conferenceApi = {
       },
     );
   },
-  getRegistrations(filters: Partial<AdminRegistrationListQuery> = {}, eventId?: EventId) {
+  getRegistrations(filters: Partial<AdminRegistrationListQuery> = {}, eventId?: EventId, signal?: AbortSignal) {
     const query = new URLSearchParams({ eventId: String(eventScope(eventId)) });
     if (filters.q) query.set('q', filters.q);
     if (filters.status) query.set('status', filters.status);
@@ -933,7 +933,13 @@ export const conferenceApi = {
     if (filters.invoiceStatus) query.set('invoiceStatus', filters.invoiceStatus);
     if (filters.page) query.set('page', String(filters.page));
     if (filters.pageSize) query.set('pageSize', String(filters.pageSize));
-    return request<AdminRegistrationList>(`/admin/registrations?${query}`);
+    return request<AdminRegistrationList>(`/admin/registrations?${query}`, { signal: signal ?? null });
+  },
+  getRegistrationCount(status: NonNullable<AdminRegistrationListQuery['status']>, eventId?: EventId, signal?: AbortSignal) {
+    const query = new URLSearchParams({ status });
+    return request<{ count: number }>(
+      `/admin/events/${eventScope(eventId)}/registration-count?${query}`, { signal: signal ?? null },
+    );
   },
   getCooperationRequests(
     filters: Partial<AdminCooperationRequestListQuery> = {},
@@ -1044,8 +1050,8 @@ export const conferenceApi = {
       { method: 'POST', body: JSON.stringify(input) },
     );
   },
-  getWaitlist(eventId?: EventId) {
-    return request<WaitlistEntry[]>(`/admin/events/${eventScope(eventId)}/waitlist`);
+  getWaitlist(eventId?: EventId, signal?: AbortSignal) {
+    return request<WaitlistEntry[]>(`/admin/events/${eventScope(eventId)}/waitlist`, { signal: signal ?? null });
   },
   getBatchOrder(orderId: string, eventId?: EventId) {
     return request<RegistrationBatchCheckout>(`/admin/events/${eventScope(eventId)}/orders/${orderId}/items`);
@@ -1850,9 +1856,10 @@ export const conferenceApi = {
   getInvoice(invoiceId: string, eventId?: EventId) {
     return request<InvoiceRequest>(`/admin/events/${eventScope(eventId)}/invoices/${invoiceId}`);
   },
-  getInvoicePendingCount(eventId?: EventId) {
+  getInvoicePendingCount(eventId?: EventId, signal?: AbortSignal) {
     return request<{ count: number }>(
       `/admin/events/${eventScope(eventId)}/invoices/pending-count`,
+      { signal: signal ?? null },
     );
   },
   approveInvoice(invoiceId: string, expectedUpdatedAt: string, eventId?: EventId) {

@@ -149,6 +149,17 @@ export function createDashboardTrendState(loadDashboard: DashboardLoader) {
     return loadTrend({ from: customTrendFrom.value, to: customTrendTo.value });
   }
 
+  function reset() {
+    trendRequestId += 1;
+    dashboard.value = undefined;
+    trendLoading.value = false;
+    trendErrorMessage.value = '';
+    trendPreset.value = 14;
+    appliedTrendRange.value = { from: '', to: '' };
+    customTrendFrom.value = '';
+    customTrendTo.value = '';
+  }
+
   return {
     dashboard,
     trendLoading,
@@ -158,6 +169,7 @@ export function createDashboardTrendState(loadDashboard: DashboardLoader) {
     customTrendFrom,
     customTrendTo,
     acceptDashboard,
+    reset,
     selectTrendPreset,
     applyCustomTrend,
   };

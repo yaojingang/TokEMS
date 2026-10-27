@@ -2,6 +2,29 @@ import { describe, expect, it } from 'vitest';
 import type { Order } from '@conference/contracts';
 import { ADMIN_EVENT_READ_GRANTS, assertEventUpdateGrants } from './admin.module.js';
 
+describe('lightweight registration count endpoint', () => {
+  it('uses the registration-read permission and authenticated organization', async () => {
+    const { AdminModule } = await import('./admin.module.js');
+    const [controller] = Reflect.getMetadata('controllers', AdminModule);
+    const handler = controller.prototype.registrationCount;
+    expect(Reflect.getMetadata('conference.required_grants', handler)).toEqual([
+      'event.registration.read',
+    ]);
+    const countRegistrations = async (...args: unknown[]) => args;
+    const context = { repository: { countRegistrations } };
+    const request = { user: { organizationId: 'authenticated-org' } };
+    await expect(
+      handler.call(context, 101, request, { status: 'pending_payment' }),
+    ).resolves.toEqual([101, 'authenticated-org', 'pending_payment']);
+    expect(() => handler.call(context, 101, request, { status: 'unknown' })).toThrow(
+      '报名计数条件校验失败',
+    );
+    expect(() => handler.call(context, 101, request, { organizationId: 'injected' })).toThrow(
+      '报名计数条件校验失败',
+    );
+  });
+});
+
 describe('admin event read permissions', () => {
   it('allows the public-site reader to load the event workspace shell', () => {
     expect(ADMIN_EVENT_READ_GRANTS).toContain('event.site.read');
