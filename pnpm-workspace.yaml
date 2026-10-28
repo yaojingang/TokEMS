@@ -14,7 +14,8 @@ overrides:
   ini: 1.3.8
   ip-address: 10.7.4
   'nanoid@<3.3.18': 3.3.18
-  qs: 6.16.0
+  node-forge: 1.4.2
+  qs: 6.16.1
   tar: 7.5.21
   devalue: 5.9.3
   'source-map-js@<1.2.2': 1.2.2
@@ -34,6 +35,7 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@nestjs/swagger@11.4.6'
   - bullmq@5.80.6
+  - node-forge@1.4.2
 
 peerDependencyRules:
   allowedVersions:
@@ -47,4 +49,4 @@ peerDependencyRules:
 # Scope and removal conditions: docs/security-audit-exceptions.md
 auditConfig:
   ignoreGhsas:
-    - GHSA-86w9-cpqp-85rv
+    - GHSA-gcqx-w48m-w2h4

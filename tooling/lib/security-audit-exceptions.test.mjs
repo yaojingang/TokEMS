@@ -3,9 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-// Renewed with explicit maintainer approval on 2026-10-26 for the reviewed Nuxt build/development dependency paths.
+// Approved by the maintainer on 2026-10-28 for the reviewed deepmerge build dependency path.
 const approved = {
-  ignoreGhsas: ['GHSA-86w9-cpqp-85rv'],
+  ignoreGhsas: ['GHSA-gcqx-w48m-w2h4'],
 };
 const expiresAt = Date.parse('2026-11-09T00:00:00Z');
 

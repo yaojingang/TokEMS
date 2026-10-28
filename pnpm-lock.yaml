@@ -16,7 +16,8 @@ overrides:
   ini: 1.3.8
   ip-address: 10.7.4
   nanoid@<3.3.18: 3.3.18
-  qs: 6.16.0
+  node-forge: 1.4.2
+  qs: 6.16.1
   tar: 7.5.21
   devalue: 5.9.3
   source-map-js@<1.2.2: 1.2.2
@@ -4330,8 +4331,8 @@ packages:
       encoding:
         optional: true
 
-  node-forge@1.4.0:
-    resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
+  node-forge@1.4.2:
+    resolution: {integrity: sha512-rRtAR5XLJ8gCKd9du4qrKAsgCG1ObGP4gLeNJMa4vYSeq4bmBMOJk5IHkrviBV0q7uoAJlVd8HEQYQSVUb4FGQ==}
     engines: {node: '>= 6.13.0'}
 
   node-gyp-build-optional-packages@5.2.2:
@@ -4653,8 +4654,8 @@ packages:
     peerDependencies:
       vue: ^3.0.0
 
-  qs@6.16.0:
-    resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
+  qs@6.16.1:
+    resolution: {integrity: sha512-5Px6J7rfHBAGUhNQ3es4YzcOdBBw0SDcVtThJml4RdnKw4tKs2epA0kPZ+K8X+WiHktT93RHVcQ/3ym5aTCgtg==}
     engines: {node: '>=0.6'}
 
   quansync@0.2.11:
@@ -9429,7 +9430,7 @@ snapshots:
       h3: 1.15.11
       http-shutdown: 1.2.2
       jiti: 2.7.0
-      node-forge: 1.4.0
+      node-forge: 1.4.2
       pathe: 2.0.3
       std-env: 4.3.0
       tinyclip: 0.1.15
@@ -9728,7 +9729,7 @@ snapshots:
     dependencies:
       whatwg-url: 5.0.0
 
-  node-forge@1.4.0: {}
+  node-forge@1.4.2: {}
 
   node-gyp-build-optional-packages@5.2.2:
     dependencies:
@@ -10152,7 +10153,7 @@ snapshots:
     dependencies:
       vue: 3.5.44(typescript@6.0.3)
 
-  qs@6.16.0:
+  qs@6.16.1:
     dependencies:
       es-define-property: 1.0.1
       side-channel: 1.1.1
@@ -10570,7 +10571,7 @@ snapshots:
       formidable: 3.5.4
       methods: 1.1.2
       mime: 2.6.0
-      qs: 6.16.0
+      qs: 6.16.1
     transitivePeerDependencies:
       - supports-color
 
