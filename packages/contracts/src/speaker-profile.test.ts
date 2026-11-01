@@ -32,6 +32,7 @@ describe('speaker profile contracts', () => {
       '冷洪利',
       '刘树勋',
       '路浩',
+      '吕推',
       '宁海',
       '彭超',
       '彭涛',
@@ -92,6 +93,10 @@ describe('speaker profile contracts', () => {
     expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '岳琦')?.role).toContain(
       '主持人',
     );
+    expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '吕推')).toMatchObject({
+      role: '资深AI营销专家',
+      topic: '分享主题待公布',
+    });
     expect(
       DEMO_EVENT.sessions.find((session) => session.title === 'GEO Agent 实操')?.speaker,
     ).toContain('floatboat');

@@ -1351,6 +1351,22 @@
         "topic": "如何通过数据驱动科学的GEO"
       },
       {
+        "accentFrom": "#2448a8",
+        "accentTo": "#102759",
+        "avatarUrl": "/assets/templates/d646732f-fac6-4e8b-b37d-6d1206bfe22b",
+        "id": "c20d3701-42e8-4990-929e-e33f54b1f4da",
+        "initials": "吕",
+        "name": "吕推",
+        "publicCode": "mgks",
+        "role": "资深AI营销专家",
+        "tags": [
+          "AI创业",
+          "SEO",
+          "GEO"
+        ],
+        "topic": "分享主题待公布"
+      },
+      {
         "accentFrom": "#2563eb",
         "accentTo": "#1e3a8a",
         "avatarUrl": "/assets/templates/874358f2-5e3c-4bfb-9631-12e9dea44a4d",
@@ -1882,6 +1898,26 @@
       "websiteUrl": null
     },
     {
+      "accentFrom": "#2448a8",
+      "accentTo": "#102759",
+      "avatarAssetId": "d646732f-fac6-4e8b-b37d-6d1206bfe22b",
+      "bio": "吕推，1993年出生，来自信丰，处女座。\n\n2007年进入社会，从制衣学徒做起。\n2013年自学网络推广，进入互联网行业。\n2014年通过百度SEO赚到第一桶金。\n2015年创办赣州本地公众号，开始创业。\n2016年获得2800万元天使轮融资，赴上海发展。\n\n项目经历：公众号、小说、店群、在线教育、独立站、SEO&GEO。",
+      "id": "c20d3701-42e8-4990-929e-e33f54b1f4da",
+      "initials": "吕",
+      "name": "吕推",
+      "role": "资深AI营销专家",
+      "socialLinks": [],
+      "sortOrder": 14,
+      "tags": [
+        "AI创业",
+        "SEO",
+        "GEO"
+      ],
+      "topic": "分享主题待公布",
+      "topicAbstract": null,
+      "websiteUrl": null
+    },
+    {
       "accentFrom": "#2563eb",
       "accentTo": "#1e3a8a",
       "avatarAssetId": "874358f2-5e3c-4bfb-9631-12e9dea44a4d",
@@ -1891,7 +1927,7 @@
       "name": "宁海",
       "role": "亚太卫生健康协会联合创始人 · 执行主席",
       "socialLinks": [],
-      "sortOrder": 14,
+      "sortOrder": 15,
       "tags": [
         "卫生健康"
       ],
@@ -1909,7 +1945,7 @@
       "name": "彭超",
       "role": "ClawTime 首席 AI 专家 · 火山核心开发者",
       "socialLinks": [],
-      "sortOrder": 15,
+      "sortOrder": 16,
       "tags": [
         "Agentic",
         "智能体"
@@ -1928,7 +1964,7 @@
       "name": "彭涛",
       "role": "HiAPI 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 16,
+      "sortOrder": 17,
       "tags": [
         "AI 产品",
         "海外增长"
@@ -1947,7 +1983,7 @@
       "name": "乔向阳",
       "role": "知名 AI 自媒体人",
       "socialLinks": [],
-      "sortOrder": 17,
+      "sortOrder": 18,
       "tags": [
         "AI内容",
         "产品传播"
@@ -1966,7 +2002,7 @@
       "name": "任开心",
       "role": "短视频科技博主 · 「开心 AI 工具集」账号作者",
       "socialLinks": [],
-      "sortOrder": 18,
+      "sortOrder": 19,
       "tags": [
         "AI 工具",
         "生成式 AI"
@@ -1985,7 +2021,7 @@
       "name": "任强",
       "role": "北京日报社京报移动副总经理",
       "socialLinks": [],
-      "sortOrder": 19,
+      "sortOrder": 20,
       "tags": [
         "主流媒体",
         "内容公信力"
@@ -2004,7 +2040,7 @@
       "name": "谭少卿",
       "role": "Floatboat 创始人兼 CEO",
       "socialLinks": [],
-      "sortOrder": 20,
+      "sortOrder": 21,
       "tags": [],
       "topic": "如何打造属于自己的超级Agent",
       "topicAbstract": "围绕个人超级 Agent 的构建与应用展开分享。",
@@ -2020,7 +2056,7 @@
       "name": "杨攀",
       "role": "Bilink 创始人",
       "socialLinks": [],
-      "sortOrder": 21,
+      "sortOrder": 22,
       "tags": [
         "AI 趋势",
         "创业机会"
@@ -2039,7 +2075,7 @@
       "name": "姚金刚",
       "role": "猎河科技创始人 · GEOFlow 创始人",
       "socialLinks": [],
-      "sortOrder": 22,
+      "sortOrder": 23,
       "tags": [
         "GEO战略",
         "企业落地"
@@ -2058,7 +2094,7 @@
       "name": "姚诗成",
       "role": "思迈特 CEO",
       "socialLinks": [],
-      "sortOrder": 23,
+      "sortOrder": 24,
       "tags": [
         "企业数据",
         "智能决策"
@@ -2077,7 +2113,7 @@
       "name": "玉伯",
       "role": "YouMind 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 24,
+      "sortOrder": 25,
       "tags": [
         "内容创作",
         "产品增长"
@@ -2096,7 +2132,7 @@
       "name": "岳琦",
       "role": "每经科技首席产品官 · GEO 圆桌主持人",
       "socialLinks": [],
-      "sortOrder": 25,
+      "sortOrder": 26,
       "tags": [
         "GEO 圆桌",
         "企业实践"
@@ -2115,7 +2151,7 @@
       "name": "余一",
       "role": "HowOneAI 主理人",
       "socialLinks": [],
-      "sortOrder": 26,
+      "sortOrder": 27,
       "tags": [
         "AI 研究",
         "行业研究"
@@ -2134,7 +2170,7 @@
       "name": "张莹莹",
       "role": "成长最美、HOCOMO LIMITED创始人",
       "socialLinks": [],
-      "sortOrder": 27,
+      "sortOrder": 28,
       "tags": [
         "达人营销",
         "GEO营销",
@@ -2156,7 +2192,7 @@
       "name": "钟添娇",
       "role": "41财经 & Winseed 创始人",
       "socialLinks": [],
-      "sortOrder": 28,
+      "sortOrder": 29,
       "tags": [
         "AI营销",
         "品牌增长",
