@@ -19,3 +19,13 @@
 - 依赖路径、生产打包范围或相关调用发生变化时，应先移除例外并重新评估。
 - 官方发布修复后，升级依赖、移除对应例外，并同步调整范围检查。全部移除后删除这份临时记录和专用到期检查。
 - 到期仍无修复时，须取得新的明确授权并更新风险核验记录；禁止自动延期。
+
+## 2026-11-01 依赖安全修复核验
+
+PR #164 的构建、质量检查和业务流程通过后，依赖审计发现 minimatch、glob 与 Nuxt 的七项中危公告。按官方修复版本，将 Nuxt 从 4.6.2 升至 4.6.3，并通过现有 overrides 机制固定 glob 14.0.3、minimatch 11.0.3。锁文件由 pnpm 重新生成。
+
+- [minimatch 公告 GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)：修复版本为 11.0.1 及以上。
+- [glob 公告 GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)：修复版本为 14.0.2 及以上。
+- [Nuxt 4.6.3 发布说明](https://github.com/nuxt/nuxt/releases/tag/v4.6.3)：修复开发服务器文件访问与页面路径检查相关问题。
+
+更新后的完整依赖审计通过，中危、高危和严重漏洞均为零。deepmerge 官方最新版本仍为 4.3.1，构建依赖链为 Nuxt 4.6.3 → @nuxt/nitro-server 4.6.3 → nitropack 2.13.5 → @rollup/plugin-node-resolve 16.0.3 → deepmerge 4.3.1。原有低危例外继续限定为 `GHSA-gcqx-w48m-w2h4`，截止时间保持为 2026-11-09 00:00 UTC。
