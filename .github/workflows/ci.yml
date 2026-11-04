@@ -239,6 +239,7 @@ jobs:
           pnpm test:registration-experience
           pnpm test:payment-resume
           pnpm test:admin-order-close
+          node --test tooling/homepage-anchor-smoke.mjs
           PARTNER_ACCOUNT_BASE_URL=http://localhost:3000 pnpm test:partner-account
           pnpm test:partner-dialogs
           node --test tooling/invoice-sms-ui-smoke.mjs

@@ -56,10 +56,9 @@ function outside(event: PointerEvent) {
 function keyboard(event: KeyboardEvent) {
   if (event.key === 'Escape') close(true);
 }
-function focusLeft() {
-  queueMicrotask(() => {
-    if (expanded.value && !root.value?.contains(document.activeElement)) close();
-  });
+function focusLeft(event: FocusEvent) {
+  const next = event.relatedTarget;
+  if (!(next instanceof Node) || !root.value?.contains(next)) close();
 }
 function observeMeasurements() {
   observer?.disconnect();

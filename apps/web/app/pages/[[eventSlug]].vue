@@ -958,7 +958,7 @@ onBeforeUnmount(() => {
 
 <template>
   <a class="skip-link" href="#hero">跳转到主要内容</a>
-  <div class="conference-page conference-home" lang="zh-CN">
+  <div id="main-content" class="conference-page conference-home" lang="zh-CN">
     <!-- ── NAV ── -->
     <nav
       v-if="blockEnabled('home.navigation')"
