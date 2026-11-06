@@ -139,6 +139,40 @@ export const CONFERENCE_SUPPORTERS = [
     source: 'HiAPI 官网',
   },
   {
+    id: 'gogochart',
+    name: 'GOGOCHART',
+    category: 'GEO、SEO 与应用增长',
+    logo: '/images/supporters/gogochart.png',
+    summary: '连接 GEO、SEO 与 ASO，帮助品牌提升在 AI 回答、搜索引擎和应用商店中的可见度。',
+    intro:
+      'GOGOCHART 于 2016 年在香港成立，结合数字营销服务与技术，为品牌提供搜索可见度、移动应用推广及跨市场增长服务。',
+    overview: [
+      '其搜索服务覆盖生成式引擎优化（GEO）、搜索引擎优化（SEO）和应用商店优化（ASO），围绕品牌信息、内容、技术基础与应用商店页面制定优化策略。',
+      '公司同时提供付费广告、社交媒体、创意制作和营销策略服务，并通过 AI 驱动的广告管理平台 AppAura 支持营销活动管理。',
+    ],
+    focusTitle: '连接搜索发现与品牌增长',
+    focus: [
+      '品牌与市场团队可以从搜索需求、竞争信息和受众行为出发，梳理重点市场的问题、主题与应用类别，制定内容和技术优化计划。',
+      '围绕 AI 回答、自然搜索与应用商店持续观察可见度、相关性与转化表现，结合数据调整后续营销工作。',
+    ],
+    highlights: [
+      {
+        title: 'GEO 品牌可见度',
+        body: '梳理品牌实体、可信信息和可引用内容，帮助生成式 AI 准确理解品牌。',
+      },
+      {
+        title: 'SEO 自然搜索',
+        body: '结合网站技术基础、搜索需求与主题内容，提升品牌的自然搜索表现。',
+      },
+      {
+        title: 'ASO 应用增长',
+        body: '围绕应用类别、商店页面和转化信号，优化应用的发现与下载路径。',
+      },
+    ],
+    website: 'https://www.gogochart.com/',
+    source: 'GOGOCHART 官网及公司介绍',
+  },
+  {
     id: 'up-to-her',
     name: '她择 UP TO HER',
     category: '女性护肤与生活方式',
