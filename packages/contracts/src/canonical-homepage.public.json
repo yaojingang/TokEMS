@@ -18,21 +18,21 @@
             "question": "GEO 到底是什么，和 SEO 有什么关系？"
           },
           {
-            "answer": "第一天全天和第二天上午以方法与案例分享为主，涵盖企业 GEO、媒体信源、海外增长和 Agent。第二天下午安排 GEO 工具与数据实操、GEO Agent 实操，主讲和助教带领完成练习。请按会前通知准备电脑、账号和公开品牌资料。",
+            "answer": "两天均有方法与案例分享，涵盖企业 GEO、媒体信源、海外增长、AI 产品和团队。第二天下午在主题分享与圆桌后，安排爱搜 AI、Floatboat 两场 GEO 实操。请按会前通知准备电脑、账号和公开品牌资料。",
             "category": "大会介绍",
             "enabled": true,
             "nodeKey": "faq.beginner",
             "question": "我完全不懂 AI，能听懂吗？"
           },
           {
-            "answer": "本届将企业 GEO 方法、数据决策、媒体信源、出海增长与 Agent 实践串成两天内容。第一天设 GEO 圆桌，第二天下午连续进行两场实操，把品牌诊断数据继续用于 GEO Agent 工作流。",
+            "answer": "本届包含 21 场主题分享、2 场圆桌与 2 场 GEO 实操。第一晚还有会员自由分享和自愿参加的加场分论坛。第二天下午用爱搜 AI 开展 GEO 诊断，再用 Floatboat 搭建 GEO Agent 工作流。",
             "category": "大会介绍",
             "enabled": true,
             "nodeKey": "faq.returning",
             "question": "参加过第一届，第二届还有必要来吗？"
           },
           {
-            "answer": "请携带笔记本电脑和电源，并按会前通知完成工具账号登录与练习资料下载。可以准备企业官网、核心业务问题和可公开的品牌资料；现场也会提供统一示例数据。两场实操在第二天下午连续进行。",
+            "answer": "请携带笔记本电脑和电源，并按会前通知完成工具账号登录与练习资料下载。可准备企业官网、核心业务问题和可公开的品牌资料。两场实操安排在 11月22日 15:50 至 17:50，由拔刀刘、谭少卿依次主讲，每场 60 分钟。",
             "category": "参会准备",
             "enabled": true,
             "nodeKey": "faq.workshop",
@@ -200,8 +200,8 @@
               "marquee8": "出海 GEO",
               "marquee9": "内容资产",
               "organizationsLabel": "参会企业与机构",
-              "sessionsLabel": "主题分享、GEO 圆桌与实操",
-              "sessionsValue": "23",
+              "sessionsLabel": "21 场主题分享、2 场圆桌与 2 场实操",
+              "sessionsValue": "25",
               "speakersLabel": "一线专家与操盘手"
             },
             "enabled": false,
@@ -249,7 +249,7 @@
             "content": {
               "attributionNames": "姚金刚 · 乔向阳",
               "attributionRole": "GEO大会发起人",
-              "item1Body": "第一天全天与第二天上午集中分享，第二天下午在主会场连续完成 GEO 工具与数据实操、GEO Agent 实操。",
+              "item1Body": "两天安排主题分享与圆桌讨论，第二天下午连续完成爱搜 AI、Floatboat 两场 GEO 实操，第一晚增加会员自由分享和自愿参加的加场分论坛。",
               "item1New": "2 天",
               "item1Old": "1 天",
               "item1Title": "从听讲到上手",
@@ -257,7 +257,7 @@
               "item2New": "40+ 专家",
               "item2Old": "20+ 专家",
               "item2Title": "从布道者到操盘手",
-              "item3Body": "两天议程集中在深圳同一主会场，主题分享、GEO 圆桌与两场连续实操贯穿两天，方便参会者完整参与。",
+              "item3Body": "两天议程集中在深圳同一主会场，主题分享、圆桌讨论与两场连续实操贯穿两天，方便参会者完整参与。",
               "item3NewVenue": "深圳主会场",
               "item3OldVenue": "北京单会场",
               "item3Title": "从聚会到行业大会",
@@ -287,31 +287,34 @@
           },
           {
             "content": {
-              "day1AfternoonRange": "13:30 至 18:00",
+              "day1AfternoonRange": "14:00 至 18:10",
               "day1AfternoonTag": "下午场",
-              "day1AfternoonTitle": "数据、媒体、GEO 圆桌与 AI 增长",
-              "day1MorningRange": "09:00 至 12:30",
+              "day1AfternoonTitle": "企业 GEO、专业传播与圆桌分享",
+              "day1EveningRange": "19:30 至 21:05",
+              "day1EveningTag": "晚间场",
+              "day1EveningTitle": "会员自由分享与加场分论坛",
+              "day1MorningRange": "09:00 至 12:15",
               "day1MorningTag": "上午场",
-              "day1MorningTitle": "GEO 战略、企业实践与治理",
-              "day1Subtitle": "主题分享 · GEO 圆桌",
-              "day2AfternoonRange": "13:30 至 17:30",
+              "day1MorningTitle": "媒体信源、海外增长与 AI 原生团队",
+              "day1Subtitle": "主题分享 · 圆桌 · 晚间交流",
+              "day2AfternoonRange": "14:00 至 18:00",
               "day2AfternoonTag": "下午场",
-              "day2AfternoonTitle": "GEO 工具与数据实操 · GEO Agent 实操",
-              "day2ClosingRange": "17:10 至 17:30",
+              "day2AfternoonTitle": "内容增长、圆桌与两场 GEO 实操",
+              "day2ClosingRange": "17:50 至 18:00",
               "day2ClosingTag": "闭幕",
               "day2ClosingTitle": "成果展示与闭幕",
-              "day2GlobalRange": "09:00 至 12:30",
+              "day2GlobalRange": "09:00 至 12:15",
               "day2GlobalTag": "上午场",
-              "day2GlobalTitle": "海外增长、行业研究与 Agent 方法",
-              "day2MorningRange": "09:00 至 12:30",
+              "day2GlobalTitle": "品牌信源、海外增长与数据实践",
+              "day2MorningRange": "09:00 至 12:15",
               "day2MorningTag": "上午场",
-              "day2MorningTitle": "海外增长、行业研究与 Agent 方法",
-              "day2Subtitle": "上午干货分享 · 下午两场实操",
-              "day2WorkshopRange": "13:30 至 17:10",
+              "day2MorningTitle": "品牌信源、海外增长与数据实践",
+              "day2Subtitle": "主题分享 · 圆桌 · 两场实操",
+              "day2WorkshopRange": "15:50 至 17:50",
               "day2WorkshopTag": "下午场",
-              "day2WorkshopTitle": "GEO 工具与数据实操 · GEO Agent 实操",
+              "day2WorkshopTitle": "爱搜AI + GEO实操 · Floatboat + GEO实操",
               "kicker": "AGENDA",
-              "subtitle": "第一天全天与第二天上午集中分享，第二天下午连续完成 GEO 工具与数据实操、GEO Agent 实操。",
+              "subtitle": "两天主题分享与圆桌讨论，第二天下午安排爱搜 AI、Floatboat 两场 GEO 实操；第一晚增加会员自由分享和自愿参加的加场分论坛。",
               "title": "两天，把 GEO 方法带回业务现场"
             },
             "enabled": true,
@@ -705,15 +708,15 @@
         "question": "GEO 到底是什么，和 SEO 有什么关系？"
       },
       {
-        "answer": "第一天全天和第二天上午以方法与案例分享为主，涵盖企业 GEO、媒体信源、海外增长和 Agent。第二天下午安排 GEO 工具与数据实操、GEO Agent 实操，主讲和助教带领完成练习。请按会前通知准备电脑、账号和公开品牌资料。",
+        "answer": "两天均有方法与案例分享，涵盖企业 GEO、媒体信源、海外增长、AI 产品和团队。第二天下午在主题分享与圆桌后，安排爱搜 AI、Floatboat 两场 GEO 实操。请按会前通知准备电脑、账号和公开品牌资料。",
         "question": "我完全不懂 AI，能听懂吗？"
       },
       {
-        "answer": "本届将企业 GEO 方法、数据决策、媒体信源、出海增长与 Agent 实践串成两天内容。第一天设 GEO 圆桌，第二天下午连续进行两场实操，把品牌诊断数据继续用于 GEO Agent 工作流。",
+        "answer": "本届包含 21 场主题分享、2 场圆桌与 2 场 GEO 实操。第一晚还有会员自由分享和自愿参加的加场分论坛。第二天下午用爱搜 AI 开展 GEO 诊断，再用 Floatboat 搭建 GEO Agent 工作流。",
         "question": "参加过第一届，第二届还有必要来吗？"
       },
       {
-        "answer": "请携带笔记本电脑和电源，并按会前通知完成工具账号登录与练习资料下载。可以准备企业官网、核心业务问题和可公开的品牌资料；现场也会提供统一示例数据。两场实操在第二天下午连续进行。",
+        "answer": "请携带笔记本电脑和电源，并按会前通知完成工具账号登录与练习资料下载。可准备企业官网、核心业务问题和可公开的品牌资料。两场实操安排在 11月22日 15:50 至 17:50，由拔刀刘、谭少卿依次主讲，每场 60 分钟。",
         "question": "工作坊需要什么准备？"
       },
       {
@@ -804,221 +807,24 @@
         "day": 1,
         "endsAt": "09:00",
         "id": "66666666-6666-4666-8666-666666666601",
-        "kind": "break",
-        "speaker": "会务组",
-        "startsAt": "08:30",
-        "summary": "领取大会资料，了解第二天下午的实操准备事项。",
-        "title": "签到与自由交流"
-      },
-      {
-        "day": 1,
-        "endsAt": "09:10",
-        "id": "66666666-6666-4666-8666-666666666602",
         "kind": "talk",
         "speaker": "姚金刚 · 乔向阳",
-        "startsAt": "09:00",
-        "summary": "两天学习路径、资料领取方式与实操成果介绍。",
-        "title": "开幕与两日学习导览"
+        "startsAt": "08:30",
+        "summary": "介绍两天学习路径、资料领取与实操准备，09:00 开始第一场主题分享。",
+        "title": "主持开场与两日学习导览"
       },
       {
         "day": 1,
-        "endsAt": "09:40",
-        "id": "66666666-6666-4666-8666-666666666603",
-        "kind": "talk",
-        "speaker": "姚金刚",
-        "startsAt": "09:10",
-        "summary": "从企业场景出发，讲清问题选择、内容资产与效果评价。",
-        "title": "从搜索到答案：企业 GEO 增长战略与落地路径"
-      },
-      {
-        "day": 1,
-        "endsAt": "10:10",
-        "id": "66666666-6666-4666-8666-666666666604",
-        "kind": "talk",
-        "speaker": "陈峥",
-        "startsAt": "09:40",
-        "summary": "企业目标、团队分工、资源投入与 GEO 推进节奏。",
-        "title": "经营增长视角下的 GEO：从战略到组织落地"
-      },
-      {
-        "day": 1,
-        "endsAt": "10:40",
-        "id": "66666666-6666-4666-8666-666666666605",
-        "kind": "talk",
-        "speaker": "刘树勋",
-        "startsAt": "10:10",
-        "summary": "拆解品牌项目的起点、关键动作与结果评价。",
-        "title": "品牌企业如何做好 GEO：内容建设与增长实践"
-      },
-      {
-        "day": 1,
-        "endsAt": "11:00",
-        "id": "66666666-6666-4666-8666-666666666606",
-        "kind": "break",
-        "startsAt": "10:40",
-        "summary": "嘉宾换场与定向交流。",
-        "title": "茶歇与自由交流"
-      },
-      {
-        "day": 1,
-        "endsAt": "11:30",
-        "id": "66666666-6666-4666-8666-666666666607",
-        "kind": "talk",
-        "speaker": "冷洪利",
-        "startsAt": "11:00",
-        "summary": "围绕豆包等 AI 问答入口，讲解视频矩阵的信源建设方法，从品牌介绍、案例、行业解读到 FAQ，按用户问题组织视频内容并观察品牌可见度。",
-        "title": "豆包 GEO 信源建设之视频矩阵"
-      },
-      {
-        "day": 1,
-        "endsAt": "12:00",
-        "id": "66666666-6666-4666-8666-666666666608",
-        "kind": "talk",
-        "speaker": "高军",
-        "startsAt": "11:30",
-        "summary": "把内容、信源、指标与责任分工纳入企业管理流程。",
-        "title": "从优化到治理：全域 GEO 时代的品牌营销操作系统"
-      },
-      {
-        "day": 1,
-        "endsAt": "12:30",
-        "id": "66666666-6666-4666-8666-666666666609",
-        "kind": "talk",
-        "speaker": "拔刀刘",
-        "startsAt": "12:00",
-        "summary": "用监测到优化的实例，连接数据底座与增长动作。",
-        "title": "数据底座驱动 GEO：从监控到增长的实战方法论"
-      },
-      {
-        "day": 1,
-        "endsAt": "13:30",
-        "id": "66666666-6666-4666-8666-666666666610",
-        "kind": "break",
-        "startsAt": "12:30",
-        "summary": "自由交流。",
-        "title": "午间休息"
-      },
-      {
-        "day": 1,
-        "endsAt": "14:00",
-        "id": "66666666-6666-4666-8666-666666666611",
-        "kind": "talk",
-        "speaker": "姚诗成",
-        "startsAt": "13:30",
-        "summary": "用业务决策看板连接企业数据、AI 引用信号与经营目标。",
-        "title": "BI 与企业数据如何驱动 GEO 决策"
-      },
-      {
-        "day": 1,
-        "endsAt": "14:30",
-        "id": "66666666-6666-4666-8666-666666666612",
-        "kind": "talk",
-        "speaker": "苍何",
-        "startsAt": "14:00",
-        "summary": "围绕 GEO 服务交付，分享项目落地中的实战经验。",
-        "title": "GEO 落地服务实战"
-      },
-      {
-        "day": 1,
-        "endsAt": "15:00",
+        "endsAt": "09:30",
         "id": "66666666-6666-4666-8666-666666666613",
         "kind": "talk",
         "speaker": "任强",
-        "startsAt": "14:30",
+        "startsAt": "09:00",
         "summary": "从媒体 GEO 实践出发，拆解可信内容的生产与使用场景。",
         "title": "主流媒体在 AI 答案时代的内容价值与可信表达"
       },
       {
         "day": 1,
-        "endsAt": "15:25",
-        "id": "66666666-6666-4666-8666-666666666614",
-        "kind": "workshop",
-        "speaker": "主持：岳琦\n嘉宾：张莹莹等 GEO 专家",
-        "startsAt": "15:00",
-        "summary": "邀请多位 GEO 专家讨论企业实践、可信信源与效果评价。张莹莹将从生意视角分享 GEO 与达人营销的衔接及闭环增长，其他参与嘉宾将陆续公布。",
-        "title": "GEO 圆桌：企业实践、可信信源与增长评估"
-      },
-      {
-        "day": 1,
-        "endsAt": "15:45",
-        "id": "ef496f1e-9267-40a7-85c9-ddbc529ea807",
-        "kind": "break",
-        "startsAt": "15:25",
-        "summary": "交流下午场收获，提交关心的问题。",
-        "title": "茶歇与自由交流"
-      },
-      {
-        "day": 1,
-        "endsAt": "16:15",
-        "id": "6a77944f-ce1f-4219-9b65-669846358600",
-        "kind": "talk",
-        "speaker": "大尤",
-        "startsAt": "15:45",
-        "summary": "从业务选择、转化路径与投入取舍出发，形成可执行的增长动作。",
-        "title": "中小企业 GEO 落地：从第一个场景到增长闭环"
-      },
-      {
-        "day": 1,
-        "endsAt": "16:45",
-        "id": "fad4bbf2-f51c-426b-a990-dddb7f049123",
-        "kind": "talk",
-        "speaker": "乔向阳",
-        "startsAt": "16:15",
-        "summary": "结合内容改写与传播案例，分享 AI 内容的方法与实践。",
-        "title": "AI 内容如何被看见、理解与推荐"
-      },
-      {
-        "day": 1,
-        "endsAt": "17:15",
-        "id": "d7e61c36-0284-4f5d-ada5-f0218a125695",
-        "kind": "talk",
-        "speaker": "玉伯",
-        "startsAt": "16:45",
-        "summary": "连接产品体验、创作行为与持续增长。",
-        "title": "内容创作型产品如何做增长"
-      },
-      {
-        "day": 1,
-        "endsAt": "17:45",
-        "id": "468203d0-9fe6-458e-b043-a1a162427815",
-        "kind": "talk",
-        "speaker": "杨攀",
-        "startsAt": "17:15",
-        "summary": "从趋势判断走向机会选择与实际验证。",
-        "title": "从 AI 发展趋势中寻找新机会"
-      },
-      {
-        "day": 1,
-        "endsAt": "18:00",
-        "id": "6d5bb0d3-74bb-4e47-bdd2-ece2c13d8990",
-        "kind": "talk",
-        "speaker": "主持：乔向阳",
-        "startsAt": "17:45",
-        "summary": "回应当天高频问题，说明次日电脑、品牌资料与练习环境的准备事项。",
-        "title": "当日问题复盘与实操提醒"
-      },
-      {
-        "day": 2,
-        "endsAt": "09:00",
-        "id": "66666666-6666-4666-8666-666666666615",
-        "kind": "break",
-        "speaker": "会务组与助教",
-        "startsAt": "08:30",
-        "summary": "提前下载练习资料，检查账号与网络。",
-        "title": "入场与练习资料下载"
-      },
-      {
-        "day": 2,
-        "endsAt": "09:30",
-        "id": "66666666-6666-4666-8666-666666666616",
-        "kind": "talk",
-        "speaker": "哥飞",
-        "startsAt": "09:00",
-        "summary": "从出海网站实战出发，分享同时获取 SEO 与 GEO 流量的思路，以及从需求发现、网站建设到流量变现的实践路径。",
-        "title": "如何另辟蹊径同时获取SEO和GEO流量"
-      },
-      {
-        "day": 2,
         "endsAt": "10:00",
         "id": "66666666-6666-4666-8666-666666666617",
         "kind": "talk",
@@ -1028,112 +834,326 @@
         "title": "WaytoGrowth 海外营销增长策略"
       },
       {
-        "day": 2,
+        "day": 1,
         "endsAt": "10:30",
+        "id": "66666666-6666-4666-8666-666666666609",
+        "kind": "talk",
+        "speaker": "拔刀刘",
+        "startsAt": "10:00",
+        "summary": "用监测到优化的实例，连接数据底座与增长动作。",
+        "title": "数据底座驱动 GEO：从监控到增长的实战方法论"
+      },
+      {
+        "day": 1,
+        "endsAt": "10:45",
+        "id": "66666666-6666-4666-8666-666666666606",
+        "kind": "break",
+        "startsAt": "10:30",
+        "summary": "嘉宾换场与交流。",
+        "title": "茶歇与自由交流"
+      },
+      {
+        "day": 1,
+        "endsAt": "11:15",
+        "id": "66666666-6666-4666-8666-666666666602",
+        "kind": "talk",
+        "speaker": "张栖铭",
+        "startsAt": "10:45",
+        "summary": "围绕 AI 原生研发，分享构建 AI Native 团队的方法。",
+        "title": "AI 原生研发指南：如何构建AI Native团队"
+      },
+      {
+        "day": 1,
+        "endsAt": "11:45",
+        "id": "66666666-6666-4666-8666-666666666616",
+        "kind": "talk",
+        "speaker": "哥飞",
+        "startsAt": "11:15",
+        "summary": "从出海网站实战出发，分享同时获取 SEO 与 GEO 流量的思路，以及从需求发现、网站建设到流量变现的实践路径。",
+        "title": "如何另辟蹊径同时获取SEO和GEO流量"
+      },
+      {
+        "day": 1,
+        "endsAt": "12:15",
+        "id": "66666666-6666-4666-8666-666666666603",
+        "kind": "talk",
+        "speaker": "谭少卿",
+        "startsAt": "11:45",
+        "summary": "围绕个人超级 Agent 的构建与应用展开分享。",
+        "title": "如何打造属于自己的超级Agent"
+      },
+      {
+        "day": 1,
+        "endsAt": "14:00",
+        "id": "66666666-6666-4666-8666-666666666610",
+        "kind": "break",
+        "startsAt": "12:15",
+        "summary": "14:00 开始下午议程。",
+        "title": "午间休息"
+      },
+      {
+        "day": 1,
+        "endsAt": "14:30",
+        "id": "66666666-6666-4666-8666-666666666605",
+        "kind": "talk",
+        "speaker": "刘树勋",
+        "startsAt": "14:00",
+        "summary": "拆解品牌项目的起点、关键动作与结果评价。",
+        "title": "品牌企业如何做好 GEO：内容建设与增长实践"
+      },
+      {
+        "day": 1,
+        "endsAt": "15:00",
+        "id": "66666666-6666-4666-8666-666666666611",
+        "kind": "talk",
+        "speaker": "艾奇先生",
+        "startsAt": "14:30",
+        "title": "从关键词到高维场景，AI时代GEO全场景词包策划方法论"
+      },
+      {
+        "day": 1,
+        "endsAt": "15:30",
+        "id": "66666666-6666-4666-8666-666666666612",
+        "kind": "talk",
+        "speaker": "苍何",
+        "startsAt": "15:00",
+        "summary": "围绕 GEO 服务交付，分享项目落地中的实战经验。",
+        "title": "GEO 落地服务实战"
+      },
+      {
+        "day": 1,
+        "endsAt": "15:50",
+        "id": "66666666-6666-4666-8666-666666666614",
+        "kind": "talk",
+        "speaker": "岳琦",
+        "startsAt": "15:30",
+        "summary": "从专业媒体传播视角，讨论 GEO 与品牌信任建设。",
+        "title": "当GEO成为信任基建，品牌怎么做专业媒体式传播？"
+      },
+      {
+        "day": 1,
+        "endsAt": "16:25",
+        "id": "fad4bbf2-f51c-426b-a990-dddb7f049123",
+        "kind": "workshop",
+        "speaker": "主持：岳琦\n嘉宾：吕推、张莹莹、安美奇",
+        "startsAt": "15:50",
+        "summary": "岳琦主持，与吕推、张莹莹、安美奇共同交流。",
+        "title": "GEO 圆桌分享"
+      },
+      {
+        "day": 1,
+        "endsAt": "16:40",
+        "id": "ef496f1e-9267-40a7-85c9-ddbc529ea807",
+        "kind": "break",
+        "startsAt": "16:25",
+        "summary": "交流下午场收获。",
+        "title": "茶歇与自由交流"
+      },
+      {
+        "day": 1,
+        "endsAt": "17:10",
+        "id": "468203d0-9fe6-458e-b043-a1a162427815",
+        "kind": "talk",
+        "speaker": "杨攀",
+        "startsAt": "16:40",
+        "summary": "从趋势判断走向机会选择与实际验证。",
+        "title": "从 AI 发展趋势中寻找新机会"
+      },
+      {
+        "day": 1,
+        "endsAt": "17:40",
+        "id": "66666666-6666-4666-8666-666666666608",
+        "kind": "talk",
+        "speaker": "高军",
+        "startsAt": "17:10",
+        "summary": "把内容、信源、指标与责任分工纳入企业管理流程。",
+        "title": "从优化到治理：全域 GEO 时代的品牌营销操作系统"
+      },
+      {
+        "day": 1,
+        "endsAt": "18:10",
+        "id": "66666666-6666-4666-8666-666666666604",
+        "kind": "talk",
+        "speaker": "陈峥",
+        "startsAt": "17:40",
+        "summary": "企业目标、团队分工、资源投入与 GEO 推进节奏。",
+        "title": "经营增长视角下的 GEO：从战略到组织落地"
+      },
+      {
+        "day": 1,
+        "endsAt": "19:30",
+        "id": "6d5bb0d3-74bb-4e47-bdd2-ece2c13d8990",
+        "kind": "break",
+        "startsAt": "18:10",
+        "summary": "19:30 开始会员自由分享。",
+        "title": "晚间休息"
+      },
+      {
+        "day": 1,
+        "endsAt": "20:05",
+        "id": "66666666-6666-4666-8666-666666666615",
+        "kind": "talk",
+        "speaker": "参会会员",
+        "startsAt": "19:30",
+        "summary": "每人 5 分钟，按 7 位会员预留共 35 分钟。",
+        "title": "会员自由分享"
+      },
+      {
+        "day": 1,
+        "endsAt": "21:05",
+        "id": "66666666-6666-4666-8666-666666666620",
+        "kind": "talk",
+        "speaker": "宁海 · 陈峥",
+        "startsAt": "20:05",
+        "summary": "自由参加，预留 60 分钟，现场交流可适当延长。",
+        "title": "加场分论坛（自愿参加）"
+      },
+      {
+        "day": 2,
+        "endsAt": "09:00",
+        "id": "66666666-6666-4666-8666-666666666622",
+        "kind": "talk",
+        "speaker": "乔向阳",
+        "startsAt": "08:30",
+        "summary": "介绍当天分享与实操安排，09:00 开始第一场主题分享。",
+        "title": "主持开场与当日学习导览"
+      },
+      {
+        "day": 2,
+        "endsAt": "09:30",
+        "id": "66666666-6666-4666-8666-666666666607",
+        "kind": "talk",
+        "speaker": "冷洪利",
+        "startsAt": "09:00",
+        "summary": "围绕豆包等 AI 问答入口，讲解视频矩阵的信源建设方法，从品牌介绍、案例、行业解读到 FAQ，按用户问题组织视频内容并观察品牌可见度。",
+        "title": "豆包 GEO 信源建设之视频矩阵"
+      },
+      {
+        "day": 2,
+        "endsAt": "10:00",
         "id": "a4c60f6f-1e8e-4a6b-b6f5-b386e186b810",
         "kind": "talk",
         "speaker": "彭涛",
-        "startsAt": "10:00",
+        "startsAt": "09:30",
         "summary": "分享 AI 产品面向海外市场的增长策略。",
         "title": "AI 产品的海外增长策略"
       },
       {
         "day": 2,
-        "endsAt": "11:00",
-        "id": "66666666-6666-4666-8666-666666666618",
+        "endsAt": "10:30",
+        "id": "66666666-6666-4666-8666-666666666623",
         "kind": "talk",
-        "speaker": "Berryxia",
-        "startsAt": "10:30",
-        "summary": "连接内容定位、受众积累与商业转化。",
-        "title": "从个人博主到商业闭环：X 上的 AI 内容变现全链路"
+        "speaker": "钟添娇",
+        "startsAt": "10:00",
+        "summary": "围绕 AI 营销基础设施与全球信源网络，分享品牌增长实践。",
+        "title": "从流量争夺到答案争夺：AI时代品牌营销基础设施的重构"
       },
       {
         "day": 2,
-        "endsAt": "11:15",
+        "endsAt": "10:45",
         "id": "66666666-6666-4666-8666-666666666619",
-        "kind": "talk",
-        "startsAt": "11:00",
-        "summary": "助教提供练习环境协助。",
+        "kind": "break",
+        "startsAt": "10:30",
+        "summary": "嘉宾换场与交流。",
         "title": "茶歇与自由交流"
       },
       {
         "day": 2,
-        "endsAt": "11:45",
-        "id": "66666666-6666-4666-8666-666666666620",
-        "kind": "talk",
-        "speaker": "余一",
-        "startsAt": "11:15",
-        "summary": "围绕行业问题，完成资料搜集、信息核验、分析与引用。",
-        "title": "如何借助 AI 做行业研究"
-      },
-      {
-        "day": 2,
-        "endsAt": "12:15",
+        "endsAt": "11:15",
         "id": "66666666-6666-4666-8666-666666666621",
         "kind": "talk",
         "speaker": "岚叔",
-        "startsAt": "11:45",
+        "startsAt": "10:45",
         "summary": "从企业客户场景出发，定义交付物、验收标准与增长机会。",
         "title": "交付即增长：AI 时代企业客户的另一条路"
       },
       {
         "day": 2,
-        "endsAt": "12:45",
-        "id": "66666666-6666-4666-8666-666666666622",
+        "endsAt": "11:45",
+        "id": "66666666-6666-4666-8666-666666666625",
         "kind": "talk",
-        "speaker": "彭超",
-        "startsAt": "12:15",
-        "summary": "智能体的任务拆解、工具调用、结果检查与人工介入。",
-        "title": "Agentic 之道"
+        "speaker": "路浩",
+        "startsAt": "11:15",
+        "summary": "围绕数据驱动的 GEO 方法展开分享。",
+        "title": "如何通过数据驱动科学的GEO"
       },
       {
         "day": 2,
-        "endsAt": "13:00",
-        "id": "66666666-6666-4666-8666-666666666623",
+        "endsAt": "12:15",
+        "id": "d7e61c36-0284-4f5d-ada5-f0218a125695",
         "kind": "talk",
-        "speaker": "拔刀刘 · floatboat · 助教",
-        "startsAt": "12:45",
-        "summary": "介绍练习品牌、输入文件、输出位置与完成标准。",
-        "title": "实操任务说明与环境核验"
+        "speaker": "玉伯",
+        "startsAt": "11:45",
+        "summary": "连接产品体验、创作行为与持续增长。",
+        "title": "内容创作型产品如何做增长"
       },
       {
         "day": 2,
         "endsAt": "14:00",
         "id": "66666666-6666-4666-8666-666666666624",
-        "kind": "talk",
-        "startsAt": "13:00",
-        "summary": "环境协助台开放，处理账号与电脑问题。",
+        "kind": "break",
+        "startsAt": "12:15",
+        "summary": "14:00 开始下午议程，可提前检查实操账号与电脑环境。",
         "title": "午间休息"
       },
       {
         "day": 2,
-        "endsAt": "15:40",
-        "id": "66666666-6666-4666-8666-666666666625",
+        "endsAt": "14:30",
+        "id": "6a77944f-ce1f-4219-9b65-669846358600",
         "kind": "talk",
-        "speaker": "主讲：拔刀刘",
+        "speaker": "大尤",
         "startsAt": "14:00",
-        "summary": "建立问题集，收集 AI 回答与引用证据，产出品牌诊断表和优化任务清单。助教现场带练。",
-        "title": "GEO 工具与数据实操"
+        "summary": "从业务选择、转化路径与投入取舍出发，形成可执行的增长动作。",
+        "title": "中小企业 GEO 落地：从第一个场景到增长闭环"
       },
       {
         "day": 2,
-        "endsAt": "16:00",
+        "endsAt": "15:00",
+        "id": "66666666-6666-4666-8666-666666666618",
+        "kind": "talk",
+        "speaker": "Berryxia",
+        "startsAt": "14:30",
+        "summary": "连接内容定位、受众积累与商业转化。",
+        "title": "从个人博主到商业闭环：X 上的 AI 内容变现全链路"
+      },
+      {
+        "day": 2,
+        "endsAt": "15:35",
         "id": "66666666-6666-4666-8666-666666666626",
-        "kind": "talk",
-        "speaker": "助教",
-        "startsAt": "15:40",
-        "summary": "导出第一场诊断数据，准备 GEO Agent 实操输入。",
-        "title": "茶歇与数据交接"
+        "kind": "workshop",
+        "speaker": "嘉宾：余一、彭超、谭少卿",
+        "startsAt": "15:00",
+        "summary": "余一、彭超、谭少卿共同参与圆桌分享。",
+        "title": "圆桌分享"
       },
       {
         "day": 2,
-        "endsAt": "17:40",
+        "endsAt": "15:50",
         "id": "66666666-6666-4666-8666-666666666627",
+        "kind": "break",
+        "startsAt": "15:35",
+        "summary": "下载练习资料，检查工具账号与网络。",
+        "title": "茶歇与实操准备"
+      },
+      {
+        "day": 2,
+        "endsAt": "16:50",
+        "id": "03595f8a-5c4e-4e78-b207-0c2cb76cc095",
         "kind": "talk",
-        "speaker": "主讲：floatboat\n方法点评：彭超",
-        "startsAt": "16:00",
-        "summary": "使用品牌资料与诊断数据，搭建可复用的 GEO Agent 工作流，生成诊断报告与内容任务。助教现场带练。",
-        "title": "GEO Agent 实操"
+        "speaker": "拔刀刘",
+        "startsAt": "15:50",
+        "summary": "使用爱搜 AI 开展 GEO 实操，完成问题集、AI 回答与引用证据整理，形成品牌诊断和优化任务。",
+        "title": "爱搜AI + GEO实操"
+      },
+      {
+        "day": 2,
+        "endsAt": "17:50",
+        "id": "9b1f1a48-3b5c-46be-9b12-6d9261169ca5",
+        "kind": "talk",
+        "speaker": "谭少卿",
+        "startsAt": "16:50",
+        "summary": "结合品牌资料与诊断数据，使用 Floatboat 搭建 GEO Agent 工作流。",
+        "title": "Floatboat + GEO实操"
       },
       {
         "day": 2,
@@ -1141,8 +1161,8 @@
         "id": "66666666-6666-4666-8666-666666666628",
         "kind": "talk",
         "speaker": "主持：乔向阳",
-        "startsAt": "17:40",
-        "summary": "展示练习成果，讲解验收与复用方式，整理会后行动。",
+        "startsAt": "17:50",
+        "summary": "展示练习成果，整理会后行动。",
         "title": "成果展示与闭幕"
       }
     ],
@@ -1178,6 +1198,19 @@
           "内容资产"
         ],
         "topic": "从关键词到高维场景，AI时代GEO全场景词包策划方法论"
+      },
+      {
+        "accentFrom": "#2448a8",
+        "accentTo": "#102759",
+        "id": "58424ced-793f-46a9-8294-00fa9fb43a44",
+        "initials": "安",
+        "name": "安美奇",
+        "publicCode": "cnsy",
+        "role": "答案时代创始人",
+        "tags": [
+          "GEO 圆桌"
+        ],
+        "topic": "圆桌分享"
       },
       {
         "accentFrom": "#d97706",
@@ -1364,7 +1397,7 @@
           "SEO",
           "GEO"
         ],
-        "topic": "分享主题待公布"
+        "topic": "圆桌分享"
       },
       {
         "accentFrom": "#2563eb",
@@ -1378,7 +1411,7 @@
         "tags": [
           "卫生健康"
         ],
-        "topic": "分论坛医药板块主持"
+        "topic": "加场分论坛（自愿参加）"
       },
       {
         "accentFrom": "#ea580c",
@@ -1392,7 +1425,7 @@
           "Agentic",
           "智能体"
         ],
-        "topic": "Agentic 之道"
+        "topic": "圆桌分享"
       },
       {
         "accentFrom": "#3d547e",
@@ -1443,7 +1476,7 @@
         "initials": "任",
         "name": "任强",
         "publicCode": "vphk",
-        "role": "北京日报社京报移动副总经理",
+        "role": "北京日报社京报移动副总经理，北京日报智源GEO负责人",
         "tags": [
           "主流媒体",
           "内容公信力"
@@ -1525,12 +1558,12 @@
         "initials": "岳",
         "name": "岳琦",
         "publicCode": "bofl",
-        "role": "每经科技首席产品官 · GEO 圆桌主持人",
+        "role": "每经科技首席产品官 · 资深财经媒体人",
         "tags": [
           "GEO 圆桌",
           "企业实践"
         ],
-        "topic": "GEO 圆桌：企业实践、可信信源与增长评估"
+        "topic": "当GEO成为信任基建，品牌怎么做专业媒体式传播？"
       },
       {
         "accentFrom": "#16a34a",
@@ -1544,7 +1577,21 @@
           "AI 研究",
           "行业研究"
         ],
-        "topic": "如何借助 AI 做行业研究"
+        "topic": "圆桌分享"
+      },
+      {
+        "accentFrom": "#2448a8",
+        "accentTo": "#102759",
+        "id": "13421a40-13df-4cf0-b76e-660f7a719239",
+        "initials": "张",
+        "name": "张栖铭",
+        "publicCode": "ubri",
+        "role": "botlearn联合创始人",
+        "tags": [
+          "AI 原生研发",
+          "AI Native 团队"
+        ],
+        "topic": "AI 原生研发指南：如何构建AI Native团队"
       },
       {
         "accentFrom": "#2448a8",
@@ -1562,7 +1609,7 @@
           "需求洞察",
           "闭环增长"
         ],
-        "topic": "GEO 圆桌：从生意视角看 GEO 与达人营销"
+        "topic": "圆桌分享"
       },
       {
         "accentFrom": "#2448a8",
@@ -1662,6 +1709,24 @@
       "websiteUrl": null
     },
     {
+      "accentFrom": "#2448a8",
+      "accentTo": "#102759",
+      "avatarAssetId": null,
+      "bio": "答案时代创始人。",
+      "id": "58424ced-793f-46a9-8294-00fa9fb43a44",
+      "initials": "安",
+      "name": "安美奇",
+      "role": "答案时代创始人",
+      "socialLinks": [],
+      "sortOrder": 2,
+      "tags": [
+        "GEO 圆桌"
+      ],
+      "topic": "圆桌分享",
+      "topicAbstract": "参与 11月21日下午圆桌分享，由岳琦主持，与吕推、张莹莹共同交流。",
+      "websiteUrl": null
+    },
+    {
       "accentFrom": "#d97706",
       "accentTo": "#78350f",
       "avatarAssetId": "7506dfb0-15b6-4f7a-b16e-5743ffdbca3a",
@@ -1671,7 +1736,7 @@
       "name": "拔刀刘",
       "role": "AIDSO 爱搜 AI 合伙人",
       "socialLinks": [],
-      "sortOrder": 2,
+      "sortOrder": 3,
       "tags": [
         "数据底座",
         "GEO 监测"
@@ -1690,7 +1755,7 @@
       "name": "Berryxia",
       "role": "AI 博主 · 提示词小子",
       "socialLinks": [],
-      "sortOrder": 3,
+      "sortOrder": 4,
       "tags": [
         "AI 内容",
         "内容变现"
@@ -1709,7 +1774,7 @@
       "name": "苍何",
       "role": "微软 MVP · 前排 GEO 研究院主任 · AI KOL",
       "socialLinks": [],
-      "sortOrder": 4,
+      "sortOrder": 5,
       "tags": [
         "GEO",
         "落地服务"
@@ -1728,7 +1793,7 @@
       "name": "陈峥",
       "role": "欧博东方 CEO",
       "socialLinks": [],
-      "sortOrder": 5,
+      "sortOrder": 6,
       "tags": [
         "经营增长",
         "组织落地"
@@ -1747,7 +1812,7 @@
       "name": "大尤",
       "role": "大有可为创始人 · 《红利思维》作者",
       "socialLinks": [],
-      "sortOrder": 6,
+      "sortOrder": 7,
       "tags": [
         "企业实战",
         "增长闭环"
@@ -1766,7 +1831,7 @@
       "name": "夫唯",
       "role": "特邀嘉宾 · SEOWHY 搜外创始人 · 搜索营销专家",
       "socialLinks": [],
-      "sortOrder": 7,
+      "sortOrder": 8,
       "tags": [
         "特邀嘉宾",
         "搜索营销"
@@ -1785,7 +1850,7 @@
       "name": "高军",
       "role": "媒介匣创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 8,
+      "sortOrder": 9,
       "tags": [
         "GEO 治理",
         "品牌管理"
@@ -1809,7 +1874,7 @@
           "url": "https://new.web.cafe/about"
         }
       ],
-      "sortOrder": 9,
+      "sortOrder": 10,
       "tags": [
         "SEO",
         "GEO",
@@ -1829,7 +1894,7 @@
       "name": "岚叔",
       "role": "AI 博主 · 大厂技术专家",
       "socialLinks": [],
-      "sortOrder": 10,
+      "sortOrder": 11,
       "tags": [
         "企业服务",
         "交付增长"
@@ -1848,7 +1913,7 @@
       "name": "冷洪利",
       "role": "曝光率GEO创始人",
       "socialLinks": [],
-      "sortOrder": 11,
+      "sortOrder": 12,
       "tags": [
         "豆包 GEO",
         "视频矩阵"
@@ -1872,7 +1937,7 @@
           "url": "https://u.wechat.com/EMaid8xByc7aAZP39vPWdlo?s=2"
         }
       ],
-      "sortOrder": 12,
+      "sortOrder": 13,
       "tags": [
         "品牌GEO",
         "增长实践"
@@ -1891,10 +1956,10 @@
       "name": "路浩",
       "role": "Dageno AI 创始人",
       "socialLinks": [],
-      "sortOrder": 13,
+      "sortOrder": 14,
       "tags": [],
       "topic": "如何通过数据驱动科学的GEO",
-      "topicAbstract": null,
+      "topicAbstract": "围绕数据驱动的 GEO 方法展开分享。",
       "websiteUrl": null
     },
     {
@@ -1907,14 +1972,14 @@
       "name": "吕推",
       "role": "资深AI营销专家",
       "socialLinks": [],
-      "sortOrder": 14,
+      "sortOrder": 15,
       "tags": [
         "AI创业",
         "SEO",
         "GEO"
       ],
-      "topic": "分享主题待公布",
-      "topicAbstract": null,
+      "topic": "圆桌分享",
+      "topicAbstract": "参与 11月21日下午圆桌分享，由岳琦主持，与吕推、张莹莹、安美奇共同交流。",
       "websiteUrl": null
     },
     {
@@ -1927,12 +1992,12 @@
       "name": "宁海",
       "role": "亚太卫生健康协会联合创始人 · 执行主席",
       "socialLinks": [],
-      "sortOrder": 15,
+      "sortOrder": 16,
       "tags": [
         "卫生健康"
       ],
-      "topic": "分论坛医药板块主持",
-      "topicAbstract": null,
+      "topic": "加场分论坛（自愿参加）",
+      "topicAbstract": "与陈峥共同参与 11月21日晚间加场分论坛，参会者可自愿参加。",
       "websiteUrl": null
     },
     {
@@ -1945,13 +2010,13 @@
       "name": "彭超",
       "role": "ClawTime 首席 AI 专家 · 火山核心开发者",
       "socialLinks": [],
-      "sortOrder": 16,
+      "sortOrder": 17,
       "tags": [
         "Agentic",
         "智能体"
       ],
-      "topic": "Agentic 之道",
-      "topicAbstract": "围绕 Agentic 产品与系统的构建逻辑，分享从任务理解、工具调用到自主执行与结果交付的关键方法，并讨论实践中的取舍与演进方向。",
+      "topic": "圆桌分享",
+      "topicAbstract": "参与 11月22日下午圆桌分享，与余一、彭超、谭少卿共同交流。",
       "websiteUrl": null
     },
     {
@@ -1964,7 +2029,7 @@
       "name": "彭涛",
       "role": "HiAPI 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 17,
+      "sortOrder": 18,
       "tags": [
         "AI 产品",
         "海外增长"
@@ -1983,7 +2048,7 @@
       "name": "乔向阳",
       "role": "知名 AI 自媒体人",
       "socialLinks": [],
-      "sortOrder": 18,
+      "sortOrder": 19,
       "tags": [
         "AI内容",
         "产品传播"
@@ -2002,7 +2067,7 @@
       "name": "任开心",
       "role": "短视频科技博主 · 「开心 AI 工具集」账号作者",
       "socialLinks": [],
-      "sortOrder": 19,
+      "sortOrder": 20,
       "tags": [
         "AI 工具",
         "生成式 AI"
@@ -2015,13 +2080,13 @@
       "accentFrom": "#2563eb",
       "accentTo": "#1e3a8a",
       "avatarAssetId": null,
-      "bio": "北京日报社京报移动副总经理，主要负责 AIGC 内容生态和 AI 技术应用，推动北京日报社布局媒体 GEO 业务。",
+      "bio": "北京日报社京报移动副总经理，北京日报智源GEO负责人。主要负责 AIGC 内容生态和 AI 技术应用，推动北京日报社布局媒体 GEO 业务。",
       "id": "55555555-5555-4555-8555-555555555560",
       "initials": "任",
       "name": "任强",
-      "role": "北京日报社京报移动副总经理",
+      "role": "北京日报社京报移动副总经理，北京日报智源GEO负责人",
       "socialLinks": [],
-      "sortOrder": 20,
+      "sortOrder": 21,
       "tags": [
         "主流媒体",
         "内容公信力"
@@ -2040,7 +2105,7 @@
       "name": "谭少卿",
       "role": "Floatboat 创始人兼 CEO",
       "socialLinks": [],
-      "sortOrder": 21,
+      "sortOrder": 22,
       "tags": [],
       "topic": "如何打造属于自己的超级Agent",
       "topicAbstract": "围绕个人超级 Agent 的构建与应用展开分享。",
@@ -2056,7 +2121,7 @@
       "name": "杨攀",
       "role": "Bilink 创始人",
       "socialLinks": [],
-      "sortOrder": 22,
+      "sortOrder": 23,
       "tags": [
         "AI 趋势",
         "创业机会"
@@ -2075,7 +2140,7 @@
       "name": "姚金刚",
       "role": "猎河科技创始人 · GEOFlow 创始人",
       "socialLinks": [],
-      "sortOrder": 23,
+      "sortOrder": 24,
       "tags": [
         "GEO战略",
         "企业落地"
@@ -2094,7 +2159,7 @@
       "name": "姚诗成",
       "role": "思迈特 CEO",
       "socialLinks": [],
-      "sortOrder": 24,
+      "sortOrder": 25,
       "tags": [
         "企业数据",
         "智能决策"
@@ -2113,7 +2178,7 @@
       "name": "玉伯",
       "role": "YouMind 创始人 & CEO",
       "socialLinks": [],
-      "sortOrder": 25,
+      "sortOrder": 26,
       "tags": [
         "内容创作",
         "产品增长"
@@ -2130,15 +2195,15 @@
       "id": "55555555-5555-4555-8555-555555555561",
       "initials": "岳",
       "name": "岳琦",
-      "role": "每经科技首席产品官 · GEO 圆桌主持人",
+      "role": "每经科技首席产品官 · 资深财经媒体人",
       "socialLinks": [],
-      "sortOrder": 26,
+      "sortOrder": 27,
       "tags": [
         "GEO 圆桌",
         "企业实践"
       ],
-      "topic": "GEO 圆桌：企业实践、可信信源与增长评估",
-      "topicAbstract": "由岳琦主持，邀请多位 GEO 专家共同讨论企业实践、可信信源建设与增长评估，回应参会者关心的共性问题。参与专家名单将陆续公布。",
+      "topic": "当GEO成为信任基建，品牌怎么做专业媒体式传播？",
+      "topicAbstract": "从专业媒体传播视角，讨论 GEO 与品牌信任建设；同时主持 11月21日下午圆桌分享，与吕推、张莹莹、安美奇共同交流。",
       "websiteUrl": null
     },
     {
@@ -2151,13 +2216,32 @@
       "name": "余一",
       "role": "HowOneAI 主理人",
       "socialLinks": [],
-      "sortOrder": 27,
+      "sortOrder": 28,
       "tags": [
         "AI 研究",
         "行业研究"
       ],
-      "topic": "如何借助 AI 做行业研究",
-      "topicAbstract": "结合行业研究流程，分享如何使用 AI 完成问题拆解、资料搜集、信息核验、分析归纳与成果表达，提高研究效率与结论质量。",
+      "topic": "圆桌分享",
+      "topicAbstract": "参与 11月22日下午圆桌分享，与余一、彭超、谭少卿共同交流。",
+      "websiteUrl": null
+    },
+    {
+      "accentFrom": "#2448a8",
+      "accentTo": "#102759",
+      "avatarAssetId": null,
+      "bio": "botlearn联合创始人。",
+      "id": "13421a40-13df-4cf0-b76e-660f7a719239",
+      "initials": "张",
+      "name": "张栖铭",
+      "role": "botlearn联合创始人",
+      "socialLinks": [],
+      "sortOrder": 29,
+      "tags": [
+        "AI 原生研发",
+        "AI Native 团队"
+      ],
+      "topic": "AI 原生研发指南：如何构建AI Native团队",
+      "topicAbstract": "围绕 AI 原生研发，分享构建 AI Native 团队的方法。",
       "websiteUrl": null
     },
     {
@@ -2170,7 +2254,7 @@
       "name": "张莹莹",
       "role": "成长最美、HOCOMO LIMITED创始人",
       "socialLinks": [],
-      "sortOrder": 28,
+      "sortOrder": 30,
       "tags": [
         "达人营销",
         "GEO营销",
@@ -2178,8 +2262,8 @@
         "需求洞察",
         "闭环增长"
       ],
-      "topic": "GEO 圆桌：从生意视角看 GEO 与达人营销",
-      "topicAbstract": "参与 GEO 圆桌论坛，从生意视角讨论 GEO 中容易被忽略的生意本质，以及 GEO 如何与达人营销打通，让 GEO 从曝光跃迁为闭环增量的增长引擎。",
+      "topic": "圆桌分享",
+      "topicAbstract": "参与 11月21日下午圆桌分享，由岳琦主持，与吕推、张莹莹、安美奇共同交流。",
       "websiteUrl": null
     },
     {
@@ -2192,7 +2276,7 @@
       "name": "钟添娇",
       "role": "41财经 & Winseed 创始人",
       "socialLinks": [],
-      "sortOrder": 29,
+      "sortOrder": 31,
       "tags": [
         "AI营销",
         "品牌增长",

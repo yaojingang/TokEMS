@@ -20,6 +20,7 @@ describe('speaker profile contracts', () => {
     expect(DEMO_EVENT.speakers.map((speaker) => speaker.name)).toEqual([
       'AJ',
       '艾奇先生',
+      '安美奇',
       '拔刀刘',
       'Berryxia',
       '苍何',
@@ -46,6 +47,7 @@ describe('speaker profile contracts', () => {
       '玉伯',
       '岳琦',
       '余一',
+      '张栖铭',
       '张莹莹',
       '钟添娇',
     ]);
@@ -91,15 +93,15 @@ describe('speaker profile contracts', () => {
       tags: ['品牌GEO', '增长实践'],
     });
     expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '岳琦')?.role).toContain(
-      '主持人',
+      '资深财经媒体人',
     );
     expect(DEMO_EVENT.speakers.find((speaker) => speaker.name === '吕推')).toMatchObject({
       role: '资深AI营销专家',
-      topic: '分享主题待公布',
+      topic: '圆桌分享',
     });
     expect(
-      DEMO_EVENT.sessions.find((session) => session.title === 'GEO Agent 实操')?.speaker,
-    ).toContain('floatboat');
+      DEMO_EVENT.sessions.find((session) => session.title === 'Floatboat + GEO实操')?.speaker,
+    ).toContain('谭少卿');
   });
 
   it('creates stable four-letter speaker routes without exposing sequential identifiers', () => {
