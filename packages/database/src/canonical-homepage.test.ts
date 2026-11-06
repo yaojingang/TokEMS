@@ -78,17 +78,22 @@ describe('canonical homepage snapshot', () => {
     session.summary = 'This published session description must remain visible.';
     expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/public session.*content/u);
   });
-  it('rejects a saved form that differs from the active public form', async () => {
-    const value = await snapshot();
-    const backend = value.backend as Record<string, unknown>;
-    const release = value.release as { snapshot: { registrationForm: Record<string, unknown> } };
-    backend.registrationForm = structuredClone(release.snapshot.registrationForm);
-    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
-    (backend.registrationForm as Record<string, unknown>).termsContent =
-      '后台已保存但前台未生效的条款。';
-    expect(() => validateCanonicalHomepageSnapshot(value, 'observation')).not.toThrow();
-    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/registration form.*active/iu);
-  });
+  it(
+    'rejects a saved form that differs from the active public form',
+    async () => {
+      const value = await snapshot();
+      const backend = value.backend as Record<string, unknown>;
+      const release = value.release as { snapshot: { registrationForm: Record<string, unknown> } };
+      backend.registrationForm = structuredClone(release.snapshot.registrationForm);
+      expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+      (backend.registrationForm as Record<string, unknown>).termsContent =
+        '后台已保存但前台未生效的条款。';
+      expect(() => validateCanonicalHomepageSnapshot(value, 'observation')).not.toThrow();
+      expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/registration form.*active/iu);
+    },
+    // The full snapshot includes assets and is validated three times on the shared CI runner.
+    20_000,
+  );
   it('allows an environment-owned default template in production observations', async () => {
     const value = await snapshot();
     const organization = value.organization as { settings: { defaultTemplateId: string | null } };
