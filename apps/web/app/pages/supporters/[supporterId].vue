@@ -195,6 +195,16 @@ useHead({
   width: 220px;
   max-height: 220px;
 }
+.supporter-brand--gogochart {
+  overflow: hidden;
+}
+.supporter-brand--gogochart img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  object-position: center 49.8%;
+  transform: scale(1.307);
+}
 .supporter-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;

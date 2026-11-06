@@ -144,6 +144,15 @@ withDefaults(defineProps<{ context?: 'page' | 'home' }>(), { context: 'page' });
   max-width: 240px;
   height: auto;
 }
+.supporter__logo--gogochart {
+  overflow: hidden;
+}
+.supporter__logo--gogochart img {
+  width: 100%;
+  object-fit: cover;
+  object-position: center 49.8%;
+  transform: scale(1.307);
+}
 .supporter__logo--liekan img {
   max-width: min(100%, 198px);
 }
