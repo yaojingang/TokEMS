@@ -27,6 +27,7 @@ if (error.value || !event.value) {
 }
 
 const detailLogo = 'detailLogo' in supporter ? supporter.detailLogo : supporter.logo;
+const introTitle = 'introTitle' in supporter ? supporter.introTitle : `关于${supporter.name}`;
 const cooperationPath = `${publicEventScopedPath('/apply/cooperation', eventSlug)}#supporters`;
 const websiteLabel = supporter.website ? new URL(supporter.website).hostname : '';
 
@@ -59,7 +60,7 @@ useHead({
       <div class="supporter-layout">
         <article class="supporter-content" aria-label="支持单位详细介绍">
           <section class="supporter-section" aria-labelledby="supporter-about-title">
-            <h2 id="supporter-about-title">关于{{ supporter.name }}</h2>
+            <h2 id="supporter-about-title">{{ introTitle }}</h2>
             <p>{{ supporter.intro }}</p>
             <p v-for="paragraph in supporter.overview" :key="paragraph">{{ paragraph }}</p>
           </section>
