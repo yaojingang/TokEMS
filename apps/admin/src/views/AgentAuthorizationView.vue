@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AGENT_AUTHORIZATION_PROFILES } from '@conference/contracts';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { conferenceApi, type AgentAuthorizationDetail } from '../lib/api';
@@ -7,6 +8,22 @@ import { agentApprovalHash } from '../lib/agent-approval';
 const route = useRoute();
 const authorization = ref<AgentAuthorizationDetail>();
 const selectedScopes = ref<string[]>([]);
+const scopeNames: Record<string, string> = {
+  'tokems:read': '查询业务信息', 'tokems:write': '编辑与处理业务', 'tokems:pii': '查看个人信息',
+  'tokems:finance': '查看财务信息', 'tokems:communications': '通知与沟通', 'tokems:export': '导出数据',
+  'tokems:security': '安全与审计', 'tokems:dangerous': '关键业务操作',
+};
+const profileNames = { read: '只读检查', content: '内容运营', full: '完整业务管理' };
+const availableProfiles = computed(() => Object.entries(AGENT_AUTHORIZATION_PROFILES).filter(
+  ([, scopes]) => scopes.every((scope) => authorization.value?.requestedScopes.includes(scope)),
+));
+function applyProfile(event: Event) {
+  const key = (event.target as HTMLSelectElement).value as keyof typeof AGENT_AUTHORIZATION_PROFILES;
+  if (Object.hasOwn(AGENT_AUTHORIZATION_PROFILES, key)) {
+    selectedScopes.value = AGENT_AUTHORIZATION_PROFILES[key].filter((scope) =>
+      authorization.value?.requestedScopes.includes(scope));
+  }
+}
 const approvalPolicy = ref<'controlled-and-critical' | 'critical-only'>('controlled-and-critical');
 const password = ref('');
 const pending = ref(false);
@@ -179,18 +196,25 @@ onMounted(load);
           </dd>
         </div>
       </dl>
+      <label class="approval-field">
+        <span>授权用途</span>
+        <select :disabled="authorization.status !== 'pending' || pending" @change="applyProfile">
+          <option value="">自定义权限</option>
+          <option v-for="[key] in availableProfiles" :key="key" :value="key">{{ profileNames[key as keyof typeof profileNames] }}</option>
+        </select>
+      </label>
       <fieldset :disabled="authorization.status !== 'pending' || pending">
         <legend>允许的权限范围</legend>
         <label v-for="scope in authorization.requestedScopes" :key="scope" class="scope-option">
           <input v-model="selectedScopes" type="checkbox" :value="scope" />
-          <span>{{ scope }}</span>
+          <span>{{ scopeNames[scope] || scope }}</span>
         </label>
       </fieldset>
       <label class="approval-field">
         <span>浏览器审批策略</span>
         <select v-model="approvalPolicy" :disabled="authorization.status !== 'pending' || pending">
           <option value="controlled-and-critical">受控与关键操作均需浏览器批准</option>
-          <option value="critical-only">仅关键操作需浏览器批准</option>
+
         </select>
       </label>
       <label class="approval-field">

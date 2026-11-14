@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { API_ERROR_CODES, AgentOperationExecuteHeadersSchema } from '@conference/contracts';
 import { sha256, stableCanonicalJson } from '@conference/security';
-import { catchError, from, map, mergeMap, throwError } from 'rxjs';
+import { from, mergeMap, firstValueFrom } from 'rxjs';
 import { DomainError } from './domain-error.js';
 import { agentRequestTarget } from './agent-operation-catalog.js';
 import { AgentPolicyService } from './agent-policy.service.js';
@@ -113,6 +113,19 @@ function sanitizePiiRead(value: unknown, key = '', forceMask = false): unknown {
   );
 }
 
+function protectCapabilityUrls(value: unknown, key = ''): unknown {
+  if (Array.isArray(value)) return value.map((item) => protectCapabilityUrls(item));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .map(([name, item]) => [name, protectCapabilityUrls(item, name)]));
+  if (typeof value !== 'string') return value;
+  if (/(?:preview|upload|download|signed).?url/iu.test(key)) return null;
+  try {
+    const url = new URL(value);
+    if ([...url.searchParams.keys()].some((name) => /^(?:x-amz-|signature$|token$)/iu.test(name))) return null;
+  } catch { /* Ordinary text is preserved. */ }
+  return value;
+}
+
 const ASYNC_OPERATION_STATUSES = new Set([
   'accepted',
   'claimed',
@@ -150,7 +163,7 @@ export class AgentOperationInterceptor implements NestInterceptor {
     const action = this.policy.actionForRequest(request);
     this.policy.authorize({
       action,
-      principal: request.agentPrincipal,
+      principal: request.agentPrincipal!,
       grants: request.user.grants,
     });
     if (action.method === 'GET' && action.confirmation === 'none') {
@@ -164,23 +177,18 @@ export class AgentOperationInterceptor implements NestInterceptor {
           HttpStatus.BAD_REQUEST,
         );
       }
-      return next.handle().pipe(
-        mergeMap((result) => {
-          response.header(
-            'X-Agent-State-Token',
-            this.operations.createStateObservation({
+      return from(this.operations.observeRead({
               principal: request.agentPrincipal!,
               actionId: action.actionId,
               target: agentRequestTarget(action, String(request.url)),
-              state: result,
-            }),
-          );
+            }, () => firstValueFrom(next.handle()))).pipe(
+        mergeMap(async ({ result, token }) => {
+          response.header('X-Agent-State-Token', token);
           const agentResult =
             action.dataClass === 'pii' && action.riskBase === 'read'
               ? sanitizePiiRead(result)
               : result;
-          return from(
-            this.operations.recordRead({
+          await this.operations.recordRead({
               actionId: action.actionId,
               organizationId: request.agentPrincipal!.organizationId,
               connectionId: request.agentPrincipal!.connectionId,
@@ -189,8 +197,8 @@ export class AgentOperationInterceptor implements NestInterceptor {
               risk: action.riskBase,
               ...(purpose ? { purpose: purpose.trim() } : {}),
               traceId: String(request.id),
-            }),
-          ).pipe(map(() => agentResult));
+            });
+          return protectCapabilityUrls(agentResult);
         }),
       );
     }
@@ -222,10 +230,15 @@ export class AgentOperationInterceptor implements NestInterceptor {
         HttpStatus.CONFLICT,
       );
     }
-    const begin = this.operations.beginExecution({
+    return from(this.operations.runAtomically({
+      operationId, principal: request.agentPrincipal!, actor: request.user, traceId: String(request.id),
+    }, async () => {
+      const operation = await this.operations.beginExecution({
       id: parsedHeaders.data.operationId,
-      principal: request.agentPrincipal,
+      principal: request.agentPrincipal!,
       actionId: action.actionId,
+      grants: request.user!.grants,
+      idempotencyKey: String(request.headers['idempotency-key'] ?? ''),
       requestHash: parsedHeaders.data.requestHash,
       beforeFingerprint: parsedHeaders.data.beforeFingerprint,
       ...(parsedHeaders.data.currentStateToken
@@ -236,51 +249,18 @@ export class AgentOperationInterceptor implements NestInterceptor {
         request.body && typeof request.body === 'object' && !Array.isArray(request.body)
           ? (request.body as Record<string, unknown>)
           : {},
-    });
-    return from(begin).pipe(
-      mergeMap((operation) =>
-        next.handle().pipe(
-          mergeMap((result) =>
-            from(
-              this.operations.finishExecution(operation.id, {
-                status: executionOutcome(action, result),
-                responseStatus: 200,
-                redactedResult: safeResult(result),
-                actionId: action.actionId,
-                connectionId: request.agentPrincipal!.connectionId,
-                organizationId: request.agentPrincipal!.organizationId,
-                delegatedUserId: request.agentPrincipal!.delegatedUserId,
-                traceId: String(request.id),
-                target: safeTarget(operation.targetSummary),
-                ...(action.idempotencyStrategy === 'one-time-secret'
-                  ? { oneTimeSecretResult: result }
-                  : {}),
-              }),
-            ).pipe(map(() => result)),
-          ),
-          catchError((error: unknown) => {
-            const status =
-              error && typeof error === 'object' && 'getStatus' in error
-                ? Number((error as { getStatus(): number }).getStatus())
-                : 500;
-            return from(
-              this.operations.finishExecution(operation.id, {
-                status: status >= 500 ? 'unknown' : 'failed',
-                responseStatus: status,
-                redactedResult: {
-                  code: error instanceof DomainError ? error.code : 'REQUEST_FAILED',
-                },
-                actionId: action.actionId,
-                connectionId: request.agentPrincipal!.connectionId,
-                organizationId: request.agentPrincipal!.organizationId,
-                delegatedUserId: request.agentPrincipal!.delegatedUserId,
-                traceId: String(request.id),
-                target: safeTarget(operation.targetSummary),
-              }),
-            ).pipe(mergeMap(() => throwError(() => error)));
-          }),
-        ),
-      ),
-    );
+      });
+      const result = await firstValueFrom(next.handle());
+      await this.operations.finishExecution(operation.id, {
+        status: executionOutcome(action, result), responseStatus: 200,
+        redactedResult: safeResult(result), actionId: action.actionId,
+        connectionId: request.agentPrincipal!.connectionId,
+        organizationId: request.agentPrincipal!.organizationId,
+        delegatedUserId: request.agentPrincipal!.delegatedUserId,
+        traceId: String(request.id), target: safeTarget(operation.targetSummary),
+        ...(action.idempotencyStrategy === 'one-time-secret' ? { oneTimeSecretResult: result } : {}),
+      });
+      return result;
+    }));
   }
 }

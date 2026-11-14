@@ -1,3 +1,5 @@
+import { ArchiveSchema, DuplicateSchema, AssetSchema, PrepareTemplateAssetUploadSchema, PrepareInvoiceDocumentUploadSchema, ReplaceInvoiceDocumentFileSchema, SaveEventAsTemplateSchema, PrepareHtmlImportSchema, CommitHtmlImportSchema, SaveHtmlBindingsSchema, ApplyHtmlAiProposalsSchema } from '../common/management-inputs.js';
+import { TemplateCandidatePreviewService } from '../common/template-candidate-preview.service.js';
 import { InvoiceSmsSendSchema, InvoiceAccessRevokeSchema } from '@conference/contracts';
 import {
   Body,
@@ -40,7 +42,6 @@ import {
   TemplateSurfaceSchema,
   UpdateConferenceTemplateSchema,
   UpdateEventTemplateBindingSchema,
-  HtmlTemplateBindingManifestSchema,
   type EventId,
 } from '@conference/contracts';
 import { z } from 'zod';
@@ -142,111 +143,6 @@ export function invoiceDocumentVoidIdempotencyScope(
   );
 }
 
-const ArchiveSchema = z.object({ revision: z.number().int().nonnegative() });
-const DuplicateSchema = z.object({
-  revision: z.number().int().nonnegative(),
-  name: z.string().trim().min(2).max(160).optional(),
-});
-const AssetSchema = z.object({
-  storageKey: z.string().trim().min(3).max(500),
-  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(10 * 1024 * 1024),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  contentDigest: z.string().trim().min(16).max(128),
-  altText: z.string().trim().max(500).default(''),
-});
-const PrepareTemplateAssetUploadSchema = z.object({
-  fileName: z.string().trim().min(1).max(240),
-  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(10 * 1024 * 1024),
-  contentDigest: z.string().trim().min(16).max(128),
-  altText: z.string().trim().max(500).default(''),
-});
-const PrepareInvoiceDocumentUploadSchema = z.object({
-  fileName: z.string().trim().min(1).max(240),
-  mediaType: z.enum(['application/pdf', 'application/ofd']),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(20 * 1024 * 1024),
-  contentDigest: z.string().trim().min(16).max(128),
-  replaceDocumentId: z.string().uuid().optional(),
-});
-const ReplaceInvoiceDocumentFileSchema = InvoiceActionSchema.extend({
-  storageKey: z.string().trim().min(3).max(500),
-  mediaType: z.enum(['application/pdf', 'application/ofd']),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(20 * 1024 * 1024),
-  contentDigest: z.string().trim().min(16).max(128),
-});
-const SaveEventAsTemplateSchema = z.object({
-  name: z.string().trim().min(2).max(160),
-  description: z.string().trim().min(2).max(2000),
-  tags: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
-  includeContent: z.boolean().default(false),
-});
-const PrepareHtmlImportSchema = z
-  .object({
-    fileName: z
-      .string()
-      .trim()
-      .min(1)
-      .max(255)
-      .regex(/\.html?$/iu),
-    size: z
-      .number()
-      .int()
-      .positive()
-      .max(5 * 1024 * 1024),
-    sourceDigest: z
-      .string()
-      .trim()
-      .regex(/^(?:sha256:)?[a-f0-9]{64}$/iu),
-    mode: z.enum(['create', 'replace']).default('create'),
-    templateId: z.string().uuid().optional(),
-    requestedMetadata: z
-      .object({
-        name: z.string().trim().min(2).max(160).optional(),
-        description: z.string().trim().min(2).max(2000).optional(),
-        tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
-        sourceUrl: z.url().max(1000).optional(),
-      })
-      .default({}),
-  })
-  .superRefine((value, context) => {
-    if (value.mode === 'replace' && !value.templateId) {
-      context.addIssue({ code: 'custom', path: ['templateId'], message: '替换模式需要模板 ID' });
-    }
-  });
-const CommitHtmlImportSchema = z.object({
-  revision: z.number().int().nonnegative().optional(),
-  bindings: HtmlTemplateBindingManifestSchema,
-  confirmWarnings: z.boolean().default(false),
-  name: z.string().trim().min(2).max(160).optional(),
-  description: z.string().trim().min(2).max(2000).optional(),
-  tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
-});
-const SaveHtmlBindingsSchema = z.object({
-  revision: z.number().int().nonnegative(),
-  bindings: HtmlTemplateBindingManifestSchema,
-});
-const ApplyHtmlAiProposalsSchema = z.object({
-  proposalIds: z.array(z.string().min(1).max(120)).min(1).max(400),
-});
-
 @ApiTags('conference-templates')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
@@ -256,6 +152,7 @@ const ApplyHtmlAiProposalsSchema = z.object({
 @Controller('admin')
 class TemplateController {
   constructor(
+    @Inject(TemplateCandidatePreviewService) private readonly candidatePreviews: TemplateCandidatePreviewService,
     @Inject(TemplateOperationsService)
     private readonly templates: TemplateOperationsService,
     @Inject(IdempotencyService)
@@ -265,6 +162,13 @@ class TemplateController {
     @Inject(HtmlTemplateOperationsService)
     private readonly htmlTemplates: HtmlTemplateOperationsService,
   ) {}
+
+  @Post('templates/:templateId/preview')
+  @RequireAllGrants('org.template.read', 'event.site.read')
+  candidatePreview(@Param('templateId') templateId: string, @Body() body: unknown,
+    @Req() request: AuthenticatedRequest) {
+    return this.candidatePreviews.create(request.user.organizationId, request.user.sub, templateId, body);
+  }
 
   @Get('templates')
   @RequireGrant('org.template.read')
@@ -1481,6 +1385,7 @@ class OrderInvoiceAccessController {
 @Controller('previews')
 class EventPreviewController {
   constructor(
+    @Inject(TemplateCandidatePreviewService) private readonly candidatePreviews: TemplateCandidatePreviewService,
     @Inject(JwtService)
     private readonly jwt: JwtService,
     @Inject(ConferenceRepository)
@@ -1496,6 +1401,7 @@ class EventPreviewController {
     @Res() reply: FastifyReply,
   ) {
     let claims: {
+      snapshotId?: string;
       purpose?: string;
       eventId?: EventId;
       organizationId?: string;
@@ -1519,6 +1425,20 @@ class EventPreviewController {
         '草稿预览凭证与当前大会不匹配',
         HttpStatus.UNAUTHORIZED,
       );
+    }
+    reply.header('Referrer-Policy', 'no-referrer');
+    if (claims.snapshotId) {
+      const snapshot = await this.candidatePreviews.read(claims.snapshotId);
+      reply.header('Cache-Control', 'private, no-store, max-age=0')
+        .header('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      if (snapshot.kind === 'html') {
+        const assetOrigin = process.env.S3_PUBLIC_ENDPOINT
+          ? new URL(process.env.S3_PUBLIC_ENDPOINT).origin : '';
+        return reply.type('text/html; charset=utf-8')
+          .header('Content-Security-Policy', `default-src 'none'; style-src 'unsafe-inline'; img-src 'self'${assetOrigin ? ` ${assetOrigin}` : ''}; font-src 'self'${assetOrigin ? ` ${assetOrigin}` : ''}; script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`)
+          .send(snapshot.html);
+      }
+      return reply.send(snapshot);
     }
     const [event, experience] = await Promise.all([
       this.repository.getAdminEvent(eventId, claims.organizationId),

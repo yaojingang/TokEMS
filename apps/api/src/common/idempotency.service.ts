@@ -58,7 +58,8 @@ export class IdempotencyService {
     const allowLeaseTakeover =
       typeof ttlOrOptions === 'object' && ttlOrOptions.allowLeaseTakeover === true;
     const requestHash = idempotencyRequestHash(request);
-    const lockKey = `${scope}:${key}`;
+    const agentOperationId = this.database.agentOperationId;
+    const lockKey = `${scope}:${key}${agentOperationId ? `:agent:${agentOperationId}` : ''}`;
     if (!this.database.db) {
       const completed = this.memoryCompleted.get(lockKey);
       if (completed && completed.expiresAt > Date.now()) {
@@ -123,6 +124,10 @@ export class IdempotencyService {
       if (cached && cached.expiresAt > now) {
         if (cached.requestHash !== requestHash) this.conflict();
         if (cached.responseBody.__tokemsIdempotencyPending !== true) {
+          if (cached.responseBody.__tokemsAgentOperationId) {
+            throw new DomainError(API_ERROR_CODES.AGENT_IDEMPOTENCY_CONFLICT,
+              'This request belongs to an Agent operation; inspect its protected result', HttpStatus.CONFLICT);
+          }
           return { kind: 'cached', response: cached.responseBody } as const;
         }
         if (!allowLeaseTakeover || (cached.leaseExpiresAt && cached.leaseExpiresAt > now)) {
@@ -184,7 +189,9 @@ export class IdempotencyService {
       .update(idempotencyKeys)
       .set({
         responseCode: HttpStatus.OK,
-        responseBody: response,
+        responseBody: this.database.agentOperationId
+          ? { __tokemsAgentOperationId: this.database.agentOperationId }
+          : response,
         leaseExpiresAt: null,
         expiresAt: new Date(Date.now() + ttlMs),
       })

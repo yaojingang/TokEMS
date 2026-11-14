@@ -1,0 +1,15 @@
+{
+  "name": "@conference/cli",
+  "version": "0.4.0",
+  "description": "Authorized TokEMS administration and template CLI",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": { "node": ">=24" },
+  "bin": { "tokems": "dist/bin/tokems.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test cli.test.mjs"
+  }
+}

@@ -1,3 +1,4 @@
+import { agentInputJsonSchema } from './agent-input-contracts.js';
 import { RequestMethod, SetMetadata } from '@nestjs/common';
 import {
   AgentActionSchema,
@@ -57,9 +58,9 @@ export function AgentSurface(options: AgentSurfaceOptions = {}): ClassDecorator 
             findAgentActionTemplate(method, joinedRoute(controllerPath, handlerPath)),
           ),
         )
-        .find(Boolean);
-      if (released) {
-        Reflect.defineMetadata(AGENT_ACTION_METADATA, released.actionId, handler);
+        .filter((item): item is AgentActionDefinition => Boolean(item));
+      if (released.length) {
+        Reflect.defineMetadata(AGENT_ACTION_METADATA, released.map((item) => item.actionId), handler);
       } else if (
         options.defaultExclusionReason &&
         !Reflect.getMetadata(AGENT_EXCLUDED_METADATA, handler)
@@ -130,6 +131,7 @@ function action(
     rollback: options.rollback ?? (method === 'GET' ? 'not-applicable' : 'use-domain-history'),
     minClientVersion: TOKEMS_AGENT_MIN_CLIENT_VERSION,
     description: options.description,
+    inputSchema: agentInputJsonSchema(actionId),
   });
 }
 
@@ -839,6 +841,75 @@ export const AGENT_ACTIONS = [
       description: '导出报名 PII 文件。',
     },
   ),
+  action("templates.options.list", "GET", "/api/v1/admin/template-options", {"grant": "org.template.use", "description": "执行 templates.options.list 对应的受权业务操作。"}),
+  action("templates.variables.list", "GET", "/api/v1/admin/template-variable-catalog", {"grant": "org.template.read", "description": "执行 templates.variables.list 对应的受权业务操作。"}),
+  action("templates.versions.list", "GET", "/api/v1/admin/templates/:templateId/versions", {"grant": "org.template.read", "description": "执行 templates.versions.list 对应的受权业务操作。"}),
+  action("templates.usages.list", "GET", "/api/v1/admin/templates/:templateId/usages", {"grant": "org.template.read", "description": "执行 templates.usages.list 对应的受权业务操作。"}),
+  action("templates.update", "PATCH", "/api/v1/admin/templates/:templateId", {"grant": "org.template.manage", "description": "执行 templates.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "templates.get"}),
+  action("templates.duplicate", "POST", "/api/v1/admin/templates/:templateId/duplicate", {"grant": "org.template.manage", "description": "执行 templates.duplicate 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"]}),
+  action("templates.archive", "POST", "/api/v1/admin/templates/:templateId/archive", {"grant": "org.template.manage", "description": "执行 templates.archive 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "templates.get"}),
+  action("templates.restore", "POST", "/api/v1/admin/templates/:templateId/restore", {"grant": "org.template.manage", "description": "执行 templates.restore 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "templates.get"}),
+  action("events.experience.get", "GET", "/api/v1/admin/events/:eventId/experience", {"grant": "event.site.read", "description": "执行 events.experience.get 对应的受权业务操作。"}),
+  action("events.experience.update", "PUT", "/api/v1/admin/events/:eventId/experience/:surface", {"grant": "event.content.manage", "description": "执行 events.experience.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "events.experience.get"}),
+  action("events.experience.validate", "POST", "/api/v1/admin/events/:eventId/experience/validate", {"grant": "event.content.manage", "description": "执行 events.experience.validate 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "events.experience.get"}),
+  action("events.experience.preview", "POST", "/api/v1/admin/events/:eventId/experience/preview", {"grant": "event.site.read", "description": "执行 events.experience.preview 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "events.experience.get", "dataClass": "secret", "strategy": "one-time-secret"}),
+  action("dashboard.get", "GET", "/api/v1/admin/dashboard", {"grant": "event.dashboard.read", "description": "执行 dashboard.get 对应的受权业务操作。", "scopes": ["tokems:read", "tokems:finance"]}),
+  action("events.dashboard.get", "GET", "/api/v1/admin/events/:eventId/dashboard", {"grant": "event.dashboard.read", "description": "执行 events.dashboard.get 对应的受权业务操作。", "scopes": ["tokems:read", "tokems:finance"]}),
+  action("events.options.list", "GET", "/api/v1/admin/event-options", {"grant": "event.read", "description": "执行 events.options.list 对应的受权业务操作。"}),
+  action("events.blueprints.list", "GET", "/api/v1/admin/event-blueprints", {"grant": "event.read", "description": "执行 events.blueprints.list 对应的受权业务操作。"}),
+  action("events.slugs.check", "GET", "/api/v1/admin/event-slugs/availability", {"grant": "event.manage", "description": "执行 events.slugs.check 对应的受权业务操作。"}),
+  action("content.speakers.get", "GET", "/api/v1/admin/events/:eventId/speakers/:speakerId", {"grant": "event.content.manage", "description": "执行 content.speakers.get 对应的受权业务操作。"}),
+  action("content.speakers.order", "PUT", "/api/v1/admin/events/:eventId/speakers/order", {"grant": "event.content.manage", "description": "执行 content.speakers.order 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.get"}),
+  action("content.ticket-types.archived", "GET", "/api/v1/admin/events/:eventId/ticket-types/archived", {"grant": "event.inventory.manage", "description": "执行 content.ticket-types.archived 对应的受权业务操作。"}),
+  action("content.ticket-types.create", "POST", "/api/v1/admin/events/:eventId/ticket-types", {"grant": "event.inventory.manage", "description": "执行 content.ticket-types.create 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.get"}),
+  action("content.ticket-types.update", "PATCH", "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId", {"grant": "event.inventory.manage", "description": "执行 content.ticket-types.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.get"}),
+  action("content.ticket-types.delete", "DELETE", "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId", {"grant": "event.inventory.manage", "description": "执行 content.ticket-types.delete 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.get"}),
+  action("content.ticket-types.restore", "POST", "/api/v1/admin/events/:eventId/ticket-types/:ticketTypeId/restore", {"grant": "event.inventory.manage", "description": "执行 content.ticket-types.restore 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.get"}),
+  action("commerce.inventory.get", "GET", "/api/v1/admin/events/:eventId/inventory", {"grant": "event.inventory.read", "description": "执行 commerce.inventory.get 对应的受权业务操作。", "scopes": ["tokems:read", "tokems:finance"]}),
+  action("registrations.count", "GET", "/api/v1/admin/events/:eventId/registration-count", {"grant": "event.registration.read", "description": "执行 registrations.count 对应的受权业务操作。"}),
+  action("registrations.operations.get", "GET", "/api/v1/admin/events/:eventId/registrations/:registrationId/operations-detail", {"grant": "event.registration.read", "description": "执行 registrations.operations.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("registrations.notes.create", "POST", "/api/v1/admin/events/:eventId/registrations/:registrationId/notes", {"grant": "event.registration.manage", "description": "执行 registrations.notes.create 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "registrations.get"}),
+  action("registrations.waitlist.list", "GET", "/api/v1/admin/events/:eventId/waitlist", {"grant": "event.registration.read", "description": "执行 registrations.waitlist.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("cooperation.list", "GET", "/api/v1/admin/events/:eventId/cooperation-requests", {"grant": "event.registration.read", "description": "执行 cooperation.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("cooperation.get", "GET", "/api/v1/admin/events/:eventId/cooperation-requests/:requestId", {"grant": "event.registration.read", "description": "执行 cooperation.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("cooperation.update", "PATCH", "/api/v1/admin/events/:eventId/cooperation-requests/:requestId", {"grant": "event.registration.manage", "description": "执行 cooperation.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"], "verifyActionId": "cooperation.get"}),
+  action("members.showcases.moderate", "PATCH", "/api/v1/admin/events/:eventId/member-showcases/:showcaseId/moderation", {"grant": "customer.manage", "description": "执行 members.showcases.moderate 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"]}),
+  action("partners.list", "GET", "/api/v1/admin/events/:eventId/distribution/partners", {"grant": "event.partner.read", "description": "执行 partners.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("partners.overview", "GET", "/api/v1/admin/events/:eventId/distribution/overview", {"grant": "event.partner.read", "description": "执行 partners.overview 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("partners.promotion.get", "GET", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/promotion", {"grant": "event.partner.read", "description": "执行 partners.promotion.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("partners.update", "PATCH", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId", {"grant": "event.partner.manage", "description": "执行 partners.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"], "verifyActionId": "partners.list"}),
+  action("partners.details.update", "PATCH", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/details", {"grant": "event.partner.manage", "description": "执行 partners.details.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"], "verifyActionId": "partners.list"}),
+  action("partners.enable", "POST", "/api/v1/admin/events/:eventId/distribution/partners", {"grant": "event.partner.manage", "description": "执行 partners.enable 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"]}),
+  action("partners.batch.enable", "POST", "/api/v1/admin/events/:eventId/distribution/partners/batch", {"grant": "event.partner.manage", "description": "执行 partners.batch.enable 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"]}),
+  action("partners.media.upload.prepare", "POST", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media-uploads", {"grant": "event.partner.manage", "description": "执行 partners.media.upload.prepare 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"], "verifyActionId": "partners.list", "dataClass": "secret", "strategy": "one-time-secret"}),
+  action("partners.media.confirm", "POST", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media-confirmations", {"grant": "event.partner.manage", "description": "执行 partners.media.confirm 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:pii"], "verifyActionId": "partners.list"}),
+  action("partners.media.status", "GET", "/api/v1/admin/events/:eventId/distribution/partners/:partnerId/media/:assetId/status", {"grant": "event.partner.manage", "description": "执行 partners.media.status 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("content.services.get", "GET", "/api/v1/admin/events/:eventId/attendee-services", {"grant": "event.registration.manage", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"], "description": "执行 content.services.get 对应的受权业务操作。"}),
+  action("content.services.update", "PATCH", "/api/v1/admin/events/:eventId/attendee-services", {"grant": "event.registration.manage", "description": "执行 content.services.update 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write"], "verifyActionId": "content.services.get"}),
+  action("organization.invitations.list", "GET", "/api/v1/admin/organization/invitations", {"grant": "org.member.read", "description": "执行 organization.invitations.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii"]}),
+  action("organization.invitations.create", "POST", "/api/v1/admin/organization/invitations", {"grant": "org.member.manage", "description": "执行 organization.invitations.create 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:dangerous"]}),
+  action("organization.invitations.cancel", "DELETE", "/api/v1/admin/organization/invitations/:invitationId", {"grant": "org.member.manage", "description": "执行 organization.invitations.cancel 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:dangerous"]}),
+  action("commerce.orders.close", "POST", "/api/v1/admin/events/:eventId/orders/:orderId/close", {"grant": "event.registration.manage", "description": "执行 commerce.orders.close 对应的受权业务操作。", "risk": "controlled", "scopes": ["tokems:write", "tokems:finance"]}),
+  action("commerce.orders.items.get", "GET", "/api/v1/admin/events/:eventId/orders/:orderId/items", {"grant": "event.order.read", "description": "执行 commerce.orders.items.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("commerce.orders.review", "POST", "/api/v1/admin/events/:eventId/orders/:orderId/review", {"grant": "event.registration.manage", "description": "执行 commerce.orders.review 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:finance", "tokems:dangerous"]}),
+  action("commerce.refund-context.get", "GET", "/api/v1/admin/events/:eventId/orders/:orderId/item-refund-context", {"grant": "event.order.read", "description": "执行 commerce.refund-context.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("commerce.refund-policy.get", "GET", "/api/v1/admin/events/:eventId/refund-policy", {"grant": "event.registration.read", "description": "执行 commerce.refund-policy.get 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("commerce.refund-requests.list", "GET", "/api/v1/admin/events/:eventId/refund-requests", {"grant": "event.order.read", "description": "执行 commerce.refund-requests.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("commerce.refund-exceptions.list", "GET", "/api/v1/admin/events/:eventId/refund-exceptions", {"grant": "event.order.read", "description": "执行 commerce.refund-exceptions.list 对应的受权业务操作。", "dataClass": "pii", "risk": "sensitive-read", "scopes": ["tokems:read", "tokems:pii", "tokems:finance"]}),
+  action("commerce.refund-requests.create", "POST", "/api/v1/admin/events/:eventId/orders/:orderId/item-refunds", {"grant": "event.order.refund", "description": "执行 commerce.refund-requests.create 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:finance", "tokems:dangerous"], "strategy": "outbox-job"}),
+  action("commerce.refund-requests.approve", "POST", "/api/v1/admin/events/:eventId/refund-requests/:requestId/approve", {"grant": "event.order.refund", "description": "执行 commerce.refund-requests.approve 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:finance", "tokems:dangerous"], "strategy": "outbox-job"}),
+  action("commerce.refund-requests.reject", "POST", "/api/v1/admin/events/:eventId/refund-requests/:requestId/reject", {"grant": "event.order.refund", "description": "执行 commerce.refund-requests.reject 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:finance", "tokems:dangerous"], "strategy": "outbox-job"}),
+  action("commerce.refund-requests.reconcile", "POST", "/api/v1/admin/events/:eventId/refund-requests/:requestId/reconcile", {"grant": "event.order.refund", "description": "执行 commerce.refund-requests.reconcile 对应的受权业务操作。", "risk": "critical", "scopes": ["tokems:write", "tokems:pii", "tokems:finance", "tokems:dangerous"], "strategy": "outbox-job"}),
+  action("invoices.pending-count", "GET", "/api/v1/admin/events/:eventId/invoices/pending-count", {"grant": "event.read", "description": "执行 invoices.pending-count 对应的受权业务操作。", "grants": ["event.read", "org.invoice.read"], "scopes": ["tokems:read", "tokems:finance"]}),
+  action("invoices.reject", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/reject", {"grant": "event.read", "description": "执行 invoices.reject 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "controlled", "scopes": ["tokems:write", "tokems:finance"], "verifyActionId": "invoices.get"}),
+  action("invoices.cancel", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/cancel", {"grant": "event.read", "description": "执行 invoices.cancel 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "controlled", "scopes": ["tokems:write", "tokems:finance"], "verifyActionId": "invoices.get"}),
+  action("invoices.retry", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/retry", {"grant": "event.read", "description": "执行 invoices.retry 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "controlled", "scopes": ["tokems:write", "tokems:finance"], "verifyActionId": "invoices.get"}),
+  action("invoices.issue-failed", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/issue-failed", {"grant": "event.read", "description": "执行 invoices.issue-failed 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "controlled", "scopes": ["tokems:write", "tokems:finance"], "verifyActionId": "invoices.get"}),
+  action("invoices.send", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/send", {"grant": "event.read", "description": "执行 invoices.send 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "critical", "scopes": ["tokems:write", "tokems:finance", "tokems:dangerous"], "verifyActionId": "invoices.get"}),
+  action("invoices.access.revoke", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/revoke-access", {"grant": "event.read", "description": "执行 invoices.access.revoke 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "critical", "scopes": ["tokems:write", "tokems:finance", "tokems:dangerous"], "verifyActionId": "invoices.get"}),
+  action("invoices.documents.void", "POST", "/api/v1/admin/events/:eventId/invoices/:invoiceId/documents/:documentId/void", {"grant": "event.read", "description": "执行 invoices.documents.void 对应的受权业务操作。", "grants": ["event.read", "org.invoice.manage"], "risk": "critical", "scopes": ["tokems:write", "tokems:finance", "tokems:dangerous"], "verifyActionId": "invoices.get"}),
+  action("communications.templates.list", "GET", "/api/v1/admin/notification-templates", {"grant": "event.notification.read", "description": "执行 communications.templates.list 对应的受权业务操作。"}),
+  action('templates.preview.create', 'POST', '/api/v1/admin/templates/:templateId/preview', { grant: 'org.template.read', grants: ['org.template.read', 'event.site.read'], dataClass: 'secret', strategy: 'one-time-secret', description: '生成不改变公开状态的候选模板预览。' }),
 ] as const satisfies readonly AgentActionDefinition[];
 
 export const AGENT_ACTION_MAP = new Map(AGENT_ACTIONS.map((entry) => [entry.actionId, entry]));

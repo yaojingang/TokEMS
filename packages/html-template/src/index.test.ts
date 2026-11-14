@@ -1,5 +1,7 @@
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 import {
+  inertHtmlTemplatePreview,
   buildAiTemplateBindingProposals,
   compileHtmlTemplate,
   isForbiddenNetworkAddress,
@@ -378,4 +380,25 @@ describe('HTML template binding runtime', () => {
     expect(html).toContain('团队票');
     expect(html.match(/<article/gu)).toHaveLength(2);
   });
+});
+
+describe('inert candidate previews', () => {
+  it.each(['<title title="<body>">Hi</title>', '<meta data-note="<body>" name="test">'])(
+    'disables the real body even when markup appears inside an earlier attribute: %s',
+    async (head) => {
+      const source = `<!doctype html><html><head>${head}</head><body><a href="/register">Register</a></body></html>`;
+      const sanitized = sanitizeHtmlTemplate(source);
+      const rendered = await renderHtmlTemplate(
+        compileHtmlTemplate(sanitized.html, { version: 1, bindings: [] }),
+        {},
+      );
+      const dom = new JSDOM(inertHtmlTemplatePreview(rendered));
+      try {
+        expect(dom.window.document.body.hasAttribute('inert')).toBe(true);
+        expect(dom.window.document.body.textContent).toContain('候选模板预览');
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
 });

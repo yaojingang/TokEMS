@@ -1,6 +1,8 @@
+import { AGENT_INPUT_SCHEMAS } from './agent-input-contracts.js';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   API_ERROR_CODES,
+  isPublicEventStatus,
   AgentOperationApprovalSchema,
   AgentOperationConfirmSchema,
   AgentOperationPrepareSchema,
@@ -8,7 +10,7 @@ import {
   type AgentOperationStatus,
   type AgentRisk,
 } from '@conference/contracts';
-import { agentOperations, auditLogs } from '@conference/database';
+import { agentConnections, agentOperations, auditLogs, memberships, users, memberProfiles, events, organizations, templateHtmlImports, notificationDeliveries, organizationHomepageEvents } from '@conference/database';
 import {
   createAgentStateObservation,
   decodeAgentAccessSecret,
@@ -18,7 +20,10 @@ import {
   stableCanonicalJson,
   verifyAgentStateObservation,
 } from '@conference/security';
-import { and, count, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { verifyAgentPublicDelivery, verifyAgentHomepageDelivery, type AgentPublicExpectation, type AgentHomepageExpectation } from './agent-public-verification.js';
+import { staffCredentialRevision, staffCredentialVersion } from './staff-account.js';
+import { captureAgentResourceState } from './agent-resource-state.js';
 import { DatabaseService } from './database.service.js';
 import { DomainError } from './domain-error.js';
 import { AGENT_ACTION_MAP } from './agent-operation-catalog.js';
@@ -135,10 +140,10 @@ function requiresStateObservation(actionId: string, target: Record<string, unkno
   );
 }
 
-function needsBrowserApproval(risk: AgentRisk, principal: AgentPrincipal) {
+function needsBrowserApproval(risk: AgentRisk) {
   return (
     risk === 'critical' ||
-    (risk === 'controlled' && principal.approvalPolicy === 'controlled-and-critical')
+    risk === 'controlled'
   );
 }
 
@@ -237,7 +242,19 @@ export class AgentOperationService {
     );
   }
 
-  createStateObservation(input: {
+  async observeRead<T>(input: {
+    principal: AgentPrincipal;
+    actionId: string;
+    target: Record<string, string>;
+  }, read: () => Promise<T>) {
+    return this.database.withAgentReadTransaction(async () => {
+      const result = await read();
+      const token = await this.createStateObservation({ ...input, state: result });
+      return { result, token };
+    });
+  }
+
+  async createStateObservation(input: {
     principal: AgentPrincipal;
     actionId: string;
     target: Record<string, string>;
@@ -249,7 +266,9 @@ export class AgentOperationService {
         organizationId: input.principal.organizationId,
         actionId: input.actionId,
         targetFingerprint: sha256(stableCanonicalJson(normalizedTarget(input.target))),
-        stateFingerprint: sha256(stableCanonicalJson(input.state)),
+        stateFingerprint: sha256(stableCanonicalJson(
+          await captureAgentResourceState(this.db(), input.actionId,
+            input.principal.organizationId, input.target) ?? input.state)),
       },
       this.stateObservationSecrets()[0]!,
     );
@@ -316,6 +335,13 @@ export class AgentOperationService {
         HttpStatus.FORBIDDEN,
       );
     }
+    const inputContract = AGENT_INPUT_SCHEMAS[action.actionId];
+    if (inputContract) {
+      const validation = inputContract.safeParse(parsed.data.requestBody);
+      if (!validation.success) throw new DomainError(API_ERROR_CODES.VALIDATION_ERROR,
+        'Agent request does not match the action input contract', HttpStatus.BAD_REQUEST,
+        { issues: validation.error.issues.map((issue) => ({ path: issue.path, message: issue.message })) });
+    }
     const actualRequestHash = sha256(stableCanonicalJson(parsed.data.requestBody));
     if (actualRequestHash !== parsed.data.requestHash) {
       throw new DomainError(
@@ -331,14 +357,14 @@ export class AgentOperationService {
       grants: user.grants,
       impact: impactSummary,
     });
-    if (!parsed.data.idempotencyKey && action.idempotencyStrategy !== 'one-time-secret') {
+    if (!parsed.data.idempotencyKey) {
       throw new DomainError(
         API_ERROR_CODES.VALIDATION_ERROR,
         'This Agent action requires an idempotency key',
         HttpStatus.BAD_REQUEST,
       );
     }
-    const status: AgentOperationStatus = needsBrowserApproval(risk, principal)
+    const status: AgentOperationStatus = needsBrowserApproval(risk)
       ? 'approval_required'
       : 'prepared';
     const targetSummary = storedTarget(action.path, parsed.data.target);
@@ -462,7 +488,7 @@ export class AgentOperationService {
     );
   }
 
-  async get(id: string, principal: AgentPrincipal) {
+  async get(id: string, principal: AgentPrincipal): Promise<ReturnType<typeof publicOperation>> {
     const [row] = await this.db()
       .select()
       .from(agentOperations)
@@ -487,9 +513,11 @@ export class AgentOperationService {
       const [expired] = await this.db()
         .update(agentOperations)
         .set({ status: 'expired', updatedAt: new Date() })
-        .where(eq(agentOperations.id, row.id))
+        .where(and(eq(agentOperations.id, row.id),
+          inArray(agentOperations.status, ['prepared', 'approval_required']),
+          lte(agentOperations.expiresAt, new Date(Date.now()))))
         .returning();
-      return publicOperation(expired!);
+      return expired ? publicOperation(expired) : this.get(id, principal);
     }
     return publicOperation(row);
   }
@@ -759,7 +787,7 @@ export class AgentOperationService {
       const [recorded] = await tx
         .update(agentOperations)
         .set({
-          verificationStatus: 'unverified',
+          verificationStatus: sql`case when ${agentOperations.verificationStatus} = 'verified' then 'verified' else 'unverified' end`,
           domainAuditIds: [
             ...row.domainAuditIds,
             ...(verificationAudit ? [verificationAudit.id] : []),
@@ -792,6 +820,64 @@ export class AgentOperationService {
       return recorded;
     });
     return publicOperation(updated);
+  }
+
+  async reconcile(id: string, principal: AgentPrincipal) {
+    await this.get(id, principal);
+    const [row] = await this.db().select().from(agentOperations).where(eq(agentOperations.id, id)).limit(1);
+    if (!row || row.verificationStatus === 'verified') return row ? publicOperation(row) : this.get(id, principal);
+    let terminal: { status: 'succeeded' | 'failed'; verificationStatus: 'verified' | 'failed' } | undefined;
+    let evidence: Record<string, unknown> | undefined;
+    const resultId = row.redactedResult?.id;
+    if (row.status === 'queued' && typeof resultId === 'string') {
+      if (['templates.html-imports.scan', 'templates.html-imports.retry'].includes(row.actionId)) {
+        const [job] = await this.db().select().from(templateHtmlImports).where(and(
+          eq(templateHtmlImports.id, resultId), eq(templateHtmlImports.organizationId, row.organizationId))).limit(1);
+        if (job && ['ready', 'needs_review', 'committed'].includes(job.status)) terminal = { status: 'succeeded', verificationStatus: 'verified' };
+        if (job && ['failed', 'cancelled', 'expired'].includes(job.status)) terminal = { status: 'failed', verificationStatus: 'failed' };
+      }
+      if (row.actionId === 'communications.notifications.queue') {
+        const [job] = await this.db().select().from(notificationDeliveries).where(and(
+          eq(notificationDeliveries.id, resultId), eq(notificationDeliveries.organizationId, row.organizationId))).limit(1);
+        if (job?.status === 'sent') terminal = { status: 'succeeded', verificationStatus: 'verified' };
+        if (job?.status === 'failed') terminal = { status: 'failed', verificationStatus: 'failed' };
+      }
+    }
+    const homepage = row.redactedResult?.expectedHomepage as AgentHomepageExpectation | undefined;
+    const expected = (row.redactedResult?.expectedPublic ?? homepage?.event) as AgentPublicExpectation | undefined;
+    if (row.status === 'succeeded' && (expected || homepage)) {
+      const verified = homepage
+        ? await verifyAgentHomepageDelivery(homepage, process.env.PUBLIC_ORIGIN ?? process.env.PUBLIC_WEB_URL ?? '')
+        : await verifyAgentPublicDelivery(expected!, process.env.PUBLIC_ORIGIN ?? process.env.PUBLIC_WEB_URL ?? '');
+      evidence = verified;
+      if (verified.verified) terminal = { status: 'succeeded', verificationStatus: 'verified' };
+    }
+    if (!terminal) return { ...publicOperation(row), reconciliation: evidence ?? { verified: false, reason: 'AWAITING_DOMAIN_RESULT' } };
+    const resolved = terminal;
+    await this.db().transaction(async (tx) => {
+      const [current] = await tx.select().from(agentOperations).where(eq(agentOperations.id, id)).for('update').limit(1);
+      if (!current || current.status !== row.status || current.verificationStatus === 'verified') return;
+      if (homepage) {
+        const [organization] = await tx.select().from(organizations).where(eq(organizations.id, row.organizationId)).for('update').limit(1);
+        const [binding] = await tx.select().from(organizationHomepageEvents).where(eq(organizationHomepageEvents.organizationId, row.organizationId)).for('update').limit(1);
+        const settings = organization?.settings.homepage;
+        if ((settings?.mode ?? (binding ? 'event' : 'empty')) !== homepage.mode ||
+          (settings?.revision ?? 0) !== homepage.revision || (binding?.eventId ?? null) !== homepage.eventId) return;
+      }
+      if (expected) {
+        const [event] = await tx.select().from(events).where(and(eq(events.id, expected.eventId),
+          eq(events.organizationId, row.organizationId))).for('update').limit(1);
+        if (event?.settings.currentReleaseId !== expected.releaseId) return;
+        if (isPublicEventStatus(event.status) !== (expected.public !== false)) return;
+      }
+      await tx.update(agentOperations).set({ ...resolved, completedAt: new Date(), updatedAt: new Date() })
+        .where(eq(agentOperations.id, id));
+      await tx.insert(auditLogs).values({ organizationId: row.organizationId, actorId: row.connectionId,
+        actorType: 'agent', action: 'agent.operation.server-reconciled', resourceType: 'agent-operation',
+        resourceId: id, before: { status: row.status, verificationStatus: row.verificationStatus },
+        after: { ...resolved, ...(evidence ? { evidence } : {}) }, traceId: row.traceId });
+    });
+    return this.get(id, principal);
   }
 
   async readOneTimeSecret(id: string, principal: AgentPrincipal) {
@@ -885,6 +971,50 @@ export class AgentOperationService {
     return { acknowledged: true, claimedAt: acknowledged.claimedAt };
   }
 
+  async runAtomically<T>(input: {
+    operationId: string; principal: AgentPrincipal; actor: AuthenticatedUser; traceId: string;
+  }, work: () => Promise<T>): Promise<T> {
+    return this.database.withAgentTransaction({
+      operationId: input.operationId, connectionId: input.principal.connectionId,
+      delegatedUserId: input.principal.delegatedUserId, traceId: input.traceId,
+    }, async () => {
+      const [connection] = await this.db().select().from(agentConnections)
+        .where(and(eq(agentConnections.id, input.principal.connectionId),
+          eq(agentConnections.organizationId, input.principal.organizationId)))
+        .for('update').limit(1);
+      if (!connection || connection.status !== 'active' || connection.expiresAt <= new Date() ||
+        !input.principal.scopes.every((scope) => connection.scopes.includes(scope))) {
+        throw new DomainError(API_ERROR_CODES.AGENT_CONNECTION_REVOKED,
+          'Agent delegation changed before execution', HttpStatus.FORBIDDEN);
+      }
+      const [membership] = await this.db().select().from(memberships)
+        .where(eq(memberships.id, connection.membershipId)).for('update').limit(1);
+      const [user] = await this.db().select().from(users)
+        .where(eq(users.id, connection.delegatedUserId)).for('update').limit(1);
+      const [profile] = await this.db().select().from(memberProfiles)
+        .where(and(eq(memberProfiles.userId, connection.delegatedUserId),
+          eq(memberProfiles.organizationId, connection.organizationId))).for('update').limit(1);
+      if (!membership || !user || membership.status !== 'active' ||
+        membership.updatedAt.toISOString() !== connection.delegatedMembershipVersion ||
+        staffCredentialVersion(user, staffCredentialRevision(profile?.preferences)) !== connection.delegatedCredentialVersion ||
+        input.actor.credentialVersion !== connection.delegatedCredentialVersion) {
+        throw new DomainError(API_ERROR_CODES.AGENT_CONNECTION_REVOKED,
+          'Administrator authorization changed before execution', HttpStatus.FORBIDDEN);
+      }
+      return work();
+    }).catch((error: unknown) => {
+      if (error instanceof DomainError) throw error;
+      const failure = error as { code?: string; cause?: { code?: string } };
+      if (['40001', '40P01'].includes(failure.code ?? failure.cause?.code ?? '')) {
+        throw new DomainError(API_ERROR_CODES.AGENT_OPERATION_STALE,
+          'Concurrent changes prevented this operation; prepare it again', HttpStatus.CONFLICT);
+      }
+      throw new DomainError('AGENT_EXECUTION_FAILED',
+        'Agent operation could not be committed', HttpStatus.INTERNAL_SERVER_ERROR,
+        { retryable: false, next: 'Inspect the operation status before continuing.' });
+    });
+  }
+
   async beginExecution(input: {
     id: string;
     principal: AgentPrincipal;
@@ -894,6 +1024,8 @@ export class AgentOperationService {
     currentStateToken?: string;
     currentTarget: Record<string, string>;
     requestBody: Record<string, unknown>;
+    grants: string[];
+    idempotencyKey: string;
   }) {
     const now = new Date();
     const [row] = await this.db()
@@ -925,6 +1057,17 @@ export class AgentOperationService {
             expectedTargetFingerprint: targetFingerprint,
           })
         : undefined;
+    if (currentObservation) {
+      const action = AGENT_ACTION_MAP.get(row.actionId)!;
+      const current = await captureAgentResourceState(this.db(), action.verifyActionId!,
+        input.principal.organizationId, input.currentTarget, true);
+      if (current === undefined || sha256(stableCanonicalJson(current)) !== row.beforeFingerprint) {
+        throw new DomainError(API_ERROR_CODES.AGENT_OPERATION_STALE,
+          'The resource changed after approval; prepare a new operation', HttpStatus.CONFLICT);
+      }
+    }
+    this.policy.authorize({ action: AGENT_ACTION_MAP.get(row.actionId)!, principal: input.principal,
+      grants: input.grants, impact: deriveAgentImpactSummary(input.requestBody) });
     const expectedImpact = {
       ...deriveAgentImpactSummary(input.requestBody),
       precondition: currentObservation ? 'server-observed' : 'not-applicable',
@@ -934,6 +1077,7 @@ export class AgentOperationService {
       !row.approvalExpiresAt ||
       row.approvalExpiresAt < now ||
       row.requestHash !== input.requestHash ||
+      row.idempotencyKey !== input.idempotencyKey ||
       row.beforeFingerprint !== input.beforeFingerprint ||
       (currentObservation && row.beforeFingerprint !== currentObservation.stateFingerprint) ||
       row.targetSummary[TARGET_FINGERPRINT_KEY] !== targetFingerprint ||
@@ -983,6 +1127,30 @@ export class AgentOperationService {
       input.oneTimeSecretResult === undefined
         ? undefined
         : sealSecret(JSON.stringify(input.oneTimeSecretResult ?? null), this.escrowSecrets()[0]!);
+    let expectedPublic: AgentPublicExpectation | undefined;
+    let expectedHomepage: AgentHomepageExpectation | undefined;
+    let eventId = Number(input.target.eventId);
+    if (input.status === 'succeeded' && input.actionId.startsWith('organization.homepage')) {
+      const [organization] = await this.db().select().from(organizations).where(eq(organizations.id, input.organizationId)).limit(1);
+      const [binding] = await this.db().select().from(organizationHomepageEvents).where(eq(organizationHomepageEvents.organizationId, input.organizationId)).limit(1);
+      if (organization) {
+        const settings = organization.settings.homepage;
+        expectedHomepage = { organizationId: input.organizationId, organizationSlug: organization.slug,
+          mode: settings?.mode ?? (binding ? 'event' : 'empty'), revision: settings?.revision ?? 0, eventId: binding?.eventId ?? null };
+        eventId = binding?.eventId ?? 0;
+      }
+    }
+    if (input.status === 'succeeded' && Number.isSafeInteger(eventId) && eventId > 0) {
+      const [scope] = await this.db().select({ event: events, organizationSlug: organizations.slug })
+        .from(events).innerJoin(organizations, eq(organizations.id, events.organizationId))
+        .where(and(eq(events.id, eventId), eq(events.organizationId, input.organizationId))).limit(1);
+      const releaseId = scope?.event.settings.currentReleaseId;
+      if (typeof releaseId === 'string') expectedPublic = { eventId, organizationId: input.organizationId,
+        organizationSlug: scope!.organizationSlug, eventSlug: scope!.event.slug, releaseId,
+        public: isPublicEventStatus(scope!.event.status) };
+    }
+    if (expectedHomepage && expectedPublic && expectedHomepage.mode === 'event') expectedHomepage.event = expectedPublic;
+    const serverVerified = input.status === 'succeeded' && !expectedPublic && !expectedHomepage;
     await this.db().transaction(async (tx) => {
       const [audit] = await tx
         .insert(auditLogs)
@@ -1003,15 +1171,15 @@ export class AgentOperationService {
         .set({
           status: input.status,
           responseStatus: input.responseStatus,
-          redactedResult: input.redactedResult,
+          redactedResult: { ...input.redactedResult, ...(expectedHomepage ? { expectedHomepage } : expectedPublic ? { expectedPublic } : {}) },
           oneTimeSecretCiphertext: escrowCiphertext,
           oneTimeSecretExpiresAt: escrowCiphertext
             ? new Date(now.getTime() + ONE_TIME_SECRET_ESCROW_TTL_MS)
             : undefined,
           verificationStatus:
-            input.verificationStatus ?? (input.status === 'succeeded' ? 'unverified' : 'pending'),
+            input.verificationStatus ?? (serverVerified ? 'verified' : 'pending'),
           completedAt: ['succeeded', 'failed'].includes(input.status) ? now : undefined,
-          domainAuditIds: audit ? [audit.id] : [],
+          domainAuditIds: [...(this.database.agentAuditIds ?? []), ...(audit ? [audit.id] : [])],
           updatedAt: now,
         })
         .where(

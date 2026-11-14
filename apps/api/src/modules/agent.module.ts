@@ -27,9 +27,11 @@ import {
   normalizeAgentOrigin,
   resolveAgentAccessFeatures,
   resolveAgentResource,
+  resolveAgentUploadOrigins,
 } from '@conference/security';
 import { AuthGuard, grantsAllowAll, type AuthenticatedUser } from '../common/auth.guard.js';
 import { AgentAuthorizationService } from '../common/agent-authorization.service.js';
+import { agentActionAvailability } from '../common/agent-action-availability.js';
 import { AGENT_ACTIONS, AgentExcluded, AgentSurface } from '../common/agent-operation-catalog.js';
 import { AgentOperationService } from '../common/agent-operation.service.js';
 import type { AgentPrincipal } from '../common/agent-principal.service.js';
@@ -81,6 +83,7 @@ class AgentWellKnownController {
       skillPackageVersion: TOKEMS_AGENT_SKILL_VERSION,
       minClientVersion: TOKEMS_AGENT_MIN_CLIENT_VERSION,
       features: resolveAgentAccessFeatures(),
+      uploadOrigins: resolveAgentUploadOrigins(),
       authorizationEndpoint: `${resource}/oauth/device_authorization`,
       tokenEndpoint: `${resource}/oauth/token`,
       revocationEndpoint: `${resource}/oauth/revoke`,
@@ -178,10 +181,8 @@ class AgentController {
       actions: AGENT_ACTIONS.filter(
         (action) =>
           grantsAllowAll(user.grants, action.requiredGrants) &&
-          action.agentScopes.every((scope) => principal.scopes.includes(scope)) &&
-          (action.method === 'GET' || features.writes) &&
-          (action.riskBase !== 'critical' || features.criticalActions),
-      ),
+          action.agentScopes.every((scope) => principal.scopes.includes(scope)),
+      ).map((action) => ({ ...action, availability: agentActionAvailability(action, features) })),
     };
   }
 
@@ -224,7 +225,7 @@ class AgentController {
 
   @Post('operations/:operationId/reconcile')
   reconcile(@Param('operationId') id: string, @Req() request: AgentRequest) {
-    return this.operations.get(id, requireAgent(request).principal);
+    return this.operations.reconcile(id, requireAgent(request).principal);
   }
 }
 

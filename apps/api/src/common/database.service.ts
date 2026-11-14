@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   createDatabase,
@@ -6,17 +7,19 @@ import {
   type ConferenceDatabase,
 } from '@conference/database';
 import type { Pool } from 'pg';
+import { agentTransactionDatabase, agentTransactionStorage, type AgentTransactionContext } from './agent-transaction-context.js';
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
-  readonly db?: ConferenceDatabase;
+  private readonly readTransactions = new AsyncLocalStorage<ConferenceDatabase>();
+  private readonly rootDb?: ConferenceDatabase;
   private readonly pool?: Pool;
   private readonly logger = new Logger(DatabaseService.name);
 
   constructor() {
     if (process.env.DATABASE_URL) {
       const connection = createDatabase(process.env.DATABASE_URL);
-      this.db = connection.db;
+      this.rootDb = connection.db;
       this.pool = connection.pool;
       this.logger.log('PostgreSQL persistence is enabled');
     } else {
@@ -29,6 +32,37 @@ export class DatabaseService implements OnModuleDestroy {
 
   get persistent() {
     return Boolean(this.db);
+  }
+
+  get db() {
+    return agentTransactionStorage.getStore()?.db ?? this.readTransactions.getStore() ?? this.rootDb;
+  }
+
+  get agentOperationId() {
+    return agentTransactionStorage.getStore()?.operationId;
+  }
+
+  get agentAuditIds() {
+    return [...(agentTransactionStorage.getStore()?.auditIds ?? [])];
+  }
+
+  async withAgentReadTransaction<T>(callback: () => Promise<T>): Promise<T> {
+    if (!this.rootDb) return callback();
+    return this.rootDb.transaction((tx) => this.readTransactions.run(tx as unknown as ConferenceDatabase, callback),
+      { isolationLevel: 'repeatable read' });
+  }
+
+  async withAgentTransaction<T>(
+    input: Omit<AgentTransactionContext, 'db' | 'auditIds'>,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.rootDb) throw new Error('Agent writes require PostgreSQL');
+    if (agentTransactionStorage.getStore()) throw new Error('Nested Agent operations are forbidden');
+    return this.rootDb.transaction(async (tx) => {
+      const metadata = { ...input, auditIds: [] as string[] };
+      const db = agentTransactionDatabase(tx, metadata);
+      return agentTransactionStorage.run({ ...metadata, db }, callback);
+    }, { isolationLevel: 'serializable' });
   }
 
   async ping() {

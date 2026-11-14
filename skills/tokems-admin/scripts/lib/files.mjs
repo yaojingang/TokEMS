@@ -107,7 +107,7 @@ export async function savePendingArtifact(operationId, connectionId, bytes, data
   return { available: true, size: value.size, sha256: value.sha256 };
 }
 
-export async function downloadPendingArtifact(operationId, connectionId, outputPath, dataKey) {
+export async function readPendingArtifact(operationId, connectionId, dataKey) {
   requireUuid(operationId, 'operation identifier');
   requireUuid(connectionId, 'connection identifier');
   const stored = await readJson(join('artifacts', `${operationId}.json`));
@@ -121,6 +121,15 @@ export async function downloadPendingArtifact(operationId, connectionId, outputP
     dataKey,
     `tokems:${connectionId}:${operationId}:artifact:v1`,
   );
+  const bytes = Buffer.from(value.data, 'base64');
+  if (sha256(bytes) !== value.sha256 || bytes.length !== value.size) {
+    throw new Error('Encrypted artifact digest mismatch');
+  }
+  return { ...value, bytes };
+}
+
+export async function downloadPendingArtifact(operationId, connectionId, outputPath, dataKey) {
+  const value = await readPendingArtifact(operationId, connectionId, dataKey);
   const artifact = await writeArtifact(outputPath, Buffer.from(value.data, 'base64'));
   if (artifact.sha256 !== value.sha256 || artifact.size !== value.size) {
     await rm(outputPath, { force: true });
@@ -161,10 +170,14 @@ export async function writeArtifact(path, bytes) {
     error.code = 'INVALID_OUTPUT_PATH';
     throw error;
   }
-  await ensureDirectory(dirname(path));
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  let file;
   try {
-    await writeFile(path, bytes, { mode: 0o600, flag: 'wx' });
-    await chmod(path, 0o600);
+    file = await open(path, 'wx', 0o600);
+    await file.writeFile(bytes);
+    await file.chmod(0o600);
+    const metadata = await file.stat();
+    return { path, size: metadata.size, sha256: sha256(bytes), mode: '0600' };
   } catch (error) {
     if (error?.code === 'EEXIST') {
       const conflict = new Error('Artifact output path already exists');
@@ -172,9 +185,9 @@ export async function writeArtifact(path, bytes) {
       throw conflict;
     }
     throw error;
+  } finally {
+    await file?.close();
   }
-  const metadata = await stat(path);
-  return { path, size: metadata.size, sha256: sha256(bytes), mode: '0600' };
 }
 
 export async function withLocalLock(name, callback) {

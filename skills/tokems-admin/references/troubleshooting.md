@@ -8,8 +8,8 @@
 - `AGENT_OPERATION_LIMIT`: finish, cancel, or reconcile outstanding operations before preparing another one.
 - `AGENT_DPOP_REPLAY`: stop and run `doctor`; repeated proof use can indicate credential or process compromise.
 - `AGENT_VERSION_UNSUPPORTED`: update the local package after registry and checksum review.
-- `AGENT_REAUTHORIZATION_REQUIRED`: the saved connection predates catalog `1.2.0`; connect again with Skill `0.2.0` and approve the new action set.
-- `AGENT_CATALOG_UNSUPPORTED`: the instance catalog does not equal `1.2.0`; install the matching Skill release.
+- `AGENT_REAUTHORIZATION_REQUIRED`: the saved connection predates catalog `2.0.0`; connect again with Skill `0.4.0` and approve the new action set.
+- `AGENT_CATALOG_UNSUPPORTED`: the instance catalog does not equal `2.0.0`; install the matching Skill release.
 - `AGENT_RESULT_UNKNOWN`: run reconciliation and audit lookup. Do not execute the prior body again.
 - `AGENT_SECRET_HANDOFF_REQUIRED`: download the protected artifact before its one-hour escrow expires.
 - `SENSITIVE_READ_PURPOSE_REQUIRED`: create a UTF-8 purpose file containing the concrete task purpose and pass `--purpose-file`.
@@ -19,4 +19,7 @@
 - `TEMPLATE_PATCH_UNKNOWN_NODE`, `TEMPLATE_PATCH_DUPLICATE_NODE`, or `TEMPLATE_PATCH_INCOMPLETE_ORDER`: refresh the live draft and rebuild the patch from `references/system-contracts.json` stable keys.
 - `ATTENDEE_NEEDS_SPEAKER_EXPORT_REQUIRES_ANONYMITY`: use `forceAnonymous=true` for the `speaker` variant or prepare an explicitly approved internal export.
 
-Run `doctor` to check Node.js, credential store, local state permissions, active connection, live metadata, catalog version, and expired pending-file cleanup.
+Run `doctor` to check Node.js, credential store, local state permissions, active connection, live metadata, catalog version, and live catalog availability. Credential-store diagnosis uses an ephemeral capability probe; it preserves pending operations and artifacts.
+
+- `AGENT_ACTION_NOT_READY`: the action is defined but has not entered the accepted write allowlist. Keep using its existing administrator workflow.
+- Interrupted protected output: rerun `action execute` with the same succeeded operation ID to recover its escrow, then download or upload through the original artifact.

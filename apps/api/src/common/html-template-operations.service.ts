@@ -501,6 +501,7 @@ export class HtmlTemplateOperationsService {
         method: 'PUT' as const,
         headers: { 'Content-Type': HTML_SOURCE_MEDIA_TYPE, 'If-None-Match': '*' },
         expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        contentDigest: input.sourceDigest.replace(/^sha256:/u, ''), size: input.size,
       },
     };
   }
@@ -1122,6 +1123,7 @@ export class HtmlTemplateOperationsService {
     organizationId: string,
     templateId: string,
     manifestInput?: HtmlTemplateBindingManifest,
+    eventContext?: Record<string, unknown>,
   ) {
     const { document, definition, revision } = await this.htmlDocument(organizationId, templateId);
     const manifest = HtmlTemplateBindingManifestSchema.parse(
@@ -1131,7 +1133,7 @@ export class HtmlTemplateOperationsService {
           : { version: 1, bindings: [] }),
     );
     const compiled = compileHtmlTemplate(document.sanitizedHtml, manifest);
-    const html = await renderHtmlTemplate(compiled, htmlTemplateSampleContext());
+    const html = await renderHtmlTemplate(compiled, eventContext ?? htmlTemplateSampleContext());
     return {
       html,
       revision,
@@ -1447,6 +1449,10 @@ export class HtmlTemplateOperationsService {
     );
     const settings = OrganizationSettingsSchema.parse(organization.settings);
     const result = this.systemHead(rendered, settings, event.name, event.slug);
+    if (event.releaseId && /^[0-9a-f-]{36}$/iu.test(event.releaseId)) {
+      result.html = result.html.replace(/<\/head>/iu,
+        `<meta name="tokems:release-id" content="${event.releaseId}"></head>`);
+    }
     const etag = publishedHtmlEtag(result.html);
     return { ...result, etag };
   }

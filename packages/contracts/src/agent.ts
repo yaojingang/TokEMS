@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 export const TOKEMS_AGENT_CLIENT_ID = 'tokems-admin-skill' as const;
 export const TOKEMS_AGENT_API_VERSION = '1.0.0' as const;
-export const TOKEMS_AGENT_CATALOG_VERSION = '1.2.0' as const;
-export const TOKEMS_AGENT_SKILL_VERSION = '0.2.0' as const;
-export const TOKEMS_AGENT_MIN_CLIENT_VERSION = '0.2.0' as const;
+export const TOKEMS_AGENT_CATALOG_VERSION = '2.0.0' as const;
+export const TOKEMS_AGENT_SKILL_VERSION = '0.4.0' as const;
+export const TOKEMS_AGENT_MIN_CLIENT_VERSION = '0.4.0' as const;
 
 export const AgentScopeSchema = z.enum([
   'tokems:read',
@@ -18,6 +18,12 @@ export const AgentScopeSchema = z.enum([
 ]);
 
 export const AGENT_SCOPES = AgentScopeSchema.options;
+export const AGENT_AUTHORIZATION_PROFILES = {
+  read: ['tokems:read'],
+  content: ['tokems:read', 'tokems:write'],
+  full: AGENT_SCOPES,
+} as const;
+
 
 export const AgentDataClassSchema = z.enum(['public', 'internal', 'pii', 'secret']);
 export const AgentRiskSchema = z.enum([
@@ -67,6 +73,7 @@ export const AgentActionSchema = z.object({
   rollback: z.string().min(1),
   minClientVersion: z.string().regex(/^\d+\.\d+\.\d+$/u),
   description: z.string().min(1).max(500),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const AgentFeatureFlagsSchema = z.object({
@@ -86,7 +93,9 @@ export const AgentCapabilityCatalogSchema = z.object({
   connectionId: z.uuid(),
   features: AgentFeatureFlagsSchema,
   scopes: z.array(AgentScopeSchema),
-  actions: z.array(AgentActionSchema),
+  actions: z.array(AgentActionSchema.extend({
+    availability: z.object({ enabled: z.boolean(), reason: z.string().optional() }),
+  })),
 });
 
 export const AgentDeviceAuthorizationRequestSchema = z.object({

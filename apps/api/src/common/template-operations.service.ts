@@ -627,6 +627,10 @@ export class TemplateOperationsService {
           updatedAt: new Date(),
         })
         .where(eq(conferenceTemplates.id, templateId));
+      await tx.insert(auditLogs).values({ organizationId, actorId, action: 'template.update',
+        resourceType: 'conference_template', resourceId: templateId,
+        before: { revision: input.revision }, after: { ...input, revision: input.revision + 1 },
+        traceId: crypto.randomUUID() });
     });
     return this.detail(organizationId, templateId);
   }
@@ -709,6 +713,11 @@ export class TemplateOperationsService {
         .update(conferenceTemplates)
         .set({ updatedBy: actorId, updatedAt: new Date() })
         .where(eq(conferenceTemplates.id, templateId));
+      await tx.insert(auditLogs).values({ organizationId, actorId, action: 'template.draft.update',
+        resourceType: 'conference_template', resourceId: templateId,
+        before: { revision: input.revision },
+        after: { revision: input.revision + 1, contentDigest: this.digest(parsed.data) },
+        traceId: crypto.randomUUID() });
     });
     return this.draft(organizationId, templateId);
   }
@@ -1051,27 +1060,20 @@ export class TemplateOperationsService {
     revision: number,
   ) {
     const root = await this.templateRoot(organizationId, templateId);
-    const [draft] = await this.db()
-      .select({ revision: conferenceTemplateDrafts.revision })
-      .from(conferenceTemplateDrafts)
-      .where(eq(conferenceTemplateDrafts.templateId, templateId))
-      .limit(1);
-    if (!draft || draft.revision !== revision) {
-      throw new DomainError(
-        API_ERROR_CODES.INVALID_STATE_TRANSITION,
-        '模板状态更新发生版本冲突',
-        HttpStatus.CONFLICT,
-        { currentRevision: draft?.revision ?? null },
-      );
-    }
-    await this.db()
-      .update(conferenceTemplates)
-      .set({
-        status: archived ? 'archived' : 'active',
-        updatedBy: actorId,
-        updatedAt: new Date(),
-      })
-      .where(eq(conferenceTemplates.id, root.id));
+    await this.db().transaction(async (tx) => {
+      const [draft] = await tx.update(conferenceTemplateDrafts)
+        .set({ revision: revision + 1, updatedBy: actorId, updatedAt: new Date() })
+        .where(and(eq(conferenceTemplateDrafts.templateId, templateId), eq(conferenceTemplateDrafts.revision, revision)))
+        .returning({ revision: conferenceTemplateDrafts.revision });
+      if (!draft) throw new DomainError(API_ERROR_CODES.INVALID_STATE_TRANSITION,
+        '模板状态更新发生版本冲突', HttpStatus.CONFLICT);
+      await tx.update(conferenceTemplates).set({ status: archived ? 'archived' : 'active',
+        updatedBy: actorId, updatedAt: new Date() }).where(eq(conferenceTemplates.id, root.id));
+      await tx.insert(auditLogs).values({ organizationId, actorId,
+        action: archived ? 'template.archive' : 'template.restore', resourceType: 'conference_template',
+        resourceId: root.id, before: { status: root.status, revision },
+        after: { status: archived ? 'archived' : 'active', revision: revision + 1 }, traceId: crypto.randomUUID() });
+    });
     return this.detail(organizationId, templateId);
   }
 
@@ -1778,6 +1780,7 @@ export class TemplateOperationsService {
       headers: { 'Content-Type': input.mediaType, 'If-None-Match': '*' },
       storageKey,
       expiresAt: uploadExpiresAt.toISOString(),
+      contentDigest: input.contentDigest, size: input.size, mediaType: input.mediaType, altText: input.altText,
     };
   }
 

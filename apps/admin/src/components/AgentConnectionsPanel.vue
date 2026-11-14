@@ -48,10 +48,7 @@ async function updatePolicy(connection: AgentConnectionSummary) {
     errorMessage.value = '修改审批策略需要输入当前管理员密码。';
     return;
   }
-  const approvalPolicy =
-    connection.approvalPolicy === 'controlled-and-critical'
-      ? 'critical-only'
-      : 'controlled-and-critical';
+  const approvalPolicy = 'controlled-and-critical' as const;
   const requestHash = await agentApprovalHash({
     connectionId: connection.id,
     approvalPolicy,
@@ -215,10 +212,10 @@ onMounted(load);
                 <button
                   class="button secondary compact"
                   type="button"
-                  :disabled="pending"
+                  :disabled="pending || connection.approvalPolicy === 'controlled-and-critical'"
                   @click="updatePolicy(connection)"
                 >
-                  切换审批策略
+                  恢复逐次审批
                 </button>
                 <button
                   class="button danger compact"

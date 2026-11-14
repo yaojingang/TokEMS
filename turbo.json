@@ -6,18 +6,28 @@
       "persistent": true
     },
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**", ".nuxt/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".output/**",
+        ".nuxt/**"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": []
     },
     "lint": {
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "outputs": [],
       "cache": false,
       "passThroughEnv": [
@@ -26,6 +36,9 @@
         "INVOICE_SMS_TEST_DATABASE_URL",
         "INVOICE_SMS_TEST_REDIS_URL"
       ]
+    },
+    "@conference/cli#build": {
+      "cache": false
     }
   }
 }

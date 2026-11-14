@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { SKILL_VERSION } from './lib/version.mjs';
+import { pullTemplate, candidateTemplate, previewTemplate } from './lib/template-workflow.mjs';
 import {
   inspectInstance,
   connect,
@@ -10,7 +12,7 @@ import {
   authenticatedFetch,
 } from './lib/auth.mjs';
 import { actionDefinition, inspectAction, readParams, syncCapabilities } from './lib/catalog.mjs';
-import { cleanupExpiredPending } from './lib/files.mjs';
+import { prepareAsset, uploadPreparedFile } from './lib/uploads.mjs';
 import { credentialStoreAvailable, credentialStoreKind } from './lib/credentials.mjs';
 import {
   cancelOperation,
@@ -18,25 +20,31 @@ import {
   downloadArtifact,
   executeOperation,
   operationStatus,
+  operationVerification,
   prepareOperation,
   reconcileOperation,
 } from './lib/operations.mjs';
 import { redact, safeError } from './lib/redaction.mjs';
 import { prepareTemplatePatch } from './lib/template-patch.mjs';
 
-const HELP = `TokEMS Admin Skill connector 0.2.0
+const HELP = `TokEMS Admin Skill connector ${SKILL_VERSION}
 
 Usage:
   tokems-admin.js instance inspect --origin <https-origin>
-  tokems-admin.js auth connect --origin <https-origin> --name <display-name> [--scope "tokems:*"]
+  tokems-admin.js auth connect --origin <https-origin> --name <display-name> [--profile read|content|full] [--scope "tokems:read"]
   tokems-admin.js connection list|use|status|revoke [--connection <id>]
   tokems-admin.js capabilities sync [--connection <id>]
   tokems-admin.js action inspect --action <id> --params-file <path> [--purpose-file <path>] [--connection <id>]
   tokems-admin.js action prepare --action <id> --params-file <path> --input-file <path> --reason-file <path> [--secret-file <path>]
+  tokems-admin.js template pull --template <id> --output <absolute-path>
+  tokems-admin.js template diff --template <id> --patch-file <path>
+  tokems-admin.js template preview --template <id> --event <id> --reason-file <path> [--patch-file <path>]
   tokems-admin.js template patch --template <id> --patch-file <path> --reason-file <path> [--connection <id>]
   tokems-admin.js action confirm|execute --operation <id> [--connection <id>]
   tokems-admin.js artifact download --operation <id> --output <absolute-path> [--connection <id>]
   tokems-admin.js operation status|reconcile|cancel --operation <id> [--connection <id>]
+  tokems-admin.js asset prepare --file <path> --media-type <type> --alt-text <text> --reason-file <path>
+  tokems-admin.js asset upload --operation <id> --file <path> --reason-file <path>
   tokems-admin.js doctor
 
 All successful operational commands write one redacted JSON object to stdout.
@@ -52,12 +60,13 @@ function parseArguments(argv) {
       continue;
     }
     const name = item.slice(2);
-    if (name === 'help') {
-      options.help = true;
+    if (name === 'help' || name === 'version') {
+      options[name] = true;
       continue;
     }
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`Option requires a value: --${name}`);
+    if (Object.hasOwn(options, name)) throw Object.assign(new Error(`Duplicate option: --${name}`), { code: 'CLI_OPTION_UNSUPPORTED' });
     options[name] = value;
     index += 1;
   }
@@ -89,7 +98,7 @@ function envelope(data, context = {}) {
     operationId: operation?.id,
     status: operation?.status || context.status || 'succeeded',
     data: data?.data ?? data,
-    verification: data?.verification ?? { status: 'unverified' },
+    verification: operationVerification(operation, data?.verification),
     artifact: data?.artifact,
     warnings: context.warnings ?? [],
     rollback: context.rollback,
@@ -99,12 +108,42 @@ function envelope(data, context = {}) {
 
 async function main() {
   const { positionals, options } = parseArguments(process.argv.slice(2));
+  if (options.version) { process.stdout.write(`${SKILL_VERSION}\n`); return; }
   if (options.help || !positionals.length) {
     process.stdout.write(`${HELP}\n`);
     return;
   }
   const [group, command] = positionals;
+  const commandOptions = {"instance inspect": "origin", "auth connect": "origin name scope profile", "connection list": "", "connection use": "connection", "connection status": "connection", "connection revoke": "connection", "capabilities sync": "connection", "action inspect": "action params-file purpose-file connection", "action prepare": "action params-file input-file reason-file secret-file connection", "action confirm": "operation connection", "action execute": "operation connection", "template patch": "template patch-file reason-file connection", "template pull": "template output connection", "template diff": "template patch-file connection", "template preview": "template event patch-file reason-file connection", "asset prepare": "file media-type alt-text reason-file connection", "asset upload": "file operation reason-file connection", "artifact download": "operation output connection", "operation status": "operation connection", "operation reconcile": "operation connection", "operation cancel": "operation connection", "doctor": ""};
+  const commandKey = positionals.join(' ');
+  if (!Object.hasOwn(commandOptions, commandKey)) throw Object.assign(new Error('Unsupported CLI command'), { code: 'CLI_COMMAND_UNSUPPORTED' });
+  const allowedOptions = commandOptions[commandKey].split(' ');
+  for (const key of Object.keys(options)) {
+    if (!allowedOptions.includes(key)) throw Object.assign(new Error(`Unsupported option: --${key}`), { code: 'CLI_OPTION_UNSUPPORTED' });
+  }
 
+  if (group === 'template' && ['pull', 'diff', 'preview'].includes(command)) {
+    const id = connectionId(options);
+    const templateId = required(options, 'template');
+    let data;
+    if (command === 'pull') data = await pullTemplate(templateId, required(options, 'output'), id);
+    else if (command === 'diff') {
+      const candidate = await candidateTemplate(templateId, required(options, 'patch-file'), id);
+      data = { templateId, revision: candidate.draft.revision, changes: candidate.difference };
+    } else data = await previewTemplate({ templateId, eventId: required(options, 'event'),
+      patchFile: options['patch-file'], reasonFile: required(options, 'reason-file'), connectionId: id });
+    console.log(JSON.stringify(envelope(data, { connectionId: id, status: command === 'preview' ? 'prepared' : 'inspected' })));
+    return;
+  }
+  if (group === 'asset' && ['prepare', 'upload'].includes(command)) {
+    const id = connectionId(options);
+    const args = { file: required(options, 'file'), reasonFile: required(options, 'reason-file'), connectionId: id };
+    const data = command === 'prepare'
+      ? await prepareAsset({ ...args, mediaType: required(options, 'media-type'), altText: required(options, 'alt-text') })
+      : await uploadPreparedFile({ ...args, operationId: required(options, 'operation') });
+    console.log(JSON.stringify(envelope(data, { connectionId: id, status: 'prepared' })));
+    return;
+  }
   if (group === 'instance' && command === 'inspect') {
     const data = await inspectInstance(required(options, 'origin'));
     console.log(JSON.stringify(envelope(data, { status: 'inspected' })));
@@ -115,6 +154,7 @@ async function main() {
       origin: required(options, 'origin'),
       name: options.name,
       scope: options.scope,
+      profile: options.profile,
     });
     console.log(
       JSON.stringify(
@@ -330,7 +370,7 @@ async function main() {
     return;
   }
   if (group === 'doctor') {
-    const cleanup = await cleanupExpiredPending();
+
     let live = 'not-checked';
     const id = activeConnectionId();
     if (id) {
@@ -348,7 +388,6 @@ async function main() {
               credentialStoreAvailable: credentialStoreAvailable(),
               activeConnectionId: id,
               live,
-              expiredPendingDeleted: cleanup.deleted,
             },
           },
           { connectionId: id, status: 'healthy' },

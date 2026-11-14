@@ -30,10 +30,28 @@ test('gateway resolves compose services dynamically after container address chan
         'u',
       ),
     );
-    assert.doesNotMatch(
-      gatewayConfig,
-      new RegExp(`proxy_pass\\s+http://${service}:${port}`, 'u'),
-    );
+    assert.doesNotMatch(gatewayConfig, new RegExp(`proxy_pass\\s+http://${service}:${port}`, 'u'));
+  }
+});
+
+test('all preview proxy locations protect exact and nested capability paths from logs', () => {
+  const external = readFileSync(
+    new URL('../../docker/external-entry.nginx.conf.example', import.meta.url),
+    'utf8',
+  );
+  for (const config of [gatewayConfig, external]) {
+    const locations = [...config.matchAll(/location\s+~\s+(\S*previews\S*)\s*\{([^}]+)\}/gu)];
+    assert.ok(locations.length > 0);
+    for (const [, pattern, block] of locations) {
+      const regex = new RegExp(pattern);
+      const prefix = pattern.includes('api/v1') ? '/api/v1' : '';
+      for (const path of [`${prefix}/template-previews`, `${prefix}/previews/events/101`]) {
+        assert.ok(regex.test(path), `${pattern} must protect ${path}`);
+      }
+      assert.equal(regex.test(`${prefix}/template-previews-other`), false);
+      assert.match(block, /access_log\s+off;/u);
+      assert.match(block, /error_log\s+\/dev\/null\s+crit;/u);
+    }
   }
 });
 

@@ -54,6 +54,8 @@ describe('public analytics route scope', () => {
     '/Account/profile',
     '/admin',
     '/api/v1/events',
+    '/previews/events/101?token=private',
+    '/template-previews',
   ])('keeps analytics out of %s', (path) => {
     expect(isPublicAnalyticsPath(path)).toBe(false);
   });
@@ -64,6 +66,8 @@ describe('public analytics route scope', () => {
 
   it('uses a new document whenever navigation crosses the sensitive-page boundary', () => {
     expect(requiresAnalyticsDocumentBoundary(googleSettings, '/faq', '/register')).toBe(true);
+    expect(requiresAnalyticsDocumentBoundary(googleSettings, '/tokems26', '/previews/events/101')).toBe(true);
+    expect(isPublicAnalyticsErrorPath('/previews/events/101')).toBe(false);
     expect(
       requiresAnalyticsDocumentBoundary(googleSettings, '/tokems26', '/register/tokems26'),
     ).toBe(true);

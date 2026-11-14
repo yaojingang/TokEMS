@@ -1,3 +1,4 @@
+import { AGENT_READY_WRITES } from '../apps/api/src/common/agent-action-availability.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -179,6 +180,7 @@ const snapshot = {
     minClientVersion: TOKEMS_AGENT_MIN_CLIENT_VERSION,
   },
   actionCount: AGENT_ACTIONS.length,
+  acceptedWriteActions: [...AGENT_READY_WRITES].sort(),
   actions: AGENT_ACTIONS.map((action) => ({
     actionId: action.actionId,
     method: action.method,
@@ -192,6 +194,7 @@ const snapshot = {
     verifyActionId: action.verifyActionId ?? null,
     rollback: action.rollback,
     minClientVersion: action.minClientVersion,
+    inputSchema: action.inputSchema ?? null,
   })),
   adminSurface: discoveredAdminSurface,
   templates: {

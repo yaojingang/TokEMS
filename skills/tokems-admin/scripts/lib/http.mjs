@@ -53,6 +53,7 @@ export async function readBoundedResponse(response, maxBytes = 32 * 1024 * 1024)
 function loopback(hostname) {
   return (
     hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
     hostname === '127.0.0.1' ||
     hostname === '[::1]' ||
     hostname === '::1'

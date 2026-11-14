@@ -69,9 +69,11 @@ export function normalizeAgentOrigin(
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
     throw new Error('TokEMS Agent origin must contain only scheme, host, and optional port');
   }
-  const developmentLoopback =
-    (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]') &&
-    environment.NODE_ENV !== 'production';
+  const localDeployment = environment.DEPLOYMENT_MODE === 'local' ||
+    (environment.DEPLOYMENT_MODE !== 'production' && environment.NODE_ENV !== 'production');
+  const developmentLoopback = localDeployment &&
+    (url.hostname === 'localhost' || url.hostname.endsWith('.localhost') ||
+      url.hostname === '127.0.0.1' || url.hostname === '[::1]');
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && developmentLoopback)) {
     throw new Error('TokEMS Agent origin must use HTTPS');
   }
@@ -84,6 +86,12 @@ export function resolveAgentResource(
   const raw = environment.PUBLIC_ORIGIN ?? environment.PUBLIC_WEB_URL;
   if (!raw) throw new Error('PUBLIC_ORIGIN is required for TokEMS Agent Access');
   return `${normalizeAgentOrigin(raw, environment)}/api/v1`;
+}
+
+export function resolveAgentUploadOrigins(environment: Record<string, string | undefined> = process.env) {
+  if (!environment.S3_PUBLIC_ENDPOINT) return [];
+  try { return [normalizeAgentOrigin(new URL(environment.S3_PUBLIC_ENDPOINT).origin, environment)]; }
+  catch { return []; }
 }
 
 export function decodeAgentAccessSecret(value: string | undefined, label: string) {
@@ -111,6 +119,7 @@ export function sha256(value: string | Uint8Array) {
 }
 
 export function stableCanonicalJson(value: unknown): string {
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (Array.isArray(value)) return `[${value.map(stableCanonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.entries(value)

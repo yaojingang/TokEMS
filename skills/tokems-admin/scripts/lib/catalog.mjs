@@ -1,14 +1,14 @@
+import { CATALOG_VERSION } from './version.mjs';
 import { readFile } from 'node:fs/promises';
 import { authenticatedFetch, loadProfile } from './auth.mjs';
 import { saveJson } from './files.mjs';
 
-const CATALOG_VERSION = '1.2.0';
 
 export async function syncCapabilities(connectionId) {
   const profile = loadProfile(connectionId);
   if (profile.catalogVersion !== CATALOG_VERSION) {
     const error = new Error(
-      `This connection uses Agent catalog ${profile.catalogVersion || 'unknown'}; reconnect with TokEMS Admin Skill 0.2.0`,
+      `This connection uses Agent catalog ${profile.catalogVersion || 'unknown'}; reconnect with TokEMS Admin Skill 0.4.0`,
     );
     error.code = 'AGENT_REAUTHORIZATION_REQUIRED';
     throw error;
@@ -23,7 +23,7 @@ export async function syncCapabilities(connectionId) {
   }
   if (value.catalogVersion !== CATALOG_VERSION) {
     const error = new Error(
-      `TokEMS Agent catalog ${value.catalogVersion || 'unknown'} is unsupported; authorize a 1.2.0 connection`,
+      `TokEMS Agent catalog ${value.catalogVersion || 'unknown'} is unsupported; authorize a 2.0.0 connection`,
     );
     error.code = 'AGENT_CATALOG_UNSUPPORTED';
     throw error;
@@ -38,6 +38,11 @@ export async function actionDefinition(actionId, connectionId) {
   if (!action) {
     const error = new Error(`Action is unavailable on this connection: ${actionId}`);
     error.code = 'AGENT_ACTION_NOT_CLASSIFIED';
+    throw error;
+  }
+  if (action.availability?.enabled === false) {
+    const error = new Error(`Action is disabled: ${actionId} (${action.availability.reason})`);
+    error.code = action.availability.reason || 'AGENT_ACTION_DISABLED';
     throw error;
   }
   return { catalog, action };
