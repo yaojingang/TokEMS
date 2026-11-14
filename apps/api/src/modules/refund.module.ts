@@ -104,12 +104,12 @@ export class CustomerRefundController {
 }
 
 @ApiTags('admin-refunds')
-@Controller('admin')
-@UseGuards(AuthGuard)
 @AgentSurface({
   defaultExclusionReason:
     'Refund workflow operations require human review until explicitly catalogued',
 })
+@Controller('admin')
+@UseGuards(AuthGuard)
 @Throttle({ default: { limit: 30, ttl: 60_000 } })
 export class AdminRefundController {
   constructor(@Inject(RefundWorkflowService) private readonly workflow: RefundWorkflowService) {}

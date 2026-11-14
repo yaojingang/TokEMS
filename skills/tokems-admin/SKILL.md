@@ -10,12 +10,12 @@ Use the bundled connector for every remote operation. Accept only catalog action
 ## Workflow
 
 1. Read `references/authorization.md`; inspect the instance identity before connection or policy changes.
-2. Run `auth connect` when needed. The administrator compares the device code and completes browser password step-up. Credentials stay in macOS Keychain or Linux Secret Service.
-3. Run `capabilities sync`; select an action from the returned catalog. Free request methods, paths, hosts, and URLs are forbidden.
+2. Run `auth connect --profile content` when needed; `read` and `full` are explicit alternatives. The administrator compares the device code and completes browser password step-up. Credentials stay in macOS Keychain or Linux Secret Service.
+3. Run `capabilities sync`; select an enabled action from the returned catalog and inspect its input schema and availability reason. Free request methods, paths, hosts, and URLs are forbidden.
 4. Read `references/safety-and-approvals.md` before PII, write, finance, communication, export, security, or dangerous actions.
 5. Inspect the exact target. Sensitive reads use `--purpose-file`. Writes prepare from `--params-file`, `--input-file`, and `--reason-file`; `template patch` safely prepares a live-revision structured-template update, and `checkin.sync` accepts `--secret-file` for the device token. Review risk, target binding, redacted difference, impact, approval link, and rollback boundary.
 6. Confirm the operation. Wait for browser approval when required, then execute the same operation with the encrypted pending body.
-7. Verify the resource, applicable public API/home document, job, and audit. Evidence remains client-reported until server verification. Reconcile `queued` or `unknown` results without write replay.
+7. Verify the resource, applicable public API/home document, job, and audit. Evidence remains client-reported until server verification. Reconcile `queued` or `unknown` results. A succeeded one-time-secret operation may be executed again to recover its existing protected output.
 8. Report the output contract and keep exported or one-time-secret artifacts at mode `0600`.
 
 ## Safety Rules

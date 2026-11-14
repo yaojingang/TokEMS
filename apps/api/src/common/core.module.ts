@@ -1,3 +1,4 @@
+import { TemplateCandidatePreviewService } from './template-candidate-preview.service.js';
 import { Global, Module } from '@nestjs/common';
 import { BatchRegistrationService } from './batch-registration.service.js';
 import { OrderItemsService } from './order-items.service.js';
@@ -58,6 +59,7 @@ import { MerchantTransferService } from './merchant-transfer.service.js';
     OrganizationAdminService,
     InvoiceOperationsService,
     TemplateOperationsService,
+    TemplateCandidatePreviewService,
     IdempotencyService,
     RedisService,
     WeChatPayService,
@@ -98,6 +100,7 @@ import { MerchantTransferService } from './merchant-transfer.service.js';
     OrganizationAdminService,
     InvoiceOperationsService,
     TemplateOperationsService,
+    TemplateCandidatePreviewService,
     IdempotencyService,
     RedisService,
     WeChatPayService,

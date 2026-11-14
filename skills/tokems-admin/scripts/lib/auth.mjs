@@ -1,3 +1,5 @@
+import { CATALOG_VERSION, SKILL_VERSION } from './version.mjs';
+import { authorizationScope } from './profiles.mjs';
 import { generateDataKey, generateDpopKey, dpopProof } from './crypto.mjs';
 import {
   credentialStoreAvailable,
@@ -10,8 +12,6 @@ import { fetchBound, formBody, normalizeOrigin } from './http.mjs';
 import { requireUuid, withLocalLock } from './files.mjs';
 
 const CLIENT_ID = 'tokems-admin-skill';
-const SKILL_VERSION = '0.2.0';
-const CATALOG_VERSION = '1.2.0';
 const INDEX_KEY = 'connections:index';
 const ACTIVE_KEY = 'connections:active';
 
@@ -123,7 +123,7 @@ export function loadProfile(id = activeConnectionId()) {
   return profile;
 }
 
-export async function connect({ origin, name, scope }) {
+export async function connect({ origin, name, scope, profile: authorizationProfile }) {
   if (!credentialStoreAvailable()) {
     const error = new Error('A supported secure credential store is required before connection');
     error.code = 'CREDENTIAL_STORE_UNAVAILABLE';
@@ -139,7 +139,7 @@ export async function connect({ origin, name, scope }) {
   const request = formBody({
     client_id: CLIENT_ID,
     resource: metadata.resource,
-    scope: scope || 'tokems:*',
+    scope: authorizationScope(authorizationProfile, scope),
     dpop_jkt: keys.thumbprint,
     client_name: name || 'TokEMS Admin Skill',
     skill_version: SKILL_VERSION,
@@ -222,6 +222,7 @@ export async function connect({ origin, name, scope }) {
     adminOrigin: metadata.adminOrigin || metadata.origin,
     organizationId: tokenPayload.organization_id,
     resource: metadata.resource,
+    uploadOrigins: (metadata.uploadOrigins || []).map(normalizeOrigin),
     catalogVersion: metadata.catalogVersion,
     scopes: String(token.scope || '')
       .split(/\s+/u)

@@ -1392,6 +1392,7 @@ export const RegistrationAnswersSchema = z
   .refine((answers) => Object.keys(answers).length <= 60, '表单回答字段不能超过 60 个');
 
 export const PublicEventSchema = z.object({
+  releaseId: z.uuid().optional(),
   id: EventIdSchema,
   organizationId: z.string(),
   slug: z.string(),
@@ -5040,6 +5041,7 @@ export const API_ERROR_CODES = {
   REGISTRATION_IDENTITY_CONFLICT: 'REGISTRATION_IDENTITY_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   DUPLICATE_CHECKIN: 'DUPLICATE_CHECKIN',
+  TEMPLATE_PREVIEW_LIMIT: 'TEMPLATE_PREVIEW_LIMIT',
   AGENT_ACCESS_DISABLED: 'AGENT_ACCESS_DISABLED',
   AGENT_CONNECTION_REVOKED: 'AGENT_CONNECTION_REVOKED',
   AGENT_SCOPE_REQUIRED: 'AGENT_SCOPE_REQUIRED',

@@ -7,6 +7,7 @@ import {
   deletePending,
   downloadPendingArtifact,
   readPending,
+  readPendingArtifact,
   savePending,
   savePendingArtifact,
 } from './files.mjs';
@@ -284,7 +285,7 @@ export async function prepareOperation({
     operation,
     approvalUrl:
       operation.status === 'approval_required'
-        ? `${profile.adminOrigin.replace(/\/+$/u, '')}/agent-operations/${operation.id}`
+        ? `${profile.adminOrigin.replace(/\/+$/u, '')}/admin/agent-operations/${operation.id}`
         : undefined,
   };
 }
@@ -310,7 +311,7 @@ export async function confirmOperation(operationId, connectionId) {
     return {
       operation: await operationStatus(operationId, profile.connectionId),
       approvalRequired: true,
-      approvalUrl: `${profile.adminOrigin.replace(/\/+$/u, '')}/agent-operations/${operationId}`,
+      approvalUrl: `${profile.adminOrigin.replace(/\/+$/u, '')}/admin/agent-operations/${operationId}`,
     };
   }
 }
@@ -326,8 +327,53 @@ export async function operationStatus(operationId, connectionId) {
   return value;
 }
 
+export function operationVerification(operation, observation) {
+  if (operation?.verificationStatus === 'verified') {
+    return { ...observation, status: 'verified', source: 'server' };
+  }
+  return observation ?? { status: operation?.verificationStatus || 'unverified' };
+}
+
+// Recover protected output after a process interruption without replaying its write.
+export async function recoverOperationArtifact(operation, profile, {
+  request = authenticatedFetch, read = readPendingArtifact, save = savePendingArtifact,
+} = {}) {
+  const operationId = operation.id;
+  let artifact;
+  try {
+    const local = await read(operationId, profile.connectionId, profile.dataKey);
+    artifact = { available: true, size: local.size, sha256: local.sha256 };
+  } catch (error) {
+    if (error.code !== 'ARTIFACT_NOT_FOUND') throw error;
+    try {
+      const { value } = await request(profile.connectionId,
+        `/api/v1/agent/operations/${encodeURIComponent(operationId)}/one-time-secret`);
+      artifact = await save(operationId, profile.connectionId,
+        Buffer.from(JSON.stringify(value, null, 2), 'utf8'), profile.dataKey,
+        'application/json; charset=utf-8');
+    } catch (error) {
+      return { operation, error: { code: error.code || 'ONE_TIME_SECRET_RECOVERY_FAILED', message: error.message } };
+    }
+  }
+  let escrowAcknowledgement = 'acknowledged';
+  try {
+    await request(profile.connectionId,
+      `/api/v1/agent/operations/${encodeURIComponent(operationId)}/one-time-secret/acknowledge`,
+      { method: 'POST', body: JSON.stringify({}) });
+  } catch (error) {
+    escrowAcknowledgement = `artifact saved; acknowledgement pending (${error.code || 'ACK_FAILED'})`;
+  }
+  return { operation, artifact, escrowAcknowledgement,
+    verification: operationVerification(operation), data: { protectedArtifact: true } };
+}
+
 export async function executeOperation(operationId, connectionId) {
   const profile = loadProfile(connectionId);
+  const status = await operationStatus(operationId, profile.connectionId);
+  if (status.status === 'succeeded' && status.executionStrategy === 'one-time-secret') {
+    return recoverOperationArtifact(status, profile);
+  }
+  if (status.status !== 'approved') return { operation: status, verification: operationVerification(status), warning: 'Confirm approvals or reconcile the existing operation before execution.' };
   const pending = await readPending(operationId, profile.connectionId, profile.dataKey);
   const { action } = await actionDefinition(pending.actionId, profile.connectionId);
   const path = actionPath(action, pending.params);
@@ -362,42 +408,15 @@ export async function executeOperation(operationId, connectionId) {
     !response &&
     !(action.idempotencyStrategy === 'one-time-secret' && operation.status === 'succeeded')
   ) {
-    return { operation, error: executionError };
+    return { operation, verification: operationVerification(operation), error: executionError };
   }
   let artifact;
   let escrowAcknowledgement;
   if (action.idempotencyStrategy === 'one-time-secret') {
-    try {
-      const { value: escrow } = await authenticatedFetch(
-        profile.connectionId,
-        `/api/v1/agent/operations/${encodeURIComponent(operationId)}/one-time-secret`,
-      );
-      artifact = await savePendingArtifact(
-        operationId,
-        profile.connectionId,
-        Buffer.from(JSON.stringify(escrow, null, 2), 'utf8'),
-        profile.dataKey,
-        'application/json; charset=utf-8',
-      );
-      try {
-        await authenticatedFetch(
-          profile.connectionId,
-          `/api/v1/agent/operations/${encodeURIComponent(operationId)}/one-time-secret/acknowledge`,
-          { method: 'POST', body: JSON.stringify({}) },
-        );
-        escrowAcknowledgement = 'acknowledged';
-      } catch (error) {
-        escrowAcknowledgement = `artifact saved; acknowledgement pending (${error.code || 'ACK_FAILED'})`;
-      }
-    } catch (error) {
-      return {
-        operation,
-        error: {
-          code: error.code || 'ONE_TIME_SECRET_RECOVERY_FAILED',
-          message: error.message,
-        },
-      };
-    }
+    const recovered = await recoverOperationArtifact(operation, profile);
+    if (recovered.error) return recovered;
+    artifact = recovered.artifact;
+    escrowAcknowledgement = recovered.escrowAcknowledgement;
   } else if (response?.value instanceof ArrayBuffer) {
     artifact = await savePendingArtifact(
       operationId,
@@ -408,6 +427,10 @@ export async function executeOperation(operationId, connectionId) {
     );
   }
   operation = await operationStatus(operationId, profile.connectionId);
+  if (operation.status === 'succeeded' && operation.verificationStatus !== 'verified') {
+    const reconciled = await reconcileOperation(operationId, profile.connectionId).catch(() => undefined);
+    if (reconciled?.operation) operation = reconciled.operation;
+  }
   let verification = { status: operation.verificationStatus || 'unverified' };
   if (operation.status === 'succeeded' && action.verifyActionId) {
     const afterObservation = await inspectPreState(
@@ -471,7 +494,7 @@ export async function executeOperation(operationId, connectionId) {
   }
   return {
     operation,
-    verification,
+    verification: operationVerification(operation, verification),
     artifact,
     ...(escrowAcknowledgement ? { escrowAcknowledgement } : {}),
     ...(executionError ? { executionWarning: executionError } : {}),
@@ -488,16 +511,10 @@ export async function downloadArtifact(operationId, outputPath, connectionId) {
 }
 
 export async function reconcileOperation(operationId, connectionId) {
-  const profile = loadProfile(connectionId);
-  const operation = await operationStatus(operationId, profile.connectionId);
-  if (operation.status !== 'unknown') return { operation, reconciliation: 'not-required' };
-  const pending = await readPending(operationId, profile.connectionId, profile.dataKey);
-  const { action } = await actionDefinition(pending.actionId, profile.connectionId);
-  if (!action.reconcileActionId) {
-    return { operation, reconciliation: 'missing evidence' };
-  }
-  const evidence = await inspectPreState(action, pending.params, profile.connectionId);
-  return { operation, reconciliation: 'query-only', evidence: redact(evidence) };
+  const { value } = await authenticatedFetch(connectionId,
+    `/api/v1/agent/operations/${encodeURIComponent(operationId)}/reconcile`,
+    { method: 'POST', body: JSON.stringify({}), timeout: 40_000 });
+  return { operation: value, reconciliation: value.verificationStatus === 'verified' ? 'server-verified' : 'pending' };
 }
 
 export async function cancelOperation(operationId, connectionId) {

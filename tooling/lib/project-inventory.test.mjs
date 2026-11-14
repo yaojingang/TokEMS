@@ -26,6 +26,7 @@ test('project inventory derives page, view, migration, table, API and test count
       export const events = pgTable('events', {});
     `,
     'packages/contracts/src/example.test.ts': 'test("works", () => {});',
+    'artifacts/backup/packages/contracts/src/example.test.ts': 'historical source copy',
     'apps/api/src/runtime.test.ts': `
       @Controller('test-only')
       class TestController {

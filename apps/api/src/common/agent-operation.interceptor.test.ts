@@ -45,10 +45,12 @@ function harness(actionOverrides: Record<string, unknown> = {}) {
     authorize: vi.fn(),
   };
   const operations = {
+    runAtomically: vi.fn(async (_input, work) => work()),
     beginExecution: vi.fn(async () => ({ id: 'operation-1', targetSummary: {} })),
     finishExecution: vi.fn(async () => undefined),
     recordRead: vi.fn(async () => undefined),
     createStateObservation: vi.fn(() => 'signed-state-observation'),
+    observeRead: vi.fn(async (_input, read) => ({ result: await read(), token: 'signed-state-observation' })),
   };
   return {
     interceptor: new AgentOperationInterceptor(policy as never, operations as never),
@@ -162,6 +164,16 @@ describe('AgentOperationInterceptor request binding', () => {
     expect(operations.recordRead).toHaveBeenCalledWith(
       expect.objectContaining({ actionId: 'customers.list', dataClass: 'pii', risk: 'read' }),
     );
+  });
+
+  it('keeps signed capability URLs out of authorized PII read responses', async () => {
+    const { interceptor } = harness({ actionId: 'content.services.get', method: 'GET',
+      confirmation: 'none', dataClass: 'pii', riskBase: 'sensitive-read' });
+    const result = await firstValueFrom(interceptor.intercept(
+      contextFor(undefined, '', { 'x-agent-purpose': 'Review organizer service configuration.' }),
+      { handle: () => of({ organizerName: 'Organizer', qrPreviewUrl: 'https://storage.example.com/qr?X-Amz-Signature=private',
+        nested: { asset: 'https://storage.example.com/file?token=private' } }) }));
+    expect(result).toEqual({ organizerName: 'Organizer', qrPreviewUrl: null, nested: { asset: null } });
   });
 
   it('keeps outbox responses queued until their domain job reaches a terminal state', async () => {

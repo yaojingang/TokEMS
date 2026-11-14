@@ -59,7 +59,8 @@ export async function collectProjectInventory(root, suppliedFiles) {
     apiControllers: [...apiSource.matchAll(/@Controller\s*\(/gu)].length,
     apiOperations: [...apiSource.matchAll(/@(Get|Post|Put|Patch|Delete|Options|Head|All)\s*\(/gu)]
       .length,
-    testFiles: files.filter((path) => /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path))
+    testFiles: files.filter((path) => /^(?:apps|packages|tooling|skills)\//u.test(path) &&
+      /(?:^|\/)\w[^/]*\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path))
       .length,
   };
 }

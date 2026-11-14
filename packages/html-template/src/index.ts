@@ -23,6 +23,19 @@ const MAX_CSS_SELECTORS = 10_000;
 const LITERAL_LIQUID_OUTPUT_OPEN = '__TOKEMS_LITERAL_LIQUID_OUTPUT_OPEN_7F31C9__';
 const LITERAL_LIQUID_TAG_OPEN = '__TOKEMS_LITERAL_LIQUID_TAG_OPEN_7F31C9__';
 
+export function inertHtmlTemplatePreview(html: string) {
+  const dom = new JSDOM(html);
+  try {
+    const document = dom.window.document;
+    document.body.setAttribute('inert', '');
+    const notice = document.createElement('div');
+    notice.setAttribute('style', 'position:fixed;bottom:16px;left:16px;z-index:10000;padding:12px;background:#172438;color:white;font:13px system-ui');
+    notice.textContent = '候选模板预览 · 报名与支付已停用';
+    document.body.prepend(notice);
+    return dom.serialize();
+  } finally { dom.window.close(); }
+}
+
 export function isForbiddenNetworkAddress(address: string) {
   const candidate =
     address.startsWith('[') && address.endsWith(']') ? address.slice(1, -1) : address;

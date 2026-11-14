@@ -1,3 +1,4 @@
+import { SpeakerImageSchema, PrepareSpeakerImageUploadSchema, SessionInputSchema, SessionPatchSchema, DeviceInputSchema, TicketTypeInputSchema } from '../common/management-inputs.js';
 import {
   Body,
   Controller,
@@ -98,83 +99,6 @@ function idempotencyKey(value: string | undefined) {
   }
   return value;
 }
-
-const SpeakerImageSchema = z.object({
-  storageKey: z.string().trim().min(3).max(500),
-  mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  size: z
-    .number()
-    .int()
-    .positive()
-    .max(10 * 1024 * 1024),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  contentDigest: z.string().trim().min(16).max(128),
-  altText: z.string().trim().max(500).default(''),
-});
-
-const PrepareSpeakerImageUploadSchema = SpeakerImageSchema.pick({
-  mediaType: true,
-  size: true,
-  contentDigest: true,
-  altText: true,
-}).extend({ fileName: z.string().trim().min(1).max(240) });
-
-const sessionInputFields = {
-  day: z.number().int().min(1).max(30),
-  startsAt: z.iso.datetime(),
-  endsAt: z.iso.datetime(),
-  title: z.string().trim().min(1).max(240),
-  summary: z.string().max(2000).optional(),
-  speaker: z.string().max(160).optional(),
-  kind: z.enum(['talk', 'break', 'workshop']).default('talk'),
-  sortOrder: z.number().int().min(0).default(0),
-};
-
-const validSessionRange = (session: {
-  startsAt?: string | undefined;
-  endsAt?: string | undefined;
-}) => !session.startsAt || !session.endsAt || new Date(session.endsAt) > new Date(session.startsAt);
-
-const SessionInputSchema = z
-  .object(sessionInputFields)
-  .refine(validSessionRange, { path: ['endsAt'], message: '议程结束时间必须晚于开始时间' });
-const SessionPatchSchema = z
-  .object(sessionInputFields)
-  .partial()
-  .refine(validSessionRange, {
-    path: ['endsAt'],
-    message: '议程结束时间必须晚于开始时间',
-  });
-
-const DeviceInputSchema = z.object({
-  deviceCode: z
-    .string()
-    .trim()
-    .min(3)
-    .max(80)
-    .regex(/^[A-Za-z0-9_-]+$/),
-  name: z.string().trim().min(2).max(120),
-});
-
-const TicketTypeInputSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(2)
-    .max(40)
-    .regex(/^[A-Z0-9_]+$/),
-  name: z.string().trim().min(1).max(100),
-  description: z.string().trim().min(1).max(2000),
-  price: z.number().int().nonnegative(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/)
-    .default('CNY'),
-  capacity: z.number().int().positive(),
-  recommended: z.boolean().default(false),
-  benefits: z.array(z.string().max(120)).max(30).default([]),
-});
 
 @ApiTags('organization-and-events')
 @ApiBearerAuth()

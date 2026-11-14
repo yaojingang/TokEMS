@@ -927,6 +927,7 @@ export class ConferenceRepository {
     const publicMetrics = await this.getPublicMetrics(event.id, event.organizationId);
 
     return {
+      ...(useActiveRelease && settings.currentReleaseId ? { releaseId: settings.currentReleaseId } : {}),
       id: event.id,
       organizationId: event.organizationId,
       slug: event.slug,

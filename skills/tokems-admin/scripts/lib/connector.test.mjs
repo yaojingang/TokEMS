@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
 import { actionPath } from './catalog.mjs';
 import { validateOperationInput } from './operations.mjs';
 import {
@@ -123,6 +124,54 @@ test('artifact writes require an absolute path, preserve bytes, and use mode 060
   await assert.rejects(() => writeArtifact('relative.csv', bytes), {
     code: 'INVALID_OUTPUT_PATH',
   });
+});
+
+test('artifact output preserves existing parent permissions and creates private new directories', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'tokems-output-permissions-'));
+  try {
+    await chmod(directory, 0o750);
+    const output = join(directory, 'draft.json');
+    await writeArtifact(output, Buffer.from('{}'));
+    assert.equal((await stat(directory)).mode & 0o777, 0o750);
+    assert.equal((await stat(output)).mode & 0o777, 0o600);
+    await assert.rejects(() => writeArtifact(output, Buffer.from('replacement')), { code: 'OUTPUT_PATH_EXISTS' });
+    assert.equal((await stat(directory)).mode & 0o777, 0o750);
+    await writeArtifact(join(directory, 'private', 'nested', 'draft.json'), Buffer.from('{}'));
+    assert.equal((await stat(join(directory, 'private'))).mode & 0o777, 0o700);
+    assert.equal((await stat(join(directory, 'private', 'nested'))).mode & 0o777, 0o700);
+    assert.equal((await stat(directory)).mode & 0o777, 0o750);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('artifact writes keep permission changes on the opened file during path substitution', () => {
+  const script = `
+    import fs from 'node:fs';
+    import {syncBuiltinESMExports} from 'node:module';
+    import {tmpdir} from 'node:os';
+    import {join} from 'node:path';
+    const io=fs.promises, root=await io.mkdtemp(join(tmpdir(),'tokems-path-race-'));
+    const output=join(root,'draft.json'), saved=join(root,'saved.json'), victim=join(root,'victim');
+    await io.mkdir(victim,{mode:0o755}); await io.chmod(victim,0o755);
+    let swapped=false;
+    const replace=async()=>{if(swapped)return;await io.rename(output,saved);await io.symlink(victim,output);swapped=true;};
+    const originalWrite=io.writeFile, originalOpen=io.open;
+    io.writeFile=async(path,...args)=>{const result=await originalWrite(path,...args);if(path===output)await replace();return result;};
+    io.open=async(path,...args)=>{const handle=await originalOpen(path,...args);if(path===output){
+      const write=handle.writeFile.bind(handle);handle.writeFile=async(...values)=>{const result=await write(...values);await replace();return result;};
+    }return handle;};
+    syncBuiltinESMExports();
+    try {
+      const {writeArtifact}=await import(process.argv[1]);await writeArtifact(output,Buffer.from('protected'));
+      process.stdout.write(JSON.stringify({swapped,victimMode:(await io.stat(victim)).mode&0o777,
+        fileMode:(await io.stat(saved)).mode&0o777,bytes:await io.readFile(saved,'utf8')}));
+    }finally{await io.chmod(victim,0o755);await io.rm(root,{recursive:true,force:true});}
+  `;
+  const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script,
+    new URL('./files.mjs', import.meta.url).href], { encoding: 'utf8' }));
+  assert.equal(result.swapped, true);
+  assert.equal(result.victimMode, 0o755);
+  assert.equal(result.fileMode, 0o600);
+  assert.equal(result.bytes, 'protected');
 });
 
 test('bounded response reading rejects declared and streamed oversized payloads', async () => {

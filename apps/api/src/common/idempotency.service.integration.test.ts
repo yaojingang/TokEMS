@@ -121,4 +121,44 @@ describePersistent('persistent idempotency execution', () => {
     ).rejects.toMatchObject({ status: 409 });
     expect(executions).toBe(0);
   });
+
+  it('keeps Agent results protected and separates their in-flight promises from browser requests', async () => {
+    const agentId = randomUUID();
+    const protectedKey = `protected-${randomUUID()}`;
+    await database.withAgentTransaction({ operationId: agentId, connectionId: randomUUID(),
+      delegatedUserId: randomUUID(), traceId: randomUUID() }, async () => {
+      expect(await leftService.execute(scope, protectedKey, {}, async () => ({ uploadUrl: 'https://private/signed' })))
+        .toEqual({ uploadUrl: 'https://private/signed' });
+    });
+    const [stored] = await database.db!.select().from(idempotencyKeys).where(and(
+      eq(idempotencyKeys.scope, scope), eq(idempotencyKeys.key, protectedKey)));
+    expect(stored?.responseBody).toEqual({ __tokemsAgentOperationId: agentId });
+    await expect(rightService.execute(scope, protectedKey, {}, async () => ({}))).rejects.toMatchObject({ status: 409 });
+
+    const concurrentKey = `concurrent-${randomUUID()}`;
+    let started!: () => void;
+    let release!: () => void;
+    const operationStarted = new Promise<void>((resolve) => { started = resolve; });
+    const mayComplete = new Promise<void>((resolve) => { release = resolve; });
+    const aborted = database.withAgentTransaction({ operationId: randomUUID(), connectionId: randomUUID(),
+      delegatedUserId: randomUUID(), traceId: randomUUID() }, async () => {
+      await leftService.execute(scope, concurrentKey, {}, async () => {
+        started();
+        await mayComplete;
+        return { source: 'uncommitted Agent' };
+      });
+      throw new Error('Roll back Agent operation');
+    });
+    const rejected = expect(aborted).rejects.toThrow('Roll back Agent operation');
+    await operationStarted;
+    let browserExecutions = 0;
+    const browser = leftService.execute(scope, concurrentKey, {}, async () => {
+      browserExecutions += 1;
+      return { source: 'browser committed' };
+    });
+    release();
+    await rejected;
+    expect(await browser).toEqual({ source: 'browser committed' });
+    expect(browserExecutions).toBe(1);
+  });
 });

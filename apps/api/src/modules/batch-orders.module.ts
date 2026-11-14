@@ -153,11 +153,11 @@ export class CustomerBatchOrdersController {
   }
 }
 
-@Controller('admin/events/:eventId/orders')
-@UseGuards(AuthGuard)
 @AgentSurface({
   defaultExclusionReason: 'Batch order operations require human review until explicitly catalogued',
 })
+@Controller('admin/events/:eventId/orders')
+@UseGuards(AuthGuard)
 export class AdminBatchOrdersController {
   constructor(
     @Inject(BatchOrderManagementService) private readonly management: BatchOrderManagementService,

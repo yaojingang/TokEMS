@@ -19,6 +19,8 @@ const SENSITIVE_PREFIXES = [
   '/r',
   '/admin',
   '/api',
+  '/previews',
+  '/template-previews',
 ];
 
 function pathMatchesPrefix(path: string, prefix: string) {

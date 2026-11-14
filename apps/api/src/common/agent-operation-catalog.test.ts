@@ -8,7 +8,7 @@ import {
 
 describe('Agent operation catalog', () => {
   it('has unique identifiers and classifies every released route', () => {
-    expect(AGENT_ACTIONS).toHaveLength(89);
+    expect(AGENT_ACTIONS).toHaveLength(158);
     expect(AGENT_ACTION_MAP.size).toBe(AGENT_ACTIONS.length);
     for (const action of AGENT_ACTIONS) {
       const concretePath = action.path
@@ -25,8 +25,8 @@ describe('Agent operation catalog', () => {
     expect(findAgentAction('PATCH', '/api/v1/admin/orders/order-101')).toBeUndefined();
     expect(findAgentAction('POST', '/api/v1/admin/orders/order-101/payment')).toBeUndefined();
     expect(
-      findAgentAction('GET', '/api/v1/admin/events/101/invoices/pending-count'),
-    ).toBeUndefined();
+      findAgentAction('GET', '/api/v1/admin/events/101/invoices/pending-count')?.actionId,
+    ).toBe('invoices.pending-count');
     expect(findAgentAction('GET', '/api/v1/admin/events/101/invoices/export.csv')).toBeUndefined();
   });
 
@@ -145,6 +145,19 @@ describe('Agent operation catalog', () => {
         '/api/v1/admin/events/101/feishu-digest/deliveries/4d46d6b7-f7b4-4f6f-8cd4-66e5e5f44c01/resend',
       ),
     ).toBeUndefined();
+  });
+
+  it('requires PII scope and a purpose for private organizer service details', () => {
+    expect(AGENT_ACTION_MAP.get('content.services.get')).toMatchObject({
+      dataClass: 'pii', riskBase: 'sensitive-read', agentScopes: ['tokems:read', 'tokems:pii'],
+    });
+  });
+
+  it('describes request defaults as optional input fields', () => {
+    const schema = AGENT_ACTION_MAP.get('templates.create')!.inputSchema!;
+    expect(schema.required).not.toContain('publishImmediately');
+    expect(schema.required).not.toContain('tags');
+    expect(schema.required).toContain('name');
   });
 
   it('keeps payment facts and direct order amount mutation outside the Agent surface', () => {

@@ -101,6 +101,13 @@ export function useConferenceApi() {
     }
   }
 
+  async function getEventPreview(eventId: number, token: string) {
+    const event = await $fetch<PublicEvent>(`/previews/events/${eventId}`, {
+      baseURL, query: { token }, timeout: 8_000,
+    });
+    return resolveEventResources(event);
+  }
+
   async function getHomepageEvent() {
     try {
       const event = await $fetch<PublicEvent>('/homepage', {
@@ -774,6 +781,7 @@ export function useConferenceApi() {
     eventState,
     getEvent,
     getHomepageEvent,
+    getEventPreview,
     recordPublicEventView,
     getEventMembers,
     getEventAttendeeNeeds,

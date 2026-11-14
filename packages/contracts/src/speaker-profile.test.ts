@@ -48,6 +48,7 @@ describe('speaker profile contracts', () => {
       '岳琦',
       '余一',
       '张栖铭',
+      '张伟方',
       '张莹莹',
       '钟添娇',
     ]);

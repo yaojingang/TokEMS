@@ -29,3 +29,9 @@ PR #164 的构建、质量检查和业务流程通过后，依赖审计发现 mi
 - [Nuxt 4.6.3 发布说明](https://github.com/nuxt/nuxt/releases/tag/v4.6.3)：修复开发服务器文件访问与页面路径检查相关问题。
 
 更新后的完整依赖审计通过，中危、高危和严重漏洞均为零。deepmerge 官方最新版本仍为 4.3.1，构建依赖链为 Nuxt 4.6.3 → @nuxt/nitro-server 4.6.3 → nitropack 2.13.5 → @rollup/plugin-node-resolve 16.0.3 → deepmerge 4.3.1。原有低危例外继续限定为 `GHSA-gcqx-w48m-w2h4`，截止时间保持为 2026-11-09 00:00 UTC。
+
+## 2026-11-14 发布前依赖核验
+
+CLI 发布前完整审计发现 Nuxt 与 node-forge 的新增公告。按 [Nuxt 4.6.4 发布说明](https://github.com/nuxt/nuxt/releases/tag/v4.6.4) 和 [node-forge 1.4.3 变更记录](https://github.com/digitalbazaar/forge/blob/v1.4.3/CHANGELOG.md)，将 Nuxt 固定至 4.6.4、node-forge 覆盖约束固定至 1.4.3。锁文件由 pnpm 重新生成，完整审计确认这六项未忽略漏洞已经清除。
+
+当前唯一忽略项仍为 `GHSA-gcqx-w48m-w2h4`。2026-11-14 核验 npm registry 的 deepmerge 最新版本为 4.3.1，[官方公告](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)仍标记无修复版本。路径为 Nuxt 4.6.4 → @nuxt/nitro-server 4.6.4 → nitropack 2.13.6 → @rollup/plugin-node-resolve 16.0.3 → deepmerge 4.3.1，仅用于构建依赖合并。原有例外已到期，发布继续受明确授权和到期测试约束。

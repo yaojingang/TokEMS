@@ -17,6 +17,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
+    "tokems": "node skills/tokems-admin/scripts/tokems-admin.js",
     "prepare": "node tooling/install-git-hooks.mjs",
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
@@ -38,6 +39,7 @@
     "test:payment-resume": "node --test tooling/payment-resume-smoke.mjs",
     "test:admin-order-close": "node --test tooling/admin-order-close-smoke.mjs",
     "test:tokems-admin-skill": "node --test skills/tokems-admin/scripts/lib/*.test.mjs",
+    "test:tokems-cli": "node tooling/tokems-cli-integration.mjs",
     "skill:tokems-contracts": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts",
     "skill:tokems-contracts:check": "pnpm --filter @conference/contracts build && pnpm --filter @conference/api exec tsx ../../tooling/tokems-admin-contract-snapshot.mts --check",
     "canonical:export": "pnpm db:prepare && pnpm --filter @conference/database canonical:export",

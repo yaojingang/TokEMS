@@ -52,20 +52,17 @@ describe('Agent administration surface coverage', () => {
           if (name === 'constructor') continue;
           const handler = controller.prototype[name];
           if (!handler || Reflect.getMetadata('method', handler) === undefined) continue;
-          const actionId = Reflect.getMetadata(AGENT_ACTION_METADATA, handler) as
-            string | undefined;
-          const excluded = Reflect.getMetadata(AGENT_EXCLUDED_METADATA, handler) as
-            string | undefined;
-          if (!actionId && !excluded) unclassified.push(`${controller.name}.${name}`);
-          if (actionId && !AGENT_ACTION_MAP.has(actionId)) {
-            invalidActions.push(`${controller.name}.${name}:${actionId}`);
-          }
-          if (actionId) {
+          const metadata = Reflect.getMetadata(AGENT_ACTION_METADATA, handler) as string | string[] | undefined;
+          const actionIds = metadata ? (Array.isArray(metadata) ? metadata : [metadata]) : [];
+          const excluded = Reflect.getMetadata(AGENT_EXCLUDED_METADATA, handler) as string | undefined;
+          if (!actionIds.length && !excluded) unclassified.push(`${controller.name}.${name}`);
+          for (const actionId of actionIds) {
+            if (!AGENT_ACTION_MAP.has(actionId)) invalidActions.push(`${controller.name}.${name}:${actionId}`);
             const handlers = actionHandlers.get(actionId) ?? [];
             handlers.push(`${controller.name}.${name}`);
             actionHandlers.set(actionId, handlers);
           }
-          if (actionId || excluded) classified += 1;
+          if (actionIds.length || excluded) classified += 1;
         }
       }
     }

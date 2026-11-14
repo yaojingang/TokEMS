@@ -4,7 +4,7 @@
 > 方案版本：v2.0
 > 评审日期：2026-08-25
 > 目标形态：Governed Agent Skill + TokEMS Agent Access
-> 当前阶段：`0.2.0` experimental 已完成 catalog `1.2.0`、模板局部修改、参会需求和飞书只读能力升级，启用与生产验收见 [TokEMS Admin Skill 实施说明](tokems-admin-skill-implementation.md)
+> 当前阶段：CLI `0.4.0` experimental、catalog `2.0.0` 已实现授权预设、逐动作可用性、模板候选预览、受控上传和事务执行；使用说明见 [TokEMS CLI](tokems-cli.md)，生产验收见 [实施说明](tokems-admin-skill-implementation.md)。
 
 ## 方案结论
 

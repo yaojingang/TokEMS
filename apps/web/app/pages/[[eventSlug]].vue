@@ -56,6 +56,7 @@ import {
 } from '~/utils/public-event-metrics';
 
 definePageMeta({ publicEventHome: true });
+const props = defineProps<{ previewEventId?: number; previewToken?: string }>();
 
 let countdown: ReturnType<typeof setInterval> | undefined;
 let observer: IntersectionObserver | undefined;
@@ -79,12 +80,14 @@ const requestedEventSlug = computed(() => {
     : route.params.eventSlug;
   return typeof value === 'string' && value ? value : '';
 });
-const eventRouteKey = computed(() => requestedEventSlug.value || 'homepage');
+const eventRouteKey = computed(() => props.previewEventId ? `preview-${props.previewEventId}` : requestedEventSlug.value || 'homepage');
 const { data: loadedEvent, error: eventLoadError } = await useAsyncData<PublicEvent>(
   `conference-public-event-${eventRouteKey.value}`,
   () =>
-    requestedEventSlug.value ? api.getEvent(requestedEventSlug.value) : api.getHomepageEvent(),
-  { deep: false, watch: [eventRouteKey] },
+    props.previewEventId && props.previewToken
+      ? api.getEventPreview(props.previewEventId, props.previewToken)
+      : requestedEventSlug.value ? api.getEvent(requestedEventSlug.value) : api.getHomepageEvent(),
+  { deep: false, watch: [eventRouteKey, () => props.previewToken] },
 );
 if (eventLoadError.value) {
   const failure = eventLoadError.value as { statusCode?: number; status?: number };
@@ -97,6 +100,7 @@ if (eventLoadError.value) {
   });
 }
 if (loadedEvent.value) event.value = loadedEvent.value;
+useHead(() => ({ meta: event.value.releaseId ? [{ name: 'tokems:release-id', content: event.value.releaseId }] : [] }));
 const { data: partnerDirectory, status: partnerStatus } = await useAsyncData<{
   eventSlug: string;
   items: PublicPartnerSummary[];
@@ -476,6 +480,7 @@ const recordPublicViewOnce = createPublicViewRecorder((slug, pageViewId) =>
 );
 let publicMetricsMounted = false;
 async function recordLivePublicView() {
+  if (props.previewEventId) return;
   const result = await recordPublicViewOnce({
     slug: event.value.slug,
     variant: blockVariant('home.stats'),
@@ -842,6 +847,7 @@ watch(memberDirectory, async (directory) => {
 });
 
 async function loadPurchaseContext() {
+  if (props.previewEventId) return;
   if (!import.meta.client || !customer.loaded.value) return;
   if (!customer.session.value) {
     purchaseContext.value = null;
@@ -873,7 +879,7 @@ watch(
 onMounted(async () => {
   publicMetricsMounted = true;
   void recordLivePublicView();
-  await customer.refresh().catch(() => null);
+  if (!props.previewEventId) await customer.refresh().catch(() => null);
   await loadPurchaseContext();
   activeDay.value = days.value[0] ?? 1;
   const nav = document.getElementById('nav');

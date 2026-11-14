@@ -208,6 +208,8 @@ jobs:
       - name: Quality gate
         id: quality_gate
         run: pnpm check
+      - name: Isolated CLI authorization and template acceptance
+        run: pnpm test:tokems-cli
       - name: Start built services
         id: start_services
         run: |

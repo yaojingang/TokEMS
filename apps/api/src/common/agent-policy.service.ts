@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { API_ERROR_CODES, type AgentAction, type AgentRisk } from '@conference/contracts';
 import { resolveAgentAccessFeatures } from '@conference/security';
 import type { FastifyRequest } from 'fastify';
+import { agentActionAvailability } from './agent-action-availability.js';
 import { DomainError } from './domain-error.js';
 import { findAgentAction } from './agent-operation-catalog.js';
 import type { AgentPrincipal } from './agent-principal.service.js';
@@ -69,6 +70,12 @@ export class AgentPolicyService {
   }) {
     const features = resolveAgentAccessFeatures();
     const risk = resolveDynamicAgentRisk(input.action, input.impact ?? {});
+    const availability = agentActionAvailability(input.action, features);
+    if (!availability.enabled) {
+      throw new DomainError(API_ERROR_CODES.AGENT_ACCESS_DISABLED,
+        'This Agent action is not enabled', HttpStatus.SERVICE_UNAVAILABLE,
+        { reason: availability.reason, actionId: input.action.actionId });
+    }
     if (input.action.method !== 'GET' && !features.writes) {
       throw new DomainError(
         API_ERROR_CODES.AGENT_ACCESS_DISABLED,

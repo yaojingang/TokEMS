@@ -540,11 +540,11 @@ class PartnerPayoutDocumentController {
 type AdminRequest = FastifyRequest & { user: AuthenticatedUser };
 
 @ApiTags('admin-partner-distribution')
-@Controller('admin/events/:eventId/distribution')
-@UseGuards(AuthGuard)
 @AgentSurface({
   defaultExclusionReason: 'Partner financial administration is reserved for human operators',
 })
+@Controller('admin/events/:eventId/distribution')
+@UseGuards(AuthGuard)
 export class AdminPartnerController {
   constructor(
     @Inject(PartnerDistributionService) private readonly partners: PartnerDistributionService,
@@ -1026,11 +1026,11 @@ export class AdminPartnerController {
 }
 
 @ApiTags('organization-payout-settings')
-@Controller('admin/organization/payout-settings')
-@UseGuards(AuthGuard)
 @AgentSurface({
   defaultExclusionReason: 'Merchant transfer configuration is reserved for human operators',
 })
+@Controller('admin/organization/payout-settings')
+@UseGuards(AuthGuard)
 class OrganizationPayoutSettingsController {
   constructor(
     @Inject(PartnerDistributionService) private readonly partners: PartnerDistributionService,

@@ -69,6 +69,15 @@ describe('TokEMS Agent OAuth security helpers', () => {
     expect(() => normalizeAgentOrigin('http://events.example.com', {})).toThrow('HTTPS');
   });
 
+  it('accepts loopback HTTP for local deployments using production builds', () => {
+    const local = { NODE_ENV: 'production', DEPLOYMENT_MODE: 'local' };
+    expect(normalizeAgentOrigin('http://localhost:8088', local)).toBe('http://localhost:8088');
+    expect(normalizeAgentOrigin('http://admin.localhost:8088', local)).toBe('http://admin.localhost:8088');
+    expect(() => normalizeAgentOrigin('http://events.example.com', local)).toThrow('HTTPS');
+    expect(() => normalizeAgentOrigin('http://localhost:8088', { NODE_ENV: 'production', DEPLOYMENT_MODE: 'production' })).toThrow('HTTPS');
+    expect(() => normalizeAgentOrigin('http://admin.localhost.evil.example', local)).toThrow('HTTPS');
+  });
+
   it('verifies an ES256 DPoP proof and access-token binding', () => {
     const token = 'access-token-value';
     const generated = proof('GET', 'https://events.example.com/api/v1/agent/capabilities', token);
