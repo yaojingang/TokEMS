@@ -1,11 +1,15 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const containers = [];
+let storageConfigDirectory;
 const prefix = `tokems-cli-test-${randomUUID().slice(0, 8)}`;
 const run = async (command, args, env = process.env) => {
   const result = await exec(command, args, { cwd: root, env, maxBuffer: 16 * 1024 * 1024 });
@@ -58,39 +62,41 @@ try {
     'pgvector/pgvector:pg16',
   ]);
   const redis = await start('redis', ['-p', '127.0.0.1::6379', 'redis:7.4-alpine']);
-  const minio = await start('minio', [
+  storageConfigDirectory = await mkdtemp(join(tmpdir(), 'tokems-cli-storage-'));
+  const storageConfig = join(storageConfigDirectory, 's3.json');
+  await writeFile(storageConfig, JSON.stringify({ identities: [{
+    name: 'cli-test',
+    credentials: [{ accessKey: 'cli-test-access', secretKey: 'cli-test-storage-secret' }],
+    actions: ['Admin', 'Read', 'Write', 'List', 'Tagging'],
+  }] }), { mode: 0o644 });
+  // Use the same anonymously available, digest-pinned S3 fixture as the CI workflow.
+  const storage = await start('storage', [
     '-p',
     '127.0.0.1::9000',
     '--tmpfs',
     '/data',
-    '-e',
-    'MINIO_ROOT_USER=cli-test-access',
-    '-e',
-    'MINIO_ROOT_PASSWORD=cli-test-storage-secret',
-    'quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z',
+    '--volume',
+    `${storageConfig}:/etc/seaweedfs/s3.json:ro`,
+    'chrislusf/seaweedfs:4.30@sha256:20fb6eabf1468d3e53fb7b8bd05d929f8b01ae8ceccc2668b501176b2366940f',
     'server',
-    '/data',
+    '-s3',
+    '-s3.port=9000',
+    '-s3.config=/etc/seaweedfs/s3.json',
+    '-dir=/data',
   ]);
   const pgPort = await port(postgres, 5432);
   const redisPort = await port(redis, 6379);
-  const s3Port = await port(minio, 9000);
+  const s3Port = await port(storage, 9000);
   await ready(async () =>
     (await docker(['exec', postgres, 'pg_isready', '-U', 'postgres'])).includes(
       'accepting connections',
     ),
   );
-  await ready(async () => (await fetch(`http://127.0.0.1:${s3Port}/minio/health/ready`)).ok);
-  await docker([
-    'run',
-    '--rm',
-    `--network=container:${minio}`,
-    '-e',
-    'MC_HOST_cli=http://cli-test-access:cli-test-storage-secret@127.0.0.1:9000',
-    'quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z',
-    'mb',
-    '--ignore-existing',
-    'cli/cli-test-assets',
-  ]);
+  await ready(async () => (await fetch(`http://127.0.0.1:${s3Port}/`)).status === 403);
+  await ready(async () => (await docker([
+    'exec', storage, 'sh', '-c',
+    "printf 's3.bucket.create -name cli-test-assets\\n' | weed shell",
+  ])).includes('created bucket cli-test-assets'));
   const env = {
     ...process.env,
     NODE_ENV: 'test',
@@ -136,4 +142,5 @@ try {
       process.exitCode = 1;
     }
   }
+  if (storageConfigDirectory) await rm(storageConfigDirectory, { recursive: true, force: true });
 }

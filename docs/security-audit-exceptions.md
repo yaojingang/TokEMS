@@ -1,6 +1,6 @@
 # 临时依赖审计例外
 
-批准日期：2026-10-28。仓库维护者已明确批准仅对下述 deepmerge 构建工具链公告设置临时例外，截止 **2026-11-09 00:00 UTC（北京时间 08:00）**；其余完整检查通过后合并 PR #160。此前的 node-forge 例外已随官方修复升级移除。
+当前批准日期：2026-11-14。仓库维护者在本轮发布会话中明确批准将 deepmerge 构建工具链的 `GHSA-gcqx-w48m-w2h4` 低危例外延至 **2026-11-21 00:00 UTC（北京时间 08:00）**，并继续 CI、PR 合并和生产部署。范围保持为原有单项公告；其他漏洞继续阻断发布。此前批准和核验事实保留在下方。
 
 ## 2026-10-28 核验
 
@@ -34,4 +34,4 @@ PR #164 的构建、质量检查和业务流程通过后，依赖审计发现 mi
 
 CLI 发布前完整审计发现 Nuxt 与 node-forge 的新增公告。按 [Nuxt 4.6.4 发布说明](https://github.com/nuxt/nuxt/releases/tag/v4.6.4) 和 [node-forge 1.4.3 变更记录](https://github.com/digitalbazaar/forge/blob/v1.4.3/CHANGELOG.md)，将 Nuxt 固定至 4.6.4、node-forge 覆盖约束固定至 1.4.3。锁文件由 pnpm 重新生成，完整审计确认这六项未忽略漏洞已经清除。
 
-当前唯一忽略项仍为 `GHSA-gcqx-w48m-w2h4`。2026-11-14 核验 npm registry 的 deepmerge 最新版本为 4.3.1，[官方公告](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)仍标记无修复版本。路径为 Nuxt 4.6.4 → @nuxt/nitro-server 4.6.4 → nitropack 2.13.6 → @rollup/plugin-node-resolve 16.0.3 → deepmerge 4.3.1，仅用于构建依赖合并。原有例外已到期，发布继续受明确授权和到期测试约束。
+当前唯一忽略项仍为 `GHSA-gcqx-w48m-w2h4`。2026-11-14 核验 npm registry 的 deepmerge 最新版本为 4.3.1，[官方公告](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)仍标记无修复版本。路径为 Nuxt 4.6.4 → @nuxt/nitro-server 4.6.4 → nitropack 2.13.6 → @rollup/plugin-node-resolve 16.0.3 → deepmerge 4.3.1，仅用于构建依赖合并。原有例外于 2026-11-09 到期。维护者于 2026-11-14 明确批准仅将这项低危构建依赖例外延至 2026-11-21 00:00 UTC；到期边界、额外公告及更宽排除范围继续由测试阻断。未新增忽略项，未降低审计级别或跳过 CI。

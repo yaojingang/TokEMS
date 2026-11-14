@@ -3,11 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-// Approved by the maintainer on 2026-10-28 for the reviewed deepmerge build dependency path.
+// Reapproved by the maintainer on 2026-11-14 for the reviewed deepmerge build dependency path.
 const approved = {
   ignoreGhsas: ['GHSA-gcqx-w48m-w2h4'],
 };
-const expiresAt = Date.parse('2026-11-09T00:00:00Z');
+const expiresAt = Date.parse('2026-11-21T00:00:00Z');
 
 function verifyExceptions(config, now) {
   assert.deepEqual(config, approved, 'Audit exceptions must match the approved advisory');
