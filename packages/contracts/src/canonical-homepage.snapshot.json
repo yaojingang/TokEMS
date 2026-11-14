@@ -3658,7 +3658,7 @@
     "activationKind": "save",
     "changeScope": "content",
     "changeSummary": "调整嘉宾展示顺序",
-    "id": "f821b826-d00b-48e7-a554-f5d47324b188",
+    "id": "bcccd1a1-6f21-4b6f-a104-a6c8b69dffd0",
     "snapshot": {
       "event": {
         "address": "广东省深圳市宝安区（酒店报名后群内通知）",
@@ -5595,7 +5595,7 @@
     },
     "templateKey": "editorial-blue",
     "templateVersionId": "4831edee-1fc2-4a60-9128-f2ead3ea84cf",
-    "version": 315
+    "version": 318
   },
   "schemaVersion": 1,
   "source": {

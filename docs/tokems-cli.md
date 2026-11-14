@@ -94,6 +94,6 @@ pnpm check
 pnpm test:tokems-cli
 ```
 
-第二条需要 Docker 和 Chrome/Chromium，可通过现有 `CHROMIUM_PATH` 指定浏览器。脚本创建独立 PostgreSQL、Redis、MinIO，使用随机 loopback 端口与临时数据，完成真实授权、模板发布/回退、图片上传、HTML 扫描、浏览器图片加载、并发、缓存预算和故障回滚验收，最后清理自身容器。不会接管共享 8088、已有 Compose 服务或数据库。CI 同样执行此验收。
+第二条需要 Docker 和 Chrome/Chromium，可通过现有 `CHROMIUM_PATH` 指定浏览器。脚本创建独立 PostgreSQL、Redis 和 S3 兼容存储，使用随机 loopback 端口与临时数据，完成真实授权、模板发布/回退、图片上传、HTML 扫描、浏览器图片加载、并发、缓存预算和故障回滚验收，最后清理自身容器。不会接管共享 8088、已有 Compose 服务或数据库。CI 同样执行此验收。
 
-生产环境须按部署 Runbook 发布，再按只读、内容写入、关键动作顺序启用。新 catalog 要求旧连接重新授权。Gateway 与外层代理均应按仓库示例关闭预览链接的访问及错误日志，避免 query token 留存；本轮没有更改任何生产开关或服务。
+生产环境须按部署 Runbook 发布，再按只读、内容写入、关键动作顺序启用。新 catalog 要求旧连接重新授权。Gateway 与外层代理均应按仓库示例关闭预览链接的访问及错误日志，避免 query token 留存。生产开关以实例运维配置为准，发布事实记录在 `docs/release-records/`。
