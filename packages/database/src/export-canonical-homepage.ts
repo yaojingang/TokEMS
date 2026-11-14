@@ -78,6 +78,13 @@ export function canonicalSpeakerRoutes(
   return routes.filter((route) => currentIds.has(route.speakerId));
 }
 
+export function bindCanonicalPublicRelease(publicEvent: JsonRecord, releaseId: string): JsonRecord {
+  if (publicEvent.releaseId !== undefined && publicEvent.releaseId !== releaseId) {
+    throw new Error('Canonical public release identity does not match the active release');
+  }
+  return { ...publicEvent, releaseId };
+}
+
 type CanonicalRenderer = {
   id: string;
   key: string;
@@ -474,6 +481,7 @@ function validatePublicProjection(snapshot: JsonRecord) {
   const source = record(snapshot.source, 'canonical snapshot source');
   const publicEvent = record(snapshot.publicEvent, 'canonical public event');
   const release = record(snapshot.release, 'canonical release');
+  bindCanonicalPublicRelease(publicEvent, string(release.id, 'canonical release id'));
   const releaseSnapshot = record(release.snapshot, 'canonical release snapshot');
   const releaseEvent = record(releaseSnapshot.event, 'canonical release event');
   const backend = record(snapshot.backend, 'canonical backend settings');
@@ -1582,7 +1590,10 @@ async function buildSnapshot() {
     ) {
       throw new Error('Local homepage API and DATABASE_URL do not use the same database instance');
     }
-    const publicEvent = record(await publicResponse.json(), 'local homepage response');
+    const publicEvent = bindCanonicalPublicRelease(
+      record(await publicResponse.json(), 'local homepage response'),
+      identity.releaseId,
+    );
     if (publicEvent.id !== identity.eventId || publicEvent.slug !== identity.eventSlug) {
       throw new Error('Local homepage API does not match the configured homepage event');
     }

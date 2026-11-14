@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  bindCanonicalPublicRelease,
   canonicalSpeakerRoutes,
   validateCanonicalExportTopology,
   validateCanonicalHomepageSnapshot,
@@ -18,6 +19,36 @@ async function snapshot() {
 }
 
 describe('canonical homepage snapshot', () => {
+  it('fills legacy API release metadata and rejects a stale API release', () => {
+    const releaseId = randomUUID();
+    const legacy = { slug: 'tokems26' };
+    expect(bindCanonicalPublicRelease(legacy, releaseId)).toEqual({ ...legacy, releaseId });
+    expect(legacy).toEqual({ slug: 'tokems26' });
+    expect(bindCanonicalPublicRelease({ ...legacy, releaseId }, releaseId)).toEqual({
+      ...legacy,
+      releaseId,
+    });
+    expect(() =>
+      bindCanonicalPublicRelease({ ...legacy, releaseId: randomUUID() }, releaseId),
+    ).toThrow(/public release identity/iu);
+  });
+  it('binds the public release identity to the captured active release', async () => {
+    const value = await snapshot();
+    const publicEvent = value.publicEvent as Record<string, unknown>;
+    const release = value.release as { id: string };
+    publicEvent.releaseId = release.id;
+    expect(() => validateCanonicalHomepageSnapshot(value)).not.toThrow();
+    publicEvent.releaseId = randomUUID();
+    expect(() => validateCanonicalHomepageSnapshot(value)).toThrow(/public release identity/iu);
+  });
+
+  it('exports the active release identity when the local API predates the field', async () => {
+    const value = await snapshot();
+    expect((value.publicEvent as { releaseId?: string }).releaseId).toBe(
+      (value.release as { id: string }).id,
+    );
+  });
+
   it('accepts an empty root with its default conference and rejects malformed root settings', async () => {
     const value = await snapshot();
     const settings = (value.organization as { settings: Record<string, unknown> }).settings;
