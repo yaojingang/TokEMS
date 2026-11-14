@@ -14,8 +14,8 @@
     "@conference/ui": "workspace:*",
     "fflate": "0.8.3",
     "qrcode.vue": "3.11.0",
-    "vue": "3.5.44",
-    "vue-router": "5.4.0"
+    "vue": "3.5.45",
+    "vue-router": "5.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.10",
