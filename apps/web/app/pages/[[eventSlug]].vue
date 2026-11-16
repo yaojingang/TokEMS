@@ -46,7 +46,7 @@ import { visiblePartnerLogos } from '~/utils/partner-logos';
 import { SUPPORTERS_EVENT_SLUG } from '~/utils/conference-supporters';
 import { useCustomerSession } from '~/composables/useCustomerSession';
 import { readOrderAccessToken } from '~/composables/useOrderAccessToken';
-import { resolveHomeRegistrationCta, resolveSelfRegistrationState } from '~/utils/purchase-journey';
+import { resolveHomeRegistrationCta, resolveSelfRegistrationState, selectHomeRegistrationTicket } from '~/utils/purchase-journey';
 import {
   createPublicViewRecorder,
   formatTrackingStartDate,
@@ -145,7 +145,7 @@ const defaultHomeBlocks =
     : [];
 const enabledFaqs = computed(() => experience.value.faq.items.filter((item) => item.enabled));
 const primaryTicket = computed(
-  () => event.value.tickets.find((ticket) => ticket.recommended) ?? event.value.tickets[0]!,
+  () => selectHomeRegistrationTicket(event.value.tickets)!,
 );
 const days = computed(() =>
   [...new Set(event.value.sessions.map((session) => session.day))].sort((a, b) => a - b),
@@ -199,6 +199,8 @@ const registrationAction = computed(() => {
     eventSlug: event.value.slug,
     ticketId: primaryTicket.value.id,
     priceLabel: money(primaryTicket.value.price),
+    soldOut: event.value.tickets.length > 0 && event.value.tickets.every(ticket => ticket.remaining < 1),
+    waitlistEnabled: experience.value.registrationFlow.branches.waitlist,
     state:
       !customer.loaded.value || purchaseContextLoading.value
         ? 'loading'
@@ -214,9 +216,14 @@ const registrationAction = computed(() => {
   });
 });
 const registrationActionLabel = computed(() =>
-  registrationAction.value.kind === 'register' && primaryTicket.value.remaining < 1
-    ? '加入候补名单'
-    : registrationAction.value.label,
+  registrationAction.value.label,
+);
+const registrationActionDisabled = computed(() =>
+  registrationAction.value.kind === 'loading' || registrationAction.value.kind === 'sold_out',
+);
+const registrationActionUsesTemplateCopy = computed(() =>
+  registrationAction.value.kind === 'register'
+    && primaryTicket.value.id === (event.value.tickets.find(ticket => ticket.recommended) ?? event.value.tickets[0])?.id,
 );
 const faqHref = computed(() =>
   experience.value.faq.mode === 'page' ? publicEventScopedPath('/faq', event.value.slug) : '#faq',
@@ -261,10 +268,11 @@ const attendeeNeedsSubmissionAction = computed(() => {
     };
   }
   const loading = registrationAction.value.kind === 'loading';
+  const soldOut = registrationAction.value.kind === 'sold_out' || registrationAction.value.kind === 'waitlist';
   return {
     href: registrationAction.value.href,
-    label: loading
-      ? '正在确认报名状态'
+    label: soldOut || loading
+      ? registrationActionLabel.value
       : blockCopy(
           'home.attendee-needs',
           'guestActionLabel',
@@ -275,7 +283,7 @@ const attendeeNeedsSubmissionAction = computed(() => {
       'guestActionNote',
       '已报名会员可提交 1 至 3 个问题，可选择匿名公开',
     ),
-    disabled: loading,
+    disabled: registrationActionDisabled.value,
   };
 });
 const cooperationDirections = computed(() =>
@@ -565,7 +573,7 @@ watch(partnerLogos, () => {
   failedPartnerAssets.value = new Set();
 });
 const heroPrimaryAction = computed(() =>
-  registrationAction.value.kind === 'register'
+  registrationActionUsesTemplateCopy.value
     ? blockCopy('home.hero', 'primaryAction', registrationActionLabel.value)
     : registrationActionLabel.value,
 );
@@ -983,11 +991,13 @@ onBeforeUnmount(() => {
         <ConferenceNavigationLinks :links="navigationLinks" />
         <div class="nav-cta">
           <a
-            :href="registrationAction.href"
+            :href="registrationActionDisabled ? undefined : registrationAction.href"
             class="btn btn-primary"
-            :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
-            :aria-disabled="registrationAction.kind === 'loading'"
-            @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+            :class="{ 'is-context-loading': registrationAction.kind === 'loading', 'is-disabled': registrationAction.kind === 'sold_out' }"
+            :aria-disabled="registrationActionDisabled"
+            :tabindex="registrationActionDisabled ? -1 : undefined"
+            role="link"
+            @click="registrationActionDisabled && $event.preventDefault()"
           >
             <span>{{ registrationActionLabel }}</span>
           </a>
@@ -1052,11 +1062,13 @@ onBeforeUnmount(() => {
           </div>
           <div class="hero-btns reveal in" data-d="3">
             <a
-              :href="registrationAction.href"
+              :href="registrationActionDisabled ? undefined : registrationAction.href"
               class="btn btn-primary"
-              :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
-              :aria-disabled="registrationAction.kind === 'loading'"
-              @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+              :class="{ 'is-context-loading': registrationAction.kind === 'loading', 'is-disabled': registrationAction.kind === 'sold_out' }"
+              :aria-disabled="registrationActionDisabled"
+              :tabindex="registrationActionDisabled ? -1 : undefined"
+              role="link"
+              @click="registrationActionDisabled && $event.preventDefault()"
             >{{ heroPrimaryAction }} <span class="arr">→</span></a>
             <a href="#agenda" class="btn btn-outline">{{ heroSecondaryAction }}</a>
             <span class="hero-note">{{ blockCopy('home.hero', 'note', '第一届全部售罄') }}</span>
@@ -1787,10 +1799,15 @@ onBeforeUnmount(() => {
             </p>
             <div class="attendee-needs-action">
               <a
-                :href="attendeeNeedsSubmissionAction.href"
+                :href="attendeeNeedsSubmissionAction.disabled ? undefined : attendeeNeedsSubmissionAction.href"
                 class="btn btn-primary attendee-needs-submit"
-                :class="{ 'is-context-loading': attendeeNeedsSubmissionAction.disabled }"
+                :class="{
+                  'is-context-loading': attendeeNeedsSubmissionAction.disabled && registrationAction.kind === 'loading',
+                  'is-disabled': attendeeNeedsSubmissionAction.disabled && registrationAction.kind === 'sold_out',
+                }"
                 :aria-disabled="attendeeNeedsSubmissionAction.disabled"
+                :tabindex="attendeeNeedsSubmissionAction.disabled ? -1 : undefined"
+                role="link"
                 @click="attendeeNeedsSubmissionAction.disabled && $event.preventDefault()"
               >
                 {{ attendeeNeedsSubmissionAction.label }} <span class="arr">→</span>
@@ -1921,13 +1938,15 @@ onBeforeUnmount(() => {
                 }}
               </div>
               <a
-                :href="registrationAction.href"
+                :href="registrationActionDisabled ? undefined : registrationAction.href"
                 class="btn btn-primary ticket-cta"
-                :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
-                :aria-disabled="registrationAction.kind === 'loading'"
-                @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+                :class="{ 'is-context-loading': registrationAction.kind === 'loading', 'is-disabled': registrationAction.kind === 'sold_out' }"
+                :aria-disabled="registrationActionDisabled"
+                :tabindex="registrationActionDisabled ? -1 : undefined"
+                role="link"
+                @click="registrationActionDisabled && $event.preventDefault()"
               >{{
-                 registrationAction.kind === 'register'
+                 registrationActionUsesTemplateCopy
                    ? blockCopy('home.tickets', 'actionLabel', registrationActionLabel)
                    : registrationActionLabel
                }}
@@ -2048,14 +2067,16 @@ onBeforeUnmount(() => {
             {{ money(primaryTicket.price) }}
           </p>
           <a
-            :href="registrationAction.href"
+            :href="registrationActionDisabled ? undefined : registrationAction.href"
             class="btn btn-primary"
-            :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
-            :aria-disabled="registrationAction.kind === 'loading'"
+            :class="{ 'is-context-loading': registrationAction.kind === 'loading', 'is-disabled': registrationAction.kind === 'sold_out' }"
+            :aria-disabled="registrationActionDisabled"
+            :tabindex="registrationActionDisabled ? -1 : undefined"
+            role="link"
             style="font-size: 16px; padding: 16px 44px"
-            @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+            @click="registrationActionDisabled && $event.preventDefault()"
           >{{
-             registrationAction.kind === 'register'
+             registrationActionUsesTemplateCopy
                ? blockCopy('home.registration-cta', 'actionLabel', registrationActionLabel)
                : registrationActionLabel
            }}
@@ -2098,11 +2119,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <a
-          :href="registrationAction.href"
+          :href="registrationActionDisabled ? undefined : registrationAction.href"
           class="btn btn-primary"
-          :class="{ 'is-context-loading': registrationAction.kind === 'loading' }"
-          :aria-disabled="registrationAction.kind === 'loading'"
-          @click="registrationAction.kind === 'loading' && $event.preventDefault()"
+          :class="{ 'is-context-loading': registrationAction.kind === 'loading', 'is-disabled': registrationAction.kind === 'sold_out' }"
+          :aria-disabled="registrationActionDisabled"
+          :tabindex="registrationActionDisabled ? -1 : undefined"
+          role="link"
+          @click="registrationActionDisabled && $event.preventDefault()"
         >{{ registrationActionLabel }}</a>
       </div>
     </div>
