@@ -196,6 +196,11 @@ section {
   background: var(--accent-dark);
   border-color: var(--accent-dark);
 }
+.btn.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
 .btn-outline {
   background: transparent;
   color: var(--ink);
@@ -320,9 +325,16 @@ nav#nav.scrolled {
   }
   .nav-cta {
     gap: 7px;
+    min-width: 0;
   }
   .nav-cta .btn {
+    min-width: 0;
     padding-inline: 12px;
+    justify-content: center;
+    text-align: center;
+    text-wrap: balance;
+    white-space: normal;
+    line-height: 1.35;
   }
 }
 @media (max-width: 390px) {

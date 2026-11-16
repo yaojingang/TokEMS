@@ -12,6 +12,7 @@ import {
   shouldRefreshPurchasedOrder,
   resolveHomeRegistrationCta,
   resolveCheckoutSuccessDestination,
+  selectHomeRegistrationTicket,
 } from './purchase-journey';
 
 const context: EventPurchaseContext = {
@@ -29,6 +30,78 @@ const context: EventPurchaseContext = {
 };
 
 describe('purchase journey helpers', () => {
+  const soldOutInput = {
+    eventSlug: 'geo-2026',
+    ticketId: 'ticket-1',
+    priceLabel: '¥399',
+    state: 'anonymous' as const,
+    soldOut: true,
+  };
+
+  it('shows sold out before login when the waitlist is closed', () => {
+    expect(resolveHomeRegistrationCta({ ...soldOutInput, waitlistEnabled: false })).toEqual({
+      kind: 'sold_out', label: '门票已售罄', href: '#',
+    });
+  });
+
+  it('labels the waitlist explicitly when all tickets are sold out', () => {
+    expect(resolveHomeRegistrationCta({ ...soldOutInput, waitlistEnabled: true })).toEqual({
+      kind: 'waitlist',
+      label: '门票已售罄 · 加入候补',
+      href: '/register/geo-2026?ticket=ticket-1',
+    });
+  });
+
+  it('renders the sold-out status while the customer session is loading', () => {
+    expect(resolveHomeRegistrationCta({ ...soldOutInput, state: 'loading' }).label).toBe('门票已售罄');
+  });
+
+  it('keeps resumable payment available when new tickets are sold out', () => {
+    const result = resolveHomeRegistrationCta({
+      ...soldOutInput,
+      state: 'ready',
+      context: { ...context, resumePaymentOrderId: 'pending-order', recommendedActions: ['resume_payment'] },
+    });
+    expect(result.kind).toBe('resume_payment');
+    expect(result.label).toBe('继续支付');
+  });
+
+  it('keeps purchased electronic tickets available after sellout', () => {
+    expect(resolveHomeRegistrationCta({
+      ...soldOutInput,
+      state: 'ready',
+      context: {
+        ...context,
+        myAttendance: {
+          registrationId: 'registration-1', registrationStatus: 'confirmed',
+          ticketCode: 'TOK-TICKET-1', ticketStatus: 'valid',
+        },
+        recommendedActions: ['view_ticket'],
+      },
+    })).toMatchObject({ kind: 'view_ticket', label: '查看电子票' });
+  });
+
+  it('selects an available ticket when the recommended ticket sells out', () => {
+    const tickets = [
+      { id: 'recommended', recommended: true, remaining: 0 },
+      { id: 'available', recommended: false, remaining: 2 },
+    ];
+    expect(selectHomeRegistrationTicket(tickets)?.id).toBe('available');
+    expect(resolveHomeRegistrationCta({ ...soldOutInput, ticketId: 'available', soldOut: false })).toMatchObject({
+      kind: 'register', label: '立即报名 ¥399', href: '/register/geo-2026?ticket=available',
+    });
+  });
+
+  it('prefers an available recommended ticket and retains a ticket for the waitlist', () => {
+    const tickets = [
+      { id: 'regular', recommended: false, remaining: 3 },
+      { id: 'recommended', recommended: true, remaining: 1 },
+    ];
+    expect(selectHomeRegistrationTicket(tickets)?.id).toBe('recommended');
+    expect(selectHomeRegistrationTicket(tickets.map(ticket => ({ ...ticket, remaining: 0 })))?.id).toBe('recommended');
+    expect(selectHomeRegistrationTicket([])).toBeUndefined();
+  });
+
   it('keeps the public registration CTA until authenticated context is ready', () => {
     expect(
       resolveHomeRegistrationCta({

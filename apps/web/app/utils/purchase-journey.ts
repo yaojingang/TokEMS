@@ -6,7 +6,15 @@ import {
 } from '@conference/contracts';
 
 export type HomeRegistrationCta = {
-  kind: 'loading' | 'register' | 'resume_payment' | 'purchases' | 'view_ticket' | 'attendance';
+  kind:
+    | 'loading'
+    | 'register'
+    | 'sold_out'
+    | 'waitlist'
+    | 'resume_payment'
+    | 'purchases'
+    | 'view_ticket'
+    | 'attendance';
   label: string;
   href: string;
 };
@@ -65,6 +73,17 @@ export function shouldRefreshPurchasedOrder(
   );
 }
 
+export function selectHomeRegistrationTicket<T extends { recommended: boolean; remaining: number }>(
+  tickets: readonly T[],
+): T | undefined {
+  return (
+    tickets.find((ticket) => ticket.recommended && ticket.remaining > 0)
+    ?? tickets.find((ticket) => ticket.remaining > 0)
+    ?? tickets.find((ticket) => ticket.recommended)
+    ?? tickets[0]
+  );
+}
+
 export function resolveHomeRegistrationCta(input: {
   eventSlug: string;
   ticketId: string;
@@ -72,17 +91,20 @@ export function resolveHomeRegistrationCta(input: {
   state: 'anonymous' | 'loading' | 'failed' | 'ready';
   context?: EventPurchaseContext | null;
   resumePaymentHref?: string;
+  soldOut?: boolean;
+  waitlistEnabled?: boolean;
 }): HomeRegistrationCta {
-  const register = {
-    kind: 'register' as const,
-    label: `立即报名 ${input.priceLabel}`,
-    href: publicEventScopedPath('/register', input.eventSlug, {
-      ticket: input.ticketId,
-      ...(input.context?.selfRegistrationState === 'closed' ? { restart: '1' } : {}),
-    }),
-  };
+  const registerHref = publicEventScopedPath('/register', input.eventSlug, {
+    ticket: input.ticketId,
+    ...(input.context?.selfRegistrationState === 'closed' ? { restart: '1' } : {}),
+  });
+  const register: HomeRegistrationCta = input.soldOut
+    ? input.waitlistEnabled
+      ? { kind: 'waitlist', label: '门票已售罄 · 加入候补', href: registerHref }
+      : { kind: 'sold_out', label: '门票已售罄', href: '#' }
+    : { kind: 'register', label: `立即报名 ${input.priceLabel}`, href: registerHref };
   if (input.state === 'loading') {
-    return { kind: 'loading', label: '正在确认报名状态', href: '#' };
+    return input.soldOut ? register : { kind: 'loading', label: '正在确认报名状态', href: '#' };
   }
   if (input.state !== 'ready' || !input.context) return register;
 
