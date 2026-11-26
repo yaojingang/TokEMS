@@ -22,7 +22,7 @@
     "@conference/contracts": "workspace:*",
     "@alicloud/dysmsapi20170525": "4.6.0",
     "@alicloud/openapi-client": "0.4.15",
-    "@darabonba/typescript": "1.0.5"
+    "@darabonba/typescript": "1.0.6"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
