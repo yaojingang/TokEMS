@@ -175,8 +175,6 @@ async function submit() {
 }
 
 async function downloadDocument(documentId: string) {
-  const downloadWindow = window.open('', '_blank');
-  if (downloadWindow) downloadWindow.opener = null;
   downloadingId.value = documentId;
   errorMessage.value = '';
   try {
@@ -189,10 +187,8 @@ async function downloadDocument(documentId: string) {
       document.downloadUrl,
       String(runtimeConfig.public.apiBase),
     );
-    if (downloadWindow) downloadWindow.location.href = downloadUrl;
-    else window.location.href = downloadUrl;
+    window.location.assign(downloadUrl);
   } catch (error) {
-    downloadWindow?.close();
     errorMessage.value = error instanceof Error ? error.message : '电子发票下载失败';
   } finally {
     downloadingId.value = '';
